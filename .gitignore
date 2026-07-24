@@ -1,0 +1,19 @@
+# 로컬 전용 (CLAUDE.md 규칙)
+.claude/
+
+# 의존성
+node_modules/
+
+# 빌드 산출물
+dist/
+out/
+build/
+
+# 환경 변수 / 시크릿
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
