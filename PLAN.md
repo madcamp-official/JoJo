@@ -1,5 +1,19 @@
 # Nuance — 외국어 콘텐츠 소비 보조 프로그램 · 기획서
 
+## 목차
+
+1. [개요](#1-개요)
+2. [대상 콘텐츠](#2-대상-콘텐츠)
+3. [사용 흐름](#3-사용-흐름)
+4. [핵심 기능](#4-핵심-기능)
+5. [기술 아키텍처](#5-기술-아키텍처)
+6. [까다로운 부분 & 해결 전략](#6-까다로운-부분--해결-전략)
+7. [개발 일정 (약 1주 스프린트)](#7-개발-일정-약-1주-스프린트)
+8. [2인 분업 계획 (파이프라인 축)](#8-2인-분업-계획-파이프라인-축)
+9. [기술 스택 요약](#9-기술-스택-요약)
+10. [리스크 & 확장 로드맵](#10-리스크--확장-로드맵)
+11. [프로젝트 구조 (스캐폴드)](#11-프로젝트-구조-스캐폴드)
+
 ## 1. 개요
 
 **한 줄 소개**: 화면 위 어떤 외국어 텍스트든 클릭 한 번으로, 그 맥락에 맞는 발음·뜻·뉘앙스를 즉시 알려주는 데스크톱 오버레이 도구.
@@ -107,25 +121,36 @@
 
 **스택**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + 브라우저 확장(Manifest V3) + OCR 엔진 + LLM/사전 API. **전 구간 TypeScript 단일 언어**로 두 사람의 코드 이동 비용을 낮춘다.
 
-```
-┌─────────────────────────── Electron App ───────────────────────────┐
-│ Main Process                                                        │
-│  · 창 선택/캡처 (desktopCapturer)   · 전역 단축키 (globalShortcut)   │
-│  · 접근성 API 브릿지 (탭/URL 감지)  · API 키 보관 (safeStorage)      │
-│  · IPC 허브                                                          │
-│                                                                     │
-│ Overlay Window (투명·클릭스루)    Popup/Chat Window                  │
-│  · 단어 하이라이트/커서 피드백      · 발음·사전·통합질문·구글탭        │
-│                                                                     │
-│ 파이프라인 A: 선택/추출            파이프라인 B: 검색/AI              │
-│  캡처→(OCR|직접추출)→좌표매핑       LLM·사전 어댑터, 캐싱, 스트리밍    │
-└───────────────▲─────────────────────────────▲──────────────────────┘
-                │ SelectionContext              │ SearchResult
-        ┌───────┴────────┐              (LLM / Dictionary / Google)
-        │ Browser Ext.   │
-        │ 자막 추출(YT/NF)│
-        │ DOM 텍스트/하이라이트 (native messaging으로 앱과 통신)
-        └────────────────┘
+```mermaid
+flowchart TB
+    EXT["🌐 Browser Extension · MV3<br/>자막 추출(YT/NF) · DOM 텍스트 · 단어 하이라이트"]
+
+    subgraph APP["🖥️ Electron App · TypeScript"]
+        direction TB
+        MAIN["<b>Main Process</b><br/>창 선택·캡처(desktopCapturer) · 전역 단축키(globalShortcut)<br/>접근성 API 브릿지(탭/URL 감지) · API 키 보관(safeStorage) · IPC 허브"]
+
+        subgraph PIPE[" "]
+            direction LR
+            PA["<b>파이프라인 A · 선택/추출</b><br/>캡처 → (OCR｜직접추출) → 좌표 매핑"]
+            PB["<b>파이프라인 B · 검색/AI</b><br/>LLM·사전 어댑터 · 캐싱 · 스트리밍"]
+        end
+
+        subgraph WINS[" "]
+            direction LR
+            OVL["<b>Overlay Window</b><br/>투명·클릭스루<br/>단어 하이라이트 / 커서 피드백"]
+            POP["<b>Popup / Chat Window</b><br/>발음 · 사전 · 통합질문 · 구글탭"]
+        end
+    end
+
+    SVC["☁️ 외부 서비스<br/>LLM(ChatGPT/Gemini/Claude) · 사전 API · Google"]
+
+    EXT -- "native messaging" --> MAIN
+    MAIN --> PA
+    MAIN --> PB
+    MAIN --> OVL
+    PA -- "SelectionContext" --> PB
+    PB -- "SearchResult" --> POP
+    PB -- "API 호출" --> SVC
 ```
 
 **언어 감지**: 자동 감지 + OCR 필요 시, 언어 특화 OCR 전에 경량 분류 모델 또는 범용 OCR로 언어를 먼저 특정.
@@ -215,3 +240,63 @@ interface SearchResult {
 
 - **리스크**: OCR 정확도/속도, 접근성 API의 OS별 편차(Win UIA vs macOS AX), 넷플릭스 자막 추출의 취약성, LLM 비용. → 관통 경로(직접 추출)를 먼저 확보해 데모 안정성 보장.
 - **확장**: 지원 언어 추가, 학습 이력·단어장, 발음 TTS, 모바일.
+
+## 11. 프로젝트 구조 (스캐폴드)
+
+**빌드**: electron-vite(Vite 기반, main/preload/renderer 3개 번들 관리) + React + TypeScript. 파이프라인 A/B를 디렉터리로 분리해 §8 분업 경계를 코드 구조에 반영했다. `src/shared`(타입·IPC 채널)는 공동 소유.
+
+```text
+JoJo/
+├── package.json                 # electron-vite 스크립트(dev/build/preview)
+├── electron.vite.config.ts      # main/preload/renderer 빌드 + 경로 alias
+├── tsconfig.json                # 공통 TS 설정(@shared/@main/@renderer)
+├── src/
+│   ├── shared/                  # 🤝 공동 소유 — 인터페이스 계약(§8)
+│   │   ├── types.ts             #   SelectionContext / SearchResult / 설정 타입
+│   │   └── channels.ts          #   IPC 채널 상수
+│   ├── main/                    # Electron 메인 프로세스
+│   │   ├── index.ts             #   진입점(윈도우·IPC·단축키 등록)
+│   │   ├── windows.ts           #   메인/오버레이/팝업 윈도우 팩토리
+│   │   ├── ipc.ts               #   🤝 IPC 허브(A→B 연결점)
+│   │   ├── keyStore.ts          #   [B] API 키 safeStorage 암호화 저장
+│   │   ├── pipelineA/           # 🅰️ 선택/추출 (담당 A)
+│   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
+│   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Ctrl+1)
+│   │   │   ├── capture.ts       #   창 목록/포커스 창 캡처(desktopCapturer)
+│   │   │   ├── decideOcr.ts     #   OCR 사용 여부 판정 + URL 캐시
+│   │   │   ├── extractDirect.ts #   소스별 직접 추출(txt/epub/pdf/web)
+│   │   │   ├── ocr.ts           #   OCR 엔진 래퍼 + 노이즈 제거
+│   │   │   ├── langDetect.ts    #   언어 자동 감지
+│   │   │   └── accessibility.ts #   접근성 API(AX/UIA) 브릿지
+│   │   └── pipelineB/           # 🅱️ 검색/AI (담당 B)
+│   │       ├── index.ts         #   검색 라우터(발음/사전/통합질문)
+│   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음)
+│   │       ├── dictionary.ts    #   사전 API + LLM 뜻 번호 판정
+│   │       ├── google.ts        #   구글 발음/이미지 탭 URL
+│   │       └── llm/             #   LLM 공통 어댑터
+│   │           ├── adapter.ts   #   provider 추상화 + 캐싱
+│   │           ├── openai.ts    #   ChatGPT
+│   │           ├── gemini.ts    #   Gemini
+│   │           └── claude.ts    #   Claude
+│   ├── preload/
+│   │   └── index.ts             #   🤝 contextBridge로 안전 API 노출
+│   └── renderer/                # UI (React) — 공동, B 주도
+│       ├── index.html
+│       └── src/
+│           ├── main.tsx, App.tsx        # 해시 라우팅(main/settings/popup/overlay)
+│           ├── styles.css               # 테두리색(일반=파랑/선택=보라) 등
+│           └── screens/
+│               ├── MainScreen.tsx       # 창 선택 + 설정 진입
+│               ├── SettingsScreen.tsx   # [B] LLM·키·단축키·Byte·언어
+│               ├── PopupScreen.tsx      # [B] 원문·툴바·채팅·자주쓰는질문
+│               └── Overlay.tsx          # [A] 단어 하이라이트/커서 피드백
+└── extension/                   # 🅰️ 브라우저 확장(MV3) — 담당 A
+    ├── manifest.json
+    └── src/
+        ├── background.ts        #   native messaging 브릿지 + 탭/URL 감지
+        └── content.ts           #   DOM 텍스트·자막 추출 + 하이라이트
+```
+
+**시작 방법**: `npm install` 후 `npm run dev`(electron-vite 개발 서버). 확장은 `chrome://extensions`에서 `extension/`을 로드하고 native messaging host를 등록해야 함(추후 번들러 설정 TODO).
+
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. 스텁 파일에는 담당·PLAN 섹션 주석과 `TODO`가 달려 있어, 각자 자기 파이프라인부터 목(mock) 기반으로 병렬 착수할 수 있다.
