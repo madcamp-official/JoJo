@@ -1,8 +1,8 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import type { SearchRequest, SelectionContext } from '@shared/types'
-import { runSelectionPipeline } from './pipelineA'
-import { runSearch } from './pipelineB'
+import { runSelectionPipeline } from './selection'
+import { runSearch } from './search'
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.

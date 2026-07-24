@@ -1,6 +1,6 @@
 # Document Management
 
-`CLAUDE.md`, `README.md`, `PLAN.md`, 루트 `.gitignore` 등 공유 문서/설정은 `dev` 브랜치에서 관리한다. `.claude/`는 `.gitignore`에 등록되어 git으로 관리하지 않는다(로컬 전용).
+`README.md`, `PLAN.md`, 루트 `.gitignore` 등 공유 문서/설정은 `dev` 브랜치에서 관리한다. `CLAUDE.md`와 `.claude/`는 `.gitignore`에 등록되어 git으로 관리하지 않는다(로컬 전용).
 
 # Git Commit Convention
 

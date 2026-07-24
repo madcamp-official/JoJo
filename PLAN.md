@@ -259,7 +259,7 @@ JoJo/
 │   │   ├── windows.ts           #   메인/오버레이/팝업 윈도우 팩토리
 │   │   ├── ipc.ts               #   🤝 IPC 허브(A→B 연결점)
 │   │   ├── keyStore.ts          #   [B] API 키 safeStorage 암호화 저장
-│   │   ├── pipelineA/           # 🅰️ 선택/추출 (담당 A)
+│   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
 │   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Ctrl+1)
 │   │   │   ├── capture.ts       #   창 목록/포커스 창 캡처(desktopCapturer)
@@ -268,7 +268,7 @@ JoJo/
 │   │   │   ├── ocr.ts           #   OCR 엔진 래퍼 + 노이즈 제거
 │   │   │   ├── langDetect.ts    #   언어 자동 감지
 │   │   │   └── accessibility.ts #   접근성 API(AX/UIA) 브릿지
-│   │   └── pipelineB/           # 🅱️ 검색/AI (담당 B)
+│   │   └── search/             # 🅱️ 검색/AI (담당 B)
 │   │       ├── index.ts         #   검색 라우터(발음/사전/통합질문)
 │   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음)
 │   │       ├── dictionary.ts    #   사전 API + LLM 뜻 번호 판정
