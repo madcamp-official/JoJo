@@ -201,7 +201,7 @@ interface SelectionSource {              // 출처 메타(캐싱·자막 추출�
 interface ExtractedSelection {
   text: string;                         // 클릭 지점 근방의 추출 텍스트(문맥 포함)
   words: { text: string; bbox?: Rect }[]; // 단어 분해(+화면 좌표)
-  anchorWordIndex: number;              // 사용자가 클릭한 단어 = 팝업 초기 선택 기준점
+  anchor: { start: number; end: number }; // 클릭 표현의 text 내 [start, end) = 팝업 초기 선택
   language: 'en' | 'ja' | 'zh';         // 감지 또는 지정된 언어
   source: SelectionSource;
   extraction: 'direct' | 'ocr';         // 어떻게 뽑았는지
