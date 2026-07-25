@@ -3,7 +3,11 @@
 
 export const IPC = {
   // 창 선택 / 모드 (담당 A)
+  WINDOW_LIST: 'window:list',
   SELECT_WINDOW: 'window:select',
+  WINDOW_SELECTED: 'window:selected',
+  OPEN_WINDOW_PICKER: 'window:openPicker',
+  CLOSE_WINDOW_PICKER: 'window:closePicker',
   SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
 

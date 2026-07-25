@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 
 // 3종 윈도우 팩토리 (PLAN.md §5)
@@ -16,6 +16,9 @@ function loadRoute(win: BrowserWindow, route: string) {
   }
 }
 
+let mainWindow: BrowserWindow | null = null
+let pickerWindow: BrowserWindow | null = null
+
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 760,
@@ -29,7 +32,50 @@ export function createMainWindow(): BrowserWindow {
     return { action: 'deny' }
   })
   loadRoute(win, 'main')
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
   return win
+}
+
+export function getMainWindow(): BrowserWindow | null {
+  return mainWindow
+}
+
+const PICKER_WIDTH = 860
+const PICKER_HEIGHT = 760
+
+/** 창 선택 목록 — 메인 창의 모달 자식 창으로 별도 OS 창에 띄운다. */
+export function showWindowPicker(): void {
+  if (pickerWindow) {
+    pickerWindow.focus()
+    return
+  }
+  const parent = mainWindow ?? undefined
+  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
+  const win = new BrowserWindow({
+    width: PICKER_WIDTH,
+    height: PICKER_HEIGHT,
+    x: Math.round((screenWidth - PICKER_WIDTH) / 2),
+    y: Math.round((screenHeight - PICKER_HEIGHT) / 2),
+    frame: false,
+    resizable: false,
+    modal: !!parent,
+    parent,
+    show: false,
+    webPreferences: { preload, sandbox: false },
+  })
+  win.once('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    if (pickerWindow === win) pickerWindow = null
+  })
+  pickerWindow = win
+  loadRoute(win, 'picker')
+}
+
+export function closeWindowPicker(): void {
+  pickerWindow?.close()
 }
 
 // TODO(담당 A): 선택된 창 위에 정확히 정렬되는 투명·클릭스루 오버레이.

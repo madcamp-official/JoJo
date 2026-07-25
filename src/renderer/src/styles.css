@@ -18,3 +18,40 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .main-screen .hint { color: #94a3b8; }
 
 .overlay-root { width: 100%; height: 100%; background: transparent; }
+
+.picker-screen {
+  width: 100vw; height: 100vh;
+  background: #1e1e24; color: #fff;
+  padding: 20px; display: flex; flex-direction: column;
+}
+.picker-header {
+  display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; flex-shrink: 0;
+  -webkit-app-region: drag; /* 프레임 없는 창 — 헤더를 드래그해서 이동 가능 */
+}
+.picker-header h2 { margin: 0; font-size: 16px; }
+.picker-header .hint { margin: 0; font-size: 12px; }
+.picker-header .icon-btn.close {
+  margin-left: auto; align-self: flex-start;
+  background: none; border: none; color: #94a3b8; font-size: 16px; cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.picker-header .icon-btn.close:hover { color: #fff; }
+.window-grid {
+  flex: 1; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: min-content; gap: 12px;
+}
+.window-tile {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  background: #2a2a33; border: 2px solid transparent; border-radius: 8px;
+  padding: 8px; cursor: pointer; color: inherit; text-align: left;
+}
+.window-tile:hover { border-color: var(--blue); }
+.window-tile .thumb {
+  width: 100%; height: 170px; border-radius: 4px; background: #000; overflow: hidden;
+}
+.window-tile .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.window-tile span {
+  display: block; width: 100%; min-width: 0;
+  font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}

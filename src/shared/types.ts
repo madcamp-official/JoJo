@@ -6,6 +6,13 @@
 
 export type Language = 'en' | 'ja' | 'zh'
 
+/** 창 선택 UI에 보여줄 캡처 가능 창 1개 (담당 A) */
+export interface CaptureSource {
+  id: string
+  name: string
+  thumbnail: string // dataURL
+}
+
 export interface Rect {
   x: number
   y: number
