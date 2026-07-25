@@ -206,7 +206,19 @@ type QuestionRequest =
 interface QuestionResult {
   kind: 'pronunciation' | 'dictionary' | 'ask';
   content: string;                      // 렌더용 마크다운/텍스트(스트리밍 청크)
+  error?: QuestionError;                // 있으면 실패 결과. UI가 성공/실패를 구분하는 기준
   meta?: Record<string, unknown>;       // 발음기호, 사전 뜻 번호 등
+}
+
+// API 키 미설정/무효, 사용 한도(크레딧) 소진 등 UI가 구분해 안내해야 하는 실패 종류
+type QuestionErrorCode =
+  | 'no_active_provider' | 'no_api_key' | 'invalid_api_key'
+  | 'insufficient_credit' | 'rate_limited' | 'network_error' | 'unknown';
+
+interface QuestionError {
+  code: QuestionErrorCode;
+  message: string;                      // 렌더링용 완성된 한국어 문장
+  provider?: LlmProvider;
 }
 ```
 - **통합 지점**: IPC 채널 `selection:resolved`(A→B), `question:request`/`question:stream`(B). 양측 목 구현으로 병렬 진행하다 D2에 실연결.
