@@ -98,13 +98,14 @@
 - [ ] 발음·사전 체크박스 토글 동작
 - [ ] 스트리밍 렌더 (`QUESTION_STREAM` 수신)
 - [ ] 에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별로 안내(재시도 버튼, 설정으로 이동 등). 메시지 문구·분류 로직은 완료(`question/errors.ts`), 렌더링만 미구현
-- [ ] 설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / Byte 슬라이더+미리보기 / 언어
-- [ ] API 키 `safeStorage` 암호화 저장·로드 영속화
-- [ ] 앱 설정 영속화 (파일 저장)
+- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / Byte 슬라이더+미리보기 / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성, Byte는 5단 이산 슬라이더(256~4096) + 미리보기~~
+- [x] ~~API 키 `safeStorage` 암호화 저장·로드 영속화 — `keyStore.ts`, `userData/apikeys.json`(암호문 base64)~~
+- [x] ~~앱 설정 영속화 (파일 저장) — `settingsStore.ts`, `userData/settings.json`~~
 
 <a id="공동"></a>
 
 ## 🤝 공동
+- [ ] 모드 전환 단축키 기본값 변경 — `Ctrl+1` → `Alt+Q`(macOS: Electron이 Option 키로 자동 매핑, Windows: Alt 그대로) 로 변경됨(`selection/shortcut.ts`, 설정 화면 요구사항 반영). 담당 A 항목("앱·윈도우·모드")의 "기본 Ctrl+1" 문구는 그대로 두었으니 참고해서 갱신 바람
 - [ ] `SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 완료 → 실연결)
 - [ ] IPC 허브 A→B 실연결
 - [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문

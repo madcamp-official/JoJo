@@ -99,6 +99,6 @@ export type LlmProvider = 'gpt' | 'gemini' | 'claude'
 export interface AppSettings {
   llm: LlmProvider
   language: Language | 'auto'
-  modeShortcut: string // 예: 'Ctrl+1'
+  modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑)
   contextBytes: 256 | 512 | 1024 | 2048 | 4096
 }

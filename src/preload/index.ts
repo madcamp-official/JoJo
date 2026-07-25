@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/channels'
-import type { CaptureSource, QuestionRequest, QuestionResult, SelectionContext } from '@shared/types'
+import type {
+  AppSettings,
+  CaptureSource,
+  LlmProvider,
+  QuestionRequest,
+  QuestionResult,
+  SelectionContext,
+} from '@shared/types'
 
 // preload — 렌더러에 안전한 API 만 노출 (공동)
 const api = {
@@ -30,6 +37,20 @@ const api = {
     ipcRenderer.on(IPC.QUESTION_STREAM, listener)
     return () => ipcRenderer.removeListener(IPC.QUESTION_STREAM, listener)
   },
+
+  getSettings: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.SETTINGS_GET),
+
+  setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
+    ipcRenderer.invoke(IPC.SETTINGS_SET, patch),
+
+  getApiKey: (provider: LlmProvider): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.APIKEY_GET, provider),
+
+  setApiKey: (provider: LlmProvider, key: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.APIKEY_SET, provider, key),
+
+  deleteApiKey: (provider: LlmProvider): Promise<void> =>
+    ipcRenderer.invoke(IPC.APIKEY_DELETE, provider),
 }
 
 contextBridge.exposeInMainWorld('nuance', api)
