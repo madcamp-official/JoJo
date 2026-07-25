@@ -98,7 +98,7 @@
 - [ ] 발음·사전 체크박스 토글 동작
 - [ ] 스트리밍 렌더 (`QUESTION_STREAM` 수신)
 - [ ] 에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별로 안내(재시도 버튼, 설정으로 이동 등). 메시지 문구·분류 로직은 완료(`question/errors.ts`), 렌더링만 미구현
-- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / Byte 슬라이더+미리보기 / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성, Byte는 5단 이산 슬라이더(256~4096) + 미리보기~~
+- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / Byte 슬라이더+미리보기 / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소), Byte는 5단 이산 슬라이더(256~4096) + 미리보기~~
 - [x] ~~API 키 `safeStorage` 암호화 저장·로드 영속화 — `keyStore.ts`, `userData/apikeys.json`(암호문 base64)~~
 - [x] ~~앱 설정 영속화 (파일 저장) — `settingsStore.ts`, `userData/settings.json`~~
 
