@@ -10,6 +10,7 @@ import {
   getMainWindow,
   getOverlayMode,
   hideSelectionOverlay,
+  setOverlayInteractive,
   showWindowPicker,
   trackSelectionOverlay,
 } from './windows'
@@ -54,6 +55,10 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.OPEN_SETTINGS, async () => {
     createSettingsWindow()
+  })
+
+  ipcMain.handle(IPC.OVERLAY_SET_INTERACTIVE, async (_e, interactive: boolean) => {
+    setOverlayInteractive(interactive)
   })
 
   // 담당 A: 선택 확정 → SelectionContext 생성

@@ -27,6 +27,9 @@ const api = {
 
   openSettings: (): Promise<void> => ipcRenderer.invoke(IPC.OPEN_SETTINGS),
 
+  setOverlayInteractive: (interactive: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC.OVERLAY_SET_INTERACTIVE, interactive),
+
   getMode: (): Promise<AppMode> => ipcRenderer.invoke(IPC.GET_MODE),
 
   onModeChanged: (cb: (mode: AppMode) => void): (() => void) => {

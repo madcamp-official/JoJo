@@ -14,15 +14,16 @@ export interface ExtractionDecision {
 const cache = new Map<string, ExtractionDecision>() // key: url ?? appName
 
 export async function decideExtraction(): Promise<ExtractionDecision> {
+  // 현재는 win32Capture 로 캡처한 창 이미지가 유일한 입력이라(브라우저 확장·접근성 API
+  // 연동 전) direct 경로(txt/epub/pdf 파서, DOM 텍스트)에 닿을 방법이 없다 → 항상 ocr.
   // TODO(담당 A):
   //  1) 활성 대상 식별 (브라우저=확장 / 그 외=접근성 API)로 source·url 파악
   //  2) youtube·netflix·txt → direct / 스캔본 → ocr
   //  3) 전자책 뷰어 → 접근성 API 추출 시도 → 실패 시 ocr
-  //  4) pdf·web → 추출 텍스트 양으로 direct vs ocr 분기
-  //  5) 자동 감지면 언어 특정
-  const source: SelectionSource = { kind: 'web' }
+  //  4) pdf·web → 추출 텍스트 양으로 direct vs ocr 분기 (판정 캐싱: url 키)
+  const source: SelectionSource = { kind: 'ocr' }
   const language = await detectLanguage()
-  const decision: ExtractionDecision = { mode: 'direct', source, language }
+  const decision: ExtractionDecision = { mode: 'ocr', source, language }
   if (source.url) cache.set(source.url, decision)
   return decision
 }

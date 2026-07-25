@@ -12,6 +12,7 @@ export const IPC = {
   SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
   OPEN_SETTINGS: 'settings:open',
+  OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
 
   // 선택 확정 → 질문 파이프라인으로 전달 (A → B)
   SELECTION_RESOLVED: 'selection:resolved',

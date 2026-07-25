@@ -13,6 +13,11 @@ export interface CaptureSource {
   thumbnail: string // dataURL
 }
 
+export interface Point {
+  x: number
+  y: number
+}
+
 export interface Rect {
   x: number
   y: number

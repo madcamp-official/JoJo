@@ -1,4 +1,5 @@
 import type { SelectionContext } from '@shared/types'
+import { findWordAtPoint } from '@shared/wordMapping'
 import { captureFocusedWindow } from './capture'
 import { decideExtraction } from './decideOcr'
 import { extractDirect } from './extractDirect'
@@ -21,9 +22,12 @@ export async function runSelectionPipeline(point: {
       ? await runOcr(await captureFocusedWindow(), decision.language)
       : await extractDirect(decision.source)
 
-  // TODO(담당 A): point 좌표 ↔ 단어 매핑, 앞뒤 문맥(precedingText/followingText) 구성.
+  const word = findWordAtPoint(extracted.words, point)
+
+  // TODO(팀원): 앞뒤 문맥(precedingText/followingText) 구성 — 클릭 vs 드래그 구분과
+  // 함께 팝업 범위 지정 담당자가 처리 (선택·좌표 매핑 항목 참고).
   return {
-    selectedText: '',
+    selectedText: word?.text ?? '',
     language: extracted.language,
     precedingText: '',
     followingText: '',

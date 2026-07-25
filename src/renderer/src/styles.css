@@ -25,6 +25,18 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   border: 6px solid var(--blue); border-radius: 6px;
 }
 .overlay-root.mode-select { border-color: var(--purple); }
+.overlay-root.hovering-word { cursor: pointer; }
+
+/* TODO(담당 A): 실제 추출 데이터 연결 시 디버그용 점선 박스 대신 정식 하이라이트로 교체. */
+.word-box {
+  position: absolute; box-sizing: border-box;
+  border: 1px dashed rgba(124, 58, 237, 0.4);
+  pointer-events: none;
+}
+.word-box.hovered {
+  border: 2px solid var(--purple);
+  background: rgba(124, 58, 237, 0.18);
+}
 
 .picker-screen {
   width: 100vw; height: 100vh;
