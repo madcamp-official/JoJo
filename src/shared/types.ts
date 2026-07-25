@@ -111,8 +111,11 @@ export type AppMode = 'normal' | 'select'
 export type LlmProvider = 'gpt' | 'gemini' | 'claude'
 
 export interface AppSettings {
-  llm: LlmProvider
+  llm: LlmProvider | null // 사용자가 아직 고르지 않았으면 null (기본 provider 를 임의로 정하지 않는다)
   language: Language | 'auto'
-  modeShortcut: string // 예: 'Alt+Q'
-  contextBytes: 256 | 512 | 1024 | 2048 | 4096
+  modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑)
+  // 선택 앞/뒤로 포함할 문맥 바이트 예산(자유 지정). 실제로는 문장 경계까지 확장됨.
+  contextBytesBefore: number
+  contextBytesAfter: number
+  contextBytesLinked: boolean // true 면 앞/뒤를 동일 값으로 사용
 }

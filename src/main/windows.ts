@@ -30,8 +30,6 @@ function loadRoute(win: BrowserWindow, route: string) {
 }
 
 let mainWindow: BrowserWindow | null = null
-let pickerWindow: BrowserWindow | null = null
-let settingsWindow: BrowserWindow | null = null
 
 // 트레이 "종료" 메뉴로 실제 종료할 때만 true — 그 전까지는 메인 창 X 버튼이 앱을
 // 끄지 않고 트레이로 숨긴다(PLAN.md §3: 창 선택 후 백그라운드 실행).
@@ -73,61 +71,38 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
-/** 트레이 "설정" 항목 / 메인 화면 설정 아이콘에서 연다 — 이미 열려 있으면 포커스만. */
-export function createSettingsWindow(): BrowserWindow {
-  if (settingsWindow) {
-    settingsWindow.show()
-    settingsWindow.focus()
-    return settingsWindow
-  }
-  const win = new BrowserWindow({
-    width: 520,
-    height: 640,
-    autoHideMenuBar: true,
-    icon: resolveIconPath(),
-    webPreferences: { preload, sandbox: false },
-  })
-  win.on('closed', () => {
-    if (settingsWindow === win) settingsWindow = null
-  })
-  settingsWindow = win
-  loadRoute(win, 'settings')
-  return win
+export type MainRoute = 'main' | 'picker' | 'settings'
+
+const ROUTE_SIZES: Record<MainRoute, { width: number; height: number }> = {
+  main: { width: 760, height: 460 },
+  picker: { width: 860, height: 760 },
+  settings: { width: 520, height: 640 },
 }
 
-const PICKER_WIDTH = 860
-const PICKER_HEIGHT = 760
-
-/** 창 선택 목록 — 메인 창의 모달 자식 창으로 별도 OS 창에 띄운다. */
-export function showWindowPicker(): void {
-  if (pickerWindow) {
-    pickerWindow.focus()
-    return
-  }
-  const parent = mainWindow ?? undefined
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
-  const win = new BrowserWindow({
-    width: PICKER_WIDTH,
-    height: PICKER_HEIGHT,
-    x: Math.round((screenWidth - PICKER_WIDTH) / 2),
-    y: Math.round((screenHeight - PICKER_HEIGHT) / 2),
-    frame: false,
-    resizable: false,
-    modal: !!parent,
-    parent,
-    show: false,
-    webPreferences: { preload, sandbox: false },
-  })
-  win.once('ready-to-show', () => win.show())
-  win.on('closed', () => {
-    if (pickerWindow === win) pickerWindow = null
-  })
-  pickerWindow = win
-  loadRoute(win, 'picker')
+// 메인/피커/설정 세 화면은 동시에 두 개 이상 보일 필요가 없어 창 하나를 재사용한다.
+// 화면을 바꿀 때마다 창 크기를 그 화면에 맞게 즉시(애니메이션 없이) 바꾸고 중앙 정렬한다 —
+// 리사이즈가 눈에 보이면 안 되고, 마치 다른 창이 뜬 것처럼 한 번에 바뀌어야 한다.
+function resizeMainWindowForRoute(route: MainRoute): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  const { width, height } = ROUTE_SIZES[route]
+  const { height: workHeight } = screen.getPrimaryDisplay().workAreaSize
+  const targetHeight = Math.min(height, workHeight - 40)
+  win.setSize(width, targetHeight, false)
+  win.center()
 }
 
-export function closeWindowPicker(): void {
-  pickerWindow?.close()
+/** 렌더러(navigate.ts: goto())가 호출 — 렌더러가 이미 해시를 바꿨으므로 창 크기만 맞춘다. */
+export function setMainWindowRoute(route: MainRoute): void {
+  resizeMainWindowForRoute(route)
+}
+
+/** 메인 프로세스(트레이 등)에서 호출 — 창 크기를 맞추고, 렌더러에도 화면 전환을 지시한다. */
+export function navigateMainWindow(route: MainRoute): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  resizeMainWindowForRoute(route)
+  win.webContents.send(IPC.NAVIGATE, route)
 }
 
 let overlayWindow: BrowserWindow | null = null

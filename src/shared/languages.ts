@@ -23,3 +23,5 @@ export const LANGUAGES: Record<Language, LanguageInfo> = {
   ja: { name: '일본어', googleSearchSuffix: '読み方' },
   zh: { name: '중국어', googleSearchSuffix: '拼音' },
 }
+
+export const LANGUAGE_ORDER: Language[] = ['en', 'ja', 'zh']

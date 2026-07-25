@@ -1,5 +1,7 @@
 import type { ChatTurn, LlmProvider, QuestionResult, SelectionContext } from '@shared/types'
 import { getApiKey } from '@main/keyStore'
+import { getSettings } from '@main/settingsStore'
+import { buildContextText } from '@shared/context'
 import { createGptClient } from './gpt'
 import { createGeminiClient } from './gemini'
 import { createClaudeClient } from './claude'
@@ -81,9 +83,20 @@ export function buildSystemPrompt(ctx: SelectionContext): string {
   return renderPrompt(systemPromptTemplate, { language: LANGUAGES[ctx.language].name })
 }
 
-/** 선택 표현을 ⟦⟧ 로 표시한 근방 문맥 블록. 프롬프트 캐싱 대상. */
-export function buildContextBlock(ctx: SelectionContext): string {
-  return `${ctx.precedingText}⟦${ctx.selectedText}⟧${ctx.followingText}`
+/**
+ * 선택 표현을 ⟦⟧ 로 표시한 근방 문맥 블록. 프롬프트 캐싱 대상.
+ * 앞 byteBefore / 뒤 byteAfter 바이트를 포함하되, 순수 바이트 경계에서 문장이 잘리지
+ * 않도록 문장 경계까지 확장한다(설정 화면 미리보기와 동일한 @shared/context 로직).
+ */
+export function buildContextBlock(
+  ctx: SelectionContext,
+  byteBefore: number,
+  byteAfter: number,
+): string {
+  const full = `${ctx.precedingText}${ctx.selectedText}${ctx.followingText}`
+  const selStart = ctx.precedingText.length
+  const selEnd = selStart + ctx.selectedText.length
+  return buildContextText(full, selStart, selEnd, byteBefore, byteAfter, (s) => `⟦${s}⟧`)
 }
 
 export function buildRequest(
@@ -91,10 +104,12 @@ export function buildRequest(
   prompt: string,
   history: ChatTurn[],
   provider: LlmProvider,
+  byteBefore: number,
+  byteAfter: number,
 ): LlmRequest {
   return {
     system: buildSystemPrompt(ctx),
-    cacheableContext: buildContextBlock(ctx),
+    cacheableContext: buildContextBlock(ctx, byteBefore, byteAfter),
     messages: [...history, { role: 'user', content: prompt }],
     model: DEFAULT_MODELS[provider],
     maxTokens: DEFAULT_MAX_TOKENS,
@@ -126,7 +141,15 @@ export async function askLlm(
   }
 
   const client = createClient(provider, { apiKey })
-  const req = buildRequest(ctx, prompt, history, provider)
+  const settings = getSettings()
+  const req = buildRequest(
+    ctx,
+    prompt,
+    history,
+    provider,
+    settings.contextBytesBefore,
+    settings.contextBytesAfter,
+  )
 
   try {
     // 델타를 그대로 스트리밍(렌더러가 append), 최종 전체 텍스트를 반환한다.
