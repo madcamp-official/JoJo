@@ -25,8 +25,8 @@ export function createClaudeClient(config: LlmConfig): LlmClient {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: config.model,
-          max_tokens: 1024,
+          model: req.model,
+          max_tokens: req.maxTokens ?? 1024,
           stream: true,
           system,
           messages: req.messages,

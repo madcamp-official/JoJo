@@ -17,13 +17,17 @@ export function createGeminiClient(config: LlmConfig): LlmClient {
         ? `${req.system}\n\n[문맥]\n${req.cacheableContext}`
         : req.system
 
+      // 키는 URL 쿼리 대신 헤더로 전달(로깅 유출 방지).
       const url =
         `https://generativelanguage.googleapis.com/v1beta/models/` +
-        `${config.model}:streamGenerateContent?alt=sse&key=${config.apiKey}`
+        `${req.model}:streamGenerateContent?alt=sse`
 
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': config.apiKey,
+        },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemText }] },
           contents,

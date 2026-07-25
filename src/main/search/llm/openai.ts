@@ -19,7 +19,7 @@ export function createOpenaiClient(config: LlmConfig): LlmClient {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: config.model,
+          model: req.model,
           stream: true,
           messages: [{ role: 'system', content: system }, ...req.messages],
         }),

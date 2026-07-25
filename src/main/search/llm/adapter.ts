@@ -11,19 +11,21 @@ import { createClaudeClient } from './claude'
 //  - 각 provider 의 실제 API 호출/스트리밍은 ./openai|gemini|claude 가 담당(다음 항목)
 // ============================================================================
 
-/** provider 로 넘길 요청 (provider 중립 표현) */
+/** provider 로 넘길 요청 (provider 중립 표현). 생성 파라미터(model·maxTokens)의 단일 출처. */
 export interface LlmRequest {
   system: string
   /** 선택 근방 문맥. provider 별 프롬프트 캐싱 대상(비용 절감). */
   cacheableContext?: string
   messages: ChatTurn[]
+  /** 사용할 모델. 각 provider 클라이언트가 이 값을 그대로 사용한다. */
   model: string
+  /** 응답 최대 토큰. 미지정 시 provider 클라이언트 기본값 적용. */
+  maxTokens?: number
 }
 
-/** provider 클라이언트 생성 설정 */
+/** provider 클라이언트 생성 설정 (인증 정보만). 모델·토큰 등 생성 파라미터는 LlmRequest 로. */
 export interface LlmConfig {
   apiKey: string
-  model?: string
 }
 
 /** provider 공통 클라이언트 인터페이스 */
@@ -40,6 +42,9 @@ export const DEFAULT_MODELS: Record<LlmProvider, string> = {
   claude: 'claude-sonnet-5',
 }
 
+/** 응답 최대 토큰 기본값. 추후 설정 영속화([B-UI])와 연결. */
+export const DEFAULT_MAX_TOKENS = 1024
+
 // 활성 provider — 추후 설정 영속화([B-UI])와 연결. 그전까진 인메모리.
 // 기본값 없음: 사용자가 명시적으로 지정하기 전까지는 진행하지 않는다.
 let activeProvider: LlmProvider | null = null
@@ -52,14 +57,13 @@ export function setActiveProvider(p: LlmProvider): void {
 
 /** provider 추상화 팩토리 */
 export function createClient(provider: LlmProvider, config: LlmConfig): LlmClient {
-  const cfg: LlmConfig = { ...config, model: config.model ?? DEFAULT_MODELS[provider] }
   switch (provider) {
     case 'openai':
-      return createOpenaiClient(cfg)
+      return createOpenaiClient(config)
     case 'gemini':
-      return createGeminiClient(cfg)
+      return createGeminiClient(config)
     case 'claude':
-      return createClaudeClient(cfg)
+      return createClaudeClient(config)
   }
 }
 
@@ -96,6 +100,7 @@ export function buildRequest(
     cacheableContext: buildContextBlock(ctx),
     messages: [...history, { role: 'user', content: prompt }],
     model: DEFAULT_MODELS[provider],
+    maxTokens: DEFAULT_MAX_TOKENS,
   }
 }
 

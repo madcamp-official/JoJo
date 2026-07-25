@@ -7,6 +7,13 @@ export async function* readSse(res: Response): AsyncGenerator<string> {
   const decoder = new TextDecoder()
   let buf = ''
 
+  function* emit(rawEvent: string): Generator<string> {
+    for (const line of rawEvent.split('\n')) {
+      const m = /^data:\s?(.*)$/.exec(line)
+      if (m) yield m[1]
+    }
+  }
+
   try {
     for (;;) {
       const { done, value } = await reader.read()
@@ -16,14 +23,13 @@ export async function* readSse(res: Response): AsyncGenerator<string> {
       let sep: number
       // 이벤트는 빈 줄(\n\n)로 구분된다.
       while ((sep = buf.indexOf('\n\n')) !== -1) {
-        const rawEvent = buf.slice(0, sep)
+        yield* emit(buf.slice(0, sep))
         buf = buf.slice(sep + 2)
-        for (const line of rawEvent.split('\n')) {
-          const m = /^data:\s?(.*)$/.exec(line)
-          if (m) yield m[1]
-        }
       }
     }
+    // 스트림이 \n\n 없이 끝난 경우 남은 버퍼를 마지막 이벤트로 처리한다.
+    buf += decoder.decode()
+    if (buf.trim()) yield* emit(buf)
   } finally {
     reader.releaseLock()
   }
