@@ -51,7 +51,7 @@
 **메인 화면**: 중앙에 큰 파란 [창 선택] 버튼 + "사용할 창을 선택하세요" 안내 + 우측 상단 작은 설정(톱니) 아이콘. 앱 아이덴티티 "Nu"/Nuance. Windows 11·macOS 네이티브 룩.
 
 **설정 화면** (섹션 순서):
-1. **LLM 선택** — ChatGPT / Gemini / Claude 카드형 단일 선택(선택 시 체크 표시).
+1. **LLM 선택** — GPT / Gemini / Claude 카드형 단일 선택(선택 시 체크 표시).
 2. **API 키 관리** — 선택한 LLM의 키 입력, 보기(눈 아이콘)·수정·삭제. "안전하게 암호화 저장, 외부 미전송" 안내.
 3. **단축키 설정** — 모드 전환(일반 ↔ 선택) 키 지정. 기본 예: `Ctrl+1`, [변경] 버튼.
 4. **AI 주변 범위(Byte)** — 프롬프트 제출 시 함께 넘길 앞뒤 텍스트 범위를 Byte 슬라이더(256·512·1024·2048·4096)로 지정. 미리보기에 "포함 제외 / 사용자 선택 영역 / 포함될 주변 범위"를 색으로 시각화.
@@ -102,7 +102,7 @@
 
 ### 4.2 질문 (Question Pipeline)
 
-**LLM 채팅 팝업** (ChatGPT / Gemini / Claude 선택)
+**LLM 채팅 팝업** (GPT / Gemini / Claude 선택)
 - 하나의 팝업 = 하나의 대화 세션. 후속 질문이 이전 답변 맥락을 이어감.
 - 인근 텍스트(설정 범위)를 문맥으로 함께 전달. 전체 맥락 텍스트는 **프롬프트 캐싱**으로 비용 절감(세부 미정).
 - 팝업 툴바에서 **발음·사전 검색은 체크박스 토글**로 켜고, **통합 질문은 [입력]**, **구글 검색은 별도 버튼**([발음 검색]/[시각 자료 검색])으로 구성(§3 화면 구성 참고).
@@ -123,7 +123,7 @@
 - **캡처/오버레이**: `desktopCapturer`, 투명·클릭스루 BrowserWindow, `globalShortcut`.
 - **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정.
 - **확장**: 브라우저 확장(Manifest V3) + native messaging.
-- **API**: LLM 3종 어댑터(ChatGPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
+- **API**: LLM 3종 어댑터(GPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
 - **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
 
 ```mermaid
@@ -147,7 +147,7 @@ flowchart TB
         end
     end
 
-    SVC["☁️ 외부 서비스<br/>LLM(ChatGPT/Gemini/Claude) · 사전 API · Google"]
+    SVC["☁️ 외부 서비스<br/>LLM(GPT/Gemini/Claude) · 사전 API · Google"]
 
     EXT -- "native messaging" --> MAIN
     MAIN --> PA
@@ -180,7 +180,7 @@ flowchart TB
 - **산출**: 확정된 `SelectionContext`를 B로 넘긴다.
 
 ### 담당 B — 질문 & AI (출력단)
-- LLM 어댑터(ChatGPT/Gemini/Claude 공통 인터페이스) + 채팅 세션·프롬프트 캐싱.
+- LLM 어댑터(GPT/Gemini/Claude 공통 인터페이스) + 채팅 세션·프롬프트 캐싱.
 - 발음(맥락 발음), 사전 API 연동 + LLM 뜻 번호 판정, 통합 질문·커스텀 질문 관리.
 - 구글 검색 탭(발음/이미지), 팝업·채팅 UI.
 - 설정 화면(언어·LLM·API 키·단축키·인근 텍스트 범위).
@@ -280,7 +280,7 @@ JoJo/
 │   │           ├── adapter.ts   #   provider 추상화 + 문맥 프롬프트 + 캐싱
 │   │           ├── sse.ts       #   SSE 스트림 파서(공통)
 │   │           ├── errors.ts    #   HTTP 상태코드 → QuestionErrorCode 분류
-│   │           ├── openai.ts    #   ChatGPT
+│   │           ├── gpt.ts       #   GPT
 │   │           ├── gemini.ts    #   Gemini
 │   │           └── claude.ts    #   Claude
 │   ├── preload/
