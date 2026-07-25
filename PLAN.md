@@ -45,8 +45,8 @@
 3. **모드 전환 단축키**로 일반 모드 ↔ 선택 모드 토글.
    - 일반 모드: 클릭에 개입하지 않음.
    - 선택 모드: 포커스된 창 위에 투명 오버레이 → 텍스트 클릭 가로챔.
-4. **선택** → 근방 텍스트가 팝업으로 뜸 → 범위 지정 후 검색.
-5. **검색** → 발음 / 사전 / 통합 질문(채팅형) / 구글 검색.
+4. **선택** → 근방 텍스트가 팝업으로 뜸 → 범위 지정 후 질문.
+5. **질문** → 발음 / 사전 / 통합 질문(채팅형) / 구글 검색.
 
 ### 화면 구성 (UI 목업 기준)
 
@@ -86,7 +86,7 @@
      → (직접 추출) 소스별 텍스트 추출
   → 텍스트 추출 + 화면 좌표 매핑
   → 커서 좌표 ↔ 단어 매핑
-  → (선택 확정) SelectionContext 생성 → 검색 파이프라인으로 전달
+  → (선택 확정) SelectionContext 생성 → 질문 파이프라인으로 전달
 ```
 
 **OCR 사용 여부 판정 로직** — 원칙: "직접 추출을 먼저 시도하고, 확보 텍스트가 부족할 때만 OCR로 fallback".
@@ -102,7 +102,7 @@
   - 브라우저 내부 → 확장 프로그램 / 그 외 → 데스크톱 접근성 API로 URL·탭 변화 감지.
   - URL을 메인 구분 요소로 사용. 한 URL 내 OCR 여부 변화는 고려하지 않음.
 
-### 4.2 검색 (Search Pipeline)
+### 4.2 질문 (Question Pipeline)
 
 **LLM 채팅 팝업** (ChatGPT / Gemini / Claude 선택)
 - 하나의 팝업 = 하나의 대화 세션. 후속 질문이 이전 답변 맥락을 이어감.
@@ -132,7 +132,7 @@ flowchart TB
         subgraph PIPE[" "]
             direction LR
             PA["<b>파이프라인 A · 선택/추출</b><br/>캡처 → (OCR｜직접추출) → 좌표 매핑"]
-            PB["<b>파이프라인 B · 검색/AI</b><br/>LLM·사전 어댑터 · 캐싱 · 스트리밍"]
+            PB["<b>파이프라인 B · 질문/AI</b><br/>LLM·사전 어댑터 · 캐싱 · 스트리밍"]
         end
 
         subgraph WINS[" "]
@@ -149,7 +149,7 @@ flowchart TB
     MAIN --> PB
     MAIN --> OVL
     PA -- "SelectionContext" --> PB
-    PB -- "SearchResult" --> POP
+    PB -- "QuestionResult" --> POP
     PB -- "API 호출" --> SVC
 ```
 
@@ -168,7 +168,7 @@ flowchart TB
 
 ## 8. 2인 분업 계획 (파이프라인 축)
 
-두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `SearchResult`(B→UI)**. 이 인터페이스를 D1에 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
+두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `QuestionResult`(B→UI)**. 이 인터페이스를 D1에 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
 
 ### 담당 A — 선택 & 추출 (입력단)
 - 창 선택/화면 캡처(desktopCapturer), 오버레이 윈도우, 전역 단축키, 모드 전환.
@@ -178,12 +178,12 @@ flowchart TB
 - 접근성 API로 탭/URL 변화 감지.
 - **산출**: 확정된 `SelectionContext`를 B로 넘긴다.
 
-### 담당 B — 검색 & AI (출력단)
+### 담당 B — 질문 & AI (출력단)
 - LLM 어댑터(ChatGPT/Gemini/Claude 공통 인터페이스) + 채팅 세션·프롬프트 캐싱.
 - 발음(맥락 발음), 사전 API 연동 + LLM 뜻 번호 판정, 통합 질문·커스텀 질문 관리.
 - 구글 검색 탭(발음/이미지), 팝업·채팅 UI.
 - 설정 화면(언어·LLM·API 키·단축키·인근 텍스트 범위).
-- **입력**: `SelectionContext`를 받아 `SearchResult`(스트리밍)를 UI에 렌더.
+- **입력**: `SelectionContext`를 받아 `QuestionResult`(스트리밍)를 UI에 렌더.
 
 ### 인터페이스 계약 (A ↔ B, D1 확정)
 ```ts
@@ -203,18 +203,18 @@ interface SelectionContext {
 }
 
 // B가 반환해 UI로 (스트리밍 가능)
-type SearchRequest =
+type QuestionRequest =
   | { type: 'pronunciation' }
   | { type: 'dictionary' }
   | { type: 'ask'; prompt: string; history?: ChatTurn[] };
 
-interface SearchResult {
+interface QuestionResult {
   kind: 'pronunciation' | 'dictionary' | 'ask';
   content: string;                      // 렌더용 마크다운/텍스트(스트리밍 청크)
   meta?: Record<string, unknown>;       // 발음기호, 사전 뜻 번호 등
 }
 ```
-- **통합 지점**: IPC 채널 `selection:resolved`(A→B), `search:request`/`search:stream`(B). 양측 목 구현으로 병렬 진행하다 D2에 실연결.
+- **통합 지점**: IPC 채널 `selection:resolved`(A→B), `question:request`/`question:stream`(B). 양측 목 구현으로 병렬 진행하다 D2에 실연결.
 - **공유 코드**: 타입 정의(`shared/types.ts`), IPC 유틸, 로거는 공동 소유.
 
 ## 9. 기술 스택 요약
@@ -242,7 +242,7 @@ JoJo/
 ├── tsconfig.json                # 공통 TS 설정(@shared/@main/@renderer)
 ├── src/
 │   ├── shared/                  # 🤝 공동 소유 — 인터페이스 계약(§8)
-│   │   ├── types.ts             #   SelectionContext / SearchResult / 설정 타입
+│   │   ├── types.ts             #   SelectionContext / QuestionResult / 설정 타입
 │   │   └── channels.ts          #   IPC 채널 상수
 │   ├── main/                    # Electron 메인 프로세스
 │   │   ├── index.ts             #   진입점(윈도우·IPC·단축키 등록)
@@ -258,8 +258,8 @@ JoJo/
 │   │   │   ├── ocr.ts           #   OCR 엔진 래퍼 + 노이즈 제거
 │   │   │   ├── langDetect.ts    #   언어 자동 감지
 │   │   │   └── accessibility.ts #   접근성 API(AX/UIA) 브릿지
-│   │   └── search/             # 🅱️ 검색/AI (담당 B)
-│   │       ├── index.ts         #   검색 라우터(발음/사전/통합질문)
+│   │   └── question/           # 🅱️ 질문/AI (담당 B)
+│   │       ├── index.ts         #   질문 라우터(발음/사전/통합질문)
 │   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음)
 │   │       ├── dictionary.ts    #   사전 API + LLM 뜻 번호 판정
 │   │       ├── google.ts        #   구글 발음/이미지 탭 URL
