@@ -3,6 +3,7 @@ import type { AppSettings } from '@shared/types'
 import { PROVIDERS, PROVIDER_ORDER } from '@shared/providers'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
+import { goto } from '../navigate'
 
 // 설정 화면 (PLAN.md §3) — 담당 B
 // LLM·API 키 / 단축키 / AI 주변 범위(Byte) / 언어
@@ -129,14 +130,6 @@ export function SettingsScreen() {
     window.nuance.getSettings().then(setSettingsState)
   }, [])
 
-  // 설정 화면 동안 메인 창을 세로로 확대, 이탈(언마운트) 시 원래 크기로 복원.
-  useEffect(() => {
-    void window.nuance.setWindowExpanded(true)
-    return () => {
-      void window.nuance.setWindowExpanded(false)
-    }
-  }, [])
-
   useEffect(() => {
     if (!settings) return
     if (!settings.llm) {
@@ -225,7 +218,7 @@ export function SettingsScreen() {
   return (
     <div className="screen settings-screen">
       <div className="settings-header">
-        <button className="icon-btn back" onClick={() => (window.location.hash = '#/main')}>
+        <button className="icon-btn back" onClick={() => goto('main')}>
           ←
         </button>
         <div>

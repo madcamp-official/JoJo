@@ -1,5 +1,12 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
+import { IPC } from '@shared/channels'
+import type { AppMode, SelectionContext } from '@shared/types'
+// win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
+// Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
+// → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
+// `import type` 은 컴파일 타임에 완전히 제거되므로 런타임 로드가 없다.
+import type * as Win32Capture from './selection/win32Capture'
 
 // 3종 윈도우 팩토리 (PLAN.md §5)
 //  - 메인: 창 선택 / 설정 진입
@@ -7,6 +14,12 @@ import { join } from 'path'
 //  - 팝업: 발음·사전·통합질문·구글탭 (담당 B)
 
 const preload = join(__dirname, '../preload/index.js')
+
+// 패키징 전(electron-vite dev/build) 기준 — out/main/index.js 에서 두 단계 위가 프로젝트
+// 루트. TODO: electron-builder 등으로 실제 패키징할 때 리소스 경로 재검토 필요.
+export function resolveIconPath(): string {
+  return join(__dirname, '../../build/icon.png')
+}
 
 function loadRoute(win: BrowserWindow, route: string) {
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -17,7 +30,14 @@ function loadRoute(win: BrowserWindow, route: string) {
 }
 
 let mainWindow: BrowserWindow | null = null
-let pickerWindow: BrowserWindow | null = null
+
+// 트레이 "종료" 메뉴로 실제 종료할 때만 true — 그 전까지는 메인 창 X 버튼이 앱을
+// 끄지 않고 트레이로 숨긴다(PLAN.md §3: 창 선택 후 백그라운드 실행).
+let isQuitting = false
+
+export function setQuitting(value: boolean): void {
+  isQuitting = value
+}
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -25,6 +45,7 @@ export function createMainWindow(): BrowserWindow {
     height: 460,
     show: true,
     autoHideMenuBar: true,
+    icon: resolveIconPath(),
     webPreferences: { preload, sandbox: false },
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -33,6 +54,13 @@ export function createMainWindow(): BrowserWindow {
   })
   loadRoute(win, 'main')
   mainWindow = win
+  // X 버튼 = 트레이로 숨기기. 실제 종료는 트레이 메뉴 "종료"(app.quit, isQuitting=true)로만.
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault()
+      win.hide()
+    }
+  })
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
@@ -43,81 +71,252 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
-const MAIN_WIDTH = 760
-const MAIN_HEIGHT_NORMAL = 460
-const MAIN_HEIGHT_EXPANDED = 900
+export type MainRoute = 'main' | 'picker' | 'settings'
 
-/** 설정 화면 진입 시 메인 창을 세로로 확대하고, 메인 화면 복귀 시 원래 크기로 되돌린다. */
-export function setMainWindowExpanded(expanded: boolean): void {
+const ROUTE_SIZES: Record<MainRoute, { width: number; height: number }> = {
+  main: { width: 760, height: 460 },
+  picker: { width: 860, height: 760 },
+  settings: { width: 520, height: 640 },
+}
+
+// 메인/피커/설정 세 화면은 동시에 두 개 이상 보일 필요가 없어 창 하나를 재사용한다.
+// 화면을 바꿀 때마다 창 크기를 그 화면에 맞게 즉시(애니메이션 없이) 바꾸고 중앙 정렬한다 —
+// 리사이즈가 눈에 보이면 안 되고, 마치 다른 창이 뜬 것처럼 한 번에 바뀌어야 한다.
+function resizeMainWindowForRoute(route: MainRoute): void {
   const win = mainWindow
   if (!win || win.isDestroyed()) return
+  const { width, height } = ROUTE_SIZES[route]
   const { height: workHeight } = screen.getPrimaryDisplay().workAreaSize
-  const target = expanded ? Math.min(MAIN_HEIGHT_EXPANDED, workHeight - 40) : MAIN_HEIGHT_NORMAL
-  if (win.getSize()[1] === target) return
-  win.setSize(MAIN_WIDTH, target, false) // 애니메이션 없이 즉시 변경
+  const targetHeight = Math.min(height, workHeight - 40)
+  win.setSize(width, targetHeight, false)
   win.center()
 }
 
-const PICKER_WIDTH = 860
-const PICKER_HEIGHT = 760
+/** 렌더러(navigate.ts: goto())가 호출 — 렌더러가 이미 해시를 바꿨으므로 창 크기만 맞춘다. */
+export function setMainWindowRoute(route: MainRoute): void {
+  resizeMainWindowForRoute(route)
+}
 
-/** 창 선택 목록 — 메인 창의 모달 자식 창으로 별도 OS 창에 띄운다. */
-export function showWindowPicker(): void {
-  if (pickerWindow) {
-    pickerWindow.focus()
-    return
+/** 메인 프로세스(트레이 등)에서 호출 — 창 크기를 맞추고, 렌더러에도 화면 전환을 지시한다. */
+export function navigateMainWindow(route: MainRoute): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  resizeMainWindowForRoute(route)
+  win.webContents.send(IPC.NAVIGATE, route)
+}
+
+let overlayWindow: BrowserWindow | null = null
+let overlayMode: AppMode = 'normal'
+let trackedHwnd: bigint | null = null
+let trackTimer: NodeJS.Timeout | null = null
+let lastBounds: Electron.Rectangle | null = null
+let overlayVisible = false
+
+// WinEventHook 이 실시간으로 위치를 잡아주는 게 기본이고, 이 폴링은 훅이 놓치는 경우를
+// 대비한 안전망이라 느리게 돌아도 된다.
+const TRACK_FALLBACK_INTERVAL_MS = 150
+
+/**
+ * Win32 API(GetWindowRect/DWM)는 물리 픽셀 좌표를 주는데, Electron BrowserWindow 의
+ * bounds 는 논리(DIP) 좌표를 기대한다 — 디스플레이 배율이 100%가 아니면 그대로 쓰면
+ * 어긋난다. Electron 이 제공하는 물리→논리 변환(screenToDipPoint)으로 정확히 맞춘다.
+ */
+function physicalToDipRect(rect: Electron.Rectangle): Electron.Rectangle {
+  const topLeft = screen.screenToDipPoint({ x: rect.x, y: rect.y })
+  const bottomRight = screen.screenToDipPoint({
+    x: rect.x + rect.width,
+    y: rect.y + rect.height,
+  })
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: bottomRight.x - topLeft.x,
+    height: bottomRight.y - topLeft.y,
   }
-  const parent = mainWindow ?? undefined
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
+}
+
+function sameBounds(a: Electron.Rectangle, b: Electron.Rectangle): boolean {
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
+function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
+  if (overlayWindow) return overlayWindow
   const win = new BrowserWindow({
-    width: PICKER_WIDTH,
-    height: PICKER_HEIGHT,
-    x: Math.round((screenWidth - PICKER_WIDTH) / 2),
-    y: Math.round((screenHeight - PICKER_HEIGHT) / 2),
+    ...initialBounds,
+    transparent: true,
     frame: false,
-    resizable: false,
-    modal: !!parent,
-    parent,
+    // alwaysOnTop 을 안 쓴다 — 항상 최상위면 다른 창이 대상 창을 덮어도 테두리가 계속
+    // 그 위에 떠서 이상해 보인다. 대신 z-order 상 대상 창 바로 위 한 칸에만 꽂아서
+    // (syncOverlayZOrder), 다른 창이 대상 창을 덮으면 테두리도 자연스럽게 같이 가려지게 한다.
+    skipTaskbar: true,
+    hasShadow: false,
+    focusable: false,
     show: false,
     webPreferences: { preload, sandbox: false },
   })
-  win.once('ready-to-show', () => win.show())
+  win.setIgnoreMouseEvents(true, { forward: true }) // 완전 클릭스루 — 테두리만 그리고 조작엔 개입 안 함
   win.on('closed', () => {
-    if (pickerWindow === win) pickerWindow = null
+    if (overlayWindow === win) overlayWindow = null
   })
-  pickerWindow = win
-  loadRoute(win, 'picker')
-}
-
-export function closeWindowPicker(): void {
-  pickerWindow?.close()
-}
-
-// TODO(담당 A): 선택된 창 위에 정확히 정렬되는 투명·클릭스루 오버레이.
-export function createOverlayWindow(bounds: Electron.Rectangle): BrowserWindow {
-  const win = new BrowserWindow({
-    ...bounds,
-    transparent: true,
-    frame: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    hasShadow: false,
-    webPreferences: { preload, sandbox: false },
+  // Windows 에서 transparent+frameless 창은 생성 시 지정한 크기로 처음 보일 때 렌더링이
+  // 정확히 맞물리지 않는 경우가 있다(최초 1회만) — 실제로 화면에 보인 직후 같은 bounds 를
+  // 한 번 더 적용해 강제로 재배치시켜 어긋남을 없앤다.
+  win.once('show', () => {
+    win.setBounds(initialBounds)
   })
-  win.setIgnoreMouseEvents(true, { forward: true }) // 기본 클릭스루, 단어 위에서만 해제
+  overlayWindow = win
   loadRoute(win, 'overlay')
   return win
 }
 
-// TODO(담당 B): 선택 좌표 근처에 뜨는 검색 팝업.
-export function createPopupWindow(): BrowserWindow {
+function applyOverlayBounds(targetRect: Electron.Rectangle | null): void {
+  if (!targetRect) {
+    if (overlayWindow && overlayVisible) {
+      overlayWindow.hide()
+      overlayVisible = false
+    }
+    lastBounds = null
+    return
+  }
+
+  const bounds = physicalToDipRect(targetRect)
+  const win = ensureOverlayWindow(bounds)
+  if (!lastBounds || !sameBounds(lastBounds, bounds)) {
+    win.setBounds(bounds)
+    lastBounds = bounds
+    // Windows 에서 transparent+frameless 창은 setBounds 직후 한 번에 정확히 반영되지
+    // 않는 경우가 있다(특히 폭이 크게 바뀌는 재사용 시) — 다음 tick 에 같은 값을 한 번
+    // 더 강제 재적용해 어긋남을 없앤다. 그 사이 값이 또 바뀌었으면 최신값으로 다시 맞춘다.
+    setImmediate(() => {
+      if (!win.isDestroyed()) win.setBounds(lastBounds ?? bounds)
+    })
+  }
+  if (!overlayVisible) {
+    win.showInactive()
+    overlayVisible = true
+  }
+}
+
+let hooksWired = false
+let win32CaptureMod: typeof Win32Capture | null = null
+
+/** 오버레이를 대상 창 바로 위 z-order 한 칸에 꽂는다 — 다른 창이 대상을 덮으면 같이 가려짐. */
+function syncOverlayZOrder(mod: typeof Win32Capture, hwnd: bigint): void {
+  if (!overlayWindow) return
+  const overlayHwnd = overlayWindow.getNativeWindowHandle().readBigUInt64LE(0)
+  mod.placeWindowJustAbove(overlayHwnd, hwnd)
+}
+
+/**
+ * 선택된 창의 테두리 색 표시(일반=파랑/선택=보라) — 대상 창 bounds 바로 바깥에 정렬하고,
+ * 대상 창이 이동/리사이즈되는 즉시(Win32 WinEventHook) 오버레이도 따라가게 한다.
+ * 훅이 이벤트를 놓치는 경우를 대비해 저빈도 폴링을 안전망으로 같이 둔다.
+ * Windows 전용 — 호출부(ipc.ts)에서 process.platform === 'win32' 일 때만 부른다.
+ */
+export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
+  const mod = win32CaptureMod ?? (win32CaptureMod = await import('./selection/win32Capture'))
+  const { getWindowScreenRect, onWindowForegroundChanged, onWindowLocationChanged } = mod
+
+  trackedHwnd = hwnd
+  applyOverlayBounds(getWindowScreenRect(hwnd))
+  syncOverlayZOrder(mod, hwnd)
+
+  if (!hooksWired) {
+    onWindowLocationChanged((changedHwnd) => {
+      if (trackedHwnd !== null && changedHwnd === trackedHwnd) {
+        applyOverlayBounds(getWindowScreenRect(trackedHwnd))
+      }
+    })
+    // 대상 창이 다시 포그라운드로 올라올 때(예: 다른 창에 가려졌다가 클릭해서 복귀)
+    // 오버레이도 같이 그 바로 위로 다시 꽂아준다. 그 외의 경우엔 그대로 둬서, 다른
+    // 창이 대상을 덮으면 오버레이도 자연스럽게 같이 가려지게 한다.
+    //
+    // Windows 가 대상 창을 z-order 맨 위로 올리는 작업을 아직 다 끝내기 전에 이 이벤트가
+    // 먼저 도착하는 경우가 있어(레이스), 그 순간 바로 재배치하면 "일부만" 가려진 채로
+    // 남는 경우가 있었다. 창 크기 어긋남 버그 때와 같은 방식으로, 즉시 한 번 + 다음
+    // 틱들에 몇 번 더 재적용해서 Windows 쪽 정리가 끝난 뒤에도 확실히 맞춰지게 한다.
+    onWindowForegroundChanged((changedHwnd) => {
+      if (trackedHwnd === null || changedHwnd !== trackedHwnd) return
+      const hwndAtEvent = trackedHwnd
+      syncOverlayZOrder(mod, hwndAtEvent)
+      for (const delayMs of [0, 16, 50]) {
+        setTimeout(() => {
+          if (trackedHwnd === hwndAtEvent) syncOverlayZOrder(mod, hwndAtEvent)
+        }, delayMs)
+      }
+    })
+    hooksWired = true
+  }
+
+  if (trackTimer) clearInterval(trackTimer)
+  trackTimer = setInterval(() => {
+    if (trackedHwnd === null) return
+    applyOverlayBounds(getWindowScreenRect(trackedHwnd))
+  }, TRACK_FALLBACK_INTERVAL_MS)
+}
+
+export function hideSelectionOverlay(): void {
+  trackedHwnd = null
+  if (trackTimer) {
+    clearInterval(trackTimer)
+    trackTimer = null
+  }
+  applyOverlayBounds(null)
+}
+
+export function getOverlayMode(): AppMode {
+  return overlayMode
+}
+
+/** 전역 단축키로 모드가 토글될 때 호출 — 오버레이 렌더러에 새 색을 통지한다. */
+export function setOverlayMode(mode: AppMode): void {
+  overlayMode = mode
+  overlayWindow?.webContents.send(IPC.MODE_CHANGED, mode)
+}
+
+// 선택 확정 후 뜨는 검색/채팅 팝업 (담당 B).
+//  - 화면 중앙에 뜨고, 헤더 드래그로 사용자가 위치를 옮길 수 있다(styles.css: -webkit-app-region).
+//  - 담당 A 통합 시: 선택 파이프라인이 SelectionContext 를 만들어 createPopupWindow(ctx) 로 넘긴다.
+//    지금은 데모용으로 ctx 없이 열면 팝업이 자체 목업(호빗 well-to-do)으로 fallback 한다.
+let popupWindow: BrowserWindow | null = null
+let popupContext: SelectionContext | null = null
+
+const POPUP_WIDTH = 460
+const POPUP_HEIGHT = 640
+
+export function createPopupWindow(ctx: SelectionContext | null = null): BrowserWindow {
+  popupContext = ctx
+  if (popupWindow) {
+    popupWindow.focus()
+    popupWindow.webContents.send(IPC.POPUP_GET_CONTEXT, ctx) // 이미 열려 있으면 컨텍스트만 갱신
+    return popupWindow
+  }
+  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
   const win = new BrowserWindow({
-    width: 460,
-    height: 620,
+    width: POPUP_WIDTH,
+    height: POPUP_HEIGHT,
+    x: Math.round((screenWidth - POPUP_WIDTH) / 2),
+    y: Math.round((screenHeight - POPUP_HEIGHT) / 2),
     frame: false,
     alwaysOnTop: true,
+    show: false,
     webPreferences: { preload, sandbox: false },
   })
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.once('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    if (popupWindow === win) popupWindow = null
+    popupContext = null
+  })
+  popupWindow = win
   loadRoute(win, 'popup')
   return win
+}
+
+/** 팝업 렌더러가 마운트 시 조회하는 현재 SelectionContext (없으면 null → 렌더러가 목업 fallback). */
+export function getPopupContext(): SelectionContext | null {
+  return popupContext
 }

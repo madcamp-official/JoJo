@@ -53,7 +53,7 @@
 **설정 화면** (섹션 순서):
 1. **LLM 선택** — GPT / Gemini / Claude 카드형 단일 선택(선택 시 체크 표시).
 2. **API 키 관리** — 선택한 LLM의 키 입력, 보기(눈 아이콘)·수정·삭제. "안전하게 암호화 저장, 외부 미전송" 안내.
-3. **단축키 설정** — 모드 전환(일반 ↔ 선택) 키 지정. 기본 예: `Ctrl+1`, [변경] 버튼.
+3. **단축키 설정** — 모드 전환(일반 ↔ 선택) 키 지정. 기본 예: `Alt+Q`, [변경] 버튼.
 4. **AI 주변 범위(Byte)** — 프롬프트 제출 시 함께 넘길 앞뒤 텍스트 범위를 Byte 슬라이더(256·512·1024·2048·4096)로 지정. 미리보기에 "포함 제외 / 사용자 선택 영역 / 포함될 주변 범위"를 색으로 시각화.
 5. **언어 선택** — 자동 언어 감지 / 직접 선택(영어·일본어·중국어). OCR 언어 설정.
 
@@ -84,7 +84,8 @@
      → (직접 추출) 소스별 텍스트 추출
   → 텍스트 추출 + 화면 좌표 매핑
   → 커서 좌표 ↔ 단어 매핑
-  → (선택 확정) SelectionContext 생성 → 질문 파이프라인으로 전달
+  → 단어 클릭 감지 → 팝업 트리거 (ExtractedSelection = 근방 텍스트·단어 좌표·클릭 기준점을 B로 전달)   ← 여기까지 A (팝업 전)
+  → [B] 팝업 내 범위 확정 → SelectionContext 생성 → 질문 파이프라인                                    ← 이후 B (팝업 후)
 ```
 
 **OCR 사용 여부 판정 로직** — 원칙: "직접 추출을 먼저 시도하고, 확보 텍스트가 부족할 때만 OCR로 fallback".
@@ -137,8 +138,8 @@ flowchart TB
 
         subgraph PIPE[" "]
             direction LR
-            PA["<b>파이프라인 A · 선택/추출</b><br/>캡처 → (OCR｜직접추출) → 좌표 매핑"]
-            PB["<b>파이프라인 B · 질문/AI</b><br/>LLM·사전 어댑터 · 캐싱 · 스트리밍"]
+            PA["<b>파이프라인 A · 선택준비/추출 (팝업 전)</b><br/>캡처 → (OCR｜직접추출) → 좌표 매핑 → 클릭 감지"]
+            PB["<b>파이프라인 B · 선택확정/질문 (팝업 후)</b><br/>범위 확정 · LLM·사전 어댑터 · 캐싱 · 스트리밍"]
         end
 
         subgraph WINS[" "]
@@ -154,7 +155,7 @@ flowchart TB
     MAIN --> PA
     MAIN --> PB
     MAIN --> OVL
-    PA -- "SelectionContext" --> PB
+    PA -- "ExtractedSelection" --> PB
     PB -- "QuestionResult" --> POP
     PB -- "API 호출" --> SVC
 ```
@@ -169,38 +170,52 @@ flowchart TB
 
 ## 7. 2인 분업 계획 (파이프라인 축)
 
-두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `QuestionResult`(B→UI)**. 이 인터페이스를 가장 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
+두 사람을 **팝업창 기준**으로 나눈다. A는 팝업이 뜨기 전까지(창 선택·캡처·오버레이·모드·추출·좌표·클릭 감지), B는 팝업이 뜬 이후 전부(범위 확정·문맥 구성·질문·결과·설정)를 맡는다. **경계 = `ExtractedSelection`(A→B, 팝업 직전 추출 결과)와 `QuestionResult`(B→UI)**. 이 인터페이스를 가장 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
 
-### 담당 A — 선택 & 추출 (입력단)
+### 담당 A — 선택 준비 & 추출 (팝업 전)
 - 창 선택/화면 캡처(win32 네이티브 우선, desktopCapturer 폴백), 오버레이 윈도우, 전역 단축키, 모드 전환.
 - OCR 파이프라인(캡처→언어 감지→언어 특화 OCR→좌표 매핑) + 노이즈 제거.
 - 소스별 직접 추출(txt/epub/PDF) + 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출, OCR 여부 판정 로직·판정 시점 캐싱.
 - 브라우저 확장(DOM 텍스트, 유튜브/넷플릭스 자막, 단어 하이라이트) + 앱과 native messaging.
 - 접근성 API로 탭/URL 변화 감지.
-- **산출**: 확정된 `SelectionContext`를 B로 넘긴다.
+- 단어 hover 피드백·클릭 감지 → 팝업 트리거.
+- **산출**: 클릭 시점의 `ExtractedSelection`(근방 텍스트 + 단어 좌표 + 클릭 기준점)을 B로 넘긴다(최종 선택 확정은 B가 팝업에서).
 
-### 담당 B — 질문 & AI (출력단)
+### 담당 B — 선택 확정 & 질문 (팝업 후)
+- 팝업 내 범위 확정(영어=단어 / 일·중=문자, 클릭 vs 드래그) + 앞뒤 문맥 구성 → `SelectionContext` 생성.
 - LLM 어댑터(GPT/Gemini/Claude 공통 인터페이스) + 채팅 세션·프롬프트 캐싱.
 - 발음(맥락 발음), 사전 API 연동 + LLM 뜻 번호 판정, 통합 질문·커스텀 질문 관리.
 - 구글 검색 탭(발음/이미지), 팝업·채팅 UI.
 - 설정 화면(언어·LLM·API 키·단축키·인근 텍스트 범위).
-- **입력**: `SelectionContext`를 받아 `QuestionResult`(스트리밍)를 UI에 렌더.
+- **입력**: `ExtractedSelection`을 받아 팝업에서 선택 범위를 확정(`SelectionContext` 구성)한 뒤 `QuestionResult`(스트리밍)를 UI에 렌더.
 
 ### 인터페이스 계약 (A ↔ B, 최우선 확정)
 ```ts
-// A가 생성해 B로 전달
-interface SelectionContext {
-  selectedText: string;                 // 사용자가 최종 확정한 선택 범위
+interface SelectionSource {              // 출처 메타(캐싱·자막 추출용)
+  kind: 'youtube' | 'netflix' | 'pdf' | 'txt' | 'epub' | 'web' | 'ocr';
+  url?: string;
+  appName?: string;
+}
+
+// A가 팝업 직전에 생성해 B로 전달 (팝업 전까지가 A 경계)
+interface ExtractedSelection {
+  text: string;                         // 클릭 지점 근방의 추출 텍스트(문맥 포함)
+  words: { text: string; bbox?: Rect }[]; // 단어 분해(+화면 좌표)
+  anchorWordIndex: number;              // 사용자가 클릭한 단어 = 팝업 초기 선택 기준점
   language: 'en' | 'ja' | 'zh';         // 감지 또는 지정된 언어
-  precedingText: string;                // 앞 문맥(설정 범위만큼)
-  followingText: string;                // 뒤 문맥
-  words: { text: string; bbox?: Rect }[]; // 단어 분해(+선택 시 화면 좌표)
-  source: {                             // 출처 메타(캐싱·자막 추출용)
-    kind: 'youtube' | 'netflix' | 'pdf' | 'txt' | 'epub' | 'web' | 'ocr';
-    url?: string;
-    appName?: string;
-  };
+  source: SelectionSource;
   extraction: 'direct' | 'ocr';         // 어떻게 뽑았는지
+}
+
+// B가 팝업에서 범위를 확정한 뒤 내부적으로 구성 (검색 함수 입력)
+interface SelectionContext {
+  selectedText: string;                 // 팝업에서 사용자가 최종 확정한 선택 범위
+  language: 'en' | 'ja' | 'zh';
+  precedingText: string;                // 앞 문맥(설정 범위만큼, 문장 경계까지 확장)
+  followingText: string;                // 뒤 문맥
+  words: { text: string; bbox?: Rect }[]; // 단어 분해(+화면 좌표)
+  source: SelectionSource;
+  extraction: 'direct' | 'ocr';
 }
 
 // B가 반환해 UI로 (스트리밍 가능)
@@ -227,7 +242,7 @@ interface QuestionError {
   provider?: LlmProvider;
 }
 ```
-- **통합 지점**: IPC 채널 `selection:resolved`(A→B), `question:request`/`question:stream`(B). 양측 목 구현으로 병렬 진행하다 이후 실연결.
+- **통합 지점**: IPC 채널 `selection:extracted`(A→B, `ExtractedSelection` 전달 = 팝업 트리거), `question:request`/`question:stream`(B, 팝업에서 확정한 `SelectionContext` 기반). 양측 목 구현으로 병렬 진행하다 이후 실연결.
 - **공유 코드**: 타입 정의(`shared/types.ts`), IPC 유틸, 로거는 공동 소유.
 
 ## 8. 리스크 & 확장 로드맵
@@ -260,7 +275,7 @@ JoJo/
 │   │   ├── devSeed.ts           #   [dev] .env(MAIN_VITE_*) API 키 seed
 │   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
-│   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Ctrl+1)
+│   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Alt+Q)
 │   │   │   ├── capture.ts       #   창 목록/캡처(win32 우선, desktopCapturer 폴백) + 선택 창 id 보관
 │   │   │   ├── win32Capture.ts  #   Windows 네이티브 창 열거·캡처(koffi FFI, 가려짐/최소화 대응)
 │   │   │   ├── decideOcr.ts     #   OCR 사용 여부 판정 + URL 캐시

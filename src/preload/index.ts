@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
+  AppMode,
   AppSettings,
   CaptureSource,
+  Language,
   LlmProvider,
   QuestionRequest,
   QuestionResult,
@@ -13,17 +15,32 @@ import type {
 const api = {
   listWindows: (): Promise<CaptureSource[]> => ipcRenderer.invoke(IPC.WINDOW_LIST),
 
-  openWindowPicker: (): Promise<void> => ipcRenderer.invoke(IPC.OPEN_WINDOW_PICKER),
+  // 메인/피커/설정 전환 — navigate.ts: goto() 가 호출(창 크기만 요청, 화면 전환은 렌더러가 직접 처리).
+  setWindowRoute: (route: 'main' | 'picker' | 'settings'): Promise<void> =>
+    ipcRenderer.invoke(IPC.WINDOW_SET_ROUTE, route),
 
-  closeWindowPicker: (): Promise<void> => ipcRenderer.invoke(IPC.CLOSE_WINDOW_PICKER),
+  // 메인 프로세스(트레이 등)가 화면 전환을 지시할 때 수신 — App.tsx 가 구독해 해시를 바꾼다.
+  onNavigate: (cb: (route: 'main' | 'picker' | 'settings') => void): (() => void) => {
+    const listener = (_e: unknown, route: 'main' | 'picker' | 'settings') => cb(route)
+    ipcRenderer.on(IPC.NAVIGATE, listener)
+    return () => ipcRenderer.removeListener(IPC.NAVIGATE, listener)
+  },
 
   selectWindow: (source: CaptureSource): Promise<void> =>
     ipcRenderer.invoke(IPC.SELECT_WINDOW, source),
 
-  onWindowSelected: (cb: (source: CaptureSource) => void): (() => void) => {
-    const listener = (_e: unknown, source: CaptureSource) => cb(source)
+  onWindowSelected: (cb: (source: CaptureSource | null) => void): (() => void) => {
+    const listener = (_e: unknown, source: CaptureSource | null) => cb(source)
     ipcRenderer.on(IPC.WINDOW_SELECTED, listener)
     return () => ipcRenderer.removeListener(IPC.WINDOW_SELECTED, listener)
+  },
+
+  getMode: (): Promise<AppMode> => ipcRenderer.invoke(IPC.GET_MODE),
+
+  onModeChanged: (cb: (mode: AppMode) => void): (() => void) => {
+    const listener = (_e: unknown, mode: AppMode) => cb(mode)
+    ipcRenderer.on(IPC.MODE_CHANGED, listener)
+    return () => ipcRenderer.removeListener(IPC.MODE_CHANGED, listener)
   },
 
   resolveSelection: (point: { x: number; y: number }): Promise<SelectionContext> =>
@@ -52,8 +69,21 @@ const api = {
   deleteApiKey: (provider: LlmProvider): Promise<void> =>
     ipcRenderer.invoke(IPC.APIKEY_DELETE, provider),
 
-  setWindowExpanded: (expanded: boolean): Promise<void> =>
-    ipcRenderer.invoke(IPC.WINDOW_SET_EXPANDED, expanded),
+  // 팝업 (담당 B)
+  openPopup: (): Promise<void> => ipcRenderer.invoke(IPC.OPEN_POPUP),
+
+  getPopupContext: (): Promise<SelectionContext | null> =>
+    ipcRenderer.invoke(IPC.POPUP_GET_CONTEXT),
+
+  // 이미 열린 팝업에 컨텍스트가 갱신되면 통지받는다(창 재사용 시)
+  onPopupContext: (cb: (ctx: SelectionContext | null) => void): (() => void) => {
+    const listener = (_e: unknown, ctx: SelectionContext | null) => cb(ctx)
+    ipcRenderer.on(IPC.POPUP_GET_CONTEXT, listener)
+    return () => ipcRenderer.removeListener(IPC.POPUP_GET_CONTEXT, listener)
+  },
+
+  openGoogle: (mode: 'pron' | 'image', text: string, lang: Language): Promise<void> =>
+    ipcRenderer.invoke(IPC.OPEN_GOOGLE, { mode, text, lang }),
 }
 
 contextBridge.exposeInMainWorld('nuance', api)

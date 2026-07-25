@@ -6,10 +6,14 @@ export const IPC = {
   WINDOW_LIST: 'window:list',
   SELECT_WINDOW: 'window:select',
   WINDOW_SELECTED: 'window:selected',
-  OPEN_WINDOW_PICKER: 'window:openPicker',
-  CLOSE_WINDOW_PICKER: 'window:closePicker',
+  GET_MODE: 'mode:get',
   SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
+
+  // 메인/피커/설정 화면 전환 (공동) — 세 화면은 한 창을 재사용한다(동시 표시 불필요).
+  // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.
+  WINDOW_SET_ROUTE: 'window:setRoute',
+  NAVIGATE: 'window:navigate',
 
   // 선택 확정 → 질문 파이프라인으로 전달 (A → B)
   SELECTION_RESOLVED: 'selection:resolved',
@@ -18,15 +22,17 @@ export const IPC = {
   QUESTION_REQUEST: 'question:request',
   QUESTION_STREAM: 'question:stream',
 
+  // 팝업 (담당 B) — 선택 확정 후 뜨는 검색/채팅 팝업
+  OPEN_POPUP: 'popup:open',
+  POPUP_GET_CONTEXT: 'popup:getContext',
+  OPEN_GOOGLE: 'popup:openGoogle',
+
   // 설정 / API 키 (담당 B)
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
   APIKEY_GET: 'apikey:get',
   APIKEY_SET: 'apikey:set',
   APIKEY_DELETE: 'apikey:delete',
-
-  // 창 크기 조정 (설정 화면 진입 시 세로 확대)
-  WINDOW_SET_EXPANDED: 'window:setExpanded',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
