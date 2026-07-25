@@ -108,7 +108,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 12px; color: #6b7280;
 }
 
-.apikey-row { display: flex; gap: 8px; align-items: center; }
+.apikey-row { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
 .apikey-main { flex: 1; min-width: 0; }
 .apikey-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .apikey-row label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 6px; }
@@ -174,7 +174,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   position: relative; /* selected-span offsetTop 기준(스크롤 자동 이동) */
   border: 1px solid #e6e8ec; border-radius: 8px; padding: 14px 16px; font-size: 13px;
   line-height: 1.7; color: #4b5563; background: #fafbfc;
-  max-height: 200px; overflow-y: auto; white-space: pre-wrap;
+  max-height: 460px; overflow-y: auto; white-space: pre-wrap;
 }
 .byte-preview .excluded { color: #b3b9c2; }
 .byte-preview .context-span { background: var(--theme-weak); }
