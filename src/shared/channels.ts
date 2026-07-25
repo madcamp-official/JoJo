@@ -13,8 +13,8 @@ export const IPC = {
   MODE_CHANGED: 'mode:changed',
   OPEN_SETTINGS: 'settings:open',
 
-  // 선택 확정 → 질문 파이프라인으로 전달 (A → B)
-  SELECTION_RESOLVED: 'selection:resolved',
+  // 팝업 직전 추출 결과 전달 = 팝업 트리거 (A → B). 최종 선택 확정은 B가 팝업에서.
+  SELECTION_EXTRACTED: 'selection:extracted',
 
   // 질문 (담당 B)
   QUESTION_REQUEST: 'question:request',

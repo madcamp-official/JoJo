@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
-import type { AppMode, SelectionContext } from '@shared/types'
+import type { AppMode, ExtractedSelection } from '@shared/types'
 // win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
 // Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
 // → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
@@ -301,15 +301,15 @@ export function setOverlayMode(mode: AppMode): void {
 
 // 선택 확정 후 뜨는 검색/채팅 팝업 (담당 B).
 //  - 화면 중앙에 뜨고, 헤더 드래그로 사용자가 위치를 옮길 수 있다(styles.css: -webkit-app-region).
-//  - 담당 A 통합 시: 선택 파이프라인이 SelectionContext 를 만들어 createPopupWindow(ctx) 로 넘긴다.
+//  - 담당 A 통합 시: 선택 파이프라인이 ExtractedSelection 을 만들어 createPopupWindow(ctx) 로 넘긴다.
 //    지금은 데모용으로 ctx 없이 열면 팝업이 자체 목업(호빗 well-to-do)으로 fallback 한다.
 let popupWindow: BrowserWindow | null = null
-let popupContext: SelectionContext | null = null
+let popupContext: ExtractedSelection | null = null
 
 const POPUP_WIDTH = 460
 const POPUP_HEIGHT = 640
 
-export function createPopupWindow(ctx: SelectionContext | null = null): BrowserWindow {
+export function createPopupWindow(ctx: ExtractedSelection | null = null): BrowserWindow {
   popupContext = ctx
   if (popupWindow) {
     popupWindow.focus()
@@ -341,7 +341,7 @@ export function createPopupWindow(ctx: SelectionContext | null = null): BrowserW
   return win
 }
 
-/** 팝업 렌더러가 마운트 시 조회하는 현재 SelectionContext (없으면 null → 렌더러가 목업 fallback). */
-export function getPopupContext(): SelectionContext | null {
+/** 팝업 렌더러가 마운트 시 조회하는 현재 ExtractedSelection (없으면 null → 렌더러가 목업 fallback). */
+export function getPopupContext(): ExtractedSelection | null {
   return popupContext
 }

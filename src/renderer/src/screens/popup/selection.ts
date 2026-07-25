@@ -1,4 +1,4 @@
-import type { SelectionContext, Word } from '@shared/types'
+import type { ExtractedSelection, SelectionContext, Word } from '@shared/types'
 
 // ============================================================================
 // 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §4.1 "팝업 내 범위 지정")
@@ -42,11 +42,11 @@ function tokenizeAtoms(text: string): Atom[] {
   return atoms
 }
 
-/** ctx 로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
-export function buildSelectionModel(ctx: SelectionContext): PopupSelectionModel {
-  const displayText = ctx.precedingText + ctx.selectedText + ctx.followingText
-  const selStart = ctx.precedingText.length
-  const selEnd = selStart + ctx.selectedText.length
+/** ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
+export function buildSelectionModel(extracted: ExtractedSelection): PopupSelectionModel {
+  const displayText = extracted.text
+  const selStart = extracted.anchor.start
+  const selEnd = extracted.anchor.end
   const atoms = tokenizeAtoms(displayText)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.
@@ -70,13 +70,32 @@ function splitWords(selectedText: string): Word[] {
     .map((t) => ({ text: t }))
 }
 
+/** displayText 의 [start, end) 구간을 최종 SelectionContext 로 조립한다(메타는 base 유지). */
+function contextFromRange(
+  base: ExtractedSelection,
+  displayText: string,
+  start: number,
+  end: number,
+): SelectionContext {
+  const selectedText = displayText.slice(start, end)
+  return {
+    selectedText,
+    precedingText: displayText.slice(0, start),
+    followingText: displayText.slice(end),
+    words: splitWords(selectedText),
+    language: base.language,
+    source: base.source,
+    extraction: base.extraction,
+  }
+}
+
 /**
- * 현재 선택된 atom 범위 [from, to] 로부터 새 SelectionContext 를 파생한다.
- * language/source/extraction 등 메타는 원본 ctx 를 유지하고,
- * selectedText/precedingText/followingText/words 만 재계산한다.
+ * 현재 선택된 atom 범위 [from, to] 로부터 최종 SelectionContext 를 파생한다.
+ * language/source/extraction 등 메타는 base(ExtractedSelection)를 유지하고,
+ * selectedText/precedingText/followingText/words 만 계산한다.
  */
 export function deriveContext(
-  base: SelectionContext,
+  base: ExtractedSelection,
   model: PopupSelectionModel,
   from: number,
   to: number,
@@ -86,14 +105,7 @@ export function deriveContext(
   const a = model.atoms[lo]
   const b = model.atoms[hi]
   // atom 이 하나도 없거나 범위가 유효하지 않으면(공백·기호만 넘어온 경우 등)
-  // 재선택을 계산할 수 없으므로 원본 ctx 를 그대로 돌려준다.
-  if (!a || !b) return base
-  const selectedText = model.displayText.slice(a.start, b.end)
-  return {
-    ...base,
-    selectedText,
-    precedingText: model.displayText.slice(0, a.start),
-    followingText: model.displayText.slice(b.end),
-    words: splitWords(selectedText),
-  }
+  // 초기 선택(anchor)으로 fallback 한다.
+  if (!a || !b) return contextFromRange(base, model.displayText, base.anchor.start, base.anchor.end)
+  return contextFromRange(base, model.displayText, a.start, b.end)
 }

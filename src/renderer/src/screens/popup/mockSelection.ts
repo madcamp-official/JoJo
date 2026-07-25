@@ -1,9 +1,9 @@
-import type { SelectionContext } from '@shared/types'
+import type { ExtractedSelection } from '@shared/types'
 
 // ============================================================================
 // 담당 B — 팝업 개발용 목업 (호빗 첫 페이지, "well-to-do" 클릭 상황)
 //
-// ⚠️ 임시 fixture. 담당 A 의 선택 파이프라인이 실제 SelectionContext 를 만들어
+// ⚠️ 임시 fixture. 담당 A 의 선택 파이프라인이 실제 ExtractedSelection 을 만들어
 //    createPopupWindow(ctx) 로 넘기면 이 목업은 자연스럽게 대체된다.
 //    (팝업 렌더러는 실제 ctx 가 없을 때만 이 목업으로 fallback 한다.)
 //
@@ -56,14 +56,15 @@ function collapseWhitespace(s: string): string {
 
 /**
  * 전체 원문에서 target 을 찾아, 그 문장 앞뒤로 N개 문장을 포함한 문맥 창을 만들어
- * SelectionContext 로 조립한다. 문장 경계로 자르므로 문맥이 문장 중간에서 끊기지 않는다.
+ * ExtractedSelection 으로 조립한다(A가 넘길 형태). 문장 경계로 자르므로 문맥이 중간에서
+ * 끊기지 않고, target 위치는 anchor(초기 선택)로 표시한다.
  */
-export function buildSelectionContext(
+export function buildExtractedSelection(
   full: string,
   target: string,
   before = CONTEXT_SENTENCES_BEFORE,
   after = CONTEXT_SENTENCES_AFTER,
-): SelectionContext {
+): ExtractedSelection {
   const targetPos = full.indexOf(target)
   if (targetPos < 0) throw new Error(`target(${target}) 를 원문에서 찾지 못했습니다.`)
 
@@ -74,21 +75,21 @@ export function buildSelectionContext(
 
   const windowText = collapseWhitespace(full.slice(spans[from]!.start, spans[to]!.end))
   const selStart = windowText.indexOf(target)
-  const precedingText = windowText.slice(0, selStart)
-  const followingText = windowText.slice(selStart + target.length)
 
   return {
-    selectedText: target,
+    text: windowText,
+    anchor: { start: selStart, end: selStart + target.length },
+    words: windowText
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((t) => ({ text: t })),
     language: 'en',
-    precedingText,
-    followingText,
-    words: target.split(/[-\s]+/).map((t) => ({ text: t })),
     source: { kind: 'pdf', appName: 'Hobbit.pdf' },
     extraction: 'direct',
   }
 }
 
-/** 팝업이 실제 ctx 없이 열렸을 때 쓰는 기본 목업 컨텍스트 */
-export function mockHobbitContext(): SelectionContext {
-  return buildSelectionContext(HOBBIT_TEXT, HOBBIT_TARGET)
+/** 팝업이 실제 ctx 없이 열렸을 때 쓰는 기본 목업 추출 결과 */
+export function mockHobbitExtraction(): ExtractedSelection {
+  return buildExtractedSelection(HOBBIT_TEXT, HOBBIT_TARGET)
 }
