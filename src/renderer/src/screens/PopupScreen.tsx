@@ -132,8 +132,17 @@ export function PopupScreen() {
     window.nuance.openGoogle(mode, currentCtx.selectedText, currentCtx.language)
   }
 
-  // ---- 자주 쓰는 질문 --------------------------------------------------------
-  const [frequent, setFrequent] = useState<string[]>(() => loadFrequent())
+  // ---- 자주 쓰는 질문 (main 프로세스 userData/frequent.json 에 영속) --------
+  const [frequent, setFrequent] = useState<string[]>([])
+  useEffect(() => {
+    let active = true
+    void loadFrequent().then((list) => {
+      if (active) setFrequent(list)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
   function updateFrequent(list: string[]) {
     setFrequent(list)
     saveFrequent(list)

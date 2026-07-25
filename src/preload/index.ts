@@ -61,6 +61,10 @@ const api = {
   setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke(IPC.SETTINGS_SET, patch),
 
+  getFrequent: (): Promise<string[]> => ipcRenderer.invoke(IPC.FREQUENT_GET),
+
+  setFrequent: (list: string[]): Promise<string[]> => ipcRenderer.invoke(IPC.FREQUENT_SET, list),
+
   getApiKey: (provider: LlmProvider): Promise<string | null> =>
     ipcRenderer.invoke(IPC.APIKEY_GET, provider),
 

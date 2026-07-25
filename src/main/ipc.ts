@@ -24,6 +24,7 @@ import {
 } from './windows'
 import { updateModeShortcut } from './selection/shortcut'
 import { getSettings, setSettings } from './settingsStore'
+import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { googleImageUrl, googlePronunciationUrl } from './question/google'
@@ -88,6 +89,15 @@ export function registerIpc(): void {
     if (patch.llm) setActiveProvider(patch.llm)
     if (patch.modeShortcut) updateModeShortcut(patch.modeShortcut)
     return next
+  })
+
+  // 담당 B: 자주 쓰는 질문 조회/저장 (userData/frequent.json, frequentStore.ts)
+  ipcMain.handle(IPC.FREQUENT_GET, async (): Promise<string[]> => {
+    return getFrequent()
+  })
+
+  ipcMain.handle(IPC.FREQUENT_SET, async (_e, list: string[]): Promise<string[]> => {
+    return setFrequent(list)
   })
 
   // 담당 B: API 키 조회/저장/삭제 (safeStorage 암호화, keyStore.ts)

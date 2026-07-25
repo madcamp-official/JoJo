@@ -30,6 +30,8 @@ export const IPC = {
   // 설정 / API 키 (담당 B)
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+  FREQUENT_GET: 'frequent:get',
+  FREQUENT_SET: 'frequent:set',
   APIKEY_GET: 'apikey:get',
   APIKEY_SET: 'apikey:set',
   APIKEY_DELETE: 'apikey:delete',
