@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/channels'
-import type { CaptureSource, SearchRequest, SearchResult, SelectionContext } from '@shared/types'
+import type {
+  AppMode,
+  CaptureSource,
+  SearchRequest,
+  SearchResult,
+  SelectionContext,
+} from '@shared/types'
 
 // preload — 렌더러에 안전한 API 만 노출 (공동)
 const api = {
@@ -17,6 +23,14 @@ const api = {
     const listener = (_e: unknown, source: CaptureSource) => cb(source)
     ipcRenderer.on(IPC.WINDOW_SELECTED, listener)
     return () => ipcRenderer.removeListener(IPC.WINDOW_SELECTED, listener)
+  },
+
+  getMode: (): Promise<AppMode> => ipcRenderer.invoke(IPC.GET_MODE),
+
+  onModeChanged: (cb: (mode: AppMode) => void): (() => void) => {
+    const listener = (_e: unknown, mode: AppMode) => cb(mode)
+    ipcRenderer.on(IPC.MODE_CHANGED, listener)
+    return () => ipcRenderer.removeListener(IPC.MODE_CHANGED, listener)
   },
 
   resolveSelection: (point: { x: number; y: number }): Promise<SelectionContext> =>

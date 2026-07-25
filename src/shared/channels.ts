@@ -8,6 +8,7 @@ export const IPC = {
   WINDOW_SELECTED: 'window:selected',
   OPEN_WINDOW_PICKER: 'window:openPicker',
   CLOSE_WINDOW_PICKER: 'window:closePicker',
+  GET_MODE: 'mode:get',
   SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
 

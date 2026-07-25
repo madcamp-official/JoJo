@@ -45,6 +45,7 @@ koffi.struct('RECT', {
   bottom: 'int32_t',
 })
 const GetClientRect = user32.func('int __stdcall GetClientRect(void *hwnd, _Out_ RECT *rect)')
+const GetWindowRect = user32.func('int __stdcall GetWindowRect(void *hwnd, _Out_ RECT *rect)')
 
 const GetModuleHandleW = kernel32.func('void * __stdcall GetModuleHandleW(void *lpModuleName)')
 const DefWindowProcW = user32.func(
@@ -71,6 +72,15 @@ const CreateWindowExW = user32.func(
 )
 const DestroyWindow = user32.func('int __stdcall DestroyWindow(void *hwnd)')
 const GetSystemMetrics = user32.func('int32_t __stdcall GetSystemMetrics(int32_t nIndex)')
+const SetForegroundWindow = user32.func('int __stdcall SetForegroundWindow(void *hwnd)')
+const ShowWindow = user32.func('int __stdcall ShowWindow(void *hwnd, int32_t nCmdShow)')
+
+koffi.proto(
+  'void __stdcall WINEVENTPROC(void *hWinEventHook, uint32_t event, void *hwnd, int32_t idObject, int32_t idChild, uint32_t idEventThread, uint32_t dwmsEventTime)',
+)
+const SetWinEventHook = user32.func(
+  'void * __stdcall SetWinEventHook(uint32_t eventMin, uint32_t eventMax, void *hmodWinEventProc, WINEVENTPROC *pfnWinEventProc, uint32_t idProcess, uint32_t idThread, uint32_t dwFlags)',
+)
 
 koffi.struct('DWM_SIZE', { cx: 'int32_t', cy: 'int32_t' })
 koffi.struct('DWM_RECT', { left: 'int32_t', top: 'int32_t', right: 'int32_t', bottom: 'int32_t' })
@@ -125,12 +135,16 @@ const GetDIBits = gdi32.func(
 const DwmGetWindowAttribute = dwmapi.func(
   'int32_t __stdcall DwmGetWindowAttribute(void *hwnd, uint32_t dwAttribute, _Out_ uint32_t *pvAttribute, uint32_t cbAttribute)',
 )
+const DwmGetWindowAttributeRect = dwmapi.func(
+  'int32_t __stdcall DwmGetWindowAttribute(void *hwnd, uint32_t dwAttribute, _Out_ RECT *pvAttribute, uint32_t cbAttribute)',
+)
 
 const GW_OWNER = 4
 const GWL_EXSTYLE = -20
 const WS_EX_TOOLWINDOW = 0x00000080
 const PW_RENDERFULLCONTENT = 2
 const DWMWA_CLOAKED = 14
+const DWMWA_EXTENDED_FRAME_BOUNDS = 9
 const THUMB_HOST_CLASS = 'NuanceThumbHost'
 
 /** 우리가 DWM 캡처용으로 만드는 숨김 호스트 창인지 — 목록에 절대 노출되면 안 된다. */
@@ -199,6 +213,85 @@ export function listWin32Windows(): Win32Window[] {
     koffi.unregister(cb)
   }
   return results
+}
+
+/**
+ * 창의 화면 절대 좌표(실제로 눈에 보이는 프레임 기준) — 선택 테두리 오버레이 배치에 쓴다.
+ * 최소화된 창은 화면에 없으므로 null. `GetWindowRect`는 최대화된 창에서 보이지 않는
+ * 리사이즈 여백(~8px)까지 포함해 오차가 생겨서, `DWMWA_EXTENDED_FRAME_BOUNDS`로
+ * DWM 이 실제로 그리는 시각적 경계를 가져온다(Aero Snap/Alt-Tab 썸네일과 동일한 방식).
+ */
+export function getWindowScreenRect(
+  hwnd: bigint,
+): { x: number; y: number; width: number; height: number } | null {
+  if (IsIconic(hwnd)) return null
+
+  const rect = { left: 0, top: 0, right: 0, bottom: 0 }
+  const ok =
+    DwmGetWindowAttributeRect(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, rect, 16) === 0 ||
+    GetWindowRect(hwnd, rect)
+  if (!ok) return null
+
+  const width = rect.right - rect.left
+  const height = rect.bottom - rect.top
+  if (width <= 0 || height <= 0) return null
+  return { x: rect.left, y: rect.top, width, height }
+}
+
+const SW_RESTORE = 9
+
+/**
+ * 선택한 창을 실제로 화면 앞에 보이게 한다 — 다른 창에 가려진 채로 선택하면
+ * 테두리 오버레이는 정확한 위치에 그려져도, 정작 그 자리엔 다른 창이 보여서
+ * 테두리와 실제 보이는 화면이 어긋나 보인다.
+ */
+export function bringWindowToForeground(hwnd: bigint): void {
+  if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE)
+  SetForegroundWindow(hwnd)
+}
+
+const EVENT_OBJECT_LOCATIONCHANGE = 0x800b
+const WINEVENT_OUTOFCONTEXT = 0x0000
+const OBJID_WINDOW = 0
+
+let locationHookRegistered = false
+const locationListeners = new Set<(hwnd: bigint) => void>()
+
+/**
+ * 창이 이동/리사이즈되는 그 순간 OS 로부터 바로 통지받는다 — 폴링과 달리 지연이 없다.
+ * 시스템 전역 훅이라 모든 창의 이벤트가 들어오므로, 호출자가 원하는 hwnd 인지 직접 걸러야 한다.
+ */
+export function onWindowLocationChanged(cb: (hwnd: bigint) => void): void {
+  locationListeners.add(cb)
+  if (locationHookRegistered) return
+
+  const proc = koffi.register(
+    (
+      _hWinEventHook: unknown,
+      _event: number,
+      hwnd: bigint,
+      idObject: number,
+      _idChild: number,
+      _idEventThread: number,
+      _dwmsEventTime: number,
+    ) => {
+      if (idObject !== OBJID_WINDOW) return // 창 자체의 이동만 — 스크롤바 등 자식 객체 제외
+      for (const listener of locationListeners) listener(hwnd)
+    },
+    koffi.pointer('WINEVENTPROC'),
+  )
+  // eventMin === eventMax — LOCATIONCHANGE 하나만 구독. (min/max 를 다른 값으로 넘기면
+  // 그 사이의 모든 이벤트 코드를 구독하게 되어 시스템 전역 이벤트가 쏟아진다.)
+  SetWinEventHook(
+    EVENT_OBJECT_LOCATIONCHANGE,
+    EVENT_OBJECT_LOCATIONCHANGE,
+    null,
+    proc,
+    0,
+    0,
+    WINEVENT_OUTOFCONTEXT,
+  )
+  locationHookRegistered = true
 }
 
 type CaptureResult = { buffer: Buffer; width: number; height: number }
