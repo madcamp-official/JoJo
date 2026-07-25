@@ -6,11 +6,13 @@ import type { Language, SelectionSource, Word } from '@shared/types'
 //  - 전자책 뷰어  : 접근성 API 렌더 텍스트
 
 export interface Extracted {
+  /** 추출된 전체 텍스트 — ExtractedSelection.text/anchor 계산의 기준 문자열 */
+  text: string
   language: Language
   words: Word[]
 }
 
 export async function extractDirect(_source: SelectionSource): Promise<Extracted> {
   // TODO(담당 A): source.kind 별 파서 분기 + 좌표 매핑.
-  return { language: 'en', words: [] }
+  return { text: '', language: 'en', words: [] }
 }

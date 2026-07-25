@@ -45,7 +45,7 @@ export async function runOcr(image: Buffer, language: Language): Promise<Extract
     }
   }
 
-  return { language, words: removeNoise(words) }
+  return { text: data.text, language, words: removeNoise(words) }
 }
 
 // 좌표 기반 노이즈 제거 (제목/페이지 번호 등) — PLAN.md §6

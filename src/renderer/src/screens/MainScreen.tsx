@@ -1,24 +1,16 @@
-import { useEffect, useState } from 'react'
 import type { CaptureSource } from '@shared/types'
+import { goto } from '../navigate'
 
 // 메인 화면 (PLAN.md §3 화면 구성) — 중앙 [창 선택] + 우상단 설정 아이콘.
-// [담당 A] 창 선택 버튼 → 별도 모달 OS 창(WindowPickerScreen)에서 선택 완료 시 통지받는다.
-export function MainScreen() {
-  const [selected, setSelected] = useState<CaptureSource | null>(null)
-
-  useEffect(() => window.nuance.onWindowSelected(setSelected), [])
-
+// [담당 A] 창 선택 버튼 → 같은 창 안에서 피커 화면으로 전환(goto), 선택 완료 시 App 이 통지받는다.
+export function MainScreen({ selected }: { selected: CaptureSource | null }) {
   return (
     <div className="screen main-screen">
-      <button
-        className="icon-btn settings"
-        title="설정"
-        onClick={() => window.nuance.openSettings()}
-      >
+      <button className="icon-btn settings" title="설정" onClick={() => goto('settings')}>
         ⚙️
       </button>
       <div className="center">
-        <button className="primary" onClick={() => window.nuance.openWindowPicker()}>
+        <button className="primary" onClick={() => goto('picker')}>
           🗔 창 선택
         </button>
         <p className="hint">

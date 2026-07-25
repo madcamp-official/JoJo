@@ -6,16 +6,18 @@ export const IPC = {
   WINDOW_LIST: 'window:list',
   SELECT_WINDOW: 'window:select',
   WINDOW_SELECTED: 'window:selected',
-  OPEN_WINDOW_PICKER: 'window:openPicker',
-  CLOSE_WINDOW_PICKER: 'window:closePicker',
   GET_MODE: 'mode:get',
   SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
-  OPEN_SETTINGS: 'settings:open',
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
 
-  // 선택 확정 → 질문 파이프라인으로 전달 (A → B)
-  SELECTION_RESOLVED: 'selection:resolved',
+  // 메인/피커/설정 화면 전환 (공동) — 세 화면은 한 창을 재사용한다(동시 표시 불필요).
+  // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.
+  WINDOW_SET_ROUTE: 'window:setRoute',
+  NAVIGATE: 'window:navigate',
+
+  // 팝업 직전 추출 결과 전달 = 팝업 트리거 (A → B). 최종 선택 확정은 B가 팝업에서.
+  SELECTION_EXTRACTED: 'selection:extracted',
 
   // 질문 (담당 B)
   QUESTION_REQUEST: 'question:request',
@@ -29,6 +31,7 @@ export const IPC = {
   // 설정 / API 키 (담당 B)
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+  APIKEY_GET: 'apikey:get',
   APIKEY_SET: 'apikey:set',
   APIKEY_DELETE: 'apikey:delete',
 } as const

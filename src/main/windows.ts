@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
-import type { AppMode, SelectionContext } from '@shared/types'
+import type { AppMode, ExtractedSelection } from '@shared/types'
 // win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
 // Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
 // → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
@@ -30,8 +30,6 @@ function loadRoute(win: BrowserWindow, route: string) {
 }
 
 let mainWindow: BrowserWindow | null = null
-let pickerWindow: BrowserWindow | null = null
-let settingsWindow: BrowserWindow | null = null
 
 // 트레이 "종료" 메뉴로 실제 종료할 때만 true — 그 전까지는 메인 창 X 버튼이 앱을
 // 끄지 않고 트레이로 숨긴다(PLAN.md §3: 창 선택 후 백그라운드 실행).
@@ -73,61 +71,38 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
-/** 트레이 "설정" 항목 / 메인 화면 설정 아이콘에서 연다 — 이미 열려 있으면 포커스만. */
-export function createSettingsWindow(): BrowserWindow {
-  if (settingsWindow) {
-    settingsWindow.show()
-    settingsWindow.focus()
-    return settingsWindow
-  }
-  const win = new BrowserWindow({
-    width: 520,
-    height: 640,
-    autoHideMenuBar: true,
-    icon: resolveIconPath(),
-    webPreferences: { preload, sandbox: false },
-  })
-  win.on('closed', () => {
-    if (settingsWindow === win) settingsWindow = null
-  })
-  settingsWindow = win
-  loadRoute(win, 'settings')
-  return win
+export type MainRoute = 'main' | 'picker' | 'settings'
+
+const ROUTE_SIZES: Record<MainRoute, { width: number; height: number }> = {
+  main: { width: 760, height: 460 },
+  picker: { width: 860, height: 760 },
+  settings: { width: 520, height: 640 },
 }
 
-const PICKER_WIDTH = 860
-const PICKER_HEIGHT = 760
-
-/** 창 선택 목록 — 메인 창의 모달 자식 창으로 별도 OS 창에 띄운다. */
-export function showWindowPicker(): void {
-  if (pickerWindow) {
-    pickerWindow.focus()
-    return
-  }
-  const parent = mainWindow ?? undefined
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
-  const win = new BrowserWindow({
-    width: PICKER_WIDTH,
-    height: PICKER_HEIGHT,
-    x: Math.round((screenWidth - PICKER_WIDTH) / 2),
-    y: Math.round((screenHeight - PICKER_HEIGHT) / 2),
-    frame: false,
-    resizable: false,
-    modal: !!parent,
-    parent,
-    show: false,
-    webPreferences: { preload, sandbox: false },
-  })
-  win.once('ready-to-show', () => win.show())
-  win.on('closed', () => {
-    if (pickerWindow === win) pickerWindow = null
-  })
-  pickerWindow = win
-  loadRoute(win, 'picker')
+// 메인/피커/설정 세 화면은 동시에 두 개 이상 보일 필요가 없어 창 하나를 재사용한다.
+// 화면을 바꿀 때마다 창 크기를 그 화면에 맞게 즉시(애니메이션 없이) 바꾸고 중앙 정렬한다 —
+// 리사이즈가 눈에 보이면 안 되고, 마치 다른 창이 뜬 것처럼 한 번에 바뀌어야 한다.
+function resizeMainWindowForRoute(route: MainRoute): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  const { width, height } = ROUTE_SIZES[route]
+  const { height: workHeight } = screen.getPrimaryDisplay().workAreaSize
+  const targetHeight = Math.min(height, workHeight - 40)
+  win.setSize(width, targetHeight, false)
+  win.center()
 }
 
-export function closeWindowPicker(): void {
-  pickerWindow?.close()
+/** 렌더러(navigate.ts: goto())가 호출 — 렌더러가 이미 해시를 바꿨으므로 창 크기만 맞춘다. */
+export function setMainWindowRoute(route: MainRoute): void {
+  resizeMainWindowForRoute(route)
+}
+
+/** 메인 프로세스(트레이 등)에서 호출 — 창 크기를 맞추고, 렌더러에도 화면 전환을 지시한다. */
+export function navigateMainWindow(route: MainRoute): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  resizeMainWindowForRoute(route)
+  win.webContents.send(IPC.NAVIGATE, route)
 }
 
 let overlayWindow: BrowserWindow | null = null
@@ -312,15 +287,15 @@ export function setOverlayMode(mode: AppMode): void {
 
 // 선택 확정 후 뜨는 검색/채팅 팝업 (담당 B).
 //  - 화면 중앙에 뜨고, 헤더 드래그로 사용자가 위치를 옮길 수 있다(styles.css: -webkit-app-region).
-//  - 담당 A 통합 시: 선택 파이프라인이 SelectionContext 를 만들어 createPopupWindow(ctx) 로 넘긴다.
+//  - 담당 A 통합 시: 선택 파이프라인이 ExtractedSelection 을 만들어 createPopupWindow(ctx) 로 넘긴다.
 //    지금은 데모용으로 ctx 없이 열면 팝업이 자체 목업(호빗 well-to-do)으로 fallback 한다.
 let popupWindow: BrowserWindow | null = null
-let popupContext: SelectionContext | null = null
+let popupContext: ExtractedSelection | null = null
 
 const POPUP_WIDTH = 460
 const POPUP_HEIGHT = 640
 
-export function createPopupWindow(ctx: SelectionContext | null = null): BrowserWindow {
+export function createPopupWindow(ctx: ExtractedSelection | null = null): BrowserWindow {
   popupContext = ctx
   if (popupWindow) {
     popupWindow.focus()
@@ -352,7 +327,7 @@ export function createPopupWindow(ctx: SelectionContext | null = null): BrowserW
   return win
 }
 
-/** 팝업 렌더러가 마운트 시 조회하는 현재 SelectionContext (없으면 null → 렌더러가 목업 fallback). */
-export function getPopupContext(): SelectionContext | null {
+/** 팝업 렌더러가 마운트 시 조회하는 현재 ExtractedSelection (없으면 null → 렌더러가 목업 fallback). */
+export function getPopupContext(): ExtractedSelection | null {
   return popupContext
 }

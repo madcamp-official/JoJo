@@ -1,7 +1,8 @@
 // ============================================================================
 // 공동 소유 (담당 A ↔ 담당 B 인터페이스 계약) — PLAN.md §7
-// A(선택/추출)가 SelectionContext 를 생성해 B(질문/AI)로 넘기고,
-// B 는 QuestionResult 를 UI 로 반환한다. 이 파일은 양측이 함께 관리한다.
+// 경계 = 팝업창. A(팝업 전)가 ExtractedSelection 을 만들어 B 로 넘기고,
+// B(팝업 후)가 팝업에서 SelectionContext 를 확정한 뒤 QuestionResult 를 UI 로 반환한다.
+// 이 파일은 양측이 함께 관리한다.
 // ============================================================================
 
 export type Language = 'en' | 'ja' | 'zh'
@@ -46,7 +47,20 @@ export interface SelectionSource {
   appName?: string
 }
 
-/** A → B : 사용자가 확정한 선택 + 문맥 */
+/** A → B (팝업 트리거): 팝업 직전까지 A 가 추출한 원자료. 최종 선택은 B 가 팝업에서 확정. */
+export interface ExtractedSelection {
+  /** 클릭 지점 근방의 추출 텍스트(팝업 표시·선택의 기준 문자열) */
+  text: string
+  /** 클릭한 표현의 text 내 [start, end) 오프셋 = 팝업 초기 선택 */
+  anchor: { start: number; end: number }
+  /** 단어 분해(+화면 좌표) — 좌표 매핑·하이라이트용 */
+  words: Word[]
+  language: Language
+  source: SelectionSource
+  extraction: 'direct' | 'ocr'
+}
+
+/** B 가 팝업에서 범위를 확정한 결과. 질문 함수(runQuestion)의 입력. */
 export interface SelectionContext {
   selectedText: string
   language: Language
@@ -102,8 +116,11 @@ export type AppMode = 'normal' | 'select'
 export type LlmProvider = 'gpt' | 'gemini' | 'claude'
 
 export interface AppSettings {
-  llm: LlmProvider
+  llm: LlmProvider | null // 사용자가 아직 고르지 않았으면 null (기본 provider 를 임의로 정하지 않는다)
   language: Language | 'auto'
-  modeShortcut: string // 예: 'Alt+Q'
-  contextBytes: 256 | 512 | 1024 | 2048 | 4096
+  modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑)
+  // 선택 앞/뒤로 포함할 문맥 바이트 예산(자유 지정). 실제로는 문장 경계까지 확장됨.
+  contextBytesBefore: number
+  contextBytesAfter: number
+  contextBytesLinked: boolean // true 면 앞/뒤를 동일 값으로 사용
 }

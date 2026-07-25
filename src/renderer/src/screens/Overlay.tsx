@@ -59,7 +59,7 @@ export function Overlay() {
     if (mode !== 'select' || resolving) return
     setResolving(true)
     try {
-      await window.nuance.resolveSelection({ x: e.clientX, y: e.clientY })
+      await window.nuance.extractSelection({ x: e.clientX, y: e.clientY })
     } finally {
       setResolving(false)
     }

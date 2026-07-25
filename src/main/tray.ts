@@ -1,13 +1,7 @@
 import { Menu, Tray, app, nativeImage } from 'electron'
 import { IPC } from '@shared/channels'
 import { getSelectedWindowId, setSelectedWindowId } from './selection/capture'
-import {
-  createSettingsWindow,
-  getMainWindow,
-  hideSelectionOverlay,
-  resolveIconPath,
-  showWindowPicker,
-} from './windows'
+import { getMainWindow, hideSelectionOverlay, navigateMainWindow, resolveIconPath } from './windows'
 
 // 담당 A — 백그라운드 실행 + 트레이 아이콘 (PLAN.md §3)
 // 창을 선택하면 메인 창은 숨고(windows.ts: SELECT_WINDOW 핸들러) 트레이 아이콘만 남는다.
@@ -23,11 +17,12 @@ function deselectWindow(): void {
   const main = getMainWindow()
   main?.webContents.send(IPC.WINDOW_SELECTED, null)
   main?.show()
+  navigateMainWindow('main')
 }
 
 function openWindowPicker(): void {
   getMainWindow()?.show()
-  showWindowPicker()
+  navigateMainWindow('picker')
 }
 
 function buildTrayMenu(): Menu {
@@ -40,7 +35,13 @@ function buildTrayMenu(): Menu {
           { label: '재선택', click: openWindowPicker },
         ]
       : [{ label: '선택', click: openWindowPicker }]),
-    { label: '설정', click: () => createSettingsWindow() },
+    {
+      label: '설정',
+      click: () => {
+        getMainWindow()?.show()
+        navigateMainWindow('settings')
+      },
+    },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
   ])

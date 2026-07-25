@@ -1,43 +1,50 @@
 import { ipcMain, shell } from 'electron'
 import { IPC } from '@shared/channels'
-import type { CaptureSource, Language, QuestionRequest, SelectionContext } from '@shared/types'
+import type {
+  AppSettings,
+  CaptureSource,
+  ExtractedSelection,
+  Language,
+  LlmProvider,
+  QuestionRequest,
+  SelectionContext,
+} from '@shared/types'
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
 import { listWindows, setSelectedWindowId } from './selection/capture'
 import {
-  closeWindowPicker,
   createPopupWindow,
-  createSettingsWindow,
   getMainWindow,
   getOverlayMode,
   getPopupContext,
   hideSelectionOverlay,
+  setMainWindowRoute,
   setOverlayInteractive,
-  showWindowPicker,
   trackSelectionOverlay,
+  type MainRoute,
 } from './windows'
+import { updateModeShortcut } from './selection/shortcut'
+import { getSettings, setSettings } from './settingsStore'
+import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
+import { setActiveProvider } from './question/llm/adapter'
 import { googleImageUrl, googlePronunciationUrl } from './question/google'
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
 export function registerIpc(): void {
-  // 담당 A: 창 목록 조회 / 선택 (선택 창은 별도 모달 OS 창)
+  // 담당 A: 창 목록 조회
   ipcMain.handle(IPC.WINDOW_LIST, async (): Promise<CaptureSource[]> => {
     return listWindows()
   })
 
-  ipcMain.handle(IPC.OPEN_WINDOW_PICKER, async () => {
-    showWindowPicker()
-  })
-
-  ipcMain.handle(IPC.CLOSE_WINDOW_PICKER, async () => {
-    closeWindowPicker()
+  // 메인/피커/설정 전환 — 렌더러가 이미 해시를 바꿨으므로 창 크기만 맞춘다(navigate.ts: goto()).
+  ipcMain.handle(IPC.WINDOW_SET_ROUTE, async (_e, route: MainRoute): Promise<void> => {
+    setMainWindowRoute(route)
   })
 
   ipcMain.handle(IPC.SELECT_WINDOW, async (_e, source: CaptureSource) => {
     setSelectedWindowId(source.id)
     getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, source)
-    closeWindowPicker()
 
     if (process.platform === 'win32') {
       const hwnd = BigInt(source.id)
@@ -56,19 +63,15 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.GET_MODE, async () => getOverlayMode())
 
-  ipcMain.handle(IPC.OPEN_SETTINGS, async () => {
-    createSettingsWindow()
-  })
-
   ipcMain.handle(IPC.OVERLAY_SET_INTERACTIVE, async (_e, interactive: boolean) => {
     setOverlayInteractive(interactive)
   })
 
-  // 담당 A: 선택 확정 → SelectionContext 생성 → 팝업(담당 B)으로 전달 + 오픈
-  ipcMain.handle(IPC.SELECTION_RESOLVED, async (_e, point: { x: number; y: number }) => {
-    const ctx: SelectionContext = await runSelectionPipeline(point)
-    createPopupWindow(ctx)
-    return ctx
+  // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → 팝업(담당 B) 오픈 + 전달
+  ipcMain.handle(IPC.SELECTION_EXTRACTED, async (_e, point: { x: number; y: number }) => {
+    const extracted: ExtractedSelection = await runSelectionPipeline(point)
+    createPopupWindow(extracted)
+    return extracted
   })
 
   // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)
@@ -81,14 +84,39 @@ export function registerIpc(): void {
     },
   )
 
+  // 담당 B: 설정 조회/변경
+  ipcMain.handle(IPC.SETTINGS_GET, async (): Promise<AppSettings> => {
+    return getSettings()
+  })
+
+  ipcMain.handle(IPC.SETTINGS_SET, async (_e, patch: Partial<AppSettings>): Promise<AppSettings> => {
+    const next = setSettings(patch)
+    if (patch.llm) setActiveProvider(patch.llm)
+    if (patch.modeShortcut) updateModeShortcut(patch.modeShortcut)
+    return next
+  })
+
+  // 담당 B: API 키 조회/저장/삭제 (safeStorage 암호화, keyStore.ts)
+  ipcMain.handle(IPC.APIKEY_GET, async (_e, provider: LlmProvider): Promise<string | null> => {
+    return getApiKey(provider)
+  })
+
+  ipcMain.handle(IPC.APIKEY_SET, async (_e, provider: LlmProvider, key: string): Promise<void> => {
+    setApiKey(provider, key)
+  })
+
+  ipcMain.handle(IPC.APIKEY_DELETE, async (_e, provider: LlmProvider): Promise<void> => {
+    deleteApiKey(provider)
+  })
+
   // 담당 B: 팝업 열기 (데모용 — ctx 없이 열면 렌더러가 목업으로 fallback)
   // 담당 A 통합 시엔 선택 파이프라인이 createPopupWindow(ctx) 를 직접 호출한다.
   ipcMain.handle(IPC.OPEN_POPUP, async () => {
     createPopupWindow(null)
   })
 
-  // 담당 B: 팝업 렌더러가 마운트 시 현재 SelectionContext 를 조회
-  ipcMain.handle(IPC.POPUP_GET_CONTEXT, async (): Promise<SelectionContext | null> => {
+  // 담당 B: 팝업 렌더러가 마운트 시 현재 ExtractedSelection 을 조회
+  ipcMain.handle(IPC.POPUP_GET_CONTEXT, async (): Promise<ExtractedSelection | null> => {
     return getPopupContext()
   })
 
@@ -105,5 +133,5 @@ export function registerIpc(): void {
     },
   )
 
-  // TODO: SET_MODE, SETTINGS_*, APIKEY_* 핸들러 연결
+  // TODO: SET_MODE 핸들러 연결
 }

@@ -1,6 +1,8 @@
 :root {
   /* 앱 전체 테마 색 — 버튼/강조색 등 일반 UI 액센트. 여기 값만 바꾸면 한 번에 전체 반영됨. */
   --theme: #7c3aed;
+  --theme-weak: color-mix(in srgb, var(--theme) 14%, white);
+  --theme-text: #fff;
   --blue: #2f6bff;   /* 일반 모드 테두리 (선택 창 오버레이 전용 — 테마색과 별개) */
   --purple: #7c3aed; /* 선택 모드 테두리 (선택 창 오버레이 전용 — 테마색과 별개) */
 }
@@ -14,7 +16,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .main-screen .icon-btn.settings { position: absolute; top: 16px; right: 16px; }
 .main-screen .center { text-align: center; }
 .main-screen .primary {
-  padding: 18px 40px; font-size: 18px; color: #fff;
+  padding: 18px 40px; font-size: 18px; color: var(--theme-text);
   background: var(--theme); border: none; border-radius: 12px; cursor: pointer;
 }
 .main-screen .hint { color: #94a3b8; }
@@ -82,9 +84,139 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* ---- 설정 화면 ---- */
+.settings-screen {
+  width: 100vw; height: 100vh; overflow-y: auto;
+  background: #f6f7f9; color: #1e2230;
+  padding: 24px 28px 40px;
+}
+.settings-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.settings-header .icon-btn.back {
+  background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;
+  padding: 4px 8px; border-radius: 6px;
+}
+.settings-header .icon-btn.back:hover { background: #eceef2; }
+.settings-header h1 { font-size: 20px; margin: 0; }
+.settings-header p { font-size: 13px; color: #6b7280; margin: 2px 0 0; }
+
+.settings-section {
+  background: #fff; border: 1px solid #e6e8ec; border-radius: 12px;
+  padding: 20px 22px; margin-bottom: 16px;
+}
+.settings-section h2 { font-size: 15px; margin: 0 0 2px; }
+.settings-section .desc { font-size: 12px; color: #8b93a1; margin: 0 0 14px; }
+
+.provider-cards { display: flex; gap: 12px; }
+.provider-card {
+  flex: 1; position: relative; display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 18px 8px; border-radius: 10px; border: 2px solid #e6e8ec;
+  background: #fff; cursor: pointer; font: inherit; color: inherit;
+}
+.provider-card.active { border-color: var(--theme); background: var(--theme-weak); }
+.provider-card .check {
+  position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--theme); color: var(--theme-text); font-size: 11px;
+  display: grid; place-items: center;
+}
+.provider-card .icon { font-size: 26px; }
+.provider-card .label { font-size: 13px; font-weight: 500; }
+
+.settings-note {
+  display: flex; gap: 8px; align-items: flex-start; margin-top: 14px;
+  background: #f4f6fa; border-radius: 8px; padding: 10px 12px;
+  font-size: 12px; color: #6b7280;
+}
+
+.apikey-row { display: flex; gap: 8px; align-items: center; }
+.apikey-main { flex: 1; min-width: 0; }
+.apikey-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.apikey-row label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+.apikey-field { position: relative; flex: 1; }
+.apikey-field input {
+  width: 100%; padding: 10px 40px 10px 12px; border-radius: 8px; border: 1px solid #dbe0e6;
+  font-size: 13px; font-family: inherit; background: #fff; color: #1e2230;
+}
+.apikey-field input:disabled { background: #f6f7f9; color: #6b7280; }
+.apikey-field .toggle-visibility {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; color: #8b93a1; font-size: 15px;
+}
+.btn-outline {
+  display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px;
+  border-radius: 8px; border: 1px solid #dbe0e6; background: #fff; color: #374151;
+  font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.btn-outline:hover { background: #f4f6fa; }
+.btn-outline.danger { color: #dc2626; border-color: #f3c9c9; }
+.btn-outline.danger:hover { background: #fdf1f1; }
+.btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.shortcut-row .label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.shortcut-control { display: flex; gap: 8px; align-items: center; }
+.shortcut-keys {
+  min-width: 96px; text-align: center; padding: 8px 14px; border-radius: 8px;
+  border: 1px solid #dbe0e6; background: #f6f7f9; font-size: 13px; font-family: ui-monospace, monospace;
+}
+.shortcut-keys.recording { border-color: var(--theme); color: var(--theme); background: var(--theme-weak); }
+
+.byte-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.byte-row .title { font-size: 13px; font-weight: 500; }
+.byte-row .value { font-size: 13px; color: var(--theme); font-weight: 600; }
+.byte-input { display: flex; align-items: center; gap: 6px; }
+.byte-input input {
+  width: 92px; padding: 6px 8px; border: 1px solid #d7dae0; border-radius: 8px;
+  font-size: 13px; text-align: right; color: var(--theme); font-weight: 600;
+}
+.byte-input .unit { font-size: 12px; color: #6b7280; }
+.byte-slider { width: 100%; accent-color: var(--theme); margin: 10px 0 4px; }
+.byte-control { margin-bottom: 14px; }
+.byte-link-toggle {
+  display: flex; align-items: center; gap: 8px; font-size: 13px;
+  color: #4b5563; margin: 2px 0 14px; cursor: pointer; user-select: none;
+}
+.byte-link-toggle input { accent-color: var(--theme); }
+.settings-note.cost { color: #92400e; }
+.settings-warning {
+  margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+  background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
+  font-size: 12.5px; line-height: 1.5;
+}
+
+.byte-preview-legend { display: flex; gap: 16px; align-items: center; font-size: 11px; color: #6b7280; margin: 14px 0 8px; }
+.byte-preview-legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
+.swatch.excluded { background: #e5e7eb; }
+.swatch.selected { background: var(--theme); }
+.swatch.context { background: var(--theme-weak); border: 1px solid var(--theme); }
+.swatch.extend { background: color-mix(in srgb, #f59e0b 22%, white); border: 1px solid #f59e0b; }
+.byte-preview {
+  position: relative; /* selected-span offsetTop 기준(스크롤 자동 이동) */
+  border: 1px solid #e6e8ec; border-radius: 8px; padding: 14px 16px; font-size: 13px;
+  line-height: 1.7; color: #4b5563; background: #fafbfc;
+  max-height: 200px; overflow-y: auto; white-space: pre-wrap;
+}
+.byte-preview .excluded { color: #b3b9c2; }
+.byte-preview .context-span { background: var(--theme-weak); }
+.byte-preview .extend-span { background: color-mix(in srgb, #f59e0b 20%, white); }
+.byte-preview .selected-span { background: var(--theme); color: var(--theme-text); border-radius: 3px; padding: 0 2px; }
+
+.lang-options { display: flex; flex-direction: column; gap: 10px; }
+.lang-option {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 8px;
+  border: 1px solid #e6e8ec; cursor: pointer;
+}
+.lang-option input[type='radio'] { margin-top: 3px; accent-color: var(--theme); }
+.lang-option .title { font-size: 13px; font-weight: 500; }
+.lang-option .desc { font-size: 12px; color: #8b93a1; margin-top: 2px; }
+.lang-select { margin-left: auto; display: flex; gap: 6px; }
+.lang-select select, .lang-pill {
+  font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid #dbe0e6; background: #fff;
+}
+.lang-pill.active { border-color: var(--theme); color: var(--theme); background: var(--theme-weak); }
+
 /* 공통 소형 버튼 */
 .link-btn {
-  background: none; border: none; color: var(--blue);
+  background: none; border: none; color: var(--theme);
   font-size: 13px; cursor: pointer; padding: 2px 4px;
 }
 .link-btn:hover { text-decoration: underline; }
@@ -135,7 +267,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
 .ctx-text .atom:hover { background: rgba(124, 58, 237, 0.25); }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
-  background: var(--purple); color: #fff;
+  background: var(--theme); color: #fff;
 }
 .selected-line {
   margin-top: 8px; font-size: 12px; color: #9aa0ae;
@@ -189,7 +321,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   max-width: 85%; padding: 7px 10px; border-radius: 10px;
   font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
 }
-.bubble.user { align-self: flex-end; background: var(--blue); color: #fff; }
+.bubble.user { align-self: flex-end; background: var(--theme); color: #fff; }
 .bubble.assistant { align-self: flex-start; background: #26262f; color: #e8e8ee; }
 .bubble.error { align-self: stretch; max-width: 100%; background: #3a1f22; color: #fca5a5; }
 .err-body { display: flex; flex-direction: column; gap: 2px; }
@@ -208,10 +340,10 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   background: #22222b; border: 1px solid #2c2c36; border-radius: 8px;
   color: #e8e8ee; padding: 7px 10px; font: inherit; font-size: 13px;
 }
-.chat-input textarea:focus { outline: none; border-color: var(--blue); }
+.chat-input textarea:focus { outline: none; border-color: var(--theme); }
 .send-btn {
   width: 34px; flex-shrink: 0; border: none; border-radius: 8px;
-  background: var(--blue); color: #fff; font-size: 16px; cursor: pointer;
+  background: var(--theme); color: #fff; font-size: 16px; cursor: pointer;
 }
 .send-btn:disabled { background: #3a3a45; color: #6b7180; cursor: default; }
 
@@ -229,10 +361,10 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: #cfd3dc; padding: 6px 10px; font-size: 12px; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.freq-ask:hover:not(:disabled) { border-color: var(--blue); }
+.freq-ask:hover:not(:disabled) { border-color: var(--theme); }
 .freq-ask:disabled { color: #6b7180; cursor: default; }
 .freq-item.editing input {
-  flex: 1; background: #22222b; border: 1px solid var(--blue); border-radius: 6px;
+  flex: 1; background: #22222b; border: 1px solid var(--theme); border-radius: 6px;
   color: #e8e8ee; padding: 6px 10px; font: inherit; font-size: 12px;
 }
 .icon-mini {
