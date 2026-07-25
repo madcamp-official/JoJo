@@ -18,6 +18,11 @@ export const IPC = {
   QUESTION_REQUEST: 'question:request',
   QUESTION_STREAM: 'question:stream',
 
+  // 팝업 (담당 B) — 선택 확정 후 뜨는 검색/채팅 팝업
+  OPEN_POPUP: 'popup:open',
+  POPUP_GET_CONTEXT: 'popup:getContext',
+  OPEN_GOOGLE: 'popup:openGoogle',
+
   // 설정 / API 키 (담당 B)
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',

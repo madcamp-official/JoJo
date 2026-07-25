@@ -1,5 +1,7 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
+import { IPC } from '@shared/channels'
+import type { SelectionContext } from '@shared/types'
 
 // 3종 윈도우 팩토리 (PLAN.md §5)
 //  - 메인: 창 선택 / 설정 진입
@@ -94,15 +96,49 @@ export function createOverlayWindow(bounds: Electron.Rectangle): BrowserWindow {
   return win
 }
 
-// TODO(담당 B): 선택 좌표 근처에 뜨는 검색 팝업.
-export function createPopupWindow(): BrowserWindow {
+// 선택 확정 후 뜨는 검색/채팅 팝업 (담당 B).
+//  - 화면 중앙에 뜨고, 헤더 드래그로 사용자가 위치를 옮길 수 있다(styles.css: -webkit-app-region).
+//  - 담당 A 통합 시: 선택 파이프라인이 SelectionContext 를 만들어 createPopupWindow(ctx) 로 넘긴다.
+//    지금은 데모용으로 ctx 없이 열면 팝업이 자체 목업(호빗 well-to-do)으로 fallback 한다.
+let popupWindow: BrowserWindow | null = null
+let popupContext: SelectionContext | null = null
+
+const POPUP_WIDTH = 460
+const POPUP_HEIGHT = 640
+
+export function createPopupWindow(ctx: SelectionContext | null = null): BrowserWindow {
+  popupContext = ctx
+  if (popupWindow) {
+    popupWindow.focus()
+    popupWindow.webContents.send(IPC.POPUP_GET_CONTEXT, ctx) // 이미 열려 있으면 컨텍스트만 갱신
+    return popupWindow
+  }
+  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
   const win = new BrowserWindow({
-    width: 460,
-    height: 620,
+    width: POPUP_WIDTH,
+    height: POPUP_HEIGHT,
+    x: Math.round((screenWidth - POPUP_WIDTH) / 2),
+    y: Math.round((screenHeight - POPUP_HEIGHT) / 2),
     frame: false,
     alwaysOnTop: true,
+    show: false,
     webPreferences: { preload, sandbox: false },
   })
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.once('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    if (popupWindow === win) popupWindow = null
+    popupContext = null
+  })
+  popupWindow = win
   loadRoute(win, 'popup')
   return win
+}
+
+/** 팝업 렌더러가 마운트 시 조회하는 현재 SelectionContext (없으면 null → 렌더러가 목업 fallback). */
+export function getPopupContext(): SelectionContext | null {
+  return popupContext
 }
