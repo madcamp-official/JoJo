@@ -4,7 +4,7 @@ import type { AppSettings, CaptureSource, LlmProvider, QuestionRequest, Selectio
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
 import { listWindows, setSelectedWindowId } from './selection/capture'
-import { closeWindowPicker, getMainWindow, showWindowPicker } from './windows'
+import { closeWindowPicker, getMainWindow, setMainWindowExpanded, showWindowPicker } from './windows'
 import { updateModeShortcut } from './selection/shortcut'
 import { getSettings, setSettings } from './settingsStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
@@ -71,6 +71,11 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.APIKEY_DELETE, async (_e, provider: LlmProvider): Promise<void> => {
     deleteApiKey(provider)
+  })
+
+  // 담당 B: 설정 화면 진입/이탈 시 메인 창 세로 확대/복원
+  ipcMain.handle(IPC.WINDOW_SET_EXPANDED, async (_e, expanded: boolean): Promise<void> => {
+    setMainWindowExpanded(expanded)
   })
 
   // TODO: SET_MODE 핸들러 연결

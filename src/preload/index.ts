@@ -51,6 +51,9 @@ const api = {
 
   deleteApiKey: (provider: LlmProvider): Promise<void> =>
     ipcRenderer.invoke(IPC.APIKEY_DELETE, provider),
+
+  setWindowExpanded: (expanded: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC.WINDOW_SET_EXPANDED, expanded),
 }
 
 contextBridge.exposeInMainWorld('nuance', api)

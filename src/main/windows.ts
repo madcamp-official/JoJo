@@ -43,6 +43,21 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
+const MAIN_WIDTH = 760
+const MAIN_HEIGHT_NORMAL = 460
+const MAIN_HEIGHT_EXPANDED = 900
+
+/** 설정 화면 진입 시 메인 창을 세로로 확대하고, 메인 화면 복귀 시 원래 크기로 되돌린다. */
+export function setMainWindowExpanded(expanded: boolean): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  const { height: workHeight } = screen.getPrimaryDisplay().workAreaSize
+  const target = expanded ? Math.min(MAIN_HEIGHT_EXPANDED, workHeight - 40) : MAIN_HEIGHT_NORMAL
+  if (win.getSize()[1] === target) return
+  win.setSize(MAIN_WIDTH, target, true)
+  win.center()
+}
+
 const PICKER_WIDTH = 860
 const PICKER_HEIGHT = 760
 

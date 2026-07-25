@@ -140,20 +140,28 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .byte-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .byte-row .title { font-size: 13px; font-weight: 500; }
 .byte-row .value { font-size: 13px; color: var(--accent); font-weight: 600; }
+.byte-input { display: flex; align-items: center; gap: 6px; }
+.byte-input input {
+  width: 92px; padding: 6px 8px; border: 1px solid #d7dae0; border-radius: 8px;
+  font-size: 13px; text-align: right; color: var(--accent); font-weight: 600;
+}
+.byte-input .unit { font-size: 12px; color: #6b7280; }
 .byte-slider { width: 100%; accent-color: var(--accent); margin: 10px 0 4px; }
-.byte-ticks { display: flex; justify-content: space-between; font-size: 11px; color: #9aa1ac; }
 
 .byte-preview-legend { display: flex; gap: 16px; align-items: center; font-size: 11px; color: #6b7280; margin: 14px 0 8px; }
 .byte-preview-legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
 .swatch.excluded { background: #e5e7eb; }
 .swatch.selected { background: var(--accent); }
 .swatch.context { background: var(--accent-weak); border: 1px solid var(--accent); }
+.swatch.extend { background: color-mix(in srgb, #f59e0b 22%, white); border: 1px solid #f59e0b; }
 .byte-preview {
   border: 1px solid #e6e8ec; border-radius: 8px; padding: 14px 16px; font-size: 13px;
   line-height: 1.7; color: #4b5563; background: #fafbfc;
+  max-height: 200px; overflow-y: auto; white-space: pre-wrap;
 }
 .byte-preview .excluded { color: #b3b9c2; }
 .byte-preview .context-span { background: var(--accent-weak); }
+.byte-preview .extend-span { background: color-mix(in srgb, #f59e0b 20%, white); }
 .byte-preview .selected-span { background: var(--accent); color: var(--accent-text); border-radius: 3px; padding: 0 2px; }
 
 .lang-options { display: flex; flex-direction: column; gap: 10px; }

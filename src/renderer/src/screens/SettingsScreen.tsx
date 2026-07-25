@@ -2,17 +2,37 @@ import { useEffect, useState } from 'react'
 import type { AppSettings } from '@shared/types'
 import { PROVIDERS, PROVIDER_ORDER } from '@shared/providers'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
+import { computeContextRange, byteLength } from '@shared/context'
 
 // 설정 화면 (PLAN.md §3) — 담당 B
 // 1.LLM 선택 2.API 키 관리 3.단축키 4.AI 주변 범위(Byte) 5.언어 선택
 // 메인 창 안에서 해시 라우팅으로 뜬다(#/main ↔ #/settings, 별도 창 아님).
 
-const BYTE_STEPS = [256, 512, 1024, 2048, 4096] as const
+// Byte 예산은 자유 지정(고정 단위 없음). 슬라이더 범위/숫자 입력 공통 상한.
+const BYTE_MIN = 0
+const BYTE_MAX = 4096
 
-const PREVIEW = {
-  before: '… Technology opens the door to a world of resources, connections, and opportunities. But ',
-  selected: 'curiosity and practice turn those resources into real understanding.',
-  after: ' Keep asking questions, stay consistent, and enjoy the journey—small steps every day lead to big results. …',
+function clampByte(n: number): number {
+  if (!Number.isFinite(n)) return BYTE_MIN
+  return Math.max(BYTE_MIN, Math.min(BYTE_MAX, Math.round(n)))
+}
+
+// 미리보기 예시 — 『The Hobbit』 첫 장. 선택 영역 기준으로 앞/뒤 바이트 범위 +
+// 문장 경계 확장을 실시간 시각화한다.
+const PREVIEW_TEXT = `In a hole in the ground there lived a hobbit. Not a nasty, dirty, wet hole, filled with the ends of worms and an oozy smell, nor yet a dry, bare, sandy hole with nothing in it to sit down on or to eat: it was a hobbit-hole, and that means comfort.
+It had a perfectly round door like a porthole, painted green, with a shiny yellow brass knob in the exact middle. The door opened on to a tube-shaped hall like a tunnel: a very comfortable tunnel without smoke, with panelled walls, and floors tiled and carpeted, provided with polished chairs, and lots and lots of pegs for hats and coats—the hobbit was fond of visitors. The tunnel wound on and on, going fairly but not quite straight into the side of the hill—The Hill, as all the people for many miles round called it—and many little round doors opened out of it, first on one side and then on another. No going upstairs for the hobbit: bedrooms, bathrooms, cellars, pantries (lots of these), wardrobes (he had whole rooms devoted to clothes), kitchens, dining-rooms, all were on the same floor, and indeed on the same passage.
+This hobbit was a very well-to-do hobbit, and his name was Baggins. The Bagginses had lived in the neighbourhood of The Hill for time out of mind, and people considered them very respectable, not only because most of them were rich, but also because they never had any adventures or did anything unexpected: you could tell what a Baggins would say on any question without the bother of asking him. This is a story of how a Baggins had an adventure, and found himself doing and saying things altogether unexpected.`
+
+const PREVIEW_SELECTED = 'very respectable'
+const PREVIEW_SEL_START = PREVIEW_TEXT.indexOf(PREVIEW_SELECTED)
+const PREVIEW_SEL_END = PREVIEW_SEL_START + PREVIEW_SELECTED.length
+
+function seg(text: string, cls: string, key: string) {
+  return text ? (
+    <span key={key} className={cls}>
+      {text}
+    </span>
+  ) : null
 }
 
 const NON_KEY_MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
@@ -48,6 +68,14 @@ export function SettingsScreen() {
 
   useEffect(() => {
     window.nuance.getSettings().then(setSettingsState)
+  }, [])
+
+  // 설정 화면 동안 메인 창을 세로로 확대, 이탈(언마운트) 시 원래 크기로 복원.
+  useEffect(() => {
+    void window.nuance.setWindowExpanded(true)
+    return () => {
+      void window.nuance.setWindowExpanded(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -94,7 +122,14 @@ export function SettingsScreen() {
     setApiKeyState('')
   }
 
-  const byteIndex = BYTE_STEPS.indexOf(settings.contextBytes)
+  // 미리보기: 선택 기준 앞/뒤 바이트 범위 + 문장 경계 확장 범위 계산
+  const range = computeContextRange(
+    PREVIEW_TEXT,
+    PREVIEW_SEL_START,
+    PREVIEW_SEL_END,
+    settings.contextBytes,
+  )
+  const includedBytes = byteLength(PREVIEW_TEXT.slice(range.extStart, range.extEnd))
 
   return (
     <div className="screen settings-screen">
@@ -198,27 +233,33 @@ export function SettingsScreen() {
       {/* 4. AI 주변 범위(Byte) */}
       <section className="settings-section">
         <h2>4. AI 프롬프트 제출 시 AI가 함께 고려할 주변 범위 선택</h2>
-        <p className="desc">프롬프트 제출 시 AI가 함께 고려할 주변 텍스트의 범위를 설정하세요.</p>
+        <p className="desc">
+          선택한 텍스트를 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
+          전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
+        </p>
 
         <div className="byte-row">
           <span className="title">Byte 수 설정</span>
-          <span className="value">{settings.contextBytes} Byte</span>
+          <div className="byte-input">
+            <input
+              type="number"
+              min={BYTE_MIN}
+              max={BYTE_MAX}
+              value={settings.contextBytes}
+              onChange={(e) => void patch({ contextBytes: clampByte(Number(e.target.value)) })}
+            />
+            <span className="unit">Byte</span>
+          </div>
         </div>
-        <p className="desc">선택한 텍스트를 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 설정됩니다.</p>
         <input
           type="range"
           className="byte-slider"
-          min={0}
-          max={BYTE_STEPS.length - 1}
+          min={BYTE_MIN}
+          max={BYTE_MAX}
           step={1}
-          value={byteIndex}
-          onChange={(e) => void patch({ contextBytes: BYTE_STEPS[Number(e.target.value)] })}
+          value={settings.contextBytes}
+          onChange={(e) => void patch({ contextBytes: Number(e.target.value) })}
         />
-        <div className="byte-ticks">
-          {BYTE_STEPS.map((b) => (
-            <span key={b}>{b}</span>
-          ))}
-        </div>
 
         <div className="byte-preview-legend">
           <span>
@@ -228,18 +269,24 @@ export function SettingsScreen() {
             <span className="swatch selected" /> 사용자 선택 영역
           </span>
           <span>
-            <span className="swatch context" /> 포함될 주변 범위 (설정: {settings.contextBytes} Byte)
+            <span className="swatch context" /> 바이트 범위 ({settings.contextBytes} Byte)
+          </span>
+          <span>
+            <span className="swatch extend" /> 문장 경계 확장
           </span>
         </div>
         <div className="byte-preview">
-          <span className="excluded">{PREVIEW.before.slice(0, 2)}</span>
-          <span className="context-span">{PREVIEW.before.slice(2)}</span>
-          <span className="selected-span">{PREVIEW.selected}</span>
-          <span className="context-span">{PREVIEW.after.slice(0, -2)}</span>
-          <span className="excluded">{PREVIEW.after.slice(-2)}</span>
+          {seg(PREVIEW_TEXT.slice(0, range.extStart), 'excluded', 'e1')}
+          {seg(PREVIEW_TEXT.slice(range.extStart, range.byteStart), 'extend-span', 'x1')}
+          {seg(PREVIEW_TEXT.slice(range.byteStart, range.selStart), 'context-span', 'c1')}
+          {seg(PREVIEW_TEXT.slice(range.selStart, range.selEnd), 'selected-span', 's')}
+          {seg(PREVIEW_TEXT.slice(range.selEnd, range.byteEnd), 'context-span', 'c2')}
+          {seg(PREVIEW_TEXT.slice(range.byteEnd, range.extEnd), 'extend-span', 'x2')}
+          {seg(PREVIEW_TEXT.slice(range.extEnd), 'excluded', 'e2')}
         </div>
         <div className="settings-note">
-          ℹ️ Byte 수가 클수록 더 많은 주변 텍스트가 포함되어 AI가 문맥을 더 잘 이해할 수 있습니다.
+          ℹ️ 설정 {settings.contextBytes} Byte(앞·뒤 각) → 문장 경계 확장 포함 실제 약{' '}
+          {includedBytes} Byte 가 문맥으로 전달됩니다.
         </div>
       </section>
 

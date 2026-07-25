@@ -100,5 +100,5 @@ export interface AppSettings {
   llm: LlmProvider
   language: Language | 'auto'
   modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑)
-  contextBytes: 256 | 512 | 1024 | 2048 | 4096
+  contextBytes: number // 선택 앞/뒤로 포함할 문맥 바이트 예산(자유 지정). 실제로는 문장 경계까지 확장됨
 }

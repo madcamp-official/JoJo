@@ -24,6 +24,9 @@ export const IPC = {
   APIKEY_GET: 'apikey:get',
   APIKEY_SET: 'apikey:set',
   APIKEY_DELETE: 'apikey:delete',
+
+  // 창 크기 조정 (설정 화면 진입 시 세로 확대)
+  WINDOW_SET_EXPANDED: 'window:setExpanded',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
