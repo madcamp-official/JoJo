@@ -71,10 +71,10 @@
 <a id="b-select"></a>
 
 **팝업 선택 & 문맥 확정**
-- [ ] A가 넘긴 근방 텍스트·단어 좌표를 팝업에 표시
-- [ ] 팝업 내 범위 지정: 영어=단어 / 일·중=문자 단위
-- [ ] 클릭(단어) vs 드래그(범위) 구분 — mouseup 처리
-- [ ] 최종 선택 확정 + 앞뒤 문맥(preceding/following) 구성 → `SelectionContext` 생성
+- [x] ~~A가 넘긴 근방 텍스트·단어 좌표를 팝업에 표시 (`PopupScreen.tsx` + `popup/ContextView.tsx`; `getPopupContext()`/`onPopupContext()` 로 수신, 없으면 목업 fallback)~~
+- [ ] 팝업 내 범위 지정 — 영어=단어(atom) 단위는 구현(`popup/selection.ts`, 하이픈 단어 조각별 선택 포함). **일·중 문자 단위 미구현**(atom 규칙만 언어별로 분기하면 됨)
+- [x] ~~클릭(단어) vs 드래그(범위) 구분 — `popup/ContextView.tsx` 가 mousedown+mouseenter+전역 mouseup 으로 처리(클릭=단일 atom, 드래그=범위)~~
+- [x] ~~최종 선택 확정 + 앞뒤 문맥(preceding/following) 구성 → `SelectionContext` 생성 (`popup/selection.ts` `deriveContext`)~~
 
 <a id="b-llm"></a>
 
@@ -95,22 +95,22 @@
 <a id="b-feature"></a>
 
 **질문 기능**
-- [ ] 발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정
-- [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑
+- [ ] 발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — **스텁만 존재**(`question/pronunciation.ts` 가 빈 문자열 반환). LLM 프롬프트 연동 미구현
+- [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑 — **스텁만 존재**(`question/dictionary.ts` 가 빈 문자열 반환)
   - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택
-- [ ] 통합 질문: 자유 프롬프트 입출력
-- [ ] 자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화
-- [ ] 구글 검색: 발음 웹탭 / 이미지탭 (팝업 속 팝업)
+- [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
+- [x] ~~자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화 — `popup/FrequentQuestions.tsx` + `popup/frequentStore.ts`. **단 현재 렌더러 localStorage 임시 저장**(아래 UI 영속화 항목으로 파일 저장 이전 예정)~~
+- [ ] 구글 검색 — 발음/이미지 탭을 **외부 브라우저로 여는 것까지 구현**(`question/google.ts`, `ipc.ts` `OPEN_GOOGLE` → `shell.openExternal`). PLAN §4.2 "팝업 속 팝업"(임베드형 `BrowserWindow` child) 고도화는 미구현
 
 <a id="b-ui"></a>
 
 **UI · 설정**
-- [ ] 팝업 화면: 원문 + 툴바(발음·사전 체크박스 / 입력 / 구글) + 채팅 + 자주쓰는질문
-- [ ] 채팅 세션 상태 유지 — 팝업 = 1세션, `ChatTurn[]`을 누적하며 `askLlm` 호출 시 함께 전달(어댑터는 완료, 상태 보관·갱신은 미구현)
-- [ ] 발음·사전 체크박스 토글 동작
-- [ ] 스트리밍 렌더 (`QUESTION_STREAM` 수신)
-- [ ] 에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별로 안내(재시도 버튼, 설정으로 이동 등). 메시지 문구·분류 로직은 완료(`question/errors.ts`), 렌더링만 미구현
-- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / Byte 슬라이더+미리보기 / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소), Byte는 5단 이산 슬라이더(256~4096) + 미리보기~~
+- [x] ~~팝업 화면: 원문 + 툴바(발음·사전 체크박스 / 입력 / 구글) + 채팅 + 자주쓰는질문 (`PopupScreen.tsx` + `popup/*`)~~
+- [x] ~~채팅 세션 상태 유지 — 팝업 = 1세션. `PopupScreen.tsx` 가 `messages` 상태를 누적하고 `question()` 호출 시 `history: ChatTurn[]`(에러 메시지 제외)를 함께 전달~~
+- [x] ~~발음·사전 체크박스 토글 동작 (`popup/Toolbar.tsx` + `PopupScreen.tsx` `togglePron`/`toggleDict`; 선택 변경 시 결과 리셋). 단 결과 내용은 발음/사전 스텁이라 비어 있음~~
+- [x] ~~스트리밍 렌더 (`QUESTION_STREAM` 수신) — `PopupScreen.tsx` `onQuestionStream` 구독 후 진행 중 말풍선에 델타 append, `popup/Chat.tsx` 가 커서 표시~~
+- [x] ~~에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별 안내. `popup/Chat.tsx` 가 `errorTitle(code)` 로 배너 렌더, `PopupScreen.tsx` `InfoRow` 도 에러 렌더. (재시도/설정 이동 버튼은 미구현)~~
+- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / AI 주변 범위(Byte) / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소). Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유)~~
 - [x] ~~API 키 `safeStorage` 암호화 저장·로드 영속화 — `keyStore.ts`, `userData/apikeys.json`(암호문 base64)~~
 - [x] ~~앱 설정 영속화 (파일 저장) — `settingsStore.ts`, `userData/settings.json`~~
 
@@ -118,6 +118,7 @@
 
 ## 🤝 공동
 - [ ] 모드 전환 단축키 기본값 변경 — `Ctrl+1` → `Alt+Q`(macOS: Electron이 Option 키로 자동 매핑, Windows: Alt 그대로) 로 변경됨(`selection/shortcut.ts`, 설정 화면 요구사항 반영). 담당 A 항목("앱·윈도우·모드")의 "기본 Ctrl+1" 문구는 그대로 두었으니 참고해서 갱신 바람
+- [ ] (향후) 단축키 항목 확장 — 현재는 '모드 전환' 단축키 1개만 지원(`AppSettings.modeShortcut`, `selection/shortcut.ts` 의 `currentAccelerator` 단일 변수). 나중에 '선택창(picker) 전환'·'선택 해제' 등도 단축키로 지정하려면: (1) `AppSettings` 에 `pickerShortcut`/`deselectShortcut` 등 필드 추가, (2) `shortcut.ts` 등록 로직을 `Map<action, accelerator>` 로 일반화(액션별 register/unregister), (3) 각 액션 핸들러 연결(전환=picker 라우팅, 선택 해제=트레이 메뉴 동작 재사용), (4) 설정 화면 단축키 캡처 컴포넌트에 항목 추가. ⚠️ 전역 단축키(`globalShortcut`)라 상호/타앱 충돌 검증(`isRegistered()` 로 등록 실패 시 UI 안내) 필요. (A: 등록·핸들러 / B: `AppSettings` 확장·설정 UI)
 - [ ] A→B 경계 재정의(팝업 기준) 반영 — A는 '팝업 직전 추출 결과(근방 텍스트 + 단어 좌표 + 클릭 기준점)'를 넘기고, B가 팝업에서 최종 `SelectionContext` 를 확정. 이 경계용 인터페이스·IPC 채널 확정(스텁→실연결) + PLAN.md §7/§8 계약 문구 동기화 필요
 - [ ] `SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 완료 → 실연결)
 - [ ] 메인/피커/설정 창 통합 — 세 화면이 동시에 보일 필요가 없어 별도 창(피커·설정) 대신 메인 창 하나를 리사이즈(`windows.ts: setMainWindowRoute`/`navigateMainWindow`)해 재사용하도록 변경(`feat/settings-screen`). 전환 시 항상 창을 중앙 정렬하며, 애니메이션 없이 즉시 크기 변경(다른 창이 뜬 것처럼 보이지 않게)

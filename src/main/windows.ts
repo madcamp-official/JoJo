@@ -76,7 +76,7 @@ export type MainRoute = 'main' | 'picker' | 'settings'
 const ROUTE_SIZES: Record<MainRoute, { width: number; height: number }> = {
   main: { width: 760, height: 460 },
   picker: { width: 860, height: 760 },
-  settings: { width: 520, height: 640 },
+  settings: { width: 1200, height: 800 },
 }
 
 // 메인/피커/설정 세 화면은 동시에 두 개 이상 보일 필요가 없어 창 하나를 재사용한다.
@@ -86,9 +86,10 @@ function resizeMainWindowForRoute(route: MainRoute): void {
   const win = mainWindow
   if (!win || win.isDestroyed()) return
   const { width, height } = ROUTE_SIZES[route]
-  const { height: workHeight } = screen.getPrimaryDisplay().workAreaSize
+  const { width: workWidth, height: workHeight } = screen.getPrimaryDisplay().workAreaSize
+  const targetWidth = Math.min(width, workWidth - 40)
   const targetHeight = Math.min(height, workHeight - 40)
-  win.setSize(width, targetHeight, false)
+  win.setSize(targetWidth, targetHeight, false)
   win.center()
 }
 

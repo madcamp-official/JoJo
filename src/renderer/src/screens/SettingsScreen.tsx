@@ -9,9 +9,9 @@ import { goto } from '../navigate'
 // LLM·API 키 / 단축키 / AI 주변 범위(Byte) / 언어
 // 메인 창 안에서 해시 라우팅으로 뜬다(#/main ↔ #/settings, 별도 창 아님).
 
-// Byte 예산은 자유 지정(고정 단위 없음). 슬라이더 범위/숫자 입력 공통 상한.
+// Byte 예산은 자유 지정(고정 단위 없음). 슬라이더 범위/숫자 입력 공통 하한.
+// 상한(BYTE_MAX)은 미리보기 글 길이에서 자동 산출한다(아래, PREVIEW_TEXT 정의 후).
 const BYTE_MIN = 0
-const BYTE_MAX = 4096
 
 function clampByte(n: number): number {
   if (!Number.isFinite(n)) return BYTE_MIN
@@ -31,20 +31,56 @@ const PREVIEW_TEXT = `   Lorem ipsum dolor sit amet, consectetur adipiscing elit
    Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur. Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur sint obcaecati.
    Doloremque laudantium totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt, neque porro quisquam est qui dolorem ipsum quia dolor sit amet consectetur adipisci velit numquam.`
 
-// 선택 표현 = 전체 글의 정중앙에 걸친 단어(앞뒤 문장부호 제거)
-const WORD_EDGE_PUNCT = /[.,!?;:'"“”‘’()[\]—…-]/
-function centerWord(text: string): [number, number] {
-  const mid = Math.floor(text.length / 2)
-  let s = mid
-  let e = mid
-  while (s > 0 && !/\s/.test(text[s - 1])) s -= 1
-  while (e < text.length && !/\s/.test(text[e])) e += 1
-  // 단어 양끝의 문장부호는 선택에서 제외(내부 하이픈 등은 유지)
-  while (s < e && WORD_EDGE_PUNCT.test(text[s])) s += 1
-  while (e > s && WORD_EDGE_PUNCT.test(text[e - 1])) e -= 1
-  return [s, e]
+// 선택 표현 = 전체 글의 정중앙에 걸친 단어를 중심으로 앞뒤 1개씩, 총 3개 단어(앞뒤 문장부호 제거).
+// 먼저 모든 단어를 훑어 그 중심이 글 중앙에 가장 가까운 단어(중앙 단어)를 찾고,
+// 그 앞뒤 단어까지 묶어 선택한다 → 중앙 지점이 공백/부호에 걸려도 치우치지 않는다.
+// 라틴 + CJK(일본어·중국어) 전용 문장부호까지 포함 — 선택 양끝의 부호만 제거.
+// CJK: 、。，．・！？；：（）｛｝［］〔〕〖〗【】〈〉《》「」『』〝〞〟〜～‥
+const WORD_EDGE_PUNCT =
+  /[-.,!?;:'"“”‘’()[\]—…、。，．・！？；：（）｛｝［］〔〕〖〗【】〈〉《》「」『』〝〞〟〜～‥]/
+const WORD_RE = /\S+/g
+const PREVIEW_SEL_WORDS = 3 // 사용자 선택 영역으로 강조할 단어 수(중앙 단어 ± 좌우)
+
+function centerWords(text: string, count: number): [number, number] {
+  // 1) 모든 단어의 [start, end)(양끝 부호 제거) 수집
+  const words: Array<[number, number]> = []
+  let m: RegExpExecArray | null
+  WORD_RE.lastIndex = 0
+  while ((m = WORD_RE.exec(text))) {
+    let s = m.index
+    let e = m.index + m[0].length
+    while (s < e && WORD_EDGE_PUNCT.test(text[s])) s += 1
+    while (e > s && WORD_EDGE_PUNCT.test(text[e - 1])) e -= 1
+    if (s < e) words.push([s, e]) // 부호만으로 이루어진 토큰은 제외
+  }
+  if (words.length === 0) return [0, 0]
+
+  // 2) 중심이 글 중앙에 가장 가까운 단어 찾기
+  const mid = text.length / 2
+  let ci = 0
+  let bestDist = Infinity
+  words.forEach(([s, e], i) => {
+    const dist = Math.abs((s + e) / 2 - mid)
+    if (dist < bestDist) {
+      bestDist = dist
+      ci = i
+    }
+  })
+
+  // 3) 중앙 단어 기준 좌우로 균등하게 count 개까지 확장
+  const half = Math.floor((count - 1) / 2)
+  const from = Math.max(0, ci - half)
+  const to = Math.min(words.length - 1, from + count - 1)
+  return [words[from]![0], words[to]![1]]
 }
-const [PREVIEW_SEL_START, PREVIEW_SEL_END] = centerWord(PREVIEW_TEXT)
+const [PREVIEW_SEL_START, PREVIEW_SEL_END] = centerWords(PREVIEW_TEXT, PREVIEW_SEL_WORDS)
+
+// 상한 = 선택 중앙에서 앞/뒤로 미리보기 전체를 덮는 데 필요한 바이트(더 긴 쪽 절반).
+// 최대로 올리면 예시 전체가 선택 범위로 표시된다. 미리보기 글을 바꾸면 자동 반영.
+const BYTE_MAX = Math.max(
+  byteLength(PREVIEW_TEXT.slice(0, PREVIEW_SEL_START)),
+  byteLength(PREVIEW_TEXT.slice(PREVIEW_SEL_END)),
+)
 
 function seg(text: string, cls: string, key: string) {
   return text ? (
@@ -142,14 +178,18 @@ export function SettingsScreen() {
     // llm 이 바뀔 때만 다시 조회하면 된다(의도적으로 settings 전체가 아닌 llm 만 의존).
   }, [settings?.llm])
 
-  // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 바이트 값이 바뀔 때마다 재이동.
+  // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 미리보기가 처음 뜰 때 1회만.
+  // (바이트 값을 바꿀 때는 스크롤을 건드리지 않아 사용자가 보던 위치를 유지한다.)
+  const previewCenteredRef = useRef(false)
   useEffect(() => {
+    if (previewCenteredRef.current) return
     const box = previewRef.current
     const sel = selRef.current
     if (box && sel) {
       box.scrollTop = sel.offsetTop - box.clientHeight / 2 + sel.clientHeight / 2
+      previewCenteredRef.current = true
     }
-  }, [settings?.contextBytesBefore, settings?.contextBytesAfter])
+  }, [settings != null])
 
   useEffect(() => {
     if (!recording) return
@@ -253,7 +293,6 @@ export function SettingsScreen() {
         {settings.llm && (
           <div className="apikey-row">
             <div className="apikey-main">
-              <label>{PROVIDERS[settings.llm].label} API 키</label>
               <div className="apikey-field">
                 <input
                   type={keyVisible ? 'text' : 'password'}

@@ -1,5 +1,5 @@
 // 공동 소유 — IPC 채널 상수 (PLAN.md §7 통합 지점)
-// A→B: selection:resolved / B: question:request, question:stream
+// A→B: selection:extracted / B: question:request, question:stream
 
 export const IPC = {
   // 창 선택 / 모드 (담당 A)
