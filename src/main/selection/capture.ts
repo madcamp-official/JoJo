@@ -1,6 +1,8 @@
 import { BrowserWindow, desktopCapturer, nativeImage } from 'electron'
 import type { CaptureSource } from '@shared/types'
-import { captureMinimizedWin32Window, captureWin32Window, listWin32Windows } from './win32Capture'
+// win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
+// Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
+// → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
 
 // 담당 A — 창 선택 & 포커스 창 캡처 (PLAN.md §4.1)
 // Zoom 화면공유처럼 창 목록을 제공하고, 선택된 창의 화면을 캡처한다.
@@ -35,6 +37,11 @@ function toUniformThumbnail(image: Electron.NativeImage): Electron.NativeImage {
 }
 
 async function listWindowsWin32(): Promise<CaptureSource[]> {
+  // Windows 에서만 실행되는 경로. koffi 의존 모듈을 여기서 지연 로드한다.
+  const { captureMinimizedWin32Window, captureWin32Window, listWin32Windows } = await import(
+    './win32Capture'
+  )
+
   const ownHwnds = new Set(
     BrowserWindow.getAllWindows().map((w) => w.getNativeWindowHandle().readBigUInt64LE(0)),
   )

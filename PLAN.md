@@ -120,11 +120,12 @@
 **전 구간 TypeScript 단일 언어**로 두 사람의 코드 이동 비용을 낮춘다. 구성 요소별 스택:
 
 - **앱**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + TypeScript + React(렌더러 UI).
-- **캡처/오버레이**: `desktopCapturer`, 투명·클릭스루 BrowserWindow, `globalShortcut`.
+- **캡처/오버레이**: 창 열거·캡처는 Windows 네이티브 win32(user32/gdi32/dwmapi, `koffi` FFI 바인딩)를 우선 사용(가려진/최소화된 창까지 캡처) + 비-Windows는 `desktopCapturer` 폴백, 투명·클릭스루 BrowserWindow, `globalShortcut`.
 - **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정.
 - **확장**: 브라우저 확장(Manifest V3) + native messaging.
 - **API**: LLM 3종 어댑터(GPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
 - **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
+- **언어 감지**: 자동 감지 + OCR 필요 시, 언어 특화 OCR 전에 경량 분류 모델 또는 범용 OCR로 언어를 먼저 특정.
 
 ```mermaid
 flowchart TB
@@ -132,7 +133,7 @@ flowchart TB
 
     subgraph APP["🖥️ Electron App · TypeScript"]
         direction TB
-        MAIN["<b>Main Process</b><br/>창 선택·캡처(desktopCapturer) · 전역 단축키(globalShortcut)<br/>접근성 API 브릿지(탭/URL 감지) · API 키 보관(safeStorage) · IPC 허브"]
+        MAIN["<b>Main Process</b><br/>창 선택·캡처(win32/desktopCapturer) · 전역 단축키(globalShortcut)<br/>접근성 API 브릿지(탭/URL 감지) · API 키 보관(safeStorage) · IPC 허브"]
 
         subgraph PIPE[" "]
             direction LR
@@ -158,8 +159,6 @@ flowchart TB
     PB -- "API 호출" --> SVC
 ```
 
-**언어 감지**: 자동 감지 + OCR 필요 시, 언어 특화 OCR 전에 경량 분류 모델 또는 범용 OCR로 언어를 먼저 특정.
-
 ## 6. 까다로운 부분 & 해결 전략
 
 
@@ -170,79 +169,10 @@ flowchart TB
 
 ## 7. 2인 분업 계획 (파이프라인 축)
 
-권장 순서: **뼈대 → 한 경로 end-to-end 관통 → 소스별 확장**. 첫 관통 경로는 가장 확실한 **PDF/텍스트 직접 추출 → 통합 질문**으로 잡고, 이후 OCR·자막·발음·사전을 붙인다. A↔B 경계 계약은 [§8](#8-2인-분업-계획-파이프라인-축) 참고.
-
-### 🅰️ 담당 A — 선택 & 추출
-
-**앱 · 윈도우 · 모드**
-
-- [ ] 창 선택 UI + `desktopCapturer` 창 목록/선택
-- [ ] 선택된 창 테두리 색 표시 (일반=파랑 / 선택=보라)
-- [ ] 백그라운드 실행 + 트레이 아이콘 (선택 해제 / 재선택 / 설정)
-- [ ] 투명·클릭스루 오버레이 윈도우 (선택 창에 정렬 · 이동/리사이즈 추적)
-- [ ] 모드 전환 전역 단축키(기본 Ctrl+1) + `MODE_CHANGED` 통지
-
-**선택 · 좌표 매핑**
-- [ ] 단어 bbox 좌표 확보 → 커서 좌표 ↔ 단어 매핑
-- [ ] hover 시 커서 모양 변경 + (확장) 단어 사각형 하이라이트
-- [ ] 팝업 내 범위 지정: 영어=단어 / 일·중=문자 단위
-- [ ] 클릭(단어) vs 드래그(범위) 구분 — mouseup 처리
-- [ ] 앞뒤 문맥(preceding/following) 구성 → `SelectionContext` 생성·전달
-
-**추출 판정 · 실행**
-- [ ] OCR 사용 여부 판정 (직접추출 우선, 텍스트 부족 시 OCR fallback)
-- [ ] 판정 캐싱(URL 키): 모드 진입 시 1회 + URL 변화 시 재판정
-- [ ] 창 재선택 시 선택 모드 자동 해제
-- [ ] 직접 추출 파서: txt / epub / pdf + 좌표 매핑
-- [ ] 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출
-- [ ] 언어 자동 감지 (유니코드 블록 기반 경량 분류)
-- [ ] OCR 엔진 연동 (Tesseract.js ↔ 클라우드 벤치 후 결정) + 언어 특화
-- [ ] 좌표 기반 노이즈 제거(제목·페이지번호) + 페이지 경계 문장 이어붙이기
-
-**브라우저 확장 (MV3)**
-- [ ] 확장 번들 설정(vite/esbuild) + native messaging host 등록
-- [ ] DOM 텍스트 추출(태그 제외 · 문단 잇기) + 좌표
-- [ ] 유튜브 원어 자막 추출 (URL / timedtext)
-- [ ] 넷플릭스 원어 자막 추출
-- [ ] 선택 모드 단어 하이라이트 렌더
-- [ ] 탭/URL 변화 감지 → 앱에 재판정 통지
-
-### 🅱️ 담당 B — 검색 & AI
-
-**LLM 어댑터**
-- [ ] LLM 공통 어댑터 인터페이스 (provider 추상화)
-- [ ] ChatGPT / Gemini / Claude 클라이언트 구현 + 스트리밍
-- [ ] 채팅 세션(팝업 = 1세션) + 이전 대화 맥락 유지
-- [ ] 문맥 프롬프트 구성 + 프롬프트 캐싱(비용 절감)
-
-**검색 기능**
-- [ ] 발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정
-- [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑
-- [ ] 통합 질문: 자유 프롬프트 입출력
-- [ ] 자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화
-- [ ] 구글 검색: 발음 웹탭 / 이미지탭 (팝업 속 팝업)
-
-**UI · 설정**
-- [ ] 팝업 화면: 원문 + 툴바(발음·사전 체크박스 / 입력 / 구글) + 채팅 + 자주쓰는질문
-- [ ] 발음·사전 체크박스 토글 동작
-- [ ] 스트리밍 렌더 (`SEARCH_STREAM` 수신)
-- [ ] 설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / Byte 슬라이더+미리보기 / 언어
-- [ ] API 키 `safeStorage` 암호화 저장·로드 영속화
-- [ ] 앱 설정 영속화 (파일 저장)
-
-### 🤝 공동
-- [ ] `SelectionContext` / `SearchResult` + IPC 채널 확정 (스텁 완료 → 실연결)
-- [ ] IPC 허브 A→B 실연결
-- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문
-- [ ] `npm install` + `electron-vite dev` 빌드 정상화
-- [ ] 크로스플랫폼(Win / Mac) 동작 점검
-
-## 8. 2인 분업 계획 (파이프라인 축)
-
 두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `QuestionResult`(B→UI)**. 이 인터페이스를 가장 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
 
 ### 담당 A — 선택 & 추출 (입력단)
-- 창 선택/화면 캡처(desktopCapturer), 오버레이 윈도우, 전역 단축키, 모드 전환.
+- 창 선택/화면 캡처(win32 네이티브 우선, desktopCapturer 폴백), 오버레이 윈도우, 전역 단축키, 모드 전환.
 - OCR 파이프라인(캡처→언어 감지→언어 특화 OCR→좌표 매핑) + 노이즈 제거.
 - 소스별 직접 추출(txt/epub/PDF) + 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출, OCR 여부 판정 로직·판정 시점 캐싱.
 - 브라우저 확장(DOM 텍스트, 유튜브/넷플릭스 자막, 단어 하이라이트) + 앱과 native messaging.
@@ -324,14 +254,15 @@ JoJo/
 │   │   └── languages.ts         #   언어별 정적 데이터 레지스트리(이름·구글 접미어 등)
 │   ├── main/                    # Electron 메인 프로세스
 │   │   ├── index.ts             #   진입점(윈도우·IPC·단축키 등록)
-│   │   ├── windows.ts           #   메인/오버레이/팝업 윈도우 팩토리
+│   │   ├── windows.ts           #   메인/창선택 모달/오버레이/팝업 윈도우 팩토리
 │   │   ├── ipc.ts               #   🤝 IPC 허브(A→B 연결점)
 │   │   ├── keyStore.ts          #   [B] API 키 safeStorage 암호화 저장
 │   │   ├── devSeed.ts           #   [dev] .env(MAIN_VITE_*) API 키 seed
 │   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
 │   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Ctrl+1)
-│   │   │   ├── capture.ts       #   창 목록/포커스 창 캡처(desktopCapturer)
+│   │   │   ├── capture.ts       #   창 목록/캡처(win32 우선, desktopCapturer 폴백) + 선택 창 id 보관
+│   │   │   ├── win32Capture.ts  #   Windows 네이티브 창 열거·캡처(koffi FFI, 가려짐/최소화 대응)
 │   │   │   ├── decideOcr.ts     #   OCR 사용 여부 판정 + URL 캐시
 │   │   │   ├── extractDirect.ts #   소스별 직접 추출(txt/epub/pdf/web)
 │   │   │   ├── ocr.ts           #   OCR 엔진 래퍼 + 노이즈 제거
@@ -358,13 +289,15 @@ JoJo/
 │   └── renderer/                # UI (React) — 공동, B 주도
 │       ├── index.html
 │       └── src/
-│           ├── main.tsx, App.tsx        # 해시 라우팅(main/settings/popup/overlay)
+│           ├── main.tsx, App.tsx        # 해시 라우팅(main/settings/popup/overlay/picker)
+│           ├── env.d.ts                 # window.nuance(preload API) 타입 선언
 │           ├── styles.css               # 테두리색(일반=파랑/선택=보라) 등
 │           └── screens/
-│               ├── MainScreen.tsx       # 창 선택 + 설정 진입
-│               ├── SettingsScreen.tsx   # [B] LLM·키·단축키·Byte·언어
-│               ├── PopupScreen.tsx      # [B] 원문·툴바·채팅·자주쓰는질문
-│               └── Overlay.tsx          # [A] 단어 하이라이트/커서 피드백
+│               ├── MainScreen.tsx           # 창 선택 진입 + 선택 결과 표시
+│               ├── WindowPickerScreen.tsx   # [A] 창 목록 그리드(별도 모달 창)
+│               ├── SettingsScreen.tsx       # [B] LLM·키·단축키·Byte·언어
+│               ├── PopupScreen.tsx          # [B] 원문·툴바·채팅·자주쓰는질문
+│               └── Overlay.tsx              # [A] 단어 하이라이트/커서 피드백
 └── extension/                   # 🅰️ 브라우저 확장(MV3) — 담당 A
     ├── manifest.json
     └── src/
@@ -374,4 +307,4 @@ JoJo/
 
 **시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `chrome://extensions`에서 `extension/`을 로드하고 native messaging host를 등록해야 함(추후 번들러 설정 TODO).
 
-**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B의 LLM 어댑터·3종 클라이언트·스트리밍·에러 체계는 구현 완료(✅), 발음·사전·팝업/설정 UI 및 담당 A 전반은 스텁/진행 중. 항목별 진행 상황은 [TODO.md](TODO.md) 참고.
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B의 LLM 어댑터·3종 클라이언트·스트리밍·에러 체계는 구현 완료(✅), 발음·사전·팝업/설정 UI는 스텁. 담당 A는 창 선택 UI(win32 창 열거·캡처 + 모달 피커)를 구현, 그 외 선택/추출·오버레이·확장은 스텁/진행 중. 항목별 진행 상황은 [TODO.md](TODO.md) 참고.

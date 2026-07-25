@@ -3,8 +3,8 @@ import { IPC } from '@shared/channels'
 import type {
   AppMode,
   CaptureSource,
-  SearchRequest,
-  SearchResult,
+  QuestionRequest,
+  QuestionResult,
   SelectionContext,
 } from '@shared/types'
 
@@ -36,13 +36,13 @@ const api = {
   resolveSelection: (point: { x: number; y: number }): Promise<SelectionContext> =>
     ipcRenderer.invoke(IPC.SELECTION_RESOLVED, point),
 
-  search: (ctx: SelectionContext, req: SearchRequest): Promise<SearchResult> =>
-    ipcRenderer.invoke(IPC.SEARCH_REQUEST, ctx, req),
+  question: (ctx: SelectionContext, req: QuestionRequest): Promise<QuestionResult> =>
+    ipcRenderer.invoke(IPC.QUESTION_REQUEST, ctx, req),
 
-  onSearchStream: (cb: (chunk: SearchResult) => void): (() => void) => {
-    const listener = (_e: unknown, chunk: SearchResult) => cb(chunk)
-    ipcRenderer.on(IPC.SEARCH_STREAM, listener)
-    return () => ipcRenderer.removeListener(IPC.SEARCH_STREAM, listener)
+  onQuestionStream: (cb: (chunk: QuestionResult) => void): (() => void) => {
+    const listener = (_e: unknown, chunk: QuestionResult) => cb(chunk)
+    ipcRenderer.on(IPC.QUESTION_STREAM, listener)
+    return () => ipcRenderer.removeListener(IPC.QUESTION_STREAM, listener)
   },
 }
 

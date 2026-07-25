@@ -1,10 +1,9 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
-import type { CaptureSource, SearchRequest, SelectionContext } from '@shared/types'
+import type { CaptureSource, QuestionRequest, SelectionContext } from '@shared/types'
 import { runSelectionPipeline } from './selection'
-import { runSearch } from './search'
+import { runQuestion } from './question'
 import { listWindows, setSelectedWindowId } from './selection/capture'
-import { bringWindowToForeground } from './selection/win32Capture'
 import {
   closeWindowPicker,
   getMainWindow,
@@ -37,8 +36,10 @@ export function registerIpc(): void {
 
     if (process.platform === 'win32') {
       const hwnd = BigInt(source.id)
+      // win32Capture 는 koffi 로 DLL 을 로드하므로 Windows 경로에서만 동적 import.
+      const { bringWindowToForeground } = await import('./selection/win32Capture')
       bringWindowToForeground(hwnd) // 가려진 채로 선택되면 테두리와 실제 화면이 어긋나 보임
-      trackSelectionOverlay(hwnd) // 대상 창 이동/리사이즈를 따라 오버레이도 갱신
+      await trackSelectionOverlay(hwnd) // 대상 창 이동/리사이즈를 따라 오버레이도 갱신
     } else {
       hideSelectionOverlay()
     }
@@ -52,12 +53,12 @@ export function registerIpc(): void {
     return ctx
   })
 
-  // 담당 B: 검색 요청 (스트리밍은 SEARCH_STREAM 이벤트로 전송)
+  // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)
   ipcMain.handle(
-    IPC.SEARCH_REQUEST,
-    async (e, ctx: SelectionContext, req: SearchRequest) => {
-      return runSearch(ctx, req, (chunk) => {
-        e.sender.send(IPC.SEARCH_STREAM, chunk)
+    IPC.QUESTION_REQUEST,
+    async (e, ctx: SelectionContext, req: QuestionRequest) => {
+      return runQuestion(ctx, req, (chunk) => {
+        e.sender.send(IPC.QUESTION_STREAM, chunk)
       })
     },
   )

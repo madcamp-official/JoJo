@@ -1,19 +1,19 @@
-import type { SearchRequest, SearchResult, SelectionContext } from '@shared/types'
+import type { QuestionRequest, QuestionResult, SelectionContext } from '@shared/types'
 import { getPronunciation } from './pronunciation'
 import { lookupDictionary } from './dictionary'
 import { askLlm } from './llm/adapter'
 
 // ============================================================================
-// 담당 B — 검색 & AI 파이프라인 (PLAN.md §4.2 / §8)
+// 담당 B — 질문 & AI 파이프라인 (PLAN.md §4.2 / §7)
 // SelectionContext 를 받아 발음/사전/통합질문을 처리하고
-// SearchResult 를 (스트리밍으로) 반환한다.
+// QuestionResult 를 (스트리밍으로) 반환한다.
 // ============================================================================
 
-export async function runSearch(
+export async function runQuestion(
   ctx: SelectionContext,
-  req: SearchRequest,
-  onChunk: (chunk: SearchResult) => void,
-): Promise<SearchResult> {
+  req: QuestionRequest,
+  onChunk: (chunk: QuestionResult) => void,
+): Promise<QuestionResult> {
   switch (req.type) {
     case 'pronunciation':
       return getPronunciation(ctx, onChunk)

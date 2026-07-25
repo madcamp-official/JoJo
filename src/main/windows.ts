@@ -2,7 +2,11 @@ import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
 import type { AppMode } from '@shared/types'
-import { getWindowScreenRect, onWindowLocationChanged } from './selection/win32Capture'
+// win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
+// Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
+// → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
+// `import type` 은 컴파일 타임에 완전히 제거되므로 런타임 로드가 없다.
+import type * as Win32Capture from './selection/win32Capture'
 
 // 3종 윈도우 팩토리 (PLAN.md §5)
 //  - 메인: 창 선택 / 설정 진입
@@ -166,13 +170,18 @@ function applyOverlayBounds(targetRect: Electron.Rectangle | null): void {
 }
 
 let locationHookWired = false
+let win32CaptureMod: typeof Win32Capture | null = null
 
 /**
  * 선택된 창의 테두리 색 표시(일반=파랑/선택=보라) — 대상 창 bounds 바로 바깥에 정렬하고,
  * 대상 창이 이동/리사이즈되는 즉시(Win32 WinEventHook) 오버레이도 따라가게 한다.
  * 훅이 이벤트를 놓치는 경우를 대비해 저빈도 폴링을 안전망으로 같이 둔다.
+ * Windows 전용 — 호출부(ipc.ts)에서 process.platform === 'win32' 일 때만 부른다.
  */
-export function trackSelectionOverlay(hwnd: bigint): void {
+export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
+  const mod = win32CaptureMod ?? (win32CaptureMod = await import('./selection/win32Capture'))
+  const { getWindowScreenRect, onWindowLocationChanged } = mod
+
   trackedHwnd = hwnd
   applyOverlayBounds(getWindowScreenRect(hwnd))
 
