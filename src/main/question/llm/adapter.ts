@@ -5,7 +5,7 @@ import { createGeminiClient } from './gemini'
 import { createClaudeClient } from './claude'
 
 // ============================================================================
-// 담당 B — LLM 공통 어댑터 (PLAN.md §4.2 / §8)
+// 담당 B — LLM 공통 어댑터 (PLAN.md §4.2 / §7)
 // ChatGPT / Gemini / Claude 를 동일 인터페이스로 추상화한다.
 //  - 이 파일: provider 추상화 + 문맥 프롬프트 구성 + 스트리밍 오케스트레이션
 //  - 각 provider 의 실제 API 호출/스트리밍은 ./openai|gemini|claude 가 담당(다음 항목)
