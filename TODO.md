@@ -4,6 +4,14 @@
 
 권장 순서: **뼈대 → 한 경로 end-to-end 관통 → 소스별 확장**. 첫 관통 경로는 가장 확실한 **PDF/텍스트 직접 추출 → 통합 질문**으로 잡고, 이후 OCR·자막·발음·사전을 붙인다.
 
+## 목차
+
+- [🅰️ 담당 A — 선택 & 추출](#a-담당)
+- [🅱️ 담당 B — 질문 & AI](#b-담당)
+- [🤝 공동](#공동)
+
+<a id="a-담당"></a>
+
 ## 🅰️ 담당 A — 선택 & 추출
 
 **앱 · 윈도우 · 모드**
@@ -38,6 +46,8 @@
 - [ ] 선택 모드 단어 하이라이트 렌더
 - [ ] 탭/URL 변화 감지 → 앱에 재판정 통지
 
+<a id="b-담당"></a>
+
 ## 🅱️ 담당 B — 질문 & AI
 
 **LLM 어댑터**
@@ -45,6 +55,8 @@
 - [x] ChatGPT / Gemini / Claude 클라이언트 구현 + 스트리밍
 - [x] 어댑터가 `history: ChatTurn[]`을 받아 요청에 이어붙임 (`askLlm`/`buildRequest`, `llm/adapter.ts`)
 - [x] 문맥 프롬프트 구성 + 프롬프트 캐싱(비용 절감)
+- [x] API 키 무효 / 크레딧(사용 한도) 소진 / 요청 과다 / 네트워크 오류를 구분하는 에러 체계 — `QuestionError`(`shared/types.ts`), `question/errors.ts`(메시지), `question/llm/errors.ts`(HTTP 상태코드 분류). UI 렌더링은 미구현(아래 UI 항목)
+- [ ] provider별 실제 사용 모델 확정 — 현재 `DEFAULT_MODELS`(`llm/adapter.ts`)는 예시 placeholder(openai: gpt-4o, gemini: gemini-1.5-pro, claude: claude-sonnet-5). 구현 시점에 모델을 고정할지, 설정 화면에서 사용자가 선택하게 할지 결정 필요
 - [ ] 비용 고려사항 — 현재 `buildRequest()`가 `history` 전체를 매 요청마다 잘라내기/요약 없이 재전송함(`llm/adapter.ts`). 팝업 세션이 길어질수록 요청당 input 토큰이 선형 증가.
   - [ ] 대화 history 길이 제한 정책 결정 (예: 최근 N턴만 유지, 또는 초과 시 요약으로 압축)
   - [ ] 프롬프트 캐싱을 `cacheableContext`(선택 근방 문맥) 외에 대화 history에도 적용할지 검토 — 현재는 Claude의 `cache_control: ephemeral`도 문맥 블록에만 적용, history 메시지 배열은 캐싱 대상 아님
@@ -54,6 +66,7 @@
 **질문 기능**
 - [ ] 발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정
 - [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑
+  - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택
 - [ ] 통합 질문: 자유 프롬프트 입출력
 - [ ] 자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화
 - [ ] 구글 검색: 발음 웹탭 / 이미지탭 (팝업 속 팝업)
@@ -63,9 +76,12 @@
 - [ ] 채팅 세션 상태 유지 — 팝업 = 1세션, `ChatTurn[]`을 누적하며 `askLlm` 호출 시 함께 전달(어댑터는 완료, 상태 보관·갱신은 미구현)
 - [ ] 발음·사전 체크박스 토글 동작
 - [ ] 스트리밍 렌더 (`QUESTION_STREAM` 수신)
+- [ ] 에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별로 안내(재시도 버튼, 설정으로 이동 등). 메시지 문구·분류 로직은 완료(`question/errors.ts`), 렌더링만 미구현
 - [ ] 설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / Byte 슬라이더+미리보기 / 언어
 - [ ] API 키 `safeStorage` 암호화 저장·로드 영속화
 - [ ] 앱 설정 영속화 (파일 저장)
+
+<a id="공동"></a>
 
 ## 🤝 공동
 - [ ] `SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 완료 → 실연결)

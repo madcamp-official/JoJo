@@ -163,7 +163,7 @@ flowchart TB
 
 ## 7. 2인 분업 계획 (파이프라인 축)
 
-두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `QuestionResult`(B→UI)**. 이 인터페이스를 D1에 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
+두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `QuestionResult`(B→UI)**. 이 인터페이스를 가장 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
 
 ### 담당 A — 선택 & 추출 (입력단)
 - 창 선택/화면 캡처(desktopCapturer), 오버레이 윈도우, 전역 단축키, 모드 전환.
@@ -180,7 +180,7 @@ flowchart TB
 - 설정 화면(언어·LLM·API 키·단축키·인근 텍스트 범위).
 - **입력**: `SelectionContext`를 받아 `QuestionResult`(스트리밍)를 UI에 렌더.
 
-### 인터페이스 계약 (A ↔ B, D1 확정)
+### 인터페이스 계약 (A ↔ B, 최우선 확정)
 ```ts
 // A가 생성해 B로 전달
 interface SelectionContext {
@@ -206,17 +206,29 @@ type QuestionRequest =
 interface QuestionResult {
   kind: 'pronunciation' | 'dictionary' | 'ask';
   content: string;                      // 렌더용 마크다운/텍스트(스트리밍 청크)
+  error?: QuestionError;                // 있으면 실패 결과. UI가 성공/실패를 구분하는 기준
   meta?: Record<string, unknown>;       // 발음기호, 사전 뜻 번호 등
 }
+
+// API 키 미설정/무효, 사용 한도(크레딧) 소진 등 UI가 구분해 안내해야 하는 실패 종류
+type QuestionErrorCode =
+  | 'no_active_provider' | 'no_api_key' | 'invalid_api_key'
+  | 'insufficient_credit' | 'rate_limited' | 'network_error' | 'unknown';
+
+interface QuestionError {
+  code: QuestionErrorCode;
+  message: string;                      // 렌더링용 완성된 한국어 문장
+  provider?: LlmProvider;
+}
 ```
-- **통합 지점**: IPC 채널 `selection:resolved`(A→B), `question:request`/`question:stream`(B). 양측 목 구현으로 병렬 진행하다 D2에 실연결.
+- **통합 지점**: IPC 채널 `selection:resolved`(A→B), `question:request`/`question:stream`(B). 양측 목 구현으로 병렬 진행하다 이후 실연결.
 - **공유 코드**: 타입 정의(`shared/types.ts`), IPC 유틸, 로거는 공동 소유.
 
 ## 8. 기술 스택 요약
 
 - **앱**: Electron + TypeScript + (렌더러 UI: React 권장).
 - **캡처/오버레이**: `desktopCapturer`, 투명·클릭스루 BrowserWindow, `globalShortcut`.
-- **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — D4에 벤치 후 결정.
+- **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정.
 - **확장**: Manifest V3 + native messaging.
 - **API**: LLM 3종 어댑터, 사전 API(언어별), 구글 웹/이미지 탭.
 - **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
