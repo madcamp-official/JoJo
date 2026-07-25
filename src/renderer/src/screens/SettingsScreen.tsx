@@ -113,7 +113,6 @@ export function SettingsScreen() {
 
   const previewRef = useRef<HTMLDivElement>(null)
   const selRef = useRef<HTMLSpanElement>(null)
-  const scrolledRef = useRef(false)
 
   useEffect(() => {
     window.nuance.getSettings().then(setSettingsState)
@@ -139,16 +138,14 @@ export function SettingsScreen() {
     // llm 이 바뀔 때만 다시 조회하면 된다(의도적으로 settings 전체가 아닌 llm 만 의존).
   }, [settings?.llm])
 
-  // 미리보기 스크롤을 최초 1회 선택 표현 위치로 이동(맨 위가 아니라 중앙).
+  // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 바이트 값이 바뀔 때마다 재이동.
   useEffect(() => {
-    if (!settings || scrolledRef.current) return
     const box = previewRef.current
     const sel = selRef.current
     if (box && sel) {
       box.scrollTop = sel.offsetTop - box.clientHeight / 2 + sel.clientHeight / 2
-      scrolledRef.current = true
     }
-  }, [settings])
+  }, [settings?.contextBytesBefore, settings?.contextBytesAfter])
 
   useEffect(() => {
     if (!recording) return
