@@ -5,6 +5,7 @@ import { createGeminiClient } from './gemini'
 import { createClaudeClient } from './claude'
 import { renderPrompt } from '../prompts/template'
 import systemPromptTemplate from '../prompts/system.txt?raw'
+import { LANGUAGES } from '@shared/languages'
 
 // ============================================================================
 // 담당 B — LLM 공통 어댑터 (PLAN.md §4.2 / §7)
@@ -70,15 +71,10 @@ export function createClient(provider: LlmProvider, config: LlmConfig): LlmClien
 }
 
 // ---- 문맥 기반 프롬프트 구성 --------------------------------------------------
-
-const LANG_NAME: Record<SelectionContext['language'], string> = {
-  en: '영어',
-  ja: '일본어',
-  zh: '중국어',
-}
+// 언어별 표기(이름 등)는 @shared/languages 에서 관리(언어 확장 시 그쪽만 수정).
 
 export function buildSystemPrompt(ctx: SelectionContext): string {
-  return renderPrompt(systemPromptTemplate, { language: LANG_NAME[ctx.language] })
+  return renderPrompt(systemPromptTemplate, { language: LANGUAGES[ctx.language].name })
 }
 
 /** 선택 표현을 ⟦⟧ 로 표시한 근방 문맥 블록. 프롬프트 캐싱 대상. */
