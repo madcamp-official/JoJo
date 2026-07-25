@@ -9,9 +9,8 @@
 5. [기술 아키텍처](#5-기술-아키텍처)
 6. [까다로운 부분 & 해결 전략](#6-까다로운-부분--해결-전략)
 7. [2인 분업 계획 (파이프라인 축)](#7-2인-분업-계획-파이프라인-축)
-8. [기술 스택 요약](#8-기술-스택-요약)
-9. [리스크 & 확장 로드맵](#9-리스크--확장-로드맵)
-10. [프로젝트 구조 (스캐폴드)](#10-프로젝트-구조-스캐폴드)
+8. [리스크 & 확장 로드맵](#8-리스크--확장-로드맵)
+9. [프로젝트 구조 (스캐폴드)](#9-프로젝트-구조-스캐폴드)
 
 ## 1. 개요
 
@@ -118,7 +117,14 @@
 
 ## 5. 기술 아키텍처
 
-**스택**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + 브라우저 확장(Manifest V3) + OCR 엔진 + LLM/사전 API. **전 구간 TypeScript 단일 언어**로 두 사람의 코드 이동 비용을 낮춘다.
+**전 구간 TypeScript 단일 언어**로 두 사람의 코드 이동 비용을 낮춘다. 구성 요소별 스택:
+
+- **앱**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + TypeScript + React(렌더러 UI).
+- **캡처/오버레이**: `desktopCapturer`, 투명·클릭스루 BrowserWindow, `globalShortcut`.
+- **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정.
+- **확장**: 브라우저 확장(Manifest V3) + native messaging.
+- **API**: LLM 3종 어댑터(ChatGPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
+- **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
 
 ```mermaid
 flowchart TB
@@ -224,38 +230,34 @@ interface QuestionError {
 - **통합 지점**: IPC 채널 `selection:resolved`(A→B), `question:request`/`question:stream`(B). 양측 목 구현으로 병렬 진행하다 이후 실연결.
 - **공유 코드**: 타입 정의(`shared/types.ts`), IPC 유틸, 로거는 공동 소유.
 
-## 8. 기술 스택 요약
-
-- **앱**: Electron + TypeScript + (렌더러 UI: React 권장).
-- **캡처/오버레이**: `desktopCapturer`, 투명·클릭스루 BrowserWindow, `globalShortcut`.
-- **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정.
-- **확장**: Manifest V3 + native messaging.
-- **API**: LLM 3종 어댑터, 사전 API(언어별), 구글 웹/이미지 탭.
-- **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
-
-## 9. 리스크 & 확장 로드맵
+## 8. 리스크 & 확장 로드맵
 
 - **리스크**: OCR 정확도/속도, 접근성 API의 OS별 편차(Win UIA vs macOS AX), 넷플릭스 자막 추출의 취약성, LLM 비용. → 관통 경로(직접 추출)를 먼저 확보해 데모 안정성 보장.
 - **확장**: 지원 언어 추가, 학습 이력·단어장, 발음 TTS, 모바일.
 
-## 10. 프로젝트 구조 (스캐폴드)
+## 9. 프로젝트 구조 (스캐폴드)
 
 **빌드**: electron-vite(Vite 기반, main/preload/renderer 3개 번들 관리) + React + TypeScript. 파이프라인 A/B를 디렉터리로 분리해 §7 분업 경계를 코드 구조에 반영했다. `src/shared`(타입·IPC 채널)는 공동 소유.
 
 ```text
 JoJo/
 ├── package.json                 # electron-vite 스크립트(dev/build/preview)
+├── package-lock.json            # 의존성 트리 고정(npm ci)
 ├── electron.vite.config.ts      # main/preload/renderer 빌드 + 경로 alias
 ├── tsconfig.json                # 공통 TS 설정(@shared/@main/@renderer)
+├── .env.example                 # [dev] MAIN_VITE_* API 키 템플릿(.env는 gitignore)
 ├── src/
+│   ├── env.d.ts                 #   import.meta.env(MAIN_VITE_*) 타입 선언
 │   ├── shared/                  # 🤝 공동 소유 — 인터페이스 계약(§7)
-│   │   ├── types.ts             #   SelectionContext / QuestionResult / 설정 타입
-│   │   └── channels.ts          #   IPC 채널 상수
+│   │   ├── types.ts             #   SelectionContext / QuestionResult / 에러 · 설정 타입
+│   │   ├── channels.ts          #   IPC 채널 상수
+│   │   └── languages.ts         #   언어별 정적 데이터 레지스트리(이름·구글 접미어 등)
 │   ├── main/                    # Electron 메인 프로세스
 │   │   ├── index.ts             #   진입점(윈도우·IPC·단축키 등록)
 │   │   ├── windows.ts           #   메인/오버레이/팝업 윈도우 팩토리
 │   │   ├── ipc.ts               #   🤝 IPC 허브(A→B 연결점)
 │   │   ├── keyStore.ts          #   [B] API 키 safeStorage 암호화 저장
+│   │   ├── devSeed.ts           #   [dev] .env(MAIN_VITE_*) API 키 seed
 │   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
 │   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Ctrl+1)
@@ -270,8 +272,14 @@ JoJo/
 │   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음)
 │   │       ├── dictionary.ts    #   사전 API + LLM 뜻 번호 판정
 │   │       ├── google.ts        #   구글 발음/이미지 탭 URL
-│   │       └── llm/             #   LLM 공통 어댑터
-│   │           ├── adapter.ts   #   provider 추상화 + 캐싱
+│   │       ├── errors.ts        #   질문 에러 메시지 단일 출처(한국어 문장화)
+│   │       ├── prompts/         #   프롬프트 자원
+│   │       │   ├── system.txt   #     문맥 질문 시스템 프롬프트
+│   │       │   └── template.ts  #     {{key}} 플레이스홀더 치환 유틸
+│   │       └── llm/             #   LLM 공통 어댑터 ✅ 구현 완료
+│   │           ├── adapter.ts   #   provider 추상화 + 문맥 프롬프트 + 캐싱
+│   │           ├── sse.ts       #   SSE 스트림 파서(공통)
+│   │           ├── errors.ts    #   HTTP 상태코드 → QuestionErrorCode 분류
 │   │           ├── openai.ts    #   ChatGPT
 │   │           ├── gemini.ts    #   Gemini
 │   │           └── claude.ts    #   Claude
@@ -294,6 +302,6 @@ JoJo/
         └── content.ts           #   DOM 텍스트·자막 추출 + 하이라이트
 ```
 
-**시작 방법**: `npm install` 후 `npm run dev`(electron-vite 개발 서버). 확장은 `chrome://extensions`에서 `extension/`을 로드하고 native messaging host를 등록해야 함(추후 번들러 설정 TODO).
+**시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `chrome://extensions`에서 `extension/`을 로드하고 native messaging host를 등록해야 함(추후 번들러 설정 TODO).
 
-**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. 스텁 파일에는 담당·PLAN 섹션 주석과 `TODO`가 달려 있어, 각자 자기 파이프라인부터 목(mock) 기반으로 병렬 착수할 수 있다.
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B의 LLM 어댑터·3종 클라이언트·스트리밍·에러 체계는 구현 완료(✅), 발음·사전·팝업/설정 UI 및 담당 A 전반은 스텁/진행 중. 항목별 진행 상황은 [TODO.md](TODO.md) 참고.
