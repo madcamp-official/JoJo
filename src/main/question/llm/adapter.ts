@@ -1,4 +1,4 @@
-import type { ChatTurn, LlmProvider, SearchResult, SelectionContext } from '@shared/types'
+import type { ChatTurn, LlmProvider, QuestionResult, SelectionContext } from '@shared/types'
 import { getApiKey } from '@main/keyStore'
 import { createOpenaiClient } from './openai'
 import { createGeminiClient } from './gemini'
@@ -110,8 +110,8 @@ export async function askLlm(
   ctx: SelectionContext,
   prompt: string,
   history: ChatTurn[],
-  onChunk: (chunk: SearchResult) => void,
-): Promise<SearchResult> {
+  onChunk: (chunk: QuestionResult) => void,
+): Promise<QuestionResult> {
   const provider = getActiveProvider()
 
   if (!provider) {

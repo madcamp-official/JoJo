@@ -1,7 +1,7 @@
 // ============================================================================
 // 공동 소유 (담당 A ↔ 담당 B 인터페이스 계약) — PLAN.md §8
-// A(선택/추출)가 SelectionContext 를 생성해 B(검색/AI)로 넘기고,
-// B 는 SearchResult 를 UI 로 반환한다. 이 파일은 양측이 함께 관리한다.
+// A(선택/추출)가 SelectionContext 를 생성해 B(질문/AI)로 넘기고,
+// B 는 QuestionResult 를 UI 로 반환한다. 이 파일은 양측이 함께 관리한다.
 // ============================================================================
 
 export type Language = 'en' | 'ja' | 'zh'
@@ -45,20 +45,20 @@ export interface SelectionContext {
   extraction: 'direct' | 'ocr'
 }
 
-// ---- 검색 요청/응답 ----------------------------------------------------------
+// ---- 질문 요청/응답 ----------------------------------------------------------
 
 export interface ChatTurn {
   role: 'user' | 'assistant'
   content: string
 }
 
-export type SearchRequest =
+export type QuestionRequest =
   | { type: 'pronunciation' }
   | { type: 'dictionary' }
   | { type: 'ask'; prompt: string; history?: ChatTurn[] }
 
-/** B → UI : 스트리밍 가능한 검색 결과 */
-export interface SearchResult {
+/** B → UI : 스트리밍 가능한 질문 결과 */
+export interface QuestionResult {
   kind: 'pronunciation' | 'dictionary' | 'ask'
   content: string
   meta?: Record<string, unknown>

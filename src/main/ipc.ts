@@ -1,8 +1,8 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
-import type { SearchRequest, SelectionContext } from '@shared/types'
+import type { QuestionRequest, SelectionContext } from '@shared/types'
 import { runSelectionPipeline } from './selection'
-import { runSearch } from './search'
+import { runQuestion } from './question'
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
@@ -13,12 +13,12 @@ export function registerIpc(): void {
     return ctx
   })
 
-  // 담당 B: 검색 요청 (스트리밍은 SEARCH_STREAM 이벤트로 전송)
+  // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)
   ipcMain.handle(
-    IPC.SEARCH_REQUEST,
-    async (e, ctx: SelectionContext, req: SearchRequest) => {
-      return runSearch(ctx, req, (chunk) => {
-        e.sender.send(IPC.SEARCH_STREAM, chunk)
+    IPC.QUESTION_REQUEST,
+    async (e, ctx: SelectionContext, req: QuestionRequest) => {
+      return runQuestion(ctx, req, (chunk) => {
+        e.sender.send(IPC.QUESTION_STREAM, chunk)
       })
     },
   )

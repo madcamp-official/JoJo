@@ -1,5 +1,5 @@
 import { setApiKey, getApiKey } from './keyStore'
-import { setActiveProvider } from './search/llm/adapter'
+import { setActiveProvider } from './question/llm/adapter'
 import type { LlmProvider } from '@shared/types'
 
 // 개발 전용 — .env(MAIN_VITE_*)에 넣어둔 키를 keyStore 에 seed 한다.
