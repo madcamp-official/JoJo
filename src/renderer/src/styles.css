@@ -197,7 +197,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 
 /* 공통 소형 버튼 */
 .link-btn {
-  background: none; border: none; color: var(--blue);
+  background: none; border: none; color: var(--theme);
   font-size: 13px; cursor: pointer; padding: 2px 4px;
 }
 .link-btn:hover { text-decoration: underline; }
@@ -248,7 +248,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
 .ctx-text .atom:hover { background: rgba(124, 58, 237, 0.25); }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
-  background: var(--purple); color: #fff;
+  background: var(--theme); color: #fff;
 }
 .selected-line {
   margin-top: 8px; font-size: 12px; color: #9aa0ae;
@@ -302,7 +302,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   max-width: 85%; padding: 7px 10px; border-radius: 10px;
   font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
 }
-.bubble.user { align-self: flex-end; background: var(--blue); color: #fff; }
+.bubble.user { align-self: flex-end; background: var(--theme); color: #fff; }
 .bubble.assistant { align-self: flex-start; background: #26262f; color: #e8e8ee; }
 .bubble.error { align-self: stretch; max-width: 100%; background: #3a1f22; color: #fca5a5; }
 .err-body { display: flex; flex-direction: column; gap: 2px; }
@@ -321,10 +321,10 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   background: #22222b; border: 1px solid #2c2c36; border-radius: 8px;
   color: #e8e8ee; padding: 7px 10px; font: inherit; font-size: 13px;
 }
-.chat-input textarea:focus { outline: none; border-color: var(--blue); }
+.chat-input textarea:focus { outline: none; border-color: var(--theme); }
 .send-btn {
   width: 34px; flex-shrink: 0; border: none; border-radius: 8px;
-  background: var(--blue); color: #fff; font-size: 16px; cursor: pointer;
+  background: var(--theme); color: #fff; font-size: 16px; cursor: pointer;
 }
 .send-btn:disabled { background: #3a3a45; color: #6b7180; cursor: default; }
 
@@ -342,10 +342,10 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: #cfd3dc; padding: 6px 10px; font-size: 12px; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.freq-ask:hover:not(:disabled) { border-color: var(--blue); }
+.freq-ask:hover:not(:disabled) { border-color: var(--theme); }
 .freq-ask:disabled { color: #6b7180; cursor: default; }
 .freq-item.editing input {
-  flex: 1; background: #22222b; border: 1px solid var(--blue); border-radius: 6px;
+  flex: 1; background: #22222b; border: 1px solid var(--theme); border-radius: 6px;
   color: #e8e8ee; padding: 6px 10px; font: inherit; font-size: 12px;
 }
 .icon-mini {
