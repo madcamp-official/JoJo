@@ -3,6 +3,8 @@ import { getApiKey } from '@main/keyStore'
 import { createOpenaiClient } from './openai'
 import { createGeminiClient } from './gemini'
 import { createClaudeClient } from './claude'
+import { renderPrompt } from '../prompts/template'
+import systemPromptTemplate from '../prompts/system.txt?raw'
 
 // ============================================================================
 // 담당 B — LLM 공통 어댑터 (PLAN.md §4.2 / §7)
@@ -76,12 +78,7 @@ const LANG_NAME: Record<SelectionContext['language'], string> = {
 }
 
 export function buildSystemPrompt(ctx: SelectionContext): string {
-  const lang = LANG_NAME[ctx.language]
-  return [
-    `당신은 한국어 모어 화자가 ${lang} 콘텐츠를 이해하도록 돕는 언어 학습 어시스턴트입니다.`,
-    `사용자가 선택한 표현을 그 문맥 안에서 해석해 주세요.`,
-    `답변은 한국어로, 간결하고 정확하게 작성합니다.`,
-  ].join(' ')
+  return renderPrompt(systemPromptTemplate, { language: LANG_NAME[ctx.language] })
 }
 
 /** 선택 표현을 ⟦⟧ 로 표시한 근방 문맥 블록. 프롬프트 캐싱 대상. */
