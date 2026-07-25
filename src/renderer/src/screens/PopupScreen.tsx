@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatTurn, QuestionResult, SelectionContext } from '@shared/types'
+import type { ChatTurn, ExtractedSelection, QuestionResult } from '@shared/types'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
 import { FrequentQuestions } from './popup/FrequentQuestions'
 import { buildSelectionModel, deriveContext } from './popup/selection'
-import { mockHobbitContext } from './popup/mockSelection'
+import { mockHobbitExtraction } from './popup/mockSelection'
 import { loadFrequent, saveFrequent } from './popup/frequentStore'
 import { newId, type ChatMessage } from './popup/types'
 
@@ -15,13 +15,13 @@ import { newId, type ChatMessage } from './popup/types'
 //   헤더(드래그 이동) · 원문 문맥(범위 재지정) · 툴바 · 발음/사전 결과 · 채팅 · 자주 쓰는 질문
 //
 // 데이터 진입:
-//   - 실제(담당 A 통합): main 이 createPopupWindow(ctx) 로 넘긴 SelectionContext 를
+//   - 실제(담당 A 통합): main 이 createPopupWindow(ctx) 로 넘긴 ExtractedSelection 을
 //     getPopupContext()/onPopupContext() 로 받는다.
 //   - 데모(현재): ctx 가 없으면 호빗 "well-to-do" 목업으로 fallback 한다.
 // ============================================================================
 
 export function PopupScreen() {
-  const [baseCtx, setBaseCtx] = useState<SelectionContext>(() => mockHobbitContext())
+  const [baseCtx, setBaseCtx] = useState<ExtractedSelection>(() => mockHobbitExtraction())
 
   // main 에서 실제 컨텍스트를 받으면 교체(초기 조회 + 창 재사용 시 갱신 통지)
   useEffect(() => {
@@ -209,6 +209,6 @@ function InfoRow({ label, result }: { label: string; result: QuestionResult | nu
   )
 }
 
-function sourceLabel(ctx: SelectionContext): string {
-  return ctx.source.appName ?? ctx.source.url ?? ctx.source.kind
+function sourceLabel(ex: ExtractedSelection): string {
+  return ex.source.appName ?? ex.source.url ?? ex.source.kind
 }

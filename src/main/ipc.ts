@@ -1,6 +1,12 @@
 import { ipcMain, shell } from 'electron'
 import { IPC } from '@shared/channels'
-import type { CaptureSource, Language, QuestionRequest, SelectionContext } from '@shared/types'
+import type {
+  CaptureSource,
+  ExtractedSelection,
+  Language,
+  QuestionRequest,
+  SelectionContext,
+} from '@shared/types'
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
 import { listWindows, setSelectedWindowId } from './selection/capture'
@@ -59,10 +65,10 @@ export function registerIpc(): void {
     createSettingsWindow()
   })
 
-  // 담당 A: 선택 확정 → SelectionContext 생성
-  ipcMain.handle(IPC.SELECTION_RESOLVED, async (_e, point: { x: number; y: number }) => {
-    const ctx: SelectionContext = await runSelectionPipeline(point)
-    return ctx
+  // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → B로 전달(팝업 트리거)
+  ipcMain.handle(IPC.SELECTION_EXTRACTED, async (_e, point: { x: number; y: number }) => {
+    const extracted: ExtractedSelection = await runSelectionPipeline(point)
+    return extracted
   })
 
   // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)
@@ -81,8 +87,8 @@ export function registerIpc(): void {
     createPopupWindow(null)
   })
 
-  // 담당 B: 팝업 렌더러가 마운트 시 현재 SelectionContext 를 조회
-  ipcMain.handle(IPC.POPUP_GET_CONTEXT, async (): Promise<SelectionContext | null> => {
+  // 담당 B: 팝업 렌더러가 마운트 시 현재 ExtractedSelection 을 조회
+  ipcMain.handle(IPC.POPUP_GET_CONTEXT, async (): Promise<ExtractedSelection | null> => {
     return getPopupContext()
   })
 

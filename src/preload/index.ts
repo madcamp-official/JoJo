@@ -3,6 +3,7 @@ import { IPC } from '@shared/channels'
 import type {
   AppMode,
   CaptureSource,
+  ExtractedSelection,
   Language,
   QuestionRequest,
   QuestionResult,
@@ -36,8 +37,8 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.MODE_CHANGED, listener)
   },
 
-  resolveSelection: (point: { x: number; y: number }): Promise<SelectionContext> =>
-    ipcRenderer.invoke(IPC.SELECTION_RESOLVED, point),
+  extractSelection: (point: { x: number; y: number }): Promise<ExtractedSelection> =>
+    ipcRenderer.invoke(IPC.SELECTION_EXTRACTED, point),
 
   question: (ctx: SelectionContext, req: QuestionRequest): Promise<QuestionResult> =>
     ipcRenderer.invoke(IPC.QUESTION_REQUEST, ctx, req),
@@ -51,12 +52,12 @@ const api = {
   // 팝업 (담당 B)
   openPopup: (): Promise<void> => ipcRenderer.invoke(IPC.OPEN_POPUP),
 
-  getPopupContext: (): Promise<SelectionContext | null> =>
+  getPopupContext: (): Promise<ExtractedSelection | null> =>
     ipcRenderer.invoke(IPC.POPUP_GET_CONTEXT),
 
   // 이미 열린 팝업에 컨텍스트가 갱신되면 통지받는다(창 재사용 시)
-  onPopupContext: (cb: (ctx: SelectionContext | null) => void): (() => void) => {
-    const listener = (_e: unknown, ctx: SelectionContext | null) => cb(ctx)
+  onPopupContext: (cb: (ctx: ExtractedSelection | null) => void): (() => void) => {
+    const listener = (_e: unknown, ctx: ExtractedSelection | null) => cb(ctx)
     ipcRenderer.on(IPC.POPUP_GET_CONTEXT, listener)
     return () => ipcRenderer.removeListener(IPC.POPUP_GET_CONTEXT, listener)
   },
