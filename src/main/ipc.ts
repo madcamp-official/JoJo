@@ -64,9 +64,10 @@ export function registerIpc(): void {
     setOverlayInteractive(interactive)
   })
 
-  // 담당 A: 선택 확정 → SelectionContext 생성
+  // 담당 A: 선택 확정 → SelectionContext 생성 → 팝업(담당 B)으로 전달 + 오픈
   ipcMain.handle(IPC.SELECTION_RESOLVED, async (_e, point: { x: number; y: number }) => {
     const ctx: SelectionContext = await runSelectionPipeline(point)
+    createPopupWindow(ctx)
     return ctx
   })
 

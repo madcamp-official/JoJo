@@ -23,6 +23,7 @@ const MOCK_WORDS: Word[] = [
 export function Overlay() {
   const [mode, setMode] = useState<AppMode>('normal')
   const [hovered, setHovered] = useState<Word | null>(null)
+  const [resolving, setResolving] = useState(false)
 
   useEffect(() => {
     window.nuance.getMode().then(setMode)
@@ -44,15 +45,31 @@ export function Overlay() {
     return () => window.removeEventListener('mousemove', onMouseMove)
   }, [mode])
 
-  // 단어 위에 있는 동안만 클릭스루를 잠깐 꺼서(windows.ts: setOverlayInteractive) 실제
-  // 시스템 커서가 바뀌게 한다 — 클릭스루 상태에선 CSS cursor 를 바꿔도 OS 가 이 창을
-  // 입력 대상에서 제외하고 있어서 반영되지 않는다.
+  // TODO(담당 A): 실제 단어 위치는 클릭 시점에 OCR 을 돌려야 알 수 있어(사전에 미리
+  // 전체 화면 OCR 을 돌려두는 건 비용이 큼) 지금은 "단어 위에서만" 클릭스루를 푸는
+  // 대신, 선택 모드에 들어가 있는 동안은 오버레이를 통째로 인터랙티브 상태로 둬서
+  // 어디를 클릭하든 여기서 잡히게 하는 임시 방식이다 — 클릭 지점 좌표를 그대로
+  // 선택 파이프라인에 넘긴다. 나중에 hover 시에만(단어 사각형 범위 한정) 클릭스루를
+  // 해제하는 방식으로 교체 필요.
   useEffect(() => {
-    window.nuance.setOverlayInteractive(hovered !== null)
-  }, [hovered])
+    window.nuance.setOverlayInteractive(mode === 'select')
+  }, [mode])
+
+  async function onOverlayClick(e: React.MouseEvent) {
+    if (mode !== 'select' || resolving) return
+    setResolving(true)
+    try {
+      await window.nuance.resolveSelection({ x: e.clientX, y: e.clientY })
+    } finally {
+      setResolving(false)
+    }
+  }
 
   return (
-    <div className={`overlay-root mode-${mode}${hovered ? ' hovering-word' : ''}`}>
+    <div
+      className={`overlay-root mode-${mode}${hovered ? ' hovering-word' : ''}`}
+      onClick={onOverlayClick}
+    >
       {mode === 'select' &&
         MOCK_WORDS.map((word) => (
           <div
@@ -66,6 +83,7 @@ export function Overlay() {
             }}
           />
         ))}
+      {resolving && <div className="overlay-resolving">텍스트 인식 중…</div>}
     </div>
   )
 }
