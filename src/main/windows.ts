@@ -54,7 +54,7 @@ export function setMainWindowExpanded(expanded: boolean): void {
   const { height: workHeight } = screen.getPrimaryDisplay().workAreaSize
   const target = expanded ? Math.min(MAIN_HEIGHT_EXPANDED, workHeight - 40) : MAIN_HEIGHT_NORMAL
   if (win.getSize()[1] === target) return
-  win.setSize(MAIN_WIDTH, target, true)
+  win.setSize(MAIN_WIDTH, target, false) // 애니메이션 없이 즉시 변경
   win.center()
 }
 

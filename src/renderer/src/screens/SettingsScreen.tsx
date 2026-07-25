@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AppSettings } from '@shared/types'
 import { PROVIDERS, PROVIDER_ORDER } from '@shared/providers'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 
 // 설정 화면 (PLAN.md §3) — 담당 B
-// 1.LLM 선택 2.API 키 관리 3.단축키 4.AI 주변 범위(Byte) 5.언어 선택
+// LLM·API 키 / 단축키 / AI 주변 범위(Byte) / 언어
 // 메인 창 안에서 해시 라우팅으로 뜬다(#/main ↔ #/settings, 별도 창 아님).
 
 // Byte 예산은 자유 지정(고정 단위 없음). 슬라이더 범위/숫자 입력 공통 상한.
@@ -21,11 +21,18 @@ function clampByte(n: number): number {
 // 문장 경계 확장을 실시간 시각화한다.
 const PREVIEW_TEXT = `In a hole in the ground there lived a hobbit. Not a nasty, dirty, wet hole, filled with the ends of worms and an oozy smell, nor yet a dry, bare, sandy hole with nothing in it to sit down on or to eat: it was a hobbit-hole, and that means comfort.
 It had a perfectly round door like a porthole, painted green, with a shiny yellow brass knob in the exact middle. The door opened on to a tube-shaped hall like a tunnel: a very comfortable tunnel without smoke, with panelled walls, and floors tiled and carpeted, provided with polished chairs, and lots and lots of pegs for hats and coats—the hobbit was fond of visitors. The tunnel wound on and on, going fairly but not quite straight into the side of the hill—The Hill, as all the people for many miles round called it—and many little round doors opened out of it, first on one side and then on another. No going upstairs for the hobbit: bedrooms, bathrooms, cellars, pantries (lots of these), wardrobes (he had whole rooms devoted to clothes), kitchens, dining-rooms, all were on the same floor, and indeed on the same passage.
-This hobbit was a very well-to-do hobbit, and his name was Baggins. The Bagginses had lived in the neighbourhood of The Hill for time out of mind, and people considered them very respectable, not only because most of them were rich, but also because they never had any adventures or did anything unexpected: you could tell what a Baggins would say on any question without the bother of asking him. This is a story of how a Baggins had an adventure, and found himself doing and saying things altogether unexpected.`
+This hobbit was a very well-to-do hobbit, and his name was Baggins. The Bagginses had lived in the neighbourhood of The Hill for time out of mind, and people considered them very respectable, not only because most of them were rich, but also because they never had any adventures or did anything unexpected: you could tell what a Baggins would say on any question without the bother of asking him. This is a story of how a Baggins had an adventure, and found himself doing and saying things altogether unexpected. He may have lost the neighbours’ respect, but he gained—well, you will see whether he gained anything in the end.`
 
-const PREVIEW_SELECTED = 'very respectable'
-const PREVIEW_SEL_START = PREVIEW_TEXT.indexOf(PREVIEW_SELECTED)
-const PREVIEW_SEL_END = PREVIEW_SEL_START + PREVIEW_SELECTED.length
+// 선택 표현 = 전체 글의 정중앙에 걸친 단어
+function centerWord(text: string): [number, number] {
+  const mid = Math.floor(text.length / 2)
+  let s = mid
+  let e = mid
+  while (s > 0 && !/\s/.test(text[s - 1])) s -= 1
+  while (e < text.length && !/\s/.test(text[e])) e += 1
+  return [s, e]
+}
+const [PREVIEW_SEL_START, PREVIEW_SEL_END] = centerWord(PREVIEW_TEXT)
 
 function seg(text: string, cls: string, key: string) {
   return text ? (
@@ -33,6 +40,44 @@ function seg(text: string, cls: string, key: string) {
       {text}
     </span>
   ) : null
+}
+
+/** 바이트 예산 입력 1개(숫자 입력 + 슬라이더) */
+function ByteControl({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <div className="byte-control">
+      <div className="byte-row">
+        <span className="title">{label}</span>
+        <div className="byte-input">
+          <input
+            type="number"
+            min={BYTE_MIN}
+            max={BYTE_MAX}
+            value={value}
+            onChange={(e) => onChange(clampByte(Number(e.target.value)))}
+          />
+          <span className="unit">Byte</span>
+        </div>
+      </div>
+      <input
+        type="range"
+        className="byte-slider"
+        min={BYTE_MIN}
+        max={BYTE_MAX}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </div>
+  )
 }
 
 const NON_KEY_MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
@@ -66,6 +111,10 @@ export function SettingsScreen() {
   const [keyVisible, setKeyVisible] = useState(false)
   const [recording, setRecording] = useState(false)
 
+  const previewRef = useRef<HTMLDivElement>(null)
+  const selRef = useRef<HTMLSpanElement>(null)
+  const scrolledRef = useRef(false)
+
   useEffect(() => {
     window.nuance.getSettings().then(setSettingsState)
   }, [])
@@ -80,11 +129,26 @@ export function SettingsScreen() {
 
   useEffect(() => {
     if (!settings) return
+    if (!settings.llm) {
+      setApiKeyState('')
+      return
+    }
     window.nuance.getApiKey(settings.llm).then((k) => setApiKeyState(k ?? ''))
     setKeyEditing(false)
     setKeyVisible(false)
     // llm 이 바뀔 때만 다시 조회하면 된다(의도적으로 settings 전체가 아닌 llm 만 의존).
   }, [settings?.llm])
+
+  // 미리보기 스크롤을 최초 1회 선택 표현 위치로 이동(맨 위가 아니라 중앙).
+  useEffect(() => {
+    if (!settings || scrolledRef.current) return
+    const box = previewRef.current
+    const sel = selRef.current
+    if (box && sel) {
+      box.scrollTop = sel.offsetTop - box.clientHeight / 2 + sel.clientHeight / 2
+      scrolledRef.current = true
+    }
+  }, [settings])
 
   useEffect(() => {
     if (!recording) return
@@ -114,20 +178,37 @@ export function SettingsScreen() {
   async function saveKey() {
     setKeyEditing(false)
     const trimmed = apiKey.trim()
-    if (trimmed) await window.nuance.setApiKey(settings!.llm, trimmed)
+    if (trimmed && settings!.llm) await window.nuance.setApiKey(settings!.llm, trimmed)
   }
 
   async function deleteKey() {
+    if (!settings!.llm) return
     await window.nuance.deleteApiKey(settings!.llm)
     setApiKeyState('')
   }
+
+  function setBytes(side: 'before' | 'after', v: number) {
+    const n = clampByte(v)
+    if (settings!.contextBytesLinked) void patch({ contextBytesBefore: n, contextBytesAfter: n })
+    else void patch(side === 'before' ? { contextBytesBefore: n } : { contextBytesAfter: n })
+  }
+
+  function toggleLinked() {
+    const linked = !settings!.contextBytesLinked
+    // 링크를 켜면 뒤 값을 앞 값에 맞춰 통일한다.
+    if (linked) void patch({ contextBytesLinked: true, contextBytesAfter: settings!.contextBytesBefore })
+    else void patch({ contextBytesLinked: false })
+  }
+
+  const aiReady = !!settings.llm && apiKey.trim().length > 0
 
   // 미리보기: 선택 기준 앞/뒤 바이트 범위 + 문장 경계 확장 범위 계산
   const range = computeContextRange(
     PREVIEW_TEXT,
     PREVIEW_SEL_START,
     PREVIEW_SEL_END,
-    settings.contextBytes,
+    settings.contextBytesBefore,
+    settings.contextBytesAfter,
   )
   const includedBytes = byteLength(PREVIEW_TEXT.slice(range.extStart, range.extEnd))
 
@@ -143,10 +224,10 @@ export function SettingsScreen() {
         </div>
       </div>
 
-      {/* 1. LLM 선택 */}
+      {/* LLM 및 API 키 */}
       <section className="settings-section">
-        <h2>1. LLM 선택</h2>
-        <p className="desc">사용할 언어 모델을 선택하세요.</p>
+        <h2>LLM 및 API 키</h2>
+        <p className="desc">사용할 언어 모델을 선택하고, 해당 모델의 API 키를 입력하세요.</p>
         <div className="provider-cards">
           {PROVIDER_ORDER.map((p) => {
             const info = PROVIDERS[p]
@@ -165,56 +246,64 @@ export function SettingsScreen() {
             )
           })}
         </div>
-        <div className="settings-note">ℹ️ 선택한 모델이 AI 프롬프트 제출에 사용됩니다.</div>
-      </section>
 
-      {/* 2. API 키 관리 */}
-      <section className="settings-section">
-        <h2>2. API 키 관리</h2>
-        <p className="desc">선택한 LLM의 API 키를 입력하고 관리하세요.</p>
-        <div className="apikey-row">
-          <div className="apikey-main">
-            <label>API 키</label>
-            <div className="apikey-field">
-              <input
-                type={keyVisible ? 'text' : 'password'}
-                value={apiKey}
-                disabled={!keyEditing}
-                placeholder="API 키를 입력하세요"
-                onChange={(e) => setApiKeyState(e.target.value)}
-                onBlur={() => keyEditing && void saveKey()}
-                onKeyDown={(e) => e.key === 'Enter' && void saveKey()}
-              />
+        {settings.llm && (
+          <div className="apikey-row">
+            <div className="apikey-main">
+              <label>{PROVIDERS[settings.llm].label} API 키</label>
+              <div className="apikey-field">
+                <input
+                  type={keyVisible ? 'text' : 'password'}
+                  value={apiKey}
+                  disabled={!keyEditing}
+                  placeholder="API 키를 입력하세요"
+                  onChange={(e) => setApiKeyState(e.target.value)}
+                  onBlur={() => keyEditing && void saveKey()}
+                  onKeyDown={(e) => e.key === 'Enter' && void saveKey()}
+                />
+                <button
+                  type="button"
+                  className="toggle-visibility"
+                  onClick={() => setKeyVisible((v) => !v)}
+                  title={keyVisible ? '숨기기' : '보기'}
+                >
+                  {keyVisible ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+            <div className="apikey-actions">
+              <button type="button" className="btn-outline" onClick={() => setKeyEditing(true)}>
+                ✏️ 수정
+              </button>
               <button
                 type="button"
-                className="toggle-visibility"
-                onClick={() => setKeyVisible((v) => !v)}
-                title={keyVisible ? '숨기기' : '보기'}
+                className="btn-outline danger"
+                onClick={() => void deleteKey()}
+                disabled={!apiKey}
               >
-                {keyVisible ? '🙈' : '👁'}
+                🗑 삭제
               </button>
             </div>
           </div>
-          <div className="apikey-actions">
-            <button type="button" className="btn-outline" onClick={() => setKeyEditing(true)}>
-              ✏️ 수정
-            </button>
-            <button
-              type="button"
-              className="btn-outline danger"
-              onClick={() => void deleteKey()}
-              disabled={!apiKey}
-            >
-              🗑 삭제
-            </button>
+        )}
+
+        {!aiReady && (
+          <div className="settings-warning">
+            ⚠️{' '}
+            {settings.llm
+              ? 'API 키가 입력되지 않아 AI 관련 기능(발음·사전·통합 질문)을 사용할 수 없습니다.'
+              : '사용할 LLM을 선택하고 API 키를 입력해야 AI 관련 기능을 사용할 수 있습니다.'}
           </div>
+        )}
+
+        <div className="settings-note">
+          🔒 API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
         </div>
-        <div className="settings-note">🔒 API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.</div>
       </section>
 
-      {/* 3. 단축키 설정 */}
+      {/* 단축키 설정 */}
       <section className="settings-section">
-        <h2>3. 단축키 설정</h2>
+        <h2>단축키 설정</h2>
         <p className="desc">일반 모드와 선택 모드를 전환하는 단축키를 지정하세요.</p>
         <div className="shortcut-row">
           <span className="label">⌨️ 모드 전환 (일반 ↔ 선택)</span>
@@ -227,39 +316,48 @@ export function SettingsScreen() {
             </button>
           </div>
         </div>
-        <div className="settings-note">⌨️ 설정한 단축키를 누를 때마다 일반 모드와 선택 모드가 전환됩니다.</div>
+        <div className="settings-note">
+          ⌨️ 설정한 단축키를 누를 때마다 일반 모드와 선택 모드가 전환됩니다.
+        </div>
       </section>
 
-      {/* 4. AI 주변 범위(Byte) */}
+      {/* AI 주변 범위(Byte) */}
       <section className="settings-section">
-        <h2>4. AI 프롬프트 제출 시 AI가 함께 고려할 주변 범위 선택</h2>
+        <h2>AI 주변 범위 (Byte)</h2>
         <p className="desc">
-          선택한 텍스트를 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
+          선택한 표현을 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
           전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
         </p>
 
-        <div className="byte-row">
-          <span className="title">Byte 수 설정</span>
-          <div className="byte-input">
-            <input
-              type="number"
-              min={BYTE_MIN}
-              max={BYTE_MAX}
-              value={settings.contextBytes}
-              onChange={(e) => void patch({ contextBytes: clampByte(Number(e.target.value)) })}
+        <label className="byte-link-toggle">
+          <input
+            type="checkbox"
+            checked={settings.contextBytesLinked}
+            onChange={toggleLinked}
+          />
+          앞·뒤를 동일한 값으로 설정
+        </label>
+
+        {settings.contextBytesLinked ? (
+          <ByteControl
+            label="앞·뒤 공통"
+            value={settings.contextBytesBefore}
+            onChange={(v) => setBytes('before', v)}
+          />
+        ) : (
+          <>
+            <ByteControl
+              label="앞 (선택 이전)"
+              value={settings.contextBytesBefore}
+              onChange={(v) => setBytes('before', v)}
             />
-            <span className="unit">Byte</span>
-          </div>
-        </div>
-        <input
-          type="range"
-          className="byte-slider"
-          min={BYTE_MIN}
-          max={BYTE_MAX}
-          step={1}
-          value={settings.contextBytes}
-          onChange={(e) => void patch({ contextBytes: Number(e.target.value) })}
-        />
+            <ByteControl
+              label="뒤 (선택 이후)"
+              value={settings.contextBytesAfter}
+              onChange={(v) => setBytes('after', v)}
+            />
+          </>
+        )}
 
         <div className="byte-preview-legend">
           <span>
@@ -269,30 +367,36 @@ export function SettingsScreen() {
             <span className="swatch selected" /> 사용자 선택 영역
           </span>
           <span>
-            <span className="swatch context" /> 바이트 범위 ({settings.contextBytes} Byte)
+            <span className="swatch context" /> 바이트 범위
           </span>
           <span>
             <span className="swatch extend" /> 문장 경계 확장
           </span>
         </div>
-        <div className="byte-preview">
+        <div className="byte-preview" ref={previewRef}>
           {seg(PREVIEW_TEXT.slice(0, range.extStart), 'excluded', 'e1')}
           {seg(PREVIEW_TEXT.slice(range.extStart, range.byteStart), 'extend-span', 'x1')}
           {seg(PREVIEW_TEXT.slice(range.byteStart, range.selStart), 'context-span', 'c1')}
-          {seg(PREVIEW_TEXT.slice(range.selStart, range.selEnd), 'selected-span', 's')}
+          <span ref={selRef} className="selected-span">
+            {PREVIEW_TEXT.slice(range.selStart, range.selEnd)}
+          </span>
           {seg(PREVIEW_TEXT.slice(range.selEnd, range.byteEnd), 'context-span', 'c2')}
           {seg(PREVIEW_TEXT.slice(range.byteEnd, range.extEnd), 'extend-span', 'x2')}
           {seg(PREVIEW_TEXT.slice(range.extEnd), 'excluded', 'e2')}
         </div>
         <div className="settings-note">
-          ℹ️ 설정 {settings.contextBytes} Byte(앞·뒤 각) → 문장 경계 확장 포함 실제 약{' '}
-          {includedBytes} Byte 가 문맥으로 전달됩니다.
+          ℹ️ 설정 앞 {settings.contextBytesBefore} · 뒤 {settings.contextBytesAfter} Byte → 문장 경계
+          확장 포함 실제 약 {includedBytes} Byte 가 문맥으로 전달됩니다.
+        </div>
+        <div className="settings-note cost">
+          💸 범위를 넓게 잡을수록 AI가 문맥을 더 잘 이해하지만, 전달 텍스트가 늘어 요청 비용도
+          증가합니다.
         </div>
       </section>
 
-      {/* 5. 언어 선택 */}
+      {/* 언어 선택 */}
       <section className="settings-section">
-        <h2>5. 언어 선택</h2>
+        <h2>언어 선택</h2>
         <p className="desc">OCR의 언어 설정을 선택하세요.</p>
         <div className="lang-options">
           <label className="lang-option">

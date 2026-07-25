@@ -7,10 +7,12 @@ import type { AppSettings } from '@shared/types'
 // userData/settings.json 에 평문 JSON으로 저장한다 (민감정보 없음 — API 키는 keyStore 가 별도 암호화 저장).
 
 const DEFAULT_SETTINGS: AppSettings = {
-  llm: 'gpt',
+  llm: null, // 기본 provider 를 임의 지정하지 않음 — 사용자가 처음 고르기 전엔 미선택
   language: 'auto',
   modeShortcut: 'Alt+Q',
-  contextBytes: 1024,
+  contextBytesBefore: 1024,
+  contextBytesAfter: 1024,
+  contextBytesLinked: true,
 }
 
 function filePath(): string {

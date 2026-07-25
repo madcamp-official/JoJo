@@ -70,17 +70,18 @@ export interface ContextRange {
 }
 
 /**
- * text 안에서 [selStart, selEnd) 선택을 기준으로 앞/뒤 byteBudget 바이트 문맥 +
- * 문장 경계 확장까지의 범위를 계산한다.
+ * text 안에서 [selStart, selEnd) 선택을 기준으로 앞 byteBefore / 뒤 byteAfter 바이트
+ * 문맥 + 문장 경계 확장까지의 범위를 계산한다(앞·뒤 예산 분리).
  */
 export function computeContextRange(
   text: string,
   selStart: number,
   selEnd: number,
-  byteBudget: number,
+  byteBefore: number,
+  byteAfter: number,
 ): ContextRange {
-  const byteStart = stepBack(text, selStart, byteBudget)
-  const byteEnd = stepForward(text, selEnd, byteBudget)
+  const byteStart = stepBack(text, selStart, byteBefore)
+  const byteEnd = stepForward(text, selEnd, byteAfter)
   return {
     extStart: sentenceStart(text, byteStart),
     byteStart,
@@ -96,10 +97,11 @@ export function buildContextText(
   text: string,
   selStart: number,
   selEnd: number,
-  byteBudget: number,
+  byteBefore: number,
+  byteAfter: number,
   mark: (sel: string) => string,
 ): string {
-  const r = computeContextRange(text, selStart, selEnd, byteBudget)
+  const r = computeContextRange(text, selStart, selEnd, byteBefore, byteAfter)
   return (
     text.slice(r.extStart, selStart) +
     mark(text.slice(selStart, selEnd)) +

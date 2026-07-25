@@ -14,7 +14,7 @@ app.whenReady().then(() => {
 
   const settings = loadSettings()
   // 저장된 provider 의 키가 있으면 재실행 시에도 바로 활성화(사용자가 매번 설정에서 다시 고를 필요 없게).
-  if (getApiKey(settings.llm)) setActiveProvider(settings.llm)
+  if (settings.llm && getApiKey(settings.llm)) setActiveProvider(settings.llm)
 
   createMainWindow()
   registerIpc()
