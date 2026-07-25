@@ -98,7 +98,25 @@ export function setSelectedWindowId(id: string | null): void {
   selectedWindowId = id
 }
 
-// TODO(담당 A): 선택된 창을 프레임 캡처하여 OCR 입력용 이미지 버퍼 반환.
+// 선택된 창을 프레임 캡처하여 OCR 입력용 이미지 버퍼(PNG) 반환.
 export async function captureFocusedWindow(): Promise<Buffer> {
-  throw new Error('not implemented: captureFocusedWindow')
+  if (!selectedWindowId) throw new Error('captureFocusedWindow: 선택된 창 없음')
+  if (process.platform !== 'win32') {
+    throw new Error('captureFocusedWindow: win32 전용 (macOS 미구현)')
+  }
+
+  const hwnd = BigInt(selectedWindowId)
+  const { captureMinimizedWin32Window, captureWin32Window, getWindowScreenRect } = await import(
+    './win32Capture'
+  )
+
+  const rect = getWindowScreenRect(hwnd)
+  const shot = rect
+    ? await captureWin32Window(hwnd, rect.width, rect.height)
+    : await captureMinimizedWin32Window(hwnd)
+  if (!shot) throw new Error('captureFocusedWindow: 캡처 실패')
+
+  return nativeImage
+    .createFromBitmap(shot.buffer, { width: shot.width, height: shot.height })
+    .toPNG()
 }

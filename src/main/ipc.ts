@@ -11,7 +11,7 @@ import type {
 } from '@shared/types'
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
-import { listWindows, setSelectedWindowId } from './selection/capture'
+import { getSelectedWindowId, listWindows, setSelectedWindowId } from './selection/capture'
 import {
   createPopupWindow,
   getMainWindow,
@@ -19,6 +19,7 @@ import {
   getPopupContext,
   hideSelectionOverlay,
   setMainWindowRoute,
+  setOverlayInteractive,
   trackSelectionOverlay,
   type MainRoute,
 } from './windows'
@@ -35,6 +36,11 @@ export function registerIpc(): void {
   // 담당 A: 창 목록 조회
   ipcMain.handle(IPC.WINDOW_LIST, async (): Promise<CaptureSource[]> => {
     return listWindows()
+  })
+
+  // 담당 A: 현재 선택된 창 id 조회 (재선택 시 목록에서 표시용)
+  ipcMain.handle(IPC.GET_SELECTED_WINDOW_ID, async (): Promise<string | null> => {
+    return getSelectedWindowId()
   })
 
   // 메인/피커/설정 전환 — 렌더러가 이미 해시를 바꿨으므로 창 크기만 맞춘다(navigate.ts: goto()).
@@ -63,9 +69,14 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.GET_MODE, async () => getOverlayMode())
 
-  // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → B로 전달(팝업 트리거)
+  ipcMain.handle(IPC.OVERLAY_SET_INTERACTIVE, async (_e, interactive: boolean) => {
+    setOverlayInteractive(interactive)
+  })
+
+  // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → 팝업(담당 B) 오픈 + 전달
   ipcMain.handle(IPC.SELECTION_EXTRACTED, async (_e, point: { x: number; y: number }) => {
     const extracted: ExtractedSelection = await runSelectionPipeline(point)
+    createPopupWindow(extracted)
     return extracted
   })
 

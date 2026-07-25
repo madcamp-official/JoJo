@@ -34,6 +34,19 @@ const GetWindowTextW = user32.func(
 const GetClassNameW = user32.func(
   'int __stdcall GetClassNameW(void *hwnd, _Out_ str16 lpClassName, int nMaxCount)',
 )
+const EnumChildWindows = user32.func(
+  'int __stdcall EnumChildWindows(void *hwndParent, WNDENUMPROC *lpEnumFunc, intptr_t lParam)',
+)
+// SendMessageW 는 메시지 코드에 따라 인자 의미가 달라진다 — koffi 로는 같은 DLL 심볼을
+// 서로 다른 시그니처로 여러 번 바인딩할 수 있다(DwmGetWindowAttribute 를 uint32_t 버전과
+// RECT 버전 두 개로 바인딩한 것과 같은 패턴). WM_GETTEXTLENGTH 는 인자가 전부 정수,
+// WM_GETTEXT 는 lParam 자리가 텍스트를 받을 출력 버퍼(str16)다.
+const SendMessageGetTextLength = user32.func(
+  'intptr_t __stdcall SendMessageW(void *hwnd, uint32_t msg, uintptr_t wParam, intptr_t lParam)',
+)
+const SendMessageGetText = user32.func(
+  'intptr_t __stdcall SendMessageW(void *hwnd, uint32_t msg, uintptr_t wParam, _Out_ str16 lParam)',
+)
 const GetDC = user32.func('void * __stdcall GetDC(void *hwnd)')
 const ReleaseDC = user32.func('int __stdcall ReleaseDC(void *hwnd, void *hdc)')
 const PrintWindow = user32.func('int __stdcall PrintWindow(void *hwnd, void *hdc, uint32_t flags)')
@@ -251,6 +264,52 @@ const SW_RESTORE = 9
 export function bringWindowToForeground(hwnd: bigint): void {
   if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE)
   SetForegroundWindow(hwnd)
+}
+
+const WM_GETTEXTLENGTH = 0x000e
+const WM_GETTEXT = 0x000d
+// 표준 텍스트 컨트롤 클래스 — 메모장 등이 쓰는 EDIT/RichEdit 계열. 브라우저·PDF 뷰어처럼
+// 캔버스에 직접 그리는 앱은 이런 클래스를 안 쓰므로 이 방식으로는 텍스트를 못 얻는다.
+const TEXT_CONTROL_CLASSES = new Set([
+  'Edit',
+  'RichEdit20W',
+  'RichEdit20A',
+  'RICHEDIT50W',
+  'RichEdit50W',
+  'RichEditD2DPT', // Windows 11 신형 메모장 등이 쓰는 Direct2D 렌더링 RichEdit 변종
+])
+
+/**
+ * `hwnd` 의 자손 창들 중 표준 텍스트 컨트롤(EDIT/RichEdit)을 찾아 `WM_GETTEXT` 로 내용을
+ * 읽는다 — 메모장처럼 표준 컨트롤을 쓰는 앱에서 OCR 없이 정확한 텍스트를 바로 얻기 위함
+ * (`EnumChildWindows` 는 직계 자식뿐 아니라 손자 창까지 재귀적으로 열거한다). 후보가
+ * 여럿이면(예: 검색창 + 본문) 가장 긴 텍스트를 가진 컨트롤을 채택한다. 못 찾으면 null —
+ * 호출부가 OCR 로 폴백해야 한다는 뜻.
+ */
+export function readWin32WindowText(hwnd: bigint): string | null {
+  let best = ''
+
+  const cb = koffi.register((childHwnd: bigint) => {
+    const classBuf = Buffer.alloc(64 * 2)
+    const classLen = GetClassNameW(childHwnd, classBuf, 64)
+    const className = classLen > 0 ? classBuf.toString('utf16le').replace(/\0.*$/, '') : ''
+    if (!TEXT_CONTROL_CLASSES.has(className)) return 1
+
+    const textLen = Number(SendMessageGetTextLength(childHwnd, WM_GETTEXTLENGTH, 0, 0))
+    if (textLen <= 0) return 1
+    const textBuf = Buffer.alloc((textLen + 1) * 2)
+    SendMessageGetText(childHwnd, WM_GETTEXT, textLen + 1, textBuf)
+    const text = textBuf.toString('utf16le').replace(/\0.*$/, '')
+    if (text.length > best.length) best = text
+    return 1
+  }, koffi.pointer('WNDENUMPROC'))
+
+  try {
+    EnumChildWindows(hwnd, cb, 0)
+  } finally {
+    koffi.unregister(cb)
+  }
+  return best.length > 0 ? best : null
 }
 
 const SWP_NOMOVE = 0x0002

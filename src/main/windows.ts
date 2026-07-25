@@ -265,6 +265,17 @@ export function hideSelectionOverlay(): void {
   applyOverlayBounds(null)
 }
 
+/**
+ * 오버레이가 클릭스루 상태(`setIgnoreMouseEvents(true)`)인 동안은 OS 가 이 창을 입력
+ * 대상에서 완전히 제외하기 때문에, 렌더러에서 CSS `cursor` 를 바꿔도 실제 시스템
+ * 커서에는 반영되지 않는다. 단어 위에 커서가 있는 동안만 일시적으로 클릭스루를 꺼서
+ * (`interactive=true`) 커서 모양이 실제로 바뀌게 하고, 벗어나면 다시 켠다.
+ * 렌더러(Overlay.tsx)가 자체 `mousemove` 기반 hover 판정 결과에 따라 호출한다.
+ */
+export function setOverlayInteractive(interactive: boolean): void {
+  overlayWindow?.setIgnoreMouseEvents(!interactive, { forward: true })
+}
+
 export function getOverlayMode(): AppMode {
   return overlayMode
 }

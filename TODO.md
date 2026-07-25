@@ -27,30 +27,32 @@
 
 **앱 · 윈도우 · 모드**
 - [x] 창 선택 UI + `desktopCapturer` 창 목록/선택
-- [ ] 선택된 창 테두리 색 표시 (일반=파랑 / 선택=보라)
-- [ ] 백그라운드 실행 + 트레이 아이콘 (선택 해제 / 재선택 / 설정)
-- [ ] 투명·클릭스루 오버레이 윈도우 (선택 창에 정렬 · 이동/리사이즈 추적)
-- [ ] 모드 전환 전역 단축키(기본 Alt+Q) + `MODE_CHANGED` 통지
+- [x] 선택된 창 테두리 색 표시 (일반=파랑 / 선택=보라) — **Windows 전용**, macOS 미구현(아래 크로스플랫폼 항목 참고)
+- [x] 백그라운드 실행 + 트레이 아이콘 (선택 해제 / 재선택 / 설정)
+- [x] 투명·클릭스루 오버레이 윈도우 (선택 창에 정렬 · 이동/리사이즈 추적) — **Windows 전용**, macOS 미구현(아래 크로스플랫폼 항목 참고)
+- [x] 모드 전환 전역 단축키(기본 Alt+Q) + `MODE_CHANGED` 통지
 
 <a id="a-coord"></a>
 
 **단어 감지 · 좌표 매핑 (오버레이)**
-- [ ] 단어 bbox 좌표 확보 → 커서 좌표 ↔ 단어 매핑
-- [ ] hover 시 커서 모양 변경 + (확장) 단어 사각형 하이라이트
+- [x] 단어 bbox 좌표 확보 → 커서 좌표 ↔ 단어 매핑 — 매핑 로직(`shared/wordMapping.ts: findWordAtPoint`)·오버레이 연동·실제 추출 파이프라인(Tesseract OCR) 연결까지 완료. `runSelectionPipeline`(`selection/index.ts`)이 클릭 좌표를 실제 OCR 결과 `Word[]`에 매핑해 `selectedText`를 채운다. `Overlay.tsx`의 hover 미리보기는 여전히 `MOCK_WORDS`(실 IPC 연결 전 자리표시자)를 쓰는 상태 — 실시간 hover 하이라이트를 실제 단어로 바꾸려면 오버레이에서 추출 파이프라인을 직접 호출하는 IPC 연결이 추가로 필요.
+- [ ] hover 시 커서 모양 변경 + (확장) 단어 사각형 하이라이트 — **데스크톱 커서 모양 변경만 구현**(`windows.ts: setOverlayInteractive`로 단어 위에서만 잠깐 클릭스루 해제 → CSS `cursor: pointer` 반영). "(확장)" 표기대로 이 사각형 하이라이트는 PLAN.md상 브라우저 확장(extension/) 쪽 기능인데, 확장이 아직 전혀 구현 안 된 상태(native messaging 등 기반 자체가 없음)라 의도적으로 건너뜀 — 확장 작업 시작할 때 별도로 처리 필요.
 - [ ] 단어 클릭 감지 → 팝업 트리거 (팝업 직전까지가 A 경계)
 - [ ] 산출: 근방 추출 텍스트 + 단어 좌표 + 클릭 기준점을 B로 전달 (최종 선택 확정은 B가 팝업에서 수행)
 
 <a id="a-extract"></a>
 
 **추출 판정 · 실행**
-- [ ] OCR 사용 여부 판정 (직접추출 우선, 텍스트 부족 시 OCR fallback)
-- [ ] 판정 캐싱(URL 키): 모드 진입 시 1회 + URL 변화 시 재판정
+- [x] OCR 사용 여부 판정 (직접추출 우선, 텍스트 부족 시 OCR fallback) — 지금은 브라우저 확장·접근성 API 연동 전이라 direct 경로에 닿을 방법이 없어 `decideExtraction()`이 항상 `ocr`을 반환한다(`decideOcr.ts`). 확장/접근성 API가 붙으면 실제 direct vs ocr 분기 로직으로 교체 필요.
+- [ ] 판정 캐싱(URL 키): 모드 진입 시 1회 + URL 변화 시 재판정 — direct 경로(웹 URL)가 아직 없어 캐시가 실질적으로 동작할 대상이 없음. 확장 연동 시 구현.
 - [ ] 창 재선택 시 선택 모드 자동 해제
 - [ ] 직접 추출 파서: txt / epub / pdf + 좌표 매핑
 - [ ] 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출
-- [ ] 언어 자동 감지 (유니코드 블록 기반 경량 분류)
-- [ ] OCR 엔진 연동 (Tesseract.js ↔ 클라우드 벤치 후 결정) + 언어 특화
-- [ ] 좌표 기반 노이즈 제거(제목·페이지번호) + 페이지 경계 문장 이어붙이기
+- [ ] 언어 자동 감지 (유니코드 블록 기반 경량 분류) — 현재 `detectLanguage()`는 항상 `'en'` 반환하는 스텁.
+- [x] OCR 엔진 연동 — **범용 엔진(전체 언어 공통/자동감지용) + 언어별 최적 엔진(개별 특화) 이중 구조**로 결정.
+  - [x] 범용 엔진: **Tesseract.js** 채택 확정 및 연동 완료 — `ocr.ts`: `captureFocusedWindow()`(win32 캡처 → PNG) → `createWorker` → `recognize(image, {}, {blocks:true})` → block/paragraph/line 을 평탄화해 단어별 bbox 추출. 언어별 워커를 재사용(언어 바뀌면 재생성)하고, `decideExtraction()`이 고른 `Language`로 traineddata를 선택. 실제 창 캡처 + OCR 로 검증됨(단, 언어 자동 감지가 스텁이라 항상 `eng` 모델 사용 — 한국어 등 미지원 언어 인식 시 깨진 텍스트가 나오는 게 정상, 언어 자동 감지 구현 후 해소).
+  - [ ] 언어별 특화 엔진: 영어/일본어/중국어 각각 Tesseract보다 더 정확한 전용 엔진이 있는지 벤치마킹 후 결정 (예: 중국어는 PaddleOCR 등) — 나중에 진행. 결정되면 언어별로 다른 엔진을 호출하도록 라우팅 필요(의존성 여러 개 추가되는 만큼 복잡도 증가 감안).
+- [ ] 좌표 기반 노이즈 제거(제목·페이지번호) + 페이지 경계 문장 이어붙이기 — `removeNoise()`는 현재 통과만 시키는 no-op.
 
 <a id="a-ext"></a>
 
@@ -131,6 +133,7 @@
 - [ ] 크로스플랫폼(Win / Mac) 동작 점검
   - [x] ~~맥(arm64) 부팅 확인 — win32Capture(koffi)를 동적 import로 격리해 맥에선 미로드, `npm run dev` 정상 기동 (`fix: 969d08f`). 맥은 desktopCapturer 경로 사용(창 목록 실사용엔 화면 기록 권한 필요)~~
   - [ ] Windows 재확인 — win32Capture가 static→동적 import로 바뀌어 Windows 창 목록/캡처 정상 동작 재점검 필요
+  - [ ] (담당 A) 선택 창 테두리 오버레이(`windows.ts: trackSelectionOverlay`) + 이동/리사이즈 실시간 추적이 전부 Win32 API(`GetWindowRect`/`DwmGetWindowAttribute`/`SetWinEventHook`/`SetWindowPos`) 기반이라 **macOS 에서는 전혀 동작하지 않음** — `ipc.ts`의 `SELECT_WINDOW` 핸들러가 `process.platform === 'win32'`가 아니면 `trackSelectionOverlay` 자체를 호출하지 않고 바로 `hideSelectionOverlay()`만 부름. macOS에서 창 선택은 되지만 테두리 색 표시·오버레이 추적은 아무것도 안 뜸. macOS 대응하려면 Accessibility API(AX) 기반으로 별도 구현 필요.
 - [ ] 언어 확장성 — 현재 영/일/중만 지원(PLAN.md §1), 추후 언어 추가를 대비한 구조.
   - [x] ~~`@shared/languages.ts`에 언어별 정적 데이터(이름, 구글 검색 접미어 등) 단일 레지스트리 도입. `Language` 유니온에 언어를 추가하면 `Record<Language, ...>` 사용처가 컴파일 에러로 누락을 알려줌(`question/llm/adapter.ts`, `question/google.ts` 적용 완료)~~
   - [ ] (담당 A) OCR 언어 감지/언어팩을 이 레지스트리와 연동하거나 별도 레지스트리로 통일 (`selection/langDetect.ts`, `selection/ocr.ts`)
@@ -142,3 +145,4 @@
 ## ⚠️ 미해결 문제
 
 - [ ] (담당 A) 선택 창 테두리 오버레이 — 대상 창과의 실시간 동기화 지연. 대상 창을 드래그로 이동/리사이즈할 때 오버레이가 못 따라가는 프레임이 간헐적으로 있음(어떤 경우엔 창 크기 변화가 먼저 반영되고 테두리가 뒤따라옴, 어떤 경우엔 반대). `WinEventHook`(`EVENT_OBJECT_LOCATIONCHANGE`, `win32Capture.ts`)으로 즉시 반응 + 150ms 폴링 안전망까지 적용했지만, 오버레이 창과 대상 창이 서로 다른 프로세스의 독립된 최상위 창이라 DWM 이 두 창을 같은 컴포지터 프레임에 맞춰준다는 보장이 없어 완전한 동기화는 구조적으로 어려움. 더 근본적인 해결(예: 대상 창을 자식 창으로 편입 등)이 필요하면 위험도·부작용을 먼저 검토할 것.
+- [ ] (담당 A) 창 선택 목록 — 최소화된 창 썸네일 캡처 시 화면 구석에 짧은 깜빡임. `captureMinimizedWin32Window`(`win32Capture.ts`)가 DWM Thumbnail 합성 결과를 읽으려고 화면 우하단에 실제로(약 0.1~0.2초) 작은 캡처용 창을 띄웠다가 지운다 — 그 순간이 눈에 보임. `PrintWindow`/화면 밖 위치로는 DWM 합성 결과를 못 읽어서(이 시스템에서 재현·검증됨) 어쩔 수 없이 화면 안에 실제로 띄워야 했음. 완전히 없애려면 접근 방식 자체를 바꿔야 함(예: 최소화된 창은 실시간 썸네일 대신 아이콘+라벨로 표시, 또는 가상 데스크톱 활용 등) — 사용자와 논의 후 보류 중.

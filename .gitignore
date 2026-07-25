@@ -22,4 +22,6 @@ build/*
 # OS
 .DS_Store
 Thumbs.db
-node_modules
+
+# Tesseract.js 언어팩 캐시 (실행 중 자동 다운로드됨)
+*.traineddata
