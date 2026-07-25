@@ -8,11 +8,10 @@
 4. [핵심 기능](#4-핵심-기능)
 5. [기술 아키텍처](#5-기술-아키텍처)
 6. [까다로운 부분 & 해결 전략](#6-까다로운-부분--해결-전략)
-7. [구현 체크리스트 (담당별)](#7-구현-체크리스트-담당별)
-8. [2인 분업 계획 (파이프라인 축)](#8-2인-분업-계획-파이프라인-축)
-9. [기술 스택 요약](#9-기술-스택-요약)
-10. [리스크 & 확장 로드맵](#10-리스크--확장-로드맵)
-11. [프로젝트 구조 (스캐폴드)](#11-프로젝트-구조-스캐폴드)
+7. [2인 분업 계획 (파이프라인 축)](#7-2인-분업-계획-파이프라인-축)
+8. [기술 스택 요약](#8-기술-스택-요약)
+9. [리스크 & 확장 로드맵](#9-리스크--확장-로드맵)
+10. [프로젝트 구조 (스캐폴드)](#10-프로젝트-구조-스캐폴드)
 
 ## 1. 개요
 
@@ -162,11 +161,7 @@ flowchart TB
 - **직접 추출 vs OCR 구분**: PDF/HTML에서 추출 시도 → 텍스트 양으로 분기(위 4.1 로직).
 - **판정 시점 캐싱**: URL을 키로 판정 결과를 유지, URL 변화 시에만 재판정.
 
-## 7. 구현 체크리스트 (담당별)
-
-담당별 상세 구현 체크리스트는 별도 파일 **[TODO.md](TODO.md)** 로 분리해 관리한다(`dev` 브랜치). 진행 상황 체크는 그쪽에서 한다.
-
-## 8. 2인 분업 계획 (파이프라인 축)
+## 7. 2인 분업 계획 (파이프라인 축)
 
 두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `QuestionResult`(B→UI)**. 이 인터페이스를 D1에 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
 
@@ -217,7 +212,7 @@ interface QuestionResult {
 - **통합 지점**: IPC 채널 `selection:resolved`(A→B), `question:request`/`question:stream`(B). 양측 목 구현으로 병렬 진행하다 D2에 실연결.
 - **공유 코드**: 타입 정의(`shared/types.ts`), IPC 유틸, 로거는 공동 소유.
 
-## 9. 기술 스택 요약
+## 8. 기술 스택 요약
 
 - **앱**: Electron + TypeScript + (렌더러 UI: React 권장).
 - **캡처/오버레이**: `desktopCapturer`, 투명·클릭스루 BrowserWindow, `globalShortcut`.
@@ -226,14 +221,14 @@ interface QuestionResult {
 - **API**: LLM 3종 어댑터, 사전 API(언어별), 구글 웹/이미지 탭.
 - **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
 
-## 10. 리스크 & 확장 로드맵
+## 9. 리스크 & 확장 로드맵
 
 - **리스크**: OCR 정확도/속도, 접근성 API의 OS별 편차(Win UIA vs macOS AX), 넷플릭스 자막 추출의 취약성, LLM 비용. → 관통 경로(직접 추출)를 먼저 확보해 데모 안정성 보장.
 - **확장**: 지원 언어 추가, 학습 이력·단어장, 발음 TTS, 모바일.
 
-## 11. 프로젝트 구조 (스캐폴드)
+## 10. 프로젝트 구조 (스캐폴드)
 
-**빌드**: electron-vite(Vite 기반, main/preload/renderer 3개 번들 관리) + React + TypeScript. 파이프라인 A/B를 디렉터리로 분리해 §8 분업 경계를 코드 구조에 반영했다. `src/shared`(타입·IPC 채널)는 공동 소유.
+**빌드**: electron-vite(Vite 기반, main/preload/renderer 3개 번들 관리) + React + TypeScript. 파이프라인 A/B를 디렉터리로 분리해 §7 분업 경계를 코드 구조에 반영했다. `src/shared`(타입·IPC 채널)는 공동 소유.
 
 ```text
 JoJo/
@@ -241,7 +236,7 @@ JoJo/
 ├── electron.vite.config.ts      # main/preload/renderer 빌드 + 경로 alias
 ├── tsconfig.json                # 공통 TS 설정(@shared/@main/@renderer)
 ├── src/
-│   ├── shared/                  # 🤝 공동 소유 — 인터페이스 계약(§8)
+│   ├── shared/                  # 🤝 공동 소유 — 인터페이스 계약(§7)
 │   │   ├── types.ts             #   SelectionContext / QuestionResult / 설정 타입
 │   │   └── channels.ts          #   IPC 채널 상수
 │   ├── main/                    # Electron 메인 프로세스
