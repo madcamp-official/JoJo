@@ -16,6 +16,9 @@ import type {
 const api = {
   listWindows: (): Promise<CaptureSource[]> => ipcRenderer.invoke(IPC.WINDOW_LIST),
 
+  getSelectedWindowId: (): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.GET_SELECTED_WINDOW_ID),
+
   // 메인/피커/설정 전환 — navigate.ts: goto() 가 호출(창 크기만 요청, 화면 전환은 렌더러가 직접 처리).
   setWindowRoute: (route: 'main' | 'picker' | 'settings'): Promise<void> =>
     ipcRenderer.invoke(IPC.WINDOW_SET_ROUTE, route),

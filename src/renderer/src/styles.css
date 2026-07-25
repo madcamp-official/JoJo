@@ -75,6 +75,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   padding: 8px; cursor: pointer; color: inherit; text-align: left;
 }
 .window-tile:hover { border-color: var(--theme); }
+.window-tile.selected { border-color: var(--purple); }
 .window-tile .thumb {
   width: 100%; height: 170px; border-radius: 4px; background: #000; overflow: hidden;
 }

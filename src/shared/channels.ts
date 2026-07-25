@@ -6,6 +6,7 @@ export const IPC = {
   WINDOW_LIST: 'window:list',
   SELECT_WINDOW: 'window:select',
   WINDOW_SELECTED: 'window:selected',
+  GET_SELECTED_WINDOW_ID: 'window:getSelectedId',
   GET_MODE: 'mode:get',
   SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',

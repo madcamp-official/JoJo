@@ -7,12 +7,16 @@ import { goto } from '../navigate'
 export function WindowPickerScreen() {
   const [sources, setSources] = useState<CaptureSource[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     window.nuance.listWindows().then((list) => {
       if (!cancelled) setSources(list)
       setLoading(false)
+    })
+    window.nuance.getSelectedWindowId().then((id) => {
+      if (!cancelled) setSelectedId(id)
     })
 
     function onKeyDown(e: KeyboardEvent) {
@@ -43,7 +47,11 @@ export function WindowPickerScreen() {
       {!loading && sources.length === 0 && <p className="hint">캡처 가능한 창이 없습니다.</p>}
       <div className="window-grid">
         {sources.map((s) => (
-          <button key={s.id} className="window-tile" onClick={() => void pick(s)}>
+          <button
+            key={s.id}
+            className={`window-tile${s.id === selectedId ? ' selected' : ''}`}
+            onClick={() => void pick(s)}
+          >
             <div className="thumb">
               <img src={s.thumbnail} alt={s.name} />
             </div>

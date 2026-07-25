@@ -1,4 +1,6 @@
 import type { Language, SelectionSource } from '@shared/types'
+import { readWindowText } from './accessibility'
+import { getSelectedWindowId } from './capture'
 import { detectLanguage } from './langDetect'
 
 // 담당 A — OCR 사용 여부 판정 (PLAN.md §4.1 / §6)
@@ -13,16 +15,28 @@ export interface ExtractionDecision {
 
 const cache = new Map<string, ExtractionDecision>() // key: url ?? appName
 
+// 이 미만이면 "의미 있는 텍스트"로 안 보고 OCR 로 폴백한다(빈 EDIT 컨트롤이나
+// 검색창 placeholder 같은 잡음성 텍스트를 direct 로 잘못 채택하는 걸 막기 위함).
+const MIN_DIRECT_TEXT_LENGTH = 20
+
 export async function decideExtraction(): Promise<ExtractionDecision> {
-  // 현재는 win32Capture 로 캡처한 창 이미지가 유일한 입력이라(브라우저 확장·접근성 API
-  // 연동 전) direct 경로(txt/epub/pdf 파서, DOM 텍스트)에 닿을 방법이 없다 → 항상 ocr.
-  // TODO(담당 A):
-  //  1) 활성 대상 식별 (브라우저=확장 / 그 외=접근성 API)로 source·url 파악
-  //  2) youtube·netflix·txt → direct / 스캔본 → ocr
-  //  3) 전자책 뷰어 → 접근성 API 추출 시도 → 실패 시 ocr
-  //  4) pdf·web → 추출 텍스트 양으로 direct vs ocr 분기 (판정 캐싱: url 키)
-  const source: SelectionSource = { kind: 'ocr' }
   const language = await detectLanguage()
+
+  // 표준 텍스트 컨트롤(메모장 등)이면 OCR 없이 바로 정확한 텍스트를 얻을 수 있다 —
+  // 브라우저·PDF 뷰어처럼 캔버스에 그리는 앱은 여기서 안 잡히고 OCR 로 자연스럽게 폴백.
+  const id = getSelectedWindowId()
+  if (id) {
+    const text = await readWindowText(BigInt(id))
+    if (text && text.trim().length >= MIN_DIRECT_TEXT_LENGTH) {
+      return { mode: 'direct', source: { kind: 'txt' }, language }
+    }
+  }
+
+  // TODO(담당 A):
+  //  1) 활성 대상 식별 (브라우저=확장)로 source·url 파악, youtube·netflix 등 분기
+  //  2) 전자책 뷰어 등 접근성 API 로 못 읽히는 나머지 direct 소스(epub/pdf 파일 등)
+  //  3) pdf·web → 추출 텍스트 양으로 direct vs ocr 분기 (판정 캐싱: url 키)
+  const source: SelectionSource = { kind: 'ocr' }
   const decision: ExtractionDecision = { mode: 'ocr', source, language }
   if (source.url) cache.set(source.url, decision)
   return decision
