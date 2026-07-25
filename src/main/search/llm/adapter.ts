@@ -40,9 +40,10 @@ export const DEFAULT_MODELS: Record<LlmProvider, string> = {
   claude: 'claude-sonnet-5',
 }
 
-// 활성 provider — 추후 설정 영속화([B-UI])와 연결. 그전까진 인메모리 기본값.
-let activeProvider: LlmProvider = 'claude'
-export function getActiveProvider(): LlmProvider {
+// 활성 provider — 추후 설정 영속화([B-UI])와 연결. 그전까진 인메모리.
+// 기본값 없음: 사용자가 명시적으로 지정하기 전까지는 진행하지 않는다.
+let activeProvider: LlmProvider | null = null
+export function getActiveProvider(): LlmProvider | null {
   return activeProvider
 }
 export function setActiveProvider(p: LlmProvider): void {
@@ -88,12 +89,13 @@ export function buildRequest(
   ctx: SelectionContext,
   prompt: string,
   history: ChatTurn[],
+  provider: LlmProvider,
 ): LlmRequest {
   return {
     system: buildSystemPrompt(ctx),
     cacheableContext: buildContextBlock(ctx),
     messages: [...history, { role: 'user', content: prompt }],
-    model: DEFAULT_MODELS[getActiveProvider()],
+    model: DEFAULT_MODELS[provider],
   }
 }
 
@@ -106,6 +108,13 @@ export async function askLlm(
   onChunk: (chunk: SearchResult) => void,
 ): Promise<SearchResult> {
   const provider = getActiveProvider()
+
+  if (!provider) {
+    const content = `사용할 LLM provider 가 지정되지 않았습니다. 설정에서 provider 를 선택해 주세요.`
+    onChunk({ kind: 'ask', content, meta: { error: 'no_active_provider' } })
+    return { kind: 'ask', content, meta: { error: 'no_active_provider' } }
+  }
+
   const apiKey = getApiKey(provider)
 
   if (!apiKey) {
@@ -115,7 +124,7 @@ export async function askLlm(
   }
 
   const client = createClient(provider, { apiKey })
-  const req = buildRequest(ctx, prompt, history)
+  const req = buildRequest(ctx, prompt, history, provider)
 
   // 델타를 그대로 스트리밍(렌더러가 append), 최종 전체 텍스트를 반환한다.
   const full = await client.stream(req, (delta) => {
