@@ -40,10 +40,12 @@ export interface LlmClient {
   stream(req: LlmRequest, onDelta: (delta: string) => void): Promise<string>
 }
 
-/** provider 별 기본 모델. 설정에서 재정의 가능(추후 설정 영속화 항목). */
+/** provider 별 기본 모델. 설정에서 재정의 가능(추후 설정 영속화 항목).
+ *  gemini 는 'latest' 별칭을 써서 버전 번호 하드코딩으로 인한 404를 피한다
+ *  (2026-07-25 실측: 'gemini-1.5-pro' 는 이미 404, 세대 교체가 잦음). */
 export const DEFAULT_MODELS: Record<LlmProvider, string> = {
   openai: 'gpt-4o',
-  gemini: 'gemini-1.5-pro',
+  gemini: 'gemini-pro-latest',
   claude: 'claude-sonnet-5',
 }
 
