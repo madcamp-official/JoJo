@@ -1,7 +1,7 @@
 import type { Language, Word } from '@shared/types'
 import type { Extracted } from './extractDirect'
 
-// 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §6 / §9)
+// 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §6 / §8)
 // 언어 특화 OCR 수행 후, 좌표 기반 규칙으로 제목·페이지번호 등 노이즈 제거.
 // 엔진: Tesseract.js(로컬) 또는 클라우드 OCR — D4에 벤치 후 결정.
 

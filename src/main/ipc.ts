@@ -1,8 +1,8 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
-import type { CaptureSource, SearchRequest, SelectionContext } from '@shared/types'
+import type { CaptureSource, QuestionRequest, SelectionContext } from '@shared/types'
 import { runSelectionPipeline } from './selection'
-import { runSearch } from './search'
+import { runQuestion } from './question'
 import { listWindows, setSelectedWindowId } from './selection/capture'
 import { closeWindowPicker, getMainWindow, showWindowPicker } from './windows'
 
@@ -34,12 +34,12 @@ export function registerIpc(): void {
     return ctx
   })
 
-  // 담당 B: 검색 요청 (스트리밍은 SEARCH_STREAM 이벤트로 전송)
+  // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)
   ipcMain.handle(
-    IPC.SEARCH_REQUEST,
-    async (e, ctx: SelectionContext, req: SearchRequest) => {
-      return runSearch(ctx, req, (chunk) => {
-        e.sender.send(IPC.SEARCH_STREAM, chunk)
+    IPC.QUESTION_REQUEST,
+    async (e, ctx: SelectionContext, req: QuestionRequest) => {
+      return runQuestion(ctx, req, (chunk) => {
+        e.sender.send(IPC.QUESTION_STREAM, chunk)
       })
     },
   )

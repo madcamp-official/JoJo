@@ -125,6 +125,7 @@
 - **확장**: 브라우저 확장(Manifest V3) + native messaging.
 - **API**: LLM 3종 어댑터(GPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
 - **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
+- **언어 감지**: 자동 감지 + OCR 필요 시, 언어 특화 OCR 전에 경량 분류 모델 또는 범용 OCR로 언어를 먼저 특정.
 
 ```mermaid
 flowchart TB
@@ -157,8 +158,6 @@ flowchart TB
     PB -- "QuestionResult" --> POP
     PB -- "API 호출" --> SVC
 ```
-
-**언어 감지**: 자동 감지 + OCR 필요 시, 언어 특화 OCR 전에 경량 분류 모델 또는 범용 OCR로 언어를 먼저 특정.
 
 ## 6. 까다로운 부분 & 해결 전략
 

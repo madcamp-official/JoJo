@@ -73,7 +73,7 @@
 - [x] 어댑터가 `history: ChatTurn[]`을 받아 요청에 이어붙임 (`askLlm`/`buildRequest`, `llm/adapter.ts`)
 - [x] 문맥 프롬프트 구성 + 프롬프트 캐싱(비용 절감)
 - [x] API 키 무효 / 크레딧(사용 한도) 소진 / 요청 과다 / 네트워크 오류를 구분하는 에러 체계 — `QuestionError`(`shared/types.ts`), `question/errors.ts`(메시지), `question/llm/errors.ts`(HTTP 상태코드 분류). UI 렌더링은 미구현(아래 UI 항목)
-- [ ] provider별 실제 사용 모델 확정 — 현재 `DEFAULT_MODELS`(`llm/adapter.ts`)는 예시 placeholder(gpt: gpt-4o, gemini: gemini-1.5-pro, claude: claude-sonnet-5). 구현 시점에 모델을 고정할지, 설정 화면에서 사용자가 선택하게 할지 결정 필요
+- [ ] provider별 실제 사용 모델 확정 — 현재 `DEFAULT_MODELS`(`llm/adapter.ts`)의 기본값은 gpt: `gpt-4o`, gemini: `gemini-pro-latest`, claude: `claude-sonnet-5`(모두 예시 placeholder, 확정 아님). 구현 시점에 모델을 고정할지, 설정 화면에서 사용자가 선택하게 할지 결정 필요
 - [ ] 비용 고려사항 — 현재 `buildRequest()`가 `history` 전체를 매 요청마다 잘라내기/요약 없이 재전송함(`llm/adapter.ts`). 팝업 세션이 길어질수록 요청당 input 토큰이 선형 증가.
   - [ ] 대화 history 길이 제한 정책 결정 (예: 최근 N턴만 유지, 또는 초과 시 요약으로 압축)
   - [ ] 프롬프트 캐싱을 `cacheableContext`(선택 근방 문맥) 외에 대화 history에도 적용할지 검토 — 현재는 Claude의 `cache_control: ephemeral`도 문맥 블록에만 적용, history 메시지 배열은 캐싱 대상 아님
