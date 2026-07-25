@@ -75,7 +75,7 @@ export interface SearchResult {
 
 export type AppMode = 'normal' | 'select'
 
-export type LlmProvider = 'openai' | 'gemini' | 'claude'
+export type LlmProvider = 'gpt' | 'gemini' | 'claude'
 
 export interface AppSettings {
   llm: LlmProvider

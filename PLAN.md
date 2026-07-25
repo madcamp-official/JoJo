@@ -8,11 +8,9 @@
 4. [핵심 기능](#4-핵심-기능)
 5. [기술 아키텍처](#5-기술-아키텍처)
 6. [까다로운 부분 & 해결 전략](#6-까다로운-부분--해결-전략)
-7. [구현 체크리스트 (담당별)](#7-구현-체크리스트-담당별)
-8. [2인 분업 계획 (파이프라인 축)](#8-2인-분업-계획-파이프라인-축)
-9. [기술 스택 요약](#9-기술-스택-요약)
-10. [리스크 & 확장 로드맵](#10-리스크--확장-로드맵)
-11. [프로젝트 구조 (스캐폴드)](#11-프로젝트-구조-스캐폴드)
+7. [2인 분업 계획 (파이프라인 축)](#7-2인-분업-계획-파이프라인-축)
+8. [리스크 & 확장 로드맵](#8-리스크--확장-로드맵)
+9. [프로젝트 구조 (스캐폴드)](#9-프로젝트-구조-스캐폴드)
 
 ## 1. 개요
 
@@ -45,15 +43,15 @@
 3. **모드 전환 단축키**로 일반 모드 ↔ 선택 모드 토글.
    - 일반 모드: 클릭에 개입하지 않음.
    - 선택 모드: 포커스된 창 위에 투명 오버레이 → 텍스트 클릭 가로챔.
-4. **선택** → 근방 텍스트가 팝업으로 뜸 → 범위 지정 후 검색.
-5. **검색** → 발음 / 사전 / 통합 질문(채팅형) / 구글 검색.
+4. **선택** → 근방 텍스트가 팝업으로 뜸 → 범위 지정 후 질문.
+5. **질문** → 발음 / 사전 / 통합 질문(채팅형) / 구글 검색.
 
 ### 화면 구성 (UI 목업 기준)
 
 **메인 화면**: 중앙에 큰 파란 [창 선택] 버튼 + "사용할 창을 선택하세요" 안내 + 우측 상단 작은 설정(톱니) 아이콘. 앱 아이덴티티 "Nu"/Nuance. Windows 11·macOS 네이티브 룩.
 
 **설정 화면** (섹션 순서):
-1. **LLM 선택** — ChatGPT / Gemini / Claude 카드형 단일 선택(선택 시 체크 표시).
+1. **LLM 선택** — GPT / Gemini / Claude 카드형 단일 선택(선택 시 체크 표시).
 2. **API 키 관리** — 선택한 LLM의 키 입력, 보기(눈 아이콘)·수정·삭제. "안전하게 암호화 저장, 외부 미전송" 안내.
 3. **단축키 설정** — 모드 전환(일반 ↔ 선택) 키 지정. 기본 예: `Ctrl+1`, [변경] 버튼.
 4. **AI 주변 범위(Byte)** — 프롬프트 제출 시 함께 넘길 앞뒤 텍스트 범위를 Byte 슬라이더(256·512·1024·2048·4096)로 지정. 미리보기에 "포함 제외 / 사용자 선택 영역 / 포함될 주변 범위"를 색으로 시각화.
@@ -86,7 +84,7 @@
      → (직접 추출) 소스별 텍스트 추출
   → 텍스트 추출 + 화면 좌표 매핑
   → 커서 좌표 ↔ 단어 매핑
-  → (선택 확정) SelectionContext 생성 → 검색 파이프라인으로 전달
+  → (선택 확정) SelectionContext 생성 → 질문 파이프라인으로 전달
 ```
 
 **OCR 사용 여부 판정 로직** — 원칙: "직접 추출을 먼저 시도하고, 확보 텍스트가 부족할 때만 OCR로 fallback".
@@ -102,9 +100,9 @@
   - 브라우저 내부 → 확장 프로그램 / 그 외 → 데스크톱 접근성 API로 URL·탭 변화 감지.
   - URL을 메인 구분 요소로 사용. 한 URL 내 OCR 여부 변화는 고려하지 않음.
 
-### 4.2 검색 (Search Pipeline)
+### 4.2 질문 (Question Pipeline)
 
-**LLM 채팅 팝업** (ChatGPT / Gemini / Claude 선택)
+**LLM 채팅 팝업** (GPT / Gemini / Claude 선택)
 - 하나의 팝업 = 하나의 대화 세션. 후속 질문이 이전 답변 맥락을 이어감.
 - 인근 텍스트(설정 범위)를 문맥으로 함께 전달. 전체 맥락 텍스트는 **프롬프트 캐싱**으로 비용 절감(세부 미정).
 - 팝업 툴바에서 **발음·사전 검색은 체크박스 토글**로 켜고, **통합 질문은 [입력]**, **구글 검색은 별도 버튼**([발음 검색]/[시각 자료 검색])으로 구성(§3 화면 구성 참고).
@@ -119,7 +117,14 @@
 
 ## 5. 기술 아키텍처
 
-**스택**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + 브라우저 확장(Manifest V3) + OCR 엔진 + LLM/사전 API. **전 구간 TypeScript 단일 언어**로 두 사람의 코드 이동 비용을 낮춘다.
+**전 구간 TypeScript 단일 언어**로 두 사람의 코드 이동 비용을 낮춘다. 구성 요소별 스택:
+
+- **앱**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + TypeScript + React(렌더러 UI).
+- **캡처/오버레이**: `desktopCapturer`, 투명·클릭스루 BrowserWindow, `globalShortcut`.
+- **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정.
+- **확장**: 브라우저 확장(Manifest V3) + native messaging.
+- **API**: LLM 3종 어댑터(GPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
+- **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
 
 ```mermaid
 flowchart TB
@@ -132,7 +137,7 @@ flowchart TB
         subgraph PIPE[" "]
             direction LR
             PA["<b>파이프라인 A · 선택/추출</b><br/>캡처 → (OCR｜직접추출) → 좌표 매핑"]
-            PB["<b>파이프라인 B · 검색/AI</b><br/>LLM·사전 어댑터 · 캐싱 · 스트리밍"]
+            PB["<b>파이프라인 B · 질문/AI</b><br/>LLM·사전 어댑터 · 캐싱 · 스트리밍"]
         end
 
         subgraph WINS[" "]
@@ -142,14 +147,14 @@ flowchart TB
         end
     end
 
-    SVC["☁️ 외부 서비스<br/>LLM(ChatGPT/Gemini/Claude) · 사전 API · Google"]
+    SVC["☁️ 외부 서비스<br/>LLM(GPT/Gemini/Claude) · 사전 API · Google"]
 
     EXT -- "native messaging" --> MAIN
     MAIN --> PA
     MAIN --> PB
     MAIN --> OVL
     PA -- "SelectionContext" --> PB
-    PB -- "SearchResult" --> POP
+    PB -- "QuestionResult" --> POP
     PB -- "API 호출" --> SVC
 ```
 
@@ -163,7 +168,7 @@ flowchart TB
 - **직접 추출 vs OCR 구분**: PDF/HTML에서 추출 시도 → 텍스트 양으로 분기(위 4.1 로직).
 - **판정 시점 캐싱**: URL을 키로 판정 결과를 유지, URL 변화 시에만 재판정.
 
-## 7. 구현 체크리스트 (담당별)
+## 7. 2인 분업 계획 (파이프라인 축)
 
 권장 순서: **뼈대 → 한 경로 end-to-end 관통 → 소스별 확장**. 첫 관통 경로는 가장 확실한 **PDF/텍스트 직접 추출 → 통합 질문**으로 잡고, 이후 OCR·자막·발음·사전을 붙인다. A↔B 경계 계약은 [§8](#8-2인-분업-계획-파이프라인-축) 참고.
 
@@ -234,7 +239,7 @@ flowchart TB
 
 ## 8. 2인 분업 계획 (파이프라인 축)
 
-두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `SearchResult`(B→UI)**. 이 인터페이스를 D1에 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
+두 사람을 데이터 흐름 기준으로 나눈다. **경계 = `SelectionContext`(A→B)와 `QuestionResult`(B→UI)**. 이 인터페이스를 가장 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
 
 ### 담당 A — 선택 & 추출 (입력단)
 - 창 선택/화면 캡처(desktopCapturer), 오버레이 윈도우, 전역 단축키, 모드 전환.
@@ -244,14 +249,14 @@ flowchart TB
 - 접근성 API로 탭/URL 변화 감지.
 - **산출**: 확정된 `SelectionContext`를 B로 넘긴다.
 
-### 담당 B — 검색 & AI (출력단)
-- LLM 어댑터(ChatGPT/Gemini/Claude 공통 인터페이스) + 채팅 세션·프롬프트 캐싱.
+### 담당 B — 질문 & AI (출력단)
+- LLM 어댑터(GPT/Gemini/Claude 공통 인터페이스) + 채팅 세션·프롬프트 캐싱.
 - 발음(맥락 발음), 사전 API 연동 + LLM 뜻 번호 판정, 통합 질문·커스텀 질문 관리.
 - 구글 검색 탭(발음/이미지), 팝업·채팅 UI.
 - 설정 화면(언어·LLM·API 키·단축키·인근 텍스트 범위).
-- **입력**: `SelectionContext`를 받아 `SearchResult`(스트리밍)를 UI에 렌더.
+- **입력**: `SelectionContext`를 받아 `QuestionResult`(스트리밍)를 UI에 렌더.
 
-### 인터페이스 계약 (A ↔ B, D1 확정)
+### 인터페이스 계약 (A ↔ B, 최우선 확정)
 ```ts
 // A가 생성해 B로 전달
 interface SelectionContext {
@@ -269,52 +274,60 @@ interface SelectionContext {
 }
 
 // B가 반환해 UI로 (스트리밍 가능)
-type SearchRequest =
+type QuestionRequest =
   | { type: 'pronunciation' }
   | { type: 'dictionary' }
   | { type: 'ask'; prompt: string; history?: ChatTurn[] };
 
-interface SearchResult {
+interface QuestionResult {
   kind: 'pronunciation' | 'dictionary' | 'ask';
   content: string;                      // 렌더용 마크다운/텍스트(스트리밍 청크)
+  error?: QuestionError;                // 있으면 실패 결과. UI가 성공/실패를 구분하는 기준
   meta?: Record<string, unknown>;       // 발음기호, 사전 뜻 번호 등
 }
+
+// API 키 미설정/무효, 사용 한도(크레딧) 소진 등 UI가 구분해 안내해야 하는 실패 종류
+type QuestionErrorCode =
+  | 'no_active_provider' | 'no_api_key' | 'invalid_api_key'
+  | 'insufficient_credit' | 'rate_limited' | 'network_error' | 'unknown';
+
+interface QuestionError {
+  code: QuestionErrorCode;
+  message: string;                      // 렌더링용 완성된 한국어 문장
+  provider?: LlmProvider;
+}
 ```
-- **통합 지점**: IPC 채널 `selection:resolved`(A→B), `search:request`/`search:stream`(B). 양측 목 구현으로 병렬 진행하다 D2에 실연결.
+- **통합 지점**: IPC 채널 `selection:resolved`(A→B), `question:request`/`question:stream`(B). 양측 목 구현으로 병렬 진행하다 이후 실연결.
 - **공유 코드**: 타입 정의(`shared/types.ts`), IPC 유틸, 로거는 공동 소유.
 
-## 9. 기술 스택 요약
-
-- **앱**: Electron + TypeScript + (렌더러 UI: React 권장).
-- **캡처/오버레이**: `desktopCapturer`, 투명·클릭스루 BrowserWindow, `globalShortcut`.
-- **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — D4에 벤치 후 결정.
-- **확장**: Manifest V3 + native messaging.
-- **API**: LLM 3종 어댑터, 사전 API(언어별), 구글 웹/이미지 탭.
-- **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
-
-## 10. 리스크 & 확장 로드맵
+## 8. 리스크 & 확장 로드맵
 
 - **리스크**: OCR 정확도/속도, 접근성 API의 OS별 편차(Win UIA vs macOS AX), 넷플릭스 자막 추출의 취약성, LLM 비용. → 관통 경로(직접 추출)를 먼저 확보해 데모 안정성 보장.
 - **확장**: 지원 언어 추가, 학습 이력·단어장, 발음 TTS, 모바일.
 
-## 11. 프로젝트 구조 (스캐폴드)
+## 9. 프로젝트 구조 (스캐폴드)
 
-**빌드**: electron-vite(Vite 기반, main/preload/renderer 3개 번들 관리) + React + TypeScript. 파이프라인 A/B를 디렉터리로 분리해 §8 분업 경계를 코드 구조에 반영했다. `src/shared`(타입·IPC 채널)는 공동 소유.
+**빌드**: electron-vite(Vite 기반, main/preload/renderer 3개 번들 관리) + React + TypeScript. 파이프라인 A/B를 디렉터리로 분리해 §7 분업 경계를 코드 구조에 반영했다. `src/shared`(타입·IPC 채널)는 공동 소유.
 
 ```text
 JoJo/
 ├── package.json                 # electron-vite 스크립트(dev/build/preview)
+├── package-lock.json            # 의존성 트리 고정(npm ci)
 ├── electron.vite.config.ts      # main/preload/renderer 빌드 + 경로 alias
 ├── tsconfig.json                # 공통 TS 설정(@shared/@main/@renderer)
+├── .env.example                 # [dev] MAIN_VITE_* API 키 템플릿(.env는 gitignore)
 ├── src/
-│   ├── shared/                  # 🤝 공동 소유 — 인터페이스 계약(§8)
-│   │   ├── types.ts             #   SelectionContext / SearchResult / 설정 타입
-│   │   └── channels.ts          #   IPC 채널 상수
+│   ├── env.d.ts                 #   import.meta.env(MAIN_VITE_*) 타입 선언
+│   ├── shared/                  # 🤝 공동 소유 — 인터페이스 계약(§7)
+│   │   ├── types.ts             #   SelectionContext / QuestionResult / 에러 · 설정 타입
+│   │   ├── channels.ts          #   IPC 채널 상수
+│   │   └── languages.ts         #   언어별 정적 데이터 레지스트리(이름·구글 접미어 등)
 │   ├── main/                    # Electron 메인 프로세스
 │   │   ├── index.ts             #   진입점(윈도우·IPC·단축키 등록)
 │   │   ├── windows.ts           #   메인/오버레이/팝업 윈도우 팩토리
 │   │   ├── ipc.ts               #   🤝 IPC 허브(A→B 연결점)
 │   │   ├── keyStore.ts          #   [B] API 키 safeStorage 암호화 저장
+│   │   ├── devSeed.ts           #   [dev] .env(MAIN_VITE_*) API 키 seed
 │   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
 │   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Ctrl+1)
@@ -324,14 +337,20 @@ JoJo/
 │   │   │   ├── ocr.ts           #   OCR 엔진 래퍼 + 노이즈 제거
 │   │   │   ├── langDetect.ts    #   언어 자동 감지
 │   │   │   └── accessibility.ts #   접근성 API(AX/UIA) 브릿지
-│   │   └── search/             # 🅱️ 검색/AI (담당 B)
-│   │       ├── index.ts         #   검색 라우터(발음/사전/통합질문)
+│   │   └── question/           # 🅱️ 질문/AI (담당 B)
+│   │       ├── index.ts         #   질문 라우터(발음/사전/통합질문)
 │   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음)
 │   │       ├── dictionary.ts    #   사전 API + LLM 뜻 번호 판정
 │   │       ├── google.ts        #   구글 발음/이미지 탭 URL
-│   │       └── llm/             #   LLM 공통 어댑터
-│   │           ├── adapter.ts   #   provider 추상화 + 캐싱
-│   │           ├── openai.ts    #   ChatGPT
+│   │       ├── errors.ts        #   질문 에러 메시지 단일 출처(한국어 문장화)
+│   │       ├── prompts/         #   프롬프트 자원
+│   │       │   ├── system.txt   #     문맥 질문 시스템 프롬프트
+│   │       │   └── template.ts  #     {{key}} 플레이스홀더 치환 유틸
+│   │       └── llm/             #   LLM 공통 어댑터 ✅ 구현 완료
+│   │           ├── adapter.ts   #   provider 추상화 + 문맥 프롬프트 + 캐싱
+│   │           ├── sse.ts       #   SSE 스트림 파서(공통)
+│   │           ├── errors.ts    #   HTTP 상태코드 → QuestionErrorCode 분류
+│   │           ├── gpt.ts       #   GPT
 │   │           ├── gemini.ts    #   Gemini
 │   │           └── claude.ts    #   Claude
 │   ├── preload/
@@ -353,6 +372,6 @@ JoJo/
         └── content.ts           #   DOM 텍스트·자막 추출 + 하이라이트
 ```
 
-**시작 방법**: `npm install` 후 `npm run dev`(electron-vite 개발 서버). 확장은 `chrome://extensions`에서 `extension/`을 로드하고 native messaging host를 등록해야 함(추후 번들러 설정 TODO).
+**시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `chrome://extensions`에서 `extension/`을 로드하고 native messaging host를 등록해야 함(추후 번들러 설정 TODO).
 
-**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. 스텁 파일에는 담당·PLAN 섹션 주석과 `TODO`가 달려 있어, 각자 자기 파이프라인부터 목(mock) 기반으로 병렬 착수할 수 있다.
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B의 LLM 어댑터·3종 클라이언트·스트리밍·에러 체계는 구현 완료(✅), 발음·사전·팝업/설정 UI 및 담당 A 전반은 스텁/진행 중. 항목별 진행 상황은 [TODO.md](TODO.md) 참고.
