@@ -45,6 +45,11 @@
 - [x] ChatGPT / Gemini / Claude 클라이언트 구현 + 스트리밍
 - [ ] 채팅 세션(팝업 = 1세션) + 이전 대화 맥락 유지 — *어댑터 계층 완료, UI 세션 상태는 아래 UI 항목*
 - [x] 문맥 프롬프트 구성 + 프롬프트 캐싱(비용 절감)
+- [ ] 비용 고려사항 — 현재 `buildRequest()`가 `history` 전체를 매 요청마다 잘라내기/요약 없이 재전송함(`llm/adapter.ts`). 팝업 세션이 길어질수록 요청당 input 토큰이 선형 증가.
+  - [ ] 대화 history 길이 제한 정책 결정 (예: 최근 N턴만 유지, 또는 초과 시 요약으로 압축)
+  - [ ] 프롬프트 캐싱을 `cacheableContext`(선택 근방 문맥) 외에 대화 history에도 적용할지 검토 — 현재는 Claude의 `cache_control: ephemeral`도 문맥 블록에만 적용, history 메시지 배열은 캐싱 대상 아님
+  - [ ] OpenAI/Gemini에도 캐싱 연동 검토 — 현재 캐시 제어는 Claude 클라이언트에만 구현됨. OpenAI는 prefix 자동 캐싱(별도 API 불필요, prefix 안정성 필요), Gemini는 명시적 context caching API(`cachedContents`) 필요
+  - [ ] provider별 요청당 비용 추정치 산정 + 설정 화면에 예상 비용/사용량 노출 여부 결정
 
 **질문 기능**
 - [ ] 발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정
