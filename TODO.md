@@ -116,6 +116,7 @@
 
 ## 🤝 공동
 - [ ] 모드 전환 단축키 기본값 변경 — `Ctrl+1` → `Alt+Q`(macOS: Electron이 Option 키로 자동 매핑, Windows: Alt 그대로) 로 변경됨(`selection/shortcut.ts`, 설정 화면 요구사항 반영). 담당 A 항목("앱·윈도우·모드")의 "기본 Ctrl+1" 문구는 그대로 두었으니 참고해서 갱신 바람
+- [ ] (향후) 단축키 항목 확장 — 현재는 '모드 전환' 단축키 1개만 지원(`AppSettings.modeShortcut`, `selection/shortcut.ts` 의 `currentAccelerator` 단일 변수). 나중에 '선택창(picker) 전환'·'선택 해제' 등도 단축키로 지정하려면: (1) `AppSettings` 에 `pickerShortcut`/`deselectShortcut` 등 필드 추가, (2) `shortcut.ts` 등록 로직을 `Map<action, accelerator>` 로 일반화(액션별 register/unregister), (3) 각 액션 핸들러 연결(전환=picker 라우팅, 선택 해제=트레이 메뉴 동작 재사용), (4) 설정 화면 단축키 캡처 컴포넌트에 항목 추가. ⚠️ 전역 단축키(`globalShortcut`)라 상호/타앱 충돌 검증(`isRegistered()` 로 등록 실패 시 UI 안내) 필요. (A: 등록·핸들러 / B: `AppSettings` 확장·설정 UI)
 - [ ] A→B 경계 재정의(팝업 기준) 반영 — A는 '팝업 직전 추출 결과(근방 텍스트 + 단어 좌표 + 클릭 기준점)'를 넘기고, B가 팝업에서 최종 `SelectionContext` 를 확정. 이 경계용 인터페이스·IPC 채널 확정(스텁→실연결) + PLAN.md §7/§8 계약 문구 동기화 필요
 - [ ] `SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 완료 → 실연결)
 - [ ] 메인/피커/설정 창 통합 — 세 화면이 동시에 보일 필요가 없어 별도 창(피커·설정) 대신 메인 창 하나를 리사이즈(`windows.ts: setMainWindowRoute`/`navigateMainWindow`)해 재사용하도록 변경(`feat/settings-screen`). 전환 시 항상 창을 중앙 정렬하며, 애니메이션 없이 즉시 크기 변경(다른 창이 뜬 것처럼 보이지 않게)
