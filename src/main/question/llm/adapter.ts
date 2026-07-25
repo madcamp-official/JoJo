@@ -1,6 +1,6 @@
 import type { ChatTurn, LlmProvider, QuestionResult, SelectionContext } from '@shared/types'
 import { getApiKey } from '@main/keyStore'
-import { createOpenaiClient } from './openai'
+import { createGptClient } from './gpt'
 import { createGeminiClient } from './gemini'
 import { createClaudeClient } from './claude'
 import { renderPrompt } from '../prompts/template'
@@ -11,9 +11,9 @@ import { classifyLlmError } from './errors'
 
 // ============================================================================
 // 담당 B — LLM 공통 어댑터 (PLAN.md §4.2 / §7)
-// ChatGPT / Gemini / Claude 를 동일 인터페이스로 추상화한다.
+// GPT / Gemini / Claude 를 동일 인터페이스로 추상화한다.
 //  - 이 파일: provider 추상화 + 문맥 프롬프트 구성 + 스트리밍 오케스트레이션
-//  - 각 provider 의 실제 API 호출/스트리밍은 ./openai|gemini|claude 가 담당(다음 항목)
+//  - 각 provider 의 실제 API 호출/스트리밍은 ./gpt|gemini|claude 가 담당(다음 항목)
 // ============================================================================
 
 /** provider 로 넘길 요청 (provider 중립 표현). 생성 파라미터(model·maxTokens)의 단일 출처. */
@@ -44,7 +44,7 @@ export interface LlmClient {
  *  gemini 는 'latest' 별칭을 써서 버전 번호 하드코딩으로 인한 404를 피한다
  *  (2026-07-25 실측: 'gemini-1.5-pro' 는 이미 404, 세대 교체가 잦음). */
 export const DEFAULT_MODELS: Record<LlmProvider, string> = {
-  openai: 'gpt-4o',
+  gpt: 'gpt-4o',
   gemini: 'gemini-pro-latest',
   claude: 'claude-sonnet-5',
 }
@@ -65,8 +65,8 @@ export function setActiveProvider(p: LlmProvider): void {
 /** provider 추상화 팩토리 */
 export function createClient(provider: LlmProvider, config: LlmConfig): LlmClient {
   switch (provider) {
-    case 'openai':
-      return createOpenaiClient(config)
+    case 'gpt':
+      return createGptClient(config)
     case 'gemini':
       return createGeminiClient(config)
     case 'claude':
