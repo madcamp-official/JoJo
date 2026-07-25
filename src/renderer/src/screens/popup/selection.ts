@@ -83,8 +83,11 @@ export function deriveContext(
 ): SelectionContext {
   const lo = Math.min(from, to)
   const hi = Math.max(from, to)
-  const a = model.atoms[lo]!
-  const b = model.atoms[hi]!
+  const a = model.atoms[lo]
+  const b = model.atoms[hi]
+  // atom 이 하나도 없거나 범위가 유효하지 않으면(공백·기호만 넘어온 경우 등)
+  // 재선택을 계산할 수 없으므로 원본 ctx 를 그대로 돌려준다.
+  if (!a || !b) return base
   const selectedText = model.displayText.slice(a.start, b.end)
   return {
     ...base,
