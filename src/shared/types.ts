@@ -57,10 +57,29 @@ export type QuestionRequest =
   | { type: 'dictionary' }
   | { type: 'ask'; prompt: string; history?: ChatTurn[] }
 
+/** API 키 미설정/무효, 사용 한도(크레딧) 소진 등 UI가 구분해 안내해야 하는 실패 종류 */
+export type QuestionErrorCode =
+  | 'no_active_provider'
+  | 'no_api_key'
+  | 'invalid_api_key'
+  | 'insufficient_credit'
+  | 'rate_limited'
+  | 'network_error'
+  | 'unknown'
+
+export interface QuestionError {
+  code: QuestionErrorCode
+  /** 렌더링용 한국어 메시지(이미 완성된 문장) */
+  message: string
+  provider?: LlmProvider
+}
+
 /** B → UI : 스트리밍 가능한 질문 결과 */
 export interface QuestionResult {
   kind: 'pronunciation' | 'dictionary' | 'ask'
   content: string
+  /** 설정된 경우, 이 결과가 실패임을 뜻함. UI는 이 필드 유무로 성공/실패를 구분한다. */
+  error?: QuestionError
   meta?: Record<string, unknown>
 }
 

@@ -1,3 +1,5 @@
+import { LlmHttpError } from './errors'
+
 // 담당 B — SSE(Server-Sent Events) 스트림 파서 (provider 공통)
 // fetch 응답 body 를 읽어 각 이벤트의 `data:` 페이로드 문자열을 순차 방출한다.
 
@@ -35,7 +37,7 @@ export async function* readSse(res: Response): AsyncGenerator<string> {
   }
 }
 
-/** 응답이 실패면 본문을 읽어 에러를 던진다. */
+/** 응답이 실패면 본문을 읽어 LlmHttpError 를 던진다 (호출부에서 classifyLlmError 로 분류). */
 export async function ensureOk(res: Response, label: string): Promise<void> {
   if (res.ok) return
   let detail = ''
@@ -44,5 +46,5 @@ export async function ensureOk(res: Response, label: string): Promise<void> {
   } catch {
     /* ignore */
   }
-  throw new Error(`${label} 요청 실패 (${res.status}): ${detail.slice(0, 500)}`)
+  throw new LlmHttpError(res.status, detail, `${label} 요청 실패 (${res.status}): ${detail.slice(0, 500)}`)
 }

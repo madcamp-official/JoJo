@@ -6,6 +6,8 @@ import { createClaudeClient } from './claude'
 import { renderPrompt } from '../prompts/template'
 import systemPromptTemplate from '../prompts/system.txt?raw'
 import { LANGUAGES } from '@shared/languages'
+import { buildErrorResult } from '../errors'
+import { classifyLlmError } from './errors'
 
 // ============================================================================
 // 담당 B — LLM 공통 어댑터 (PLAN.md §4.2 / §7)
@@ -108,25 +110,33 @@ export async function askLlm(
   const provider = getActiveProvider()
 
   if (!provider) {
-    const content = `사용할 LLM provider 가 지정되지 않았습니다. 설정에서 provider 를 선택해 주세요.`
-    onChunk({ kind: 'ask', content, meta: { error: 'no_active_provider' } })
-    return { kind: 'ask', content, meta: { error: 'no_active_provider' } }
+    const result = buildErrorResult('ask', 'no_active_provider')
+    onChunk(result)
+    return result
   }
 
   const apiKey = getApiKey(provider)
 
   if (!apiKey) {
-    const content = `${provider} API 키가 설정되어 있지 않습니다. 설정에서 키를 입력해 주세요.`
-    onChunk({ kind: 'ask', content, meta: { error: 'no_api_key', provider } })
-    return { kind: 'ask', content, meta: { error: 'no_api_key', provider } }
+    const result = buildErrorResult('ask', 'no_api_key', provider)
+    onChunk(result)
+    return result
   }
 
   const client = createClient(provider, { apiKey })
   const req = buildRequest(ctx, prompt, history, provider)
 
-  // 델타를 그대로 스트리밍(렌더러가 append), 최종 전체 텍스트를 반환한다.
-  const full = await client.stream(req, (delta) => {
-    onChunk({ kind: 'ask', content: delta, meta: { provider, streaming: true } })
-  })
-  return { kind: 'ask', content: full, meta: { provider } }
+  try {
+    // 델타를 그대로 스트리밍(렌더러가 append), 최종 전체 텍스트를 반환한다.
+    const full = await client.stream(req, (delta) => {
+      onChunk({ kind: 'ask', content: delta, meta: { provider, streaming: true } })
+    })
+    return { kind: 'ask', content: full, meta: { provider } }
+  } catch (err) {
+    // API 키 무효, 사용 한도(크레딧) 소진, 요청 과다, 네트워크 오류 등을 UI가 구분할 수 있는
+    // QuestionErrorCode 로 분류해 반환한다. 예외를 그대로 흘려보내 IPC 를 실패시키지 않는다.
+    const result = buildErrorResult('ask', classifyLlmError(err), provider)
+    onChunk(result)
+    return result
+  }
 }
