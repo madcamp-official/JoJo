@@ -183,6 +183,8 @@ export function SettingsScreen() {
 
   async function deleteKey() {
     if (!settings!.llm) return
+    const label = PROVIDERS[settings!.llm].label
+    if (!window.confirm(`${label} API 키를 정말 삭제하시겠습니까?`)) return
     await window.nuance.deleteApiKey(settings!.llm)
     setApiKeyState('')
   }
