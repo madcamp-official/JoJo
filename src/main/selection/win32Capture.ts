@@ -74,6 +74,9 @@ const DestroyWindow = user32.func('int __stdcall DestroyWindow(void *hwnd)')
 const GetSystemMetrics = user32.func('int32_t __stdcall GetSystemMetrics(int32_t nIndex)')
 const SetForegroundWindow = user32.func('int __stdcall SetForegroundWindow(void *hwnd)')
 const ShowWindow = user32.func('int __stdcall ShowWindow(void *hwnd, int32_t nCmdShow)')
+const SetWindowPos = user32.func(
+  'int __stdcall SetWindowPos(void *hwnd, void *hwndInsertAfter, int32_t x, int32_t y, int32_t cx, int32_t cy, uint32_t uFlags)',
+)
 
 koffi.proto(
   'void __stdcall WINEVENTPROC(void *hWinEventHook, uint32_t event, void *hwnd, int32_t idObject, int32_t idChild, uint32_t idEventThread, uint32_t dwmsEventTime)',
@@ -250,49 +253,68 @@ export function bringWindowToForeground(hwnd: bigint): void {
   SetForegroundWindow(hwnd)
 }
 
+const SWP_NOMOVE = 0x0002
+const SWP_NOSIZE = 0x0001
+const SWP_NOACTIVATE = 0x0010
+const GW_HWNDPREV = 3 // z-order 상 "이 창 바로 위" 창
+
+/**
+ * `hwnd` 를 z-order 상 `belowHwnd` 바로 위 한 칸에 꽂는다(항상 최상위가 아니라 그
+ * 창 바로 위에만). 다른 창이 나중에 그 위로 올라오면 `hwnd`도 같이 가려진다 —
+ * 선택 테두리 오버레이가 대상 창이 다른 창에 덮일 때 같이 덮이게 하는 데 쓴다.
+ *
+ * `belowHwnd`(대상 창) 자체는 절대 옮기지 않는다 — 한때 `SetWindowPos(belowHwnd, ...)`
+ * 로 대상 창 쪽을 옮기는 방식을 썼는데, 그게 대상 창(특히 GPU 합성을 쓰는 앱)의 다시
+ * 그리기를 건드려 흰 화면으로 깨지는 문제가 있었다. 대신 `belowHwnd` 바로 위에 있는
+ * 창을 찾아(`GW_HWNDPREV`) 그 창 다음에 `hwnd` 를 꽂아, 오직 우리 오버레이만 움직인다.
+ */
+export function placeWindowJustAbove(hwnd: bigint, belowHwnd: bigint): void {
+  const above = GetWindow(belowHwnd, GW_HWNDPREV)
+  // above 가 없으면(belowHwnd 가 이미 최상위) hwndInsertAfter=null(=HWND_TOP)로 맨 위에.
+  SetWindowPos(hwnd, above, 0, 0, 0, 0, (SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) >>> 0)
+}
+
 const EVENT_OBJECT_LOCATIONCHANGE = 0x800b
+const EVENT_SYSTEM_FOREGROUND = 0x0003
 const WINEVENT_OUTOFCONTEXT = 0x0000
 const OBJID_WINDOW = 0
 
-let locationHookRegistered = false
-const locationListeners = new Set<(hwnd: bigint) => void>()
+/** 특정 이벤트 코드 하나만 구독하는 시스템 전역 WinEventHook 을 등록한다(중복 등록 방지 포함). */
+function makeWinEventSubscriber(eventId: number): (cb: (hwnd: bigint) => void) => void {
+  let registered = false
+  const listeners = new Set<(hwnd: bigint) => void>()
 
-/**
- * 창이 이동/리사이즈되는 그 순간 OS 로부터 바로 통지받는다 — 폴링과 달리 지연이 없다.
- * 시스템 전역 훅이라 모든 창의 이벤트가 들어오므로, 호출자가 원하는 hwnd 인지 직접 걸러야 한다.
- */
-export function onWindowLocationChanged(cb: (hwnd: bigint) => void): void {
-  locationListeners.add(cb)
-  if (locationHookRegistered) return
+  return (cb: (hwnd: bigint) => void) => {
+    listeners.add(cb)
+    if (registered) return
 
-  const proc = koffi.register(
-    (
-      _hWinEventHook: unknown,
-      _event: number,
-      hwnd: bigint,
-      idObject: number,
-      _idChild: number,
-      _idEventThread: number,
-      _dwmsEventTime: number,
-    ) => {
-      if (idObject !== OBJID_WINDOW) return // 창 자체의 이동만 — 스크롤바 등 자식 객체 제외
-      for (const listener of locationListeners) listener(hwnd)
-    },
-    koffi.pointer('WINEVENTPROC'),
-  )
-  // eventMin === eventMax — LOCATIONCHANGE 하나만 구독. (min/max 를 다른 값으로 넘기면
-  // 그 사이의 모든 이벤트 코드를 구독하게 되어 시스템 전역 이벤트가 쏟아진다.)
-  SetWinEventHook(
-    EVENT_OBJECT_LOCATIONCHANGE,
-    EVENT_OBJECT_LOCATIONCHANGE,
-    null,
-    proc,
-    0,
-    0,
-    WINEVENT_OUTOFCONTEXT,
-  )
-  locationHookRegistered = true
+    const proc = koffi.register(
+      (
+        _hWinEventHook: unknown,
+        _event: number,
+        hwnd: bigint,
+        idObject: number,
+        _idChild: number,
+        _idEventThread: number,
+        _dwmsEventTime: number,
+      ) => {
+        if (idObject !== OBJID_WINDOW) return // 창 자체 이벤트만 — 스크롤바 등 자식 객체 제외
+        for (const listener of listeners) listener(hwnd)
+      },
+      koffi.pointer('WINEVENTPROC'),
+    )
+    // eventMin === eventMax — 이 이벤트 하나만 구독. (min/max 를 다른 값으로 넘기면 그
+    // 사이의 모든 이벤트 코드를 구독하게 되어 시스템 전역 이벤트가 쏟아진다.)
+    SetWinEventHook(eventId, eventId, null, proc, 0, 0, WINEVENT_OUTOFCONTEXT)
+    registered = true
+  }
 }
+
+/** 창이 이동/리사이즈되는 그 순간 OS 로부터 바로 통지받는다 — 폴링과 달리 지연이 없다. */
+export const onWindowLocationChanged = makeWinEventSubscriber(EVENT_OBJECT_LOCATIONCHANGE)
+
+/** 어떤 창이든 포그라운드(맨 앞)로 올라올 때 통지받는다 — z-order 재정렬 타이밍 판단용. */
+export const onWindowForegroundChanged = makeWinEventSubscriber(EVENT_SYSTEM_FOREGROUND)
 
 type CaptureResult = { buffer: Buffer; width: number; height: number }
 

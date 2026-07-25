@@ -8,7 +8,11 @@ node_modules/
 # 빌드 산출물
 dist/
 out/
-build/
+# build/ 는 electron-builder 관례상 앱 아이콘 등 소스 에셋도 두는 폴더라 통째로 무시하지
+# 않고 내용물만 무시 + 필요한 파일만 예외 처리한다(디렉터리 자체를 무시하면 예외 패턴이
+# 안 먹힌다).
+build/*
+!build/icon.png
 
 # 환경 변수 / 시크릿
 .env

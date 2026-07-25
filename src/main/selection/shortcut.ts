@@ -2,10 +2,10 @@ import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import { setOverlayMode } from '../windows'
 
-// 담당 A — 모드 전환 전역 단축키 (PLAN.md §3, 기본 Ctrl+1)
+// 담당 A — 모드 전환 전역 단축키 (PLAN.md §3, 기본 Alt+Q)
 let mode: AppMode = 'normal'
 
-export function registerModeShortcut(accelerator = 'CommandOrControl+1'): void {
+export function registerModeShortcut(accelerator = 'Alt+Q'): void {
   globalShortcut.register(accelerator, () => {
     mode = mode === 'normal' ? 'select' : 'normal'
     setOverlayMode(mode) // 오버레이 테두리 색(일반=파랑/선택=보라) 갱신 + MODE_CHANGED 통지

@@ -15,6 +15,12 @@ import type * as Win32Capture from './selection/win32Capture'
 
 const preload = join(__dirname, '../preload/index.js')
 
+// 패키징 전(electron-vite dev/build) 기준 — out/main/index.js 에서 두 단계 위가 프로젝트
+// 루트. TODO: electron-builder 등으로 실제 패키징할 때 리소스 경로 재검토 필요.
+export function resolveIconPath(): string {
+  return join(__dirname, '../../build/icon.png')
+}
+
 function loadRoute(win: BrowserWindow, route: string) {
   if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/${route}`)
@@ -25,6 +31,15 @@ function loadRoute(win: BrowserWindow, route: string) {
 
 let mainWindow: BrowserWindow | null = null
 let pickerWindow: BrowserWindow | null = null
+let settingsWindow: BrowserWindow | null = null
+
+// 트레이 "종료" 메뉴로 실제 종료할 때만 true — 그 전까지는 메인 창 X 버튼이 앱을
+// 끄지 않고 트레이로 숨긴다(PLAN.md §3: 창 선택 후 백그라운드 실행).
+let isQuitting = false
+
+export function setQuitting(value: boolean): void {
+  isQuitting = value
+}
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -32,6 +47,7 @@ export function createMainWindow(): BrowserWindow {
     height: 460,
     show: true,
     autoHideMenuBar: true,
+    icon: resolveIconPath(),
     webPreferences: { preload, sandbox: false },
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -40,6 +56,13 @@ export function createMainWindow(): BrowserWindow {
   })
   loadRoute(win, 'main')
   mainWindow = win
+  // X 버튼 = 트레이로 숨기기. 실제 종료는 트레이 메뉴 "종료"(app.quit, isQuitting=true)로만.
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault()
+      win.hide()
+    }
+  })
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
@@ -48,6 +71,28 @@ export function createMainWindow(): BrowserWindow {
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
+}
+
+/** 트레이 "설정" 항목 / 메인 화면 설정 아이콘에서 연다 — 이미 열려 있으면 포커스만. */
+export function createSettingsWindow(): BrowserWindow {
+  if (settingsWindow) {
+    settingsWindow.show()
+    settingsWindow.focus()
+    return settingsWindow
+  }
+  const win = new BrowserWindow({
+    width: 520,
+    height: 640,
+    autoHideMenuBar: true,
+    icon: resolveIconPath(),
+    webPreferences: { preload, sandbox: false },
+  })
+  win.on('closed', () => {
+    if (settingsWindow === win) settingsWindow = null
+  })
+  settingsWindow = win
+  loadRoute(win, 'settings')
+  return win
 }
 
 const PICKER_WIDTH = 860
@@ -125,7 +170,9 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     ...initialBounds,
     transparent: true,
     frame: false,
-    alwaysOnTop: true,
+    // alwaysOnTop 을 안 쓴다 — 항상 최상위면 다른 창이 대상 창을 덮어도 테두리가 계속
+    // 그 위에 떠서 이상해 보인다. 대신 z-order 상 대상 창 바로 위 한 칸에만 꽂아서
+    // (syncOverlayZOrder), 다른 창이 대상 창을 덮으면 테두리도 자연스럽게 같이 가려지게 한다.
     skipTaskbar: true,
     hasShadow: false,
     focusable: false,
@@ -162,6 +209,12 @@ function applyOverlayBounds(targetRect: Electron.Rectangle | null): void {
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
     win.setBounds(bounds)
     lastBounds = bounds
+    // Windows 에서 transparent+frameless 창은 setBounds 직후 한 번에 정확히 반영되지
+    // 않는 경우가 있다(특히 폭이 크게 바뀌는 재사용 시) — 다음 tick 에 같은 값을 한 번
+    // 더 강제 재적용해 어긋남을 없앤다. 그 사이 값이 또 바뀌었으면 최신값으로 다시 맞춘다.
+    setImmediate(() => {
+      if (!win.isDestroyed()) win.setBounds(lastBounds ?? bounds)
+    })
   }
   if (!overlayVisible) {
     win.showInactive()
@@ -169,8 +222,15 @@ function applyOverlayBounds(targetRect: Electron.Rectangle | null): void {
   }
 }
 
-let locationHookWired = false
+let hooksWired = false
 let win32CaptureMod: typeof Win32Capture | null = null
+
+/** 오버레이를 대상 창 바로 위 z-order 한 칸에 꽂는다 — 다른 창이 대상을 덮으면 같이 가려짐. */
+function syncOverlayZOrder(mod: typeof Win32Capture, hwnd: bigint): void {
+  if (!overlayWindow) return
+  const overlayHwnd = overlayWindow.getNativeWindowHandle().readBigUInt64LE(0)
+  mod.placeWindowJustAbove(overlayHwnd, hwnd)
+}
 
 /**
  * 선택된 창의 테두리 색 표시(일반=파랑/선택=보라) — 대상 창 bounds 바로 바깥에 정렬하고,
@@ -180,18 +240,37 @@ let win32CaptureMod: typeof Win32Capture | null = null
  */
 export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
   const mod = win32CaptureMod ?? (win32CaptureMod = await import('./selection/win32Capture'))
-  const { getWindowScreenRect, onWindowLocationChanged } = mod
+  const { getWindowScreenRect, onWindowForegroundChanged, onWindowLocationChanged } = mod
 
   trackedHwnd = hwnd
   applyOverlayBounds(getWindowScreenRect(hwnd))
+  syncOverlayZOrder(mod, hwnd)
 
-  if (!locationHookWired) {
+  if (!hooksWired) {
     onWindowLocationChanged((changedHwnd) => {
       if (trackedHwnd !== null && changedHwnd === trackedHwnd) {
         applyOverlayBounds(getWindowScreenRect(trackedHwnd))
       }
     })
-    locationHookWired = true
+    // 대상 창이 다시 포그라운드로 올라올 때(예: 다른 창에 가려졌다가 클릭해서 복귀)
+    // 오버레이도 같이 그 바로 위로 다시 꽂아준다. 그 외의 경우엔 그대로 둬서, 다른
+    // 창이 대상을 덮으면 오버레이도 자연스럽게 같이 가려지게 한다.
+    //
+    // Windows 가 대상 창을 z-order 맨 위로 올리는 작업을 아직 다 끝내기 전에 이 이벤트가
+    // 먼저 도착하는 경우가 있어(레이스), 그 순간 바로 재배치하면 "일부만" 가려진 채로
+    // 남는 경우가 있었다. 창 크기 어긋남 버그 때와 같은 방식으로, 즉시 한 번 + 다음
+    // 틱들에 몇 번 더 재적용해서 Windows 쪽 정리가 끝난 뒤에도 확실히 맞춰지게 한다.
+    onWindowForegroundChanged((changedHwnd) => {
+      if (trackedHwnd === null || changedHwnd !== trackedHwnd) return
+      const hwndAtEvent = trackedHwnd
+      syncOverlayZOrder(mod, hwndAtEvent)
+      for (const delayMs of [0, 16, 50]) {
+        setTimeout(() => {
+          if (trackedHwnd === hwndAtEvent) syncOverlayZOrder(mod, hwndAtEvent)
+        }, delayMs)
+      }
+    })
+    hooksWired = true
   }
 
   if (trackTimer) clearInterval(trackTimer)

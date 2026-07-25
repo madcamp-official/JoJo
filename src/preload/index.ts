@@ -19,11 +19,13 @@ const api = {
   selectWindow: (source: CaptureSource): Promise<void> =>
     ipcRenderer.invoke(IPC.SELECT_WINDOW, source),
 
-  onWindowSelected: (cb: (source: CaptureSource) => void): (() => void) => {
-    const listener = (_e: unknown, source: CaptureSource) => cb(source)
+  onWindowSelected: (cb: (source: CaptureSource | null) => void): (() => void) => {
+    const listener = (_e: unknown, source: CaptureSource | null) => cb(source)
     ipcRenderer.on(IPC.WINDOW_SELECTED, listener)
     return () => ipcRenderer.removeListener(IPC.WINDOW_SELECTED, listener)
   },
+
+  openSettings: (): Promise<void> => ipcRenderer.invoke(IPC.OPEN_SETTINGS),
 
   getMode: (): Promise<AppMode> => ipcRenderer.invoke(IPC.GET_MODE),
 

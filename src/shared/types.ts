@@ -99,6 +99,6 @@ export type LlmProvider = 'gpt' | 'gemini' | 'claude'
 export interface AppSettings {
   llm: LlmProvider
   language: Language | 'auto'
-  modeShortcut: string // 예: 'Ctrl+1'
+  modeShortcut: string // 예: 'Alt+Q'
   contextBytes: 256 | 512 | 1024 | 2048 | 4096
 }

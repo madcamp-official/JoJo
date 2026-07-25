@@ -11,6 +11,7 @@ export const IPC = {
   GET_MODE: 'mode:get',
   SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
+  OPEN_SETTINGS: 'settings:open',
 
   // 선택 확정 → 질문 파이프라인으로 전달 (A → B)
   SELECTION_RESOLVED: 'selection:resolved',

@@ -6,6 +6,7 @@ import { runQuestion } from './question'
 import { listWindows, setSelectedWindowId } from './selection/capture'
 import {
   closeWindowPicker,
+  createSettingsWindow,
   getMainWindow,
   getOverlayMode,
   hideSelectionOverlay,
@@ -43,9 +44,17 @@ export function registerIpc(): void {
     } else {
       hideSelectionOverlay()
     }
+
+    // PLAN.md §3: 창 선택 → 백그라운드 실행. 메인 창은 X 가 아니라 여기서 숨기고,
+    // 트레이 메뉴(선택 해제/재선택/설정/종료)로만 다시 꺼낸다(windows.ts, tray.ts).
+    getMainWindow()?.hide()
   })
 
   ipcMain.handle(IPC.GET_MODE, async () => getOverlayMode())
+
+  ipcMain.handle(IPC.OPEN_SETTINGS, async () => {
+    createSettingsWindow()
+  })
 
   // 담당 A: 선택 확정 → SelectionContext 생성
   ipcMain.handle(IPC.SELECTION_RESOLVED, async (_e, point: { x: number; y: number }) => {

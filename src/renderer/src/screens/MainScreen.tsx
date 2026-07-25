@@ -10,7 +10,13 @@ export function MainScreen() {
 
   return (
     <div className="screen main-screen">
-      <button className="icon-btn settings" title="설정">⚙️</button>
+      <button
+        className="icon-btn settings"
+        title="설정"
+        onClick={() => window.nuance.openSettings()}
+      >
+        ⚙️
+      </button>
       <div className="center">
         <button className="primary" onClick={() => window.nuance.openWindowPicker()}>
           🗔 창 선택
