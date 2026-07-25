@@ -17,16 +17,26 @@ const PREVIEW = {
 
 const NON_KEY_MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
 
-/** keydown 이벤트를 Electron accelerator 문자열로 변환 (예: 'Alt+Q', 'CommandOrControl+Shift+K'). */
+/** F1~F12 처럼 수식키 없이 단독으로도 전역 단축키로 적절한 키 */
+function isStandaloneKey(key: string): boolean {
+  return /^F([1-9]|1[0-2])$/.test(key)
+}
+
+/**
+ * keydown 이벤트를 Electron accelerator 문자열로 변환 (예: 'Alt+Q', 'CommandOrControl+Shift+K').
+ * 유효하지 않은 입력(수식키 단독, 수식키 없는 일반 키)은 null 을 돌려준다.
+ * 수식키 없는 일반 단일 키(예: 'Q')를 전역 단축키로 등록하면 시스템 전역에서 그 키를
+ * 가로채 정상 타이핑을 막으므로, F1~F12 를 제외하고는 최소 1개의 수식키를 요구한다.
+ */
 function toAccelerator(e: KeyboardEvent): string | null {
-  if (NON_KEY_MODIFIERS.has(e.key)) return null // 조합키 단독 입력은 무시
-  const parts: string[] = []
-  if (e.ctrlKey || e.metaKey) parts.push('CommandOrControl')
-  if (e.altKey) parts.push('Alt')
-  if (e.shiftKey) parts.push('Shift')
+  if (NON_KEY_MODIFIERS.has(e.key)) return null // 수식키 단독 입력은 무시
+  const mods: string[] = []
+  if (e.ctrlKey || e.metaKey) mods.push('CommandOrControl')
+  if (e.altKey) mods.push('Alt')
+  if (e.shiftKey) mods.push('Shift')
   const key = e.key.length === 1 ? e.key.toUpperCase() : e.key
-  parts.push(key)
-  return parts.join('+')
+  if (mods.length === 0 && !isStandaloneKey(key)) return null // 수식키 없는 일반 키 거부
+  return [...mods, key].join('+')
 }
 
 export function SettingsScreen() {
@@ -52,8 +62,12 @@ export function SettingsScreen() {
     if (!recording) return
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
+      if (e.key === 'Escape') {
+        setRecording(false) // 취소 — 기존 단축키 유지
+        return
+      }
       const accelerator = toAccelerator(e)
-      if (!accelerator) return
+      if (!accelerator) return // 유효하지 않은 조합은 무시하고 계속 대기
       setRecording(false)
       void patch({ modeShortcut: accelerator })
     }
@@ -171,7 +185,7 @@ export function SettingsScreen() {
           <span className="label">⌨️ 모드 전환 (일반 ↔ 선택)</span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recording ? ' recording' : ''}`}>
-              {recording ? '키를 누르세요…' : settings.modeShortcut}
+              {recording ? '수식키+키 입력 (Esc 취소)' : settings.modeShortcut}
             </span>
             <button type="button" className="btn-outline" onClick={() => setRecording(true)}>
               ✏️ 변경
