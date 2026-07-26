@@ -352,7 +352,17 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;
 }
 .freq-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.freq-item { display: flex; align-items: center; gap: 4px; }
+.freq-item {
+  display: flex; align-items: center; gap: 4px;
+  border-top: 2px solid transparent; border-bottom: 2px solid transparent;
+}
+.freq-item.dragging { opacity: 0.5; }
+.freq-item.drag-over { border-top-color: var(--theme); }
+.drag-handle {
+  flex-shrink: 0; color: #c3c8d1; font-size: 13px; cursor: grab; padding: 2px 2px;
+  line-height: 1;
+}
+.drag-handle:active { cursor: grabbing; }
 .freq-ask {
   flex: 1; text-align: left; min-width: 0;
   background: #fff; border: 1px solid #dbe0e6; border-radius: 6px;
