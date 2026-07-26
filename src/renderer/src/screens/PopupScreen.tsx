@@ -116,12 +116,17 @@ export function PopupScreen() {
     return send(prompt, { type: 'ask', prompt, history })
   }
 
-  // 발음 / 사전 버튼 — 누르면 즉시 요청. 채팅창에는 실제로 LLM에 보내는 user 메시지를 그대로 남긴다.
+  // 발음 / 사전 버튼 — 누르면 즉시 요청. 채팅창 라벨은 실제 LLM user 메시지에서
+  // "[선택된 표현]" 자리표시자만 실제 선택 텍스트로 바꿔 보여준다(LLM에 보내는 req 는 그대로).
   function askPronunciation() {
-    return send(PRONUNCIATION_QUESTION, { type: 'pronunciation' })
+    return send(PRONUNCIATION_QUESTION.replace('[선택된 표현]', currentCtx.selectedText), {
+      type: 'pronunciation',
+    })
   }
   function askDictionary() {
-    return send(DICTIONARY_QUESTION, { type: 'dictionary' })
+    return send(DICTIONARY_QUESTION.replace('[선택된 표현]', currentCtx.selectedText), {
+      type: 'dictionary',
+    })
   }
 
   function google(mode: 'pron' | 'image') {
