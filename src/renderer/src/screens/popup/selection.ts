@@ -36,9 +36,9 @@ const DISPLAY_CONTEXT_BYTES_BEFORE = 512
 const DISPLAY_CONTEXT_BYTES_AFTER = 512
 
 // 문단(줄바꿈) 시작에 넣는 들여쓰기 — 설정 화면 미리보기(SettingsScreen.tsx PREVIEW_TEXT)와
-// 동일한 3칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
+// 동일한 1칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
 // 없을 때만 넣어서 "있으면 그대로, 없으면 있는 것처럼 보이게" 만든다.
-const PARAGRAPH_INDENT = '   '
+const PARAGRAPH_INDENT = ' '
 
 /**
  * displayText 의 줄바꿈(\n) 다음에 오는 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를
