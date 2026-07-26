@@ -55,6 +55,7 @@ export function Overlay() {
     () =>
       window.nuance.onExtractionWords((w) => {
         setWords(w)
+        setHovered(null) // 새 단어 목록엔 이전 hover 대상과 같은 객체가 없어서, 안 지우면 낡은 위치의 박스가 남는다
         setExtracting(false)
       }),
     [],

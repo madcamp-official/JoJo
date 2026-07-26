@@ -1,6 +1,7 @@
 import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import { onWindowResized, sendOverlayNotice, sendRegionSelectionNeeded, setOverlayMode } from '../windows'
+import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
 import { clearRegion, getRegion } from './regionSelection'
 
@@ -17,6 +18,7 @@ onWindowResized(() => {
   if (mode !== 'select') return
   clearRegion()
   invalidateExtractionCache() // 이전 영역 기준 캐시/단어를 비움(오버레이에도 빈 배열 통지돼 박스가 사라짐)
+  stopChangeWatcher() // 영역이 무효화됐으니 그 영역 기준 변화 감지도 멈춘다(재선택 후 다시 시작)
   sendOverlayNotice('창 크기가 바뀌었어요. 영역을 다시 선택해주세요.')
   sendRegionSelectionNeeded()
 })
@@ -24,12 +26,16 @@ onWindowResized(() => {
 function toggleMode(): void {
   mode = mode === 'normal' ? 'select' : 'normal'
   setOverlayMode(mode) // 오버레이 테두리 색(일반=파랑/선택=보라) 갱신 + MODE_CHANGED 통지
-  if (mode !== 'select') return
+  if (mode !== 'select') {
+    stopChangeWatcher()
+    return
+  }
 
   if (getRegion()) {
     // 이전에 지정해둔 영역 재사용 — 클릭 시 매번 새로 돌리면 느려서, 모드 진입 시
     // 미리 캡처+추출해 캐시를 채워둔다(extractionCache.ts).
     refreshExtractionCache()
+    startChangeWatcher() // 영역이 이미 있으니 바로 변화 감지 시작(changeWatcher.ts)
   } else {
     // 영역이 없으면(처음 선택하는 창이거나, 리사이즈로 무효화된 뒤) 오버레이에 드래그
     // 선택을 요청한다 — 사용자가 영역을 그리면 ipc.ts(SUBMIT_REGION)가 저장 후 추출을 시작한다.
@@ -81,4 +87,5 @@ export function resetToNormalMode(): void {
   if (mode === 'normal') return
   mode = 'normal'
   setOverlayMode(mode)
+  stopChangeWatcher()
 }

@@ -13,6 +13,7 @@ import type {
 } from '@shared/types'
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
+import { startChangeWatcher } from './selection/changeWatcher'
 import { getSelectedWindowId, listWindows, setSelectedWindowId } from './selection/capture'
 import { invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
 import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
@@ -98,6 +99,7 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.SUBMIT_REGION, async (_e, rect: Rect) => {
     await submitRegionFromOverlay(rect)
     refreshExtractionCache()
+    startChangeWatcher() // 영역이 확정됐으니 이 영역 안 내용 변화 감지를 시작(changeWatcher.ts)
   })
 
   // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)

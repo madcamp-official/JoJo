@@ -46,7 +46,7 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
     }
   }
 
-  return { text: normalizeOcrText(data.text), language, words: removeNoise(words) }
+  return { text: normalizeOcrText(data.text), language, words }
 }
 
 /**
@@ -157,85 +157,4 @@ function splitWordBySymbols(
     if (i < gapWidths.length) x += gapWidths[i]!
   }
   return results
-}
-
-// 여백(위/아래) 판정 비율 — 캡처 내용의 세로 범위 중 이만큼을 헤더/푸터 후보로 본다.
-const MARGIN_RATIO = 0.05
-// 순수 숫자 — 페이지 번호/글자 수 등으로 추정. 본문 중간의 연도·개수 등을 잘못 지우는
-// 걸 막기 위해 여백 안에 있을 때만 이 패턴에 적용한다(아래 removeNoise 참고).
-const NUMBER_RE = /^\d+$/
-// 메뉴바 상태표시줄에 흔히 붙는 단위/라벨 — 하단 여백에서만 적용.
-const STATUS_LABEL_RE = /^(자|글자|줄|words?|characters?|chars?|ln|col|line)$/i
-// 메뉴바에 흔히 쓰이는 단어(한/영, 대소문자 무시) — 그 자체로는 본문에도 나올 수 있는
-// 흔한 단어라(예: "File"), 아래 removeNoise 에서 "같은 줄에 이 목록 단어가 2개 이상"
-// 일 때만 실제 메뉴바로 인정해서 오탐을 줄인다.
-const MENU_WORDS = new Set(
-  ['파일', '편집', '보기', '서식', '삽입', '도구', '창', '도움말',
-    'file', 'edit', 'view', 'format', 'insert', 'tools', 'window', 'help'].map((w) => w.toLowerCase()),
-)
-
-/** 같은 줄(line) 식별 키 — ocr.ts 가 단어 높이를 line bbox 로 통일해두므로(y/height 동일) 별도 필드 없이 그룹핑 가능. */
-function lineKey(word: Word): string {
-  return `${word.bbox!.y}:${word.bbox!.height}`
-}
-
-/**
- * 좌표 기반 노이즈 제거 (제목/페이지 번호/메뉴바·상태표시줄 등) — PLAN.md §6. 캡처
- * 한 장(위치 휴리스틱)만으로 판단하는 1차 버전. 세 가지 규칙을 적용한다:
- *  1) 메뉴바: 상단 여백에서 "같은 줄에 메뉴 단어(MENU_WORDS)가 2개 이상" 있는 줄만
- *     진짜 메뉴바로 인정하고 그 단어들만 제거 — 단어 1개만으로 지우면 본문에 "File"
- *     같은 흔한 단어가 우연히 여백에 걸렸을 때 잘못 지워질 위험이 커서, "메뉴바는
- *     여러 메뉴가 한 줄에 나란히 있다"는 구조적 특징으로 보강했다.
- *  2) 페이지 번호/글자 수: 위/아래 여백의 순수 숫자 토큰 제거.
- *  3) 상태표시줄 라벨: 하단 여백의 "자"/"words"/"Ln"/"Col" 등 단위 라벨 제거.
- * 여백에 있다고 전부 지우면(제목 포함) 여백 없이 본문이 가장자리부터 바로 시작하는
- * 창(예: 메모장)에서 진짜 본문 첫 줄까지 날아갈 위험이 커서, 오탐이 비교적 명확한
- * 케이스로 좁혔다 — 정확도는 이 정도가 한계. 더 정확한 판별은 여러 캡처에 걸쳐 같은
- * 위치에 반복되는지 보는 2차 방식(TODO.md)이 필요.
- */
-export function removeNoise(words: Word[]): Word[] {
-  const boxed = words.filter((w) => w.bbox)
-  if (boxed.length === 0) return words
-
-  const minY = Math.min(...boxed.map((w) => w.bbox!.y))
-  const maxY = Math.max(...boxed.map((w) => w.bbox!.y + w.bbox!.height))
-  const span = maxY - minY
-  if (span <= 0) return words
-
-  // 여백을 "전체 내용 높이의 5%"로만 잡으면, 메뉴바~상태바까지 전체 높이가 짧은 창
-  // (메모장에 몇 줄 안 써져 있는 경우 등)에서는 5%가 실제 한 줄 높이보다도 작아져서
-  // 메뉴바/상태바 자신조차 "여백 안"을 통과 못 하는 문제가 있었다 — 그래서 맨 위/아래
-  // 줄 자신의 높이를 최소 보장선으로 같이 반영한다(그 줄은 항상 여백 판정에 들어오게).
-  // 대신 짧은 캡처에서 여백이 과도하게 커지지 않도록 span 의 40%로 상한을 둔다.
-  const topLineHeight = boxed.find((w) => w.bbox!.y === minY)?.bbox!.height ?? 0
-  const bottomLineHeight = boxed.find((w) => w.bbox!.y + w.bbox!.height === maxY)?.bbox!.height ?? 0
-  const maxMargin = span * 0.4
-  const topMargin = Math.min(Math.max(span * MARGIN_RATIO, topLineHeight * 1.2), maxMargin)
-  const bottomMargin = Math.min(Math.max(span * MARGIN_RATIO, bottomLineHeight * 1.2), maxMargin)
-
-  const topBoundary = minY + topMargin
-  const bottomBoundary = maxY - bottomMargin
-  const inTop = (w: Word) => w.bbox!.y + w.bbox!.height <= topBoundary
-  const inBottom = (w: Word) => w.bbox!.y >= bottomBoundary
-
-  // 상단 여백에서 줄별로 메뉴 단어 개수를 세어, 2개 이상인 줄만 "확인된 메뉴바"로 인정.
-  const menuLineHits = new Map<string, number>()
-  for (const word of boxed) {
-    if (!inTop(word) || !MENU_WORDS.has(word.text.toLowerCase())) continue
-    const key = lineKey(word)
-    menuLineHits.set(key, (menuLineHits.get(key) ?? 0) + 1)
-  }
-  const confirmedMenuLines = new Set(
-    [...menuLineHits.entries()].filter(([, count]) => count >= 2).map(([key]) => key),
-  )
-
-  return words.filter((word) => {
-    if (!word.bbox) return true
-    if (inTop(word) && MENU_WORDS.has(word.text.toLowerCase()) && confirmedMenuLines.has(lineKey(word))) {
-      return false
-    }
-    if ((inTop(word) || inBottom(word)) && NUMBER_RE.test(word.text)) return false
-    if (inBottom(word) && STATUS_LABEL_RE.test(word.text)) return false
-    return true
-  })
 }
