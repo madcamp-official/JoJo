@@ -189,7 +189,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .swatch.excluded { background: #e5e7eb; }
 .swatch.selected { background: var(--theme); }
 .swatch.context { background: var(--theme-weak); border: 1px solid var(--theme); }
-.swatch.extend { background: color-mix(in srgb, #f59e0b 22%, white); border: 1px solid #f59e0b; }
+.swatch.extend { background: color-mix(in srgb, #2f6bff 20%, white); border: 1px solid #2f6bff; }
 .byte-preview {
   position: relative; /* selected-span offsetTop 기준(스크롤 자동 이동) */
   border: 1px solid #e6e8ec; border-radius: 8px; padding: 14px 16px; font-size: 13px;
@@ -198,7 +198,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 .byte-preview .excluded { color: #b3b9c2; }
 .byte-preview .context-span { background: var(--theme-weak); }
-.byte-preview .extend-span { background: color-mix(in srgb, #f59e0b 20%, white); }
+.byte-preview .extend-span { background: color-mix(in srgb, #2f6bff 18%, white); }
 .byte-preview .selected-span { background: var(--theme); color: var(--theme-text); border-radius: 3px; padding: 0 2px; }
 
 .lang-options { display: flex; flex-direction: column; gap: 10px; }
@@ -226,7 +226,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 /* ============================ 팝업 (담당 B) ============================ */
 .popup-screen {
   display: flex; flex-direction: column;
-  background: #16161c; color: #e8e8ee;
+  background: #f6f7f9; color: #1e2230;
   font-size: 14px; overflow: hidden;
 }
 
@@ -234,18 +234,18 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .popup-header {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 12px; flex-shrink: 0;
-  background: #1e1e26; border-bottom: 1px solid #2c2c36;
+  background: #fff; border-bottom: 1px solid #e6e8ec;
   -webkit-app-region: drag;
 }
 .popup-header .src {
-  font-size: 12px; color: #9aa0ae; white-space: nowrap;
+  font-size: 12px; color: #64748b; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
 .popup-header .close {
   margin-left: auto; -webkit-app-region: no-drag;
-  background: none; border: none; color: #9aa0ae; font-size: 14px; cursor: pointer;
+  background: none; border: none; color: #64748b; font-size: 14px; cursor: pointer;
 }
-.popup-header .close:hover { color: #fff; }
+.popup-header .close:hover { color: #1e2230; }
 
 .popup-body {
   flex: 1; min-height: 0;
@@ -255,76 +255,73 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 
 /* 원문 문맥 + 범위 재지정 */
 .context {
-  background: #1e1e26; border: 1px solid #2c2c36; border-radius: 10px;
+  background: #fff; border: 1px solid #e6e8ec; border-radius: 10px;
   padding: 10px 12px; flex-shrink: 0;
 }
 .ctx-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-.ctx-label { font-size: 12px; font-weight: 600; color: #c7ccd6; }
-.ctx-hint { font-size: 11px; color: #6b7180; }
+.ctx-label { font-size: 12px; font-weight: 600; color: #374151; }
+.ctx-hint { font-size: 11px; color: #8b93a1; }
 .ctx-text {
   line-height: 1.7; max-height: 128px; overflow-y: auto;
-  user-select: none; cursor: text; color: #cfd3dc;
+  user-select: none; cursor: text; color: #4b5563;
 }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
-.ctx-text .atom:hover { background: rgba(124, 58, 237, 0.25); }
+.ctx-text .atom:hover { background: var(--theme-weak); }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
-  background: var(--theme); color: #fff;
+  background: var(--theme); color: var(--theme-text);
+  border-radius: 0; padding: 0;
 }
-.selected-line {
-  margin-top: 8px; font-size: 12px; color: #9aa0ae;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.selected-line b { color: #fff; }
-
 /* 툴바 */
 .toolbar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0;
 }
 .llm-badge {
   font-size: 12px; padding: 3px 8px; border-radius: 6px;
-  background: #2a2440; color: #c4b5fd;
+  background: var(--theme-weak); color: var(--theme);
 }
 .toolbar .chk {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 13px; padding: 3px 8px; border-radius: 6px;
-  background: #22222b; cursor: pointer; user-select: none;
+  background: #fff; border: 1px solid #dbe0e6; cursor: pointer; user-select: none;
 }
-.toolbar .chk.on { background: #2a2440; color: #c4b5fd; }
+.toolbar .chk.on { background: var(--theme-weak); color: var(--theme); border-color: var(--theme); }
 .tb-spacer { flex: 1; }
 .tb-btn {
+  display: inline-flex; align-items: center; gap: 4px;
   font-size: 12px; padding: 4px 8px; border-radius: 6px;
-  background: #22222b; color: #cfd3dc; border: none; cursor: pointer;
+  background: #fff; color: #374151; border: 1px solid #dbe0e6; cursor: pointer;
 }
-.tb-btn:hover { background: #2c2c36; }
-.lang-tag { font-size: 11px; color: #6b7180; }
+.tb-btn:hover { background: #f4f6fa; }
+.google-icon { flex-shrink: 0; }
+.lang-tag { font-size: 11px; color: #8b93a1; }
 
 /* 발음/사전 결과 */
 .info-panel {
   display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
-  background: #1a1a22; border: 1px solid #2c2c36; border-radius: 8px; padding: 8px 10px;
+  background: #fff; border: 1px solid #e6e8ec; border-radius: 8px; padding: 8px 10px;
 }
 .info-row { display: flex; gap: 8px; font-size: 13px; align-items: baseline; }
 .info-tag {
   font-size: 11px; padding: 1px 6px; border-radius: 4px;
-  background: #2a2440; color: #c4b5fd; flex-shrink: 0;
+  background: var(--theme-weak); color: var(--theme); flex-shrink: 0;
 }
-.info-row .muted { color: #6b7180; }
+.info-row .muted { color: #8b93a1; }
 
 /* 채팅 */
 .chat {
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
-  background: #1a1a22; border: 1px solid #2c2c36; border-radius: 10px; overflow: hidden;
+  background: #fff; border: 1px solid #e6e8ec; border-radius: 10px; overflow: hidden;
 }
 .chat-log { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-.chat-empty { color: #6b7180; font-size: 13px; text-align: center; margin: auto; }
+.chat-empty { color: #8b93a1; font-size: 13px; text-align: center; margin: auto; }
 .bubble {
   max-width: 85%; padding: 7px 10px; border-radius: 10px;
   font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
 }
-.bubble.user { align-self: flex-end; background: var(--theme); color: #fff; }
-.bubble.assistant { align-self: flex-start; background: #26262f; color: #e8e8ee; }
-.bubble.error { align-self: stretch; max-width: 100%; background: #3a1f22; color: #fca5a5; }
+.bubble.user { align-self: flex-end; background: var(--theme); color: var(--theme-text); }
+.bubble.assistant { align-self: flex-start; background: #f4f6fa; color: #1e2230; }
+.bubble.error { align-self: stretch; max-width: 100%; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
 .err-body { display: flex; flex-direction: column; gap: 2px; }
 .err-body strong { font-size: 12px; }
 .caret {
@@ -334,41 +331,42 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 @keyframes blink { 50% { opacity: 0; } }
 
 .chat-input {
-  display: flex; gap: 8px; padding: 8px; border-top: 1px solid #2c2c36; flex-shrink: 0;
+  display: flex; gap: 8px; padding: 8px; border-top: 1px solid #e6e8ec; flex-shrink: 0;
 }
 .chat-input textarea {
   flex: 1; resize: none; max-height: 80px;
-  background: #22222b; border: 1px solid #2c2c36; border-radius: 8px;
-  color: #e8e8ee; padding: 7px 10px; font: inherit; font-size: 13px;
+  background: #fff; border: 1px solid #dbe0e6; border-radius: 8px;
+  color: #1e2230; padding: 7px 10px; font: inherit; font-size: 13px;
 }
 .chat-input textarea:focus { outline: none; border-color: var(--theme); }
 .send-btn {
   width: 34px; flex-shrink: 0; border: none; border-radius: 8px;
-  background: var(--theme); color: #fff; font-size: 16px; cursor: pointer;
+  background: var(--theme); color: var(--theme-text); font-size: 16px; cursor: pointer;
 }
-.send-btn:disabled { background: #3a3a45; color: #6b7180; cursor: default; }
+.send-btn:disabled { background: #e5e7eb; color: #9aa0ae; cursor: default; }
 
 /* 자주 쓰는 질문 */
 .frequent { flex-shrink: 0; }
 .frequent-head {
   display: flex; align-items: center; justify-content: space-between;
-  font-size: 12px; font-weight: 600; color: #c7ccd6; margin-bottom: 6px;
+  font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;
 }
 .freq-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .freq-item { display: flex; align-items: center; gap: 4px; }
 .freq-ask {
   flex: 1; text-align: left; min-width: 0;
-  background: #22222b; border: 1px solid #2c2c36; border-radius: 6px;
-  color: #cfd3dc; padding: 6px 10px; font-size: 12px; cursor: pointer;
+  background: #fff; border: 1px solid #dbe0e6; border-radius: 6px;
+  color: #374151; padding: 6px 10px; font-size: 12px; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .freq-ask:hover:not(:disabled) { border-color: var(--theme); }
-.freq-ask:disabled { color: #6b7180; cursor: default; }
+.freq-ask:disabled { color: #9aa0ae; cursor: default; }
 .freq-item.editing input {
-  flex: 1; background: #22222b; border: 1px solid var(--theme); border-radius: 6px;
-  color: #e8e8ee; padding: 6px 10px; font: inherit; font-size: 12px;
+  flex: 1; background: #fff; border: 1px solid var(--theme); border-radius: 6px;
+  color: #1e2230; padding: 6px 10px; font: inherit; font-size: 12px;
 }
 .icon-mini {
-  background: none; border: none; color: #6b7180; cursor: pointer; font-size: 13px; padding: 2px 4px;
+  background: none; border: none; color: #8b93a1; cursor: pointer; font-size: 13px; padding: 2px 4px;
 }
-.icon-mini:hover { color: #fff; }
+.icon-mini:hover:not(:disabled) { color: #1e2230; }
+.icon-mini:disabled { color: #d1d5db; cursor: default; }

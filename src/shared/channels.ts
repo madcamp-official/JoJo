@@ -8,7 +8,6 @@ export const IPC = {
   WINDOW_SELECTED: 'window:selected',
   GET_SELECTED_WINDOW_ID: 'window:getSelectedId',
   GET_MODE: 'mode:get',
-  SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
   // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록을 오버레이로 통지 (extractionCache.ts)
@@ -34,6 +33,8 @@ export const IPC = {
   // 설정 / API 키 (담당 B)
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+  FREQUENT_GET: 'frequent:get',
+  FREQUENT_SET: 'frequent:set',
   APIKEY_GET: 'apikey:get',
   APIKEY_SET: 'apikey:set',
   APIKEY_DELETE: 'apikey:delete',

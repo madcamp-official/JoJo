@@ -27,9 +27,10 @@
 
 **앱 · 윈도우 · 모드**
 - [x] 창 선택 UI + `desktopCapturer` 창 목록/선택
-- [x] 선택된 창 테두리 색 표시 (일반=파랑 / 선택=보라) — **Windows 전용**, macOS 미구현(아래 크로스플랫폼 항목 참고)
+- [x] 선택된 창 테두리 색 표시 (일반=파랑 / 선택=보라) — Windows: 대상 창에 정렬+실시간 추적. **macOS: 구현됨** — `showMacSelectionOverlay`(`windows.ts`)가 CoreGraphics `CGWindowListCopyWindowInfo`(koffi, `selection/macWindow.ts`)로 desktopCapturer window id 의 실제 bounds 를 얻어 테두리를 정렬하고, 저빈도 폴링(150ms)으로 이동/리사이즈를 따라간다(win32 폴백 폴링과 동일 개념). bounds 를 못 구하면 주 디스플레이 전체 테두리로 폴백. **추가 권한 프롬프트 없음**(창 geometry 조회는 권한 불필요, 창 목록엔 이미 화면기록 권한 사용). osascript(자동화 권한) 방식은 unsigned dev 앱에서 프롬프트가 안 떠 폐기.
 - [x] 백그라운드 실행 + 트레이 아이콘 (선택 해제 / 재선택 / 설정)
-- [x] 투명·클릭스루 오버레이 윈도우 (선택 창에 정렬 · 이동/리사이즈 추적) — **Windows 전용**, macOS 미구현(아래 크로스플랫폼 항목 참고)
+- [x] 투명·클릭스루 오버레이 윈도우 (선택 창에 정렬 · 이동/리사이즈 추적) — Windows: WinEventHook + 폴백 폴링. macOS: CGWindowList bounds 폴링(150ms)으로 정렬+이동/리사이즈 추적(win32 는 즉시 반응 훅까지 있고 mac 은 폴링만이라 반응이 약간 느릴 수 있음)
+- [x] 창 선택 시 대상 창 맨 앞으로 — Windows: `bringWindowToForeground`(win32Capture). macOS: 창의 owner PID(CGWindowList)로 `NSRunningApplication.activateWithOptions:`(objc, koffi, `selection/macWindow.ts`). raise 가 실패해도 테두리/추적은 정상 동작(try/catch 로 degrade). CoreGraphics/objc 네이티브 바인딩은 실기기(맥 arm64)에서 bounds·PID 조회·클래스 로드까지 검증됨.
 - [x] 모드 전환 전역 단축키(기본 Alt+Q) + `MODE_CHANGED` 통지
 
 <a id="a-coord"></a>
@@ -99,7 +100,7 @@
 - [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑 — **스텁만 존재**(`question/dictionary.ts` 가 빈 문자열 반환)
   - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
-- [x] ~~자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화 — `popup/FrequentQuestions.tsx` + `popup/frequentStore.ts`. **단 현재 렌더러 localStorage 임시 저장**(아래 UI 영속화 항목으로 파일 저장 이전 예정)~~
+- [x] ~~자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화 — `popup/FrequentQuestions.tsx`. main 프로세스 `userData/frequent.json` 에 파일 저장(`main/frequentStore.ts` + IPC `FREQUENT_GET`/`SET`, 렌더러는 `popup/frequentStore.ts` 얇은 래퍼). localStorage 임시 저장에서 이전 완료 → 재시작·재설치 후 유지~~
 - [ ] 구글 검색 — 발음/이미지 탭을 **외부 브라우저로 여는 것까지 구현**(`question/google.ts`, `ipc.ts` `OPEN_GOOGLE` → `shell.openExternal`). PLAN §4.2 "팝업 속 팝업"(임베드형 `BrowserWindow` child) 고도화는 미구현
 
 <a id="b-ui"></a>
@@ -119,18 +120,22 @@
 ## 🤝 공동
 - [ ] 모드 전환 단축키 기본값 변경 — `Ctrl+1` → `Alt+Q`(macOS: Electron이 Option 키로 자동 매핑, Windows: Alt 그대로) 로 변경됨(`selection/shortcut.ts`, 설정 화면 요구사항 반영). 담당 A 항목("앱·윈도우·모드")의 "기본 Ctrl+1" 문구는 그대로 두었으니 참고해서 갱신 바람
 - [ ] (향후) 단축키 항목 확장 — 현재는 '모드 전환' 단축키 1개만 지원(`AppSettings.modeShortcut`, `selection/shortcut.ts` 의 `currentAccelerator` 단일 변수). 나중에 '선택창(picker) 전환'·'선택 해제' 등도 단축키로 지정하려면: (1) `AppSettings` 에 `pickerShortcut`/`deselectShortcut` 등 필드 추가, (2) `shortcut.ts` 등록 로직을 `Map<action, accelerator>` 로 일반화(액션별 register/unregister), (3) 각 액션 핸들러 연결(전환=picker 라우팅, 선택 해제=트레이 메뉴 동작 재사용), (4) 설정 화면 단축키 캡처 컴포넌트에 항목 추가. ⚠️ 전역 단축키(`globalShortcut`)라 상호/타앱 충돌 검증(`isRegistered()` 로 등록 실패 시 UI 안내) 필요. (A: 등록·핸들러 / B: `AppSettings` 확장·설정 UI)
-- [ ] A→B 경계 재정의(팝업 기준) 반영 — A는 '팝업 직전 추출 결과(근방 텍스트 + 단어 좌표 + 클릭 기준점)'를 넘기고, B가 팝업에서 최종 `SelectionContext` 를 확정. 이 경계용 인터페이스·IPC 채널 확정(스텁→실연결) + PLAN.md §7/§8 계약 문구 동기화 필요
-- [ ] `SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 완료 → 실연결)
+- [x] ~~A→B 경계 재정의(팝업 기준) 반영 — A는 '팝업 직전 추출 결과(근방 텍스트 + 단어 좌표 + 클릭 기준점)'를 `ExtractedSelection` 으로 넘기고, B가 팝업에서 최종 `SelectionContext` 를 확정. 경계 인터페이스·IPC 채널 실연결 완료(`shared/types.ts`, `SELECTION_EXTRACTED`)~~ (PLAN.md §7/§8 계약 문구 동기화는 별도 확인 권장)
+- [x] ~~`SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 → 실연결) — `SELECTION_EXTRACTED`/`QUESTION_REQUEST`/`QUESTION_STREAM` 실동작~~
 - [ ] 메인/피커/설정 창 통합 — 세 화면이 동시에 보일 필요가 없어 별도 창(피커·설정) 대신 메인 창 하나를 리사이즈(`windows.ts: setMainWindowRoute`/`navigateMainWindow`)해 재사용하도록 변경(`feat/settings-screen`). 전환 시 항상 창을 중앙 정렬하며, 애니메이션 없이 즉시 크기 변경(다른 창이 뜬 것처럼 보이지 않게)
-- [ ] IPC 허브 A→B 실연결
-- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문
+- [x] ~~IPC 허브 A→B 실연결 — 선택 파이프라인(A) → 팝업/질문(B) 이 `ipc.ts` 허브를 통해 실동작(오버레이 클릭 → 팝업 오픈 → 질문 스트리밍)~~
+- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문 — ⚠️ 현재 실경로는 **Windows 위주**(선택 오버레이 추적·직접추출 `readWindowText`·창 캡처가 win32). macOS 는 오버레이 테두리/창 raise 는 되지만 직접추출은 미구현(항상 OCR), OCR 캡처 경로 별도 점검 필요. PDF 직접추출 파서 자체도 아직 미구현
+- [x] ~~배포 패키징(electron-builder) — `electron-builder.yml`(appId `com.nuance`·productName `Nuance` 고정 → userData 경로 안정, 재설치/버전 업 후에도 설정·API 키·자주쓰는질문 유지). scripts: `pack:dir`(스모크) / `dist:mac`·`dist:win`·`dist:linux`. mac `--dir` 패키징 성공 확인(코드서명 없음: `identity: null`). 산출물은 `dist/`(gitignore)~~
+  - [ ] 정식 배포 시 코드서명/공증 — mac: hardenedRuntime+notarize(Apple Developer 인증서), win: 서명 인증서. 현재는 사설 배포(미서명)라 Gatekeeper/SmartScreen 경고가 뜸
+  - [ ] 앱 아이콘 교체 — 현재 `build/icon.png` 는 기존 256px 을 1024 로 업스케일한 임시본(정식 아이콘으로 교체 필요)
 - [ ] `npm install` + `electron-vite dev` 빌드 정상화
   - [x] ~~koffi를 optionalDependencies로 이동 — 맥에서 네이티브 빌드 실패해도 install 유지 (`fix: 969d08f`)~~
   - [ ] npm optional-deps 버그(npm/cli#4828)로 `@rollup/rollup-darwin-arm64` 누락 시: `node_modules`+`package-lock.json` 삭제 후 재설치 (온보딩 메모 필요)
 - [ ] 크로스플랫폼(Win / Mac) 동작 점검
   - [x] ~~맥(arm64) 부팅 확인 — win32Capture(koffi)를 동적 import로 격리해 맥에선 미로드, `npm run dev` 정상 기동 (`fix: 969d08f`). 맥은 desktopCapturer 경로 사용(창 목록 실사용엔 화면 기록 권한 필요)~~
   - [ ] Windows 재확인 — win32Capture가 static→동적 import로 바뀌어 Windows 창 목록/캡처 정상 동작 재점검 필요
-  - [ ] (담당 A) 선택 창 테두리 오버레이(`windows.ts: trackSelectionOverlay`) + 이동/리사이즈 실시간 추적이 전부 Win32 API(`GetWindowRect`/`DwmGetWindowAttribute`/`SetWinEventHook`/`SetWindowPos`) 기반이라 **macOS 에서는 전혀 동작하지 않음** — `ipc.ts`의 `SELECT_WINDOW` 핸들러가 `process.platform === 'win32'`가 아니면 `trackSelectionOverlay` 자체를 호출하지 않고 바로 `hideSelectionOverlay()`만 부름. macOS에서 창 선택은 되지만 테두리 색 표시·오버레이 추적은 아무것도 안 뜸. macOS 대응하려면 Accessibility API(AX) 기반으로 별도 구현 필요.
+  - [x] ~~(담당 A) 선택 창 테두리 오버레이 macOS 대응 — `ipc.ts SELECT_WINDOW` 의 비-win32 분기가 `showMacSelectionOverlay(windowId)`(`windows.ts`)를 호출. CoreGraphics `CGWindowListCopyWindowInfo`(koffi, `selection/macWindow.ts`)로 bounds 를 얻어 테두리를 정렬하고 150ms 폴링으로 이동/리사이즈 추적, owner PID 로 `NSRunningApplication` activate(창 맨 앞으로). Accessibility/자동화 권한 불필요~~
+    - [ ] mac 오버레이 정밀화(선택) — 폴링만이라 win32 의 즉시 반응 훅 대비 반응이 약간 느림. 멀티 디스플레이/스케일 좌표 정확도, 대상 창이 다른 창에 가려질 때 z-order 처리(현재 alwaysOnTop 'screen-saver')는 실사용 점검 필요.
 - [ ] 언어 확장성 — 현재 영/일/중만 지원(PLAN.md §1), 추후 언어 추가를 대비한 구조.
   - [x] ~~`@shared/languages.ts`에 언어별 정적 데이터(이름, 구글 검색 접미어 등) 단일 레지스트리 도입. `Language` 유니온에 언어를 추가하면 `Record<Language, ...>` 사용처가 컴파일 에러로 누락을 알려줌(`question/llm/adapter.ts`, `question/google.ts` 적용 완료)~~
   - [ ] (담당 A) OCR 언어 감지/언어팩을 이 레지스트리와 연동하거나 별도 레지스트리로 통일 (`selection/langDetect.ts`, `selection/ocr.ts`)

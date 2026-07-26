@@ -19,7 +19,7 @@ export interface LanguageInfo {
 }
 
 export const LANGUAGES: Record<Language, LanguageInfo> = {
-  en: { name: '영어', googleSearchSuffix: 'Pronunciation' },
+  en: { name: '영어', googleSearchSuffix: 'pronunciation' },
   ja: { name: '일본어', googleSearchSuffix: '読み方' },
   zh: { name: '중국어', googleSearchSuffix: '拼音' },
 }

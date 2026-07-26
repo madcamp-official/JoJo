@@ -36,6 +36,14 @@ export function FrequentQuestions({ items, onAsk, onChange, disabled }: Props) {
     onChange(items.filter((_, idx) => idx !== i))
   }
 
+  function move(i: number, dir: -1 | 1) {
+    const j = i + dir
+    if (j < 0 || j >= items.length) return
+    const next = items.slice()
+    ;[next[i], next[j]] = [next[j], next[i]]
+    onChange(next)
+  }
+
   return (
     <div className="frequent">
       <div className="frequent-head">
@@ -74,6 +82,22 @@ export function FrequentQuestions({ items, onAsk, onChange, disabled }: Props) {
             </li>
           ) : (
             <li key={i} className="freq-item">
+              <button
+                className="icon-mini"
+                title="위로 이동"
+                disabled={i === 0}
+                onClick={() => move(i, -1)}
+              >
+                ▲
+              </button>
+              <button
+                className="icon-mini"
+                title="아래로 이동"
+                disabled={i === items.length - 1}
+                onClick={() => move(i, 1)}
+              >
+                ▼
+              </button>
               <button className="freq-ask" disabled={disabled} onClick={() => onAsk(q)} title={q}>
                 {q}
               </button>

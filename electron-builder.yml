@@ -1,0 +1,43 @@
+# electron-builder 패키징 설정 (담당 공동)
+#
+# appId 는 배포 후에도 절대 바꾸지 않는다 — OS 가 이 값(+productName)으로 앱을 식별하며,
+# userData 경로(설정·API 키·자주쓰는질문 저장 위치)가 여기서 갈린다. 바꾸면 기존 사용자의
+# 저장 데이터가 유실된 것처럼 보인다.
+appId: com.nuance
+productName: Nuance
+
+directories:
+  output: dist # 패키지 산출물(dmg/exe 등)
+  buildResources: build # 아이콘 등 소스 에셋(build/icon.png)
+
+# 패키지에 포함할 파일 — electron-vite 산출물(out/**)과 package.json
+files:
+  - out/**/*
+  - package.json
+
+# 개발/테스트용 에셋은 패키지에서 제외
+asarUnpack:
+  - resources/**
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.education
+  # 사설 배포(코드서명 인증서 없음) 기준. 정식 배포 시 hardenedRuntime+notarize 로 전환.
+  identity: null
+
+win:
+  target:
+    - nsis
+  # 사설 배포 기준(코드서명 없음)
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  target:
+    - AppImage
+  category: Education

@@ -166,6 +166,14 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     webPreferences: { preload, sandbox: false },
   })
   win.setIgnoreMouseEvents(true, { forward: true }) // 완전 클릭스루 — 테두리만 그리고 조작엔 개입 안 함
+  if (process.platform === 'darwin') {
+    // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
+    win.setHiddenInMissionControl(true)
+    // 대상 창(일반 레벨) 바로 위에 테두리가 보이도록 floating 레벨 + 모든 스페이스에서 표시.
+    // (다른 창이 대상을 덮을 때 사이에 끼는 문제는 showMacSelectionOverlay 의 가림 판정으로 숨겨 처리)
+    win.setAlwaysOnTop(true, 'floating')
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  }
   win.on('closed', () => {
     if (overlayWindow === win) overlayWindow = null
   })
@@ -268,11 +276,75 @@ export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
 
 export function hideSelectionOverlay(): void {
   trackedHwnd = null
+  trackedMacWindowId = null
   if (trackTimer) {
     clearInterval(trackTimer)
     trackTimer = null
   }
   applyOverlayBounds(null)
+}
+
+let trackedMacWindowId: number | null = null
+let macCovered = false
+
+// 위치/크기 추적은 단일 창 조회라 가벼워 빠르게(16ms) 돌려 딜레이를 줄인다.
+// 가림 판정은 전체 창 열거라 무거워 ~100ms(16*OCCLUSION_EVERY)마다만 한다.
+const MAC_TRACK_INTERVAL_MS = 16
+const MAC_OCCLUSION_EVERY = 6
+
+function showMacOverlayAt(bounds: { x: number; y: number; width: number; height: number }): void {
+  const win = ensureOverlayWindow(bounds) // darwin 설정(미션컨트롤 숨김·floating)은 생성 시 1회
+  if (!lastBounds || !sameBounds(lastBounds, bounds)) {
+    win.setBounds(bounds)
+    lastBounds = bounds
+  }
+  if (!overlayVisible) {
+    win.showInactive()
+    overlayVisible = true
+  }
+}
+
+function hideMacOverlay(): void {
+  if (overlayWindow && overlayVisible) {
+    overlayWindow.hide()
+    overlayVisible = false
+  }
+}
+
+/**
+ * macOS 선택 오버레이 — Windows 의 trackSelectionOverlay 에 대응하는 mac 경로.
+ * CoreGraphics(koffi, selection/macWindow.ts)로 대상 창을 앞으로 올리고 bounds 를 얻어
+ * 테두리 오버레이를 그 창에 정확히 맞춘다. 이후 16ms 폴링으로 이동/리사이즈를 바로 따라가고,
+ * 대상 창이 다른 앱 창에 가려지면(z-순서 판정) 테두리를 숨겨 "창 사이에 끼는" 걸 막는다.
+ * 호출부(ipc.ts)에서 process.platform !== 'win32' 일 때만 부른다.
+ */
+export async function showMacSelectionOverlay(windowId: number): Promise<void> {
+  const { raiseAndGetBounds, getMacWindowBounds, isMacTargetCovered } = await import(
+    './selection/macWindow'
+  )
+  const ownPid = process.pid
+
+  trackedMacWindowId = windowId
+  macCovered = false
+  const first = raiseAndGetBounds(windowId) // 앞으로 올리고 최초 bounds
+  if (first) showMacOverlayAt(first)
+
+  if (trackTimer) clearInterval(trackTimer)
+  let tick = 0
+  trackTimer = setInterval(() => {
+    if (trackedMacWindowId === null) return
+    if (tick % MAC_OCCLUSION_EVERY === 0) {
+      macCovered = isMacTargetCovered(trackedMacWindowId, ownPid)
+    }
+    tick++
+    if (macCovered) {
+      hideMacOverlay()
+      return
+    }
+    const b = getMacWindowBounds(trackedMacWindowId)
+    if (b) showMacOverlayAt(b)
+    else hideMacOverlay()
+  }, MAC_TRACK_INTERVAL_MS)
 }
 
 /**
@@ -308,8 +380,8 @@ export function sendOverlayWords(words: Word[]): void {
 let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
 
-const POPUP_WIDTH = 460
-const POPUP_HEIGHT = 640
+const POPUP_WIDTH = 1200
+const POPUP_HEIGHT = 800
 
 export function createPopupWindow(ctx: ExtractedSelection | null = null): BrowserWindow {
   popupContext = ctx

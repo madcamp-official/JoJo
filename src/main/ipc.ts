@@ -18,7 +18,7 @@ import {
   getMainWindow,
   getOverlayMode,
   getPopupContext,
-  hideSelectionOverlay,
+  showMacSelectionOverlay,
   setMainWindowRoute,
   setOverlayInteractive,
   trackSelectionOverlay,
@@ -26,6 +26,7 @@ import {
 } from './windows'
 import { resetToNormalMode, updateModeShortcut } from './selection/shortcut'
 import { getSettings, setSettings } from './settingsStore'
+import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { googleImageUrl, googlePronunciationUrl } from './question/google'
@@ -54,14 +55,19 @@ export function registerIpc(): void {
     resetToNormalMode() // 재선택 시 선택 모드였다면 일반 모드로 — 새 창엔 아직 캐시된 단어가 없음
     getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, source)
 
+    // 대상 창을 맨 앞으로 올리고(가려진 채 선택되면 테두리와 실제 화면이 어긋나 보임)
+    // 선택 오버레이 테두리를 정렬한다. 메인 창을 숨기기 전에 먼저 처리한다.
     if (process.platform === 'win32') {
       const hwnd = BigInt(source.id)
       // win32Capture 는 koffi 로 DLL 을 로드하므로 Windows 경로에서만 동적 import.
       const { bringWindowToForeground } = await import('./selection/win32Capture')
-      bringWindowToForeground(hwnd) // 가려진 채로 선택되면 테두리와 실제 화면이 어긋나 보임
+      bringWindowToForeground(hwnd)
       await trackSelectionOverlay(hwnd) // 대상 창 이동/리사이즈를 따라 오버레이도 갱신
     } else {
-      hideSelectionOverlay()
+      // macOS: desktopCapturer 소스 id("window:12345:0")의 CGWindowID 로 대상 창을 앞으로
+      // 올리고 그 위치에 테두리 오버레이를 띄운다(CoreGraphics, selection/macWindow.ts).
+      const windowId = Number(/^window:(\d+)/.exec(source.id)?.[1])
+      if (Number.isFinite(windowId)) await showMacSelectionOverlay(windowId)
     }
 
     // PLAN.md §3: 창 선택 → 백그라운드 실행. 메인 창은 X 가 아니라 여기서 숨기고,
@@ -104,6 +110,15 @@ export function registerIpc(): void {
     return next
   })
 
+  // 담당 B: 자주 쓰는 질문 조회/저장 (userData/frequent.json, frequentStore.ts)
+  ipcMain.handle(IPC.FREQUENT_GET, async (): Promise<string[]> => {
+    return getFrequent()
+  })
+
+  ipcMain.handle(IPC.FREQUENT_SET, async (_e, list: string[]): Promise<string[]> => {
+    return setFrequent(list)
+  })
+
   // 담당 B: API 키 조회/저장/삭제 (safeStorage 암호화, keyStore.ts)
   ipcMain.handle(IPC.APIKEY_GET, async (_e, provider: LlmProvider): Promise<string | null> => {
     return getApiKey(provider)
@@ -140,6 +155,4 @@ export function registerIpc(): void {
       await shell.openExternal(url)
     },
   )
-
-  // TODO: SET_MODE 핸들러 연결
 }
