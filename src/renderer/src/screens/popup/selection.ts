@@ -1,5 +1,5 @@
 import type { ExtractedSelection, SelectionContext, Word } from '@shared/types'
-import { computeParagraphContextRange } from '@shared/context'
+import { computeContextRange } from '@shared/context'
 
 // ============================================================================
 // 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §4.1 "팝업 내 범위 지정")
@@ -42,21 +42,24 @@ const PARAGRAPH_INDENT = ' '
 
 /**
  * displayText 의 각 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를 삽입된 만큼 보정해
- * 반환한다. 창이 문단 경계로 확장돼 있어(computeParagraphContextRange) 첫 줄도 항상
- * 진짜 문단 시작이므로 예외 없이 모든 줄을 대상으로 한다.
+ * 반환한다. 창은 문장 경계로만 확장되므로(computeContextRange) 첫 줄이 항상 문단 시작인
+ * 건 아니다 — 문단 중간에서 창이 시작하면 그 첫 줄은 이어지는 텍스트일 뿐이므로
+ * firstIsParagraphStart 가 false 일 때만 첫 줄 들여쓰기를 건너뛴다.
  */
 function indentParagraphs(
   text: string,
   selStart: number,
   selEnd: number,
+  firstIsParagraphStart: boolean,
 ): { text: string; selStart: number; selEnd: number } {
   const paragraphs = text.split('\n')
   let newSelStart = selStart
   let newSelEnd = selEnd
   let offset = 0
-  const out = paragraphs.map((p) => {
+  const out = paragraphs.map((p, i) => {
     const paraStart = offset
     offset += p.length + 1 // +1 = 소비되는 '\n'
+    if (i === 0 && !firstIsParagraphStart) return p
     if (/^[ \t]/.test(p)) return p
     if (paraStart <= selStart) newSelStart += PARAGRAPH_INDENT.length
     if (paraStart <= selEnd) newSelEnd += PARAGRAPH_INDENT.length
@@ -81,8 +84,8 @@ function tokenizeAtoms(text: string): Atom[] {
 
 /** ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
 export function buildSelectionModel(extracted: ExtractedSelection): PopupSelectionModel {
-  // 원문 전체(extracted.text) 중 선택 앞뒤 512바이트(+문단 경계 확장)만 잘라서 보여준다.
-  const range = computeParagraphContextRange(
+  // 원문 전체(extracted.text) 중 선택 앞뒤 512바이트(+문장 경계 확장)만 잘라서 보여준다.
+  const range = computeContextRange(
     extracted.text,
     extracted.anchor.start,
     extracted.anchor.end,
@@ -92,10 +95,12 @@ export function buildSelectionModel(extracted: ExtractedSelection): PopupSelecti
   const windowedText = extracted.text.slice(range.extStart, range.extEnd)
   const windowedSelStart = extracted.anchor.start - range.extStart
   const windowedSelEnd = extracted.anchor.end - range.extStart
+  const firstIsParagraphStart = range.extStart === 0 || extracted.text[range.extStart - 1] === '\n'
   const { text: displayText, selStart, selEnd } = indentParagraphs(
     windowedText,
     windowedSelStart,
     windowedSelEnd,
+    firstIsParagraphStart,
   )
   const atoms = tokenizeAtoms(displayText)
 
