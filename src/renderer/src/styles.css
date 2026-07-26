@@ -314,12 +314,16 @@ button:disabled { cursor: not-allowed; }
      pre-wrap(원본 개행을 전부 지킴 → 팝업 폭에 안 맞아 들쭉날쭉) 대신, 남은 개행(=진짜
      문단 구분)만 존중하고 그 외 공백은 정리하는 pre-line 을 쓴다. */
   line-height: 1.7; white-space: pre-line; text-align: justify;
-  user-select: none; cursor: text; color: #4b5563;
+  cursor: text; color: #4b5563;
 }
-/* user-select: none 은 마우스 드래그로 사용자가 직접 브라우저 선택을 만드는 것만 막을 뿐,
-   ContextView.tsx(syncNativeSelection)가 JS 로 프로그램상 만드는 선택(Selection/Range)은
-   그대로 유지된다 — 우클릭 메뉴의 복사/찾아보기는 그 선택을 그대로 인식해 동작한다.
-   네이티브 선택의 파란 하이라이트 박스는 숨기고 아래 .sel 클래스의 보라색 강조만 보이게 한다. */
+/* atom 에는 user-select: none 을 안 둔다 — Chromium 은 user-select: none 인 요소는
+   JS 로 Selection.addRange() 를 걸어도 선택 자체가 성립하지 않아(프로그램상 선택도 막힘),
+   ContextView.tsx(syncNativeSelection)로 우클릭 메뉴에 복사/찾아보기를 띄우는 게 아예
+   안 됐었다. 대신 atom 의 mousedown 에서 preventDefault 로 사용자의 직접 드래그 선택만
+   막고(좌클릭), gap(공백·문장부호)에는 mousedown 핸들러가 없어 여기만 user-select: none
+   으로 막는다. 네이티브 선택의 파란 하이라이트 박스는 숨기고 아래 .sel 클래스의 보라색
+   강조만 보이게 한다. */
+.ctx-text .gap { user-select: none; }
 .ctx-text ::selection { background: transparent; }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
