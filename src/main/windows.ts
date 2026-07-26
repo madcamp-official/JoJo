@@ -437,7 +437,7 @@ export function sendOverlayNotice(text: string): void {
 let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
 
-const POPUP_WIDTH = 760
+const POPUP_WIDTH = 900
 const POPUP_HEIGHT = 900
 // 화면이 작을 때 팝업이 화면을 넘어가지 않도록, 세로 길이는 활성 모니터 작업 영역
 // 높이에서 위아래 여백을 뺀 값을 상한으로 삼는다.
