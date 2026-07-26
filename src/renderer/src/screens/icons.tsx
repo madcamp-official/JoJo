@@ -36,7 +36,7 @@ export function EyeOffIcon() {
   return (
     <Line>
       <path d="M17.9 17.9A10 10 0 0 1 12 20C5 20 1 12 1 12a18.5 18.5 0 0 1 5.1-5.9M9.9 4.2A9 9 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2" />
-      <path d="M1 1l22 22" />
+      <path d="M23 1L1 23" />
     </Line>
   )
 }
@@ -109,15 +109,6 @@ export function InfoIcon() {
     <Line>
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4M12 8h.01" />
-    </Line>
-  )
-}
-
-export function CostIcon() {
-  return (
-    <Line>
-      <path d="M12 1v22" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
     </Line>
   )
 }

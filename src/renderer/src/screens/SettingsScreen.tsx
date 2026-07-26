@@ -14,7 +14,6 @@ import {
   KeyboardIcon,
   WarnIcon,
   InfoIcon,
-  CostIcon,
 } from './icons'
 import { EditDeleteGroup } from './EditDeleteGroup'
 
@@ -439,9 +438,7 @@ export function SettingsScreen() {
         <h2>단축키 설정</h2>
         <p className="desc">일반 모드와 선택 모드를 전환하는 단축키를 지정하세요.</p>
         <div className="shortcut-row">
-          <span className="label">
-            <KeyboardIcon /> 모드 전환 (일반 ↔ 선택)
-          </span>
+          <span className="label">모드 전환 (일반 ↔ 선택)</span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recording ? ' recording' : ''}`}>
               {recording ? '수식키+키 입력 (Esc 취소)' : settings.modeShortcut}
@@ -526,7 +523,7 @@ export function SettingsScreen() {
           문장 경계 확장 포함 실제 약 {includedBytes} Byte 가 문맥으로 전달됩니다.
         </div>
         <div className="settings-note cost">
-          <CostIcon /> 범위를 넓게 잡을수록 AI가 문맥을 더 잘 이해하지만, 전달 텍스트가 늘어 요청
+          <InfoIcon /> 범위를 넓게 잡을수록 AI가 문맥을 더 잘 이해하지만, 전달 텍스트가 늘어 요청
           비용도 증가합니다.
         </div>
       </section>
