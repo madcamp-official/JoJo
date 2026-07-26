@@ -78,6 +78,8 @@
 - [ ] 팝업 내 범위 지정 — 영어=단어(atom) 단위는 구현(`popup/selection.ts`, 하이픈 단어 조각별 선택 포함). **일·중 문자 단위 미구현**(atom 규칙만 언어별로 분기하면 됨)
 - [x] ~~클릭(단어) vs 드래그(범위) 구분 — `popup/ContextView.tsx` 가 mousedown+mouseenter+전역 mouseup 으로 처리(클릭=단일 atom, 드래그=범위)~~
 - [x] ~~최종 선택 확정 + 앞뒤 문맥(preceding/following) 구성 → `SelectionContext` 생성 (`popup/selection.ts` `deriveContext`)~~
+- [x] ~~팝업 원문 문맥 표시 범위를 선택 앞뒤 각 1024바이트로 제한 — `buildSelectionModel`(`popup/selection.ts`)이 A가 넘긴 추출 텍스트 전체를 그대로 보여주던 것을, `@shared/context.ts` `computeContextRange` 로 앞뒤 1024바이트(+문장 경계까지 확장, 부족하면 있는 만큼만) 잘라 표시하도록 변경. 데모 목업(`popup/mockSelection.ts`)도 문장 수 기반 사전 트리밍을 없애고 원문 전체를 넘기도록 정리해 동일 로직을 그대로 시연~~
+- [x] ~~문장 경계 판정이 영어 약어·이니셜·소수점·줄임표(`Mr.`/`e.g.`/`i.e.`/`U.S.`/`3.14`/`J. K.`/`...`)의 `.`을 문장 끝으로 오인해 LLM 문맥·팝업 표시 범위가 조기에 잘리던 문제 수정 — `@shared/context.ts` `isAbbreviationDot`. CJK 종결부호(`。！？…`)는 영향 없음~~
 
 <a id="b-llm"></a>
 
@@ -104,12 +106,13 @@
   - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
 - [x] ~~자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화 — `popup/FrequentQuestions.tsx`. main 프로세스 `userData/frequent.json` 에 파일 저장(`main/frequentStore.ts` + IPC `FREQUENT_GET`/`SET`, 렌더러는 `popup/frequentStore.ts` 얇은 래퍼). localStorage 임시 저장에서 이전 완료 → 재시작·재설치 후 유지~~
-- [ ] 구글 검색 — 발음/이미지 탭을 **외부 브라우저로 여는 것까지 구현**(`question/google.ts`, `ipc.ts` `OPEN_GOOGLE` → `shell.openExternal`). PLAN §4.2 "팝업 속 팝업"(임베드형 `BrowserWindow` child) 고도화는 미구현
+- [ ] 구글 검색 — 발음/이미지 탭을 **외부 브라우저로 여는 것까지 구현**(`question/google.ts`, `ipc.ts` `OPEN_GOOGLE`). macOS는 `openGoogleSearchInNewWindow`가 `shell.openExternal` 대신 `open -n <url>`(execFile)로 열어 기존 브라우저 창의 새 탭이 아니라 새 창으로 뜨게 함(다른 OS는 `shell.openExternal` 폴백). PLAN §4.2 "팝업 속 팝업"(임베드형 `BrowserWindow` child) 고도화는 미구현
 
 <a id="b-ui"></a>
 
 **UI · 설정**
 - [x] ~~팝업 화면: 원문 + 툴바(발음·사전 체크박스 / 입력 / 구글) + 채팅 + 자주쓰는질문 (`PopupScreen.tsx` + `popup/*`)~~
+- [x] ~~팝업 UI 다듬기 — 창 크기를 설정 창과 통일(1200×800), 다크→라이트 모드 전환(설정 화면과 동일 팔레트), 선택 하이라이트가 atom·gap 조각마다 라운드가 있어 끊겨 보이던 것을 이어지게 수정, 원문 문맥 박스 내부 스크롤을 없애고 텍스트 양만큼 자동으로 높이 확장, 구글 로고를 발음/이미지 버튼 왼쪽에 배치, 자주 쓰는 질문 순서를 드래그(HTML5 DnD)로 변경(`popup/FrequentQuestions.tsx`)~~
 - [x] ~~채팅 세션 상태 유지 — 팝업 = 1세션. `PopupScreen.tsx` 가 `messages` 상태를 누적하고 `question()` 호출 시 `history: ChatTurn[]`(에러 메시지 제외)를 함께 전달~~
 - [x] ~~발음·사전 체크박스 토글 동작 (`popup/Toolbar.tsx` + `PopupScreen.tsx` `togglePron`/`toggleDict`; 선택 변경 시 결과 리셋). 단 결과 내용은 발음/사전 스텁이라 비어 있음~~
 - [x] ~~스트리밍 렌더 (`QUESTION_STREAM` 수신) — `PopupScreen.tsx` `onQuestionStream` 구독 후 진행 중 말풍선에 델타 append, `popup/Chat.tsx` 가 커서 표시~~
