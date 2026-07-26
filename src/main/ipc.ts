@@ -13,6 +13,7 @@ import type {
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
 import { getSelectedWindowId, listWindows, setSelectedWindowId } from './selection/capture'
+import { invalidateExtractionCache } from './selection/extractionCache'
 import {
   createPopupWindow,
   getMainWindow,
@@ -24,7 +25,7 @@ import {
   trackSelectionOverlay,
   type MainRoute,
 } from './windows'
-import { updateModeShortcut } from './selection/shortcut'
+import { resetToNormalMode, updateModeShortcut } from './selection/shortcut'
 import { getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
@@ -52,6 +53,8 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.SELECT_WINDOW, async (_e, source: CaptureSource) => {
     setSelectedWindowId(source.id)
+    invalidateExtractionCache() // 이전 창(재선택 포함)의 캐시가 새 창으로 넘어가지 않게
+    resetToNormalMode() // 재선택 시 선택 모드였다면 일반 모드로 — 새 창엔 아직 캐시된 단어가 없음
     getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, source)
 
     // 대상 창을 맨 앞으로 올리고(가려진 채 선택되면 테두리와 실제 화면이 어긋나 보임)

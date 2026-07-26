@@ -31,13 +31,17 @@ export async function runOcr(image: Buffer, language: Language): Promise<Extract
     for (const paragraph of block.paragraphs) {
       for (const line of paragraph.lines) {
         for (const word of line.words) {
+          // 높이는 단어 자체 bbox 대신 줄(line) bbox 를 쓴다 — 단어 bbox 는 그 단어를
+          // 구성하는 글자의 실제 잉크 범위만 딱 맞춰서 나와서, 어센더/디센더(g/y/p 등)가
+          // 없는 단어는 자연히 낮게 나오고 같은 줄에서도 단어마다 높이가 들쭉날쭉해진다.
+          // 줄 bbox 는 그 줄 전체 기준이라 같은 줄의 단어들이 통일된 높이로 보인다.
           words.push({
             text: word.text,
             bbox: {
               x: word.bbox.x0,
-              y: word.bbox.y0,
+              y: line.bbox.y0,
               width: word.bbox.x1 - word.bbox.x0,
-              height: word.bbox.y1 - word.bbox.y0,
+              height: line.bbox.y1 - line.bbox.y0,
             },
           })
         }

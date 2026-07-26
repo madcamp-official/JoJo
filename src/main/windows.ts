@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
-import type { AppMode, ExtractedSelection } from '@shared/types'
+import type { AppMode, ExtractedSelection, Word } from '@shared/types'
 // win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
 // Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
 // → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
@@ -134,6 +134,16 @@ function physicalToDipRect(rect: Electron.Rectangle): Electron.Rectangle {
     width: bottomRight.x - topLeft.x,
     height: bottomRight.y - topLeft.y,
   }
+}
+
+/**
+ * 캡처(물리 픽셀) → 오버레이 렌더링(DIP/CSS 픽셀) 배율. 캡처·OCR 은 물리 픽셀 기준이라
+ * 단어 bbox 도 물리 픽셀인데, 오버레이는 DIP 기준으로 그려져서 디스플레이 배율이
+ * 100%가 아니면 그대로 쓰면 어긋난다(extractionCache.ts 가 이 값으로 bbox 를 나눈다).
+ */
+export function getPhysicalToDipScale(physicalRect: Electron.Rectangle): number {
+  const dip = physicalToDipRect(physicalRect)
+  return dip.width > 0 ? physicalRect.width / dip.width : 1
 }
 
 function sameBounds(a: Electron.Rectangle, b: Electron.Rectangle): boolean {
@@ -356,6 +366,11 @@ export function getOverlayMode(): AppMode {
 export function setOverlayMode(mode: AppMode): void {
   overlayMode = mode
   overlayWindow?.webContents.send(IPC.MODE_CHANGED, mode)
+}
+
+/** extractionCache.ts 가 캐시를 채우거나 무효화할 때 호출 — 오버레이가 실제 단어 bbox 로 hover/클릭 판정을 하게 한다. */
+export function sendOverlayWords(words: Word[]): void {
+  overlayWindow?.webContents.send(IPC.EXTRACTION_WORDS, words)
 }
 
 // 선택 확정 후 뜨는 검색/채팅 팝업 (담당 B).

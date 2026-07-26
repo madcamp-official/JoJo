@@ -24,20 +24,20 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .overlay-root {
   position: fixed; inset: 0; width: 100vw; height: 100vh;
   box-sizing: border-box; background: transparent;
-  border: 6px solid var(--blue); border-radius: 6px;
+  /* border 대신 outline — border 는 absolute 자식(.word-box)의 좌표 기준점을 안쪽으로
+     밀어서(containing block = padding edge) bbox 와 어긋나게 만든다. outline 은 박스
+     모델에 관여하지 않아 자식 좌표에 영향이 없다. outline-offset 으로 안쪽에 그린다. */
+  outline: 6px solid var(--blue); outline-offset: -6px; border-radius: 6px;
 }
-.overlay-root.mode-select { border-color: var(--purple); }
+.overlay-root.mode-select { outline-color: var(--purple); }
 .overlay-root.hovering-word { cursor: pointer; }
 
-/* TODO(담당 A): 실제 추출 데이터 연결 시 디버그용 점선 박스 대신 정식 하이라이트로 교체. */
+/* hover 중인 단어 위에만 그려진다(Overlay.tsx) — 항상 떠 있는 박스는 없음. */
 .word-box {
   position: absolute; box-sizing: border-box;
-  border: 1px dashed rgba(124, 58, 237, 0.4);
-  pointer-events: none;
-}
-.word-box.hovered {
   border: 2px solid var(--purple);
   background: rgba(124, 58, 237, 0.18);
+  pointer-events: none;
 }
 
 .overlay-resolving {
