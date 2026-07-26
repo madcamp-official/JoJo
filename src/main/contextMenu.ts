@@ -6,19 +6,5 @@ import contextMenu from 'electron-context-menu'
 // window 를 지정하지 않아 앱의 모든 창(메인/설정/팝업/오버레이)에 공통 적용한다.
 
 export function registerContextMenu(): void {
-  contextMenu({
-    showLookUpSelection: true,
-    showSearchWithGoogle: true,
-    showServices: true,
-    labels: {
-      cut: '잘라내기',
-      copy: '복사',
-      paste: '붙여넣기',
-      selectAll: '전체 선택',
-      copyLink: '링크 복사',
-      lookUpSelection: '“{selection}” 찾아보기',
-      searchWithGoogle: 'Google에서 “{selection}” 검색',
-      learnSpelling: '맞춤법에 추가',
-    },
-  })
+  contextMenu() // 옵션 없이 호출 — electron-context-menu 기본값(영문 라벨 등) 그대로 사용
 }
