@@ -315,10 +315,7 @@ export function SettingsScreen() {
         <button className="icon-btn back" onClick={() => goto('main')}>
           ←
         </button>
-        <div>
-          <h1>설정</h1>
-          <p>AI 기능 및 단축키를 설정하고 관리하세요.</p>
-        </div>
+        <h1>설정</h1>
       </div>
 
       {/* LLM 및 API 키 */}

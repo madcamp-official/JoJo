@@ -109,7 +109,6 @@ button:disabled { cursor: not-allowed; }
 }
 .settings-header .icon-btn.back:hover { background: #eceef2; }
 .settings-header h1 { font-size: 20px; margin: 0; }
-.settings-header p { font-size: 13px; color: #6b7280; margin: 2px 0 0; }
 
 .settings-section {
   background: #fff; border: 1px solid #e6e8ec; border-radius: 12px;
