@@ -1,4 +1,4 @@
-// 공동 소유 — 선택 근방 문맥 범위 계산 (PLAN.md §3 'AI 주변 범위(Byte)')
+// 공동 소유 — 선택 근방 문맥 범위 계산 (PLAN.md §3 '문맥 범위(Byte)')
 //
 // 선택 영역을 기준으로 앞/뒤 각각 byteBudget 바이트만큼 문맥을 포함하되,
 // 순수 바이트 경계에서 문장이 잘리지 않도록 가장 가까운 문장 경계까지 바깥으로
@@ -122,7 +122,7 @@ export interface ContextRange {
 /**
  * text 안에서 [selStart, selEnd) 선택을 기준으로 앞 byteBefore / 뒤 byteAfter 바이트
  * 문맥 + 문장 경계 확장까지의 범위를 계산한다(앞·뒤 예산 분리). LLM 프롬프트 구성과
- * 설정 화면 미리보기가 사용(§'AI 주변 범위(Byte)').
+ * 설정 화면 미리보기가 사용(§'문맥 범위(Byte)').
  */
 export function computeContextRange(
   text: string,

@@ -13,11 +13,13 @@ import {
   LockIcon,
   KeyboardIcon,
   WarnIcon,
+  InfoIcon,
+  CostIcon,
 } from './icons'
 import { EditDeleteGroup } from './EditDeleteGroup'
 
 // 설정 화면 (PLAN.md §3) — 담당 B
-// LLM·API 키 / 단축키 / AI 주변 범위(Byte) / 언어
+// LLM·API 키 / 단축키 / 문맥 범위(Byte) / 언어
 // 메인 창 안에서 해시 라우팅으로 뜬다(#/main ↔ #/settings, 별도 창 아님).
 
 // Byte 예산은 자유 지정(고정 단위 없음). 슬라이더 범위/숫자 입력 공통 하한.
@@ -452,13 +454,13 @@ export function SettingsScreen() {
           </div>
         </div>
         <div className="settings-note">
-          ⌨️ 설정한 단축키를 누를 때마다 일반 모드와 선택 모드가 전환됩니다.
+          <KeyboardIcon /> 설정한 단축키를 누를 때마다 일반 모드와 선택 모드가 전환됩니다.
         </div>
       </section>
 
-      {/* AI 주변 범위(Byte) */}
+      {/* 문맥 범위(Byte) */}
       <section className="settings-section">
-        <h2>AI 주변 범위 (Byte)</h2>
+        <h2>문맥 범위 (Byte)</h2>
         <p className="desc">
           선택한 표현을 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
           전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
@@ -520,12 +522,12 @@ export function SettingsScreen() {
           {seg(PREVIEW_TEXT.slice(range.extEnd), 'excluded', 'e2')}
         </div>
         <div className="settings-note">
-          ℹ️ 설정 앞 {settings.contextBytesBefore} · 뒤 {settings.contextBytesAfter} Byte → 문장 경계
-          확장 포함 실제 약 {includedBytes} Byte 가 문맥으로 전달됩니다.
+          <InfoIcon /> 설정 앞 {settings.contextBytesBefore} · 뒤 {settings.contextBytesAfter} Byte →
+          문장 경계 확장 포함 실제 약 {includedBytes} Byte 가 문맥으로 전달됩니다.
         </div>
         <div className="settings-note cost">
-          💸 범위를 넓게 잡을수록 AI가 문맥을 더 잘 이해하지만, 전달 텍스트가 늘어 요청 비용도
-          증가합니다.
+          <CostIcon /> 범위를 넓게 잡을수록 AI가 문맥을 더 잘 이해하지만, 전달 텍스트가 늘어 요청
+          비용도 증가합니다.
         </div>
       </section>
 

@@ -104,6 +104,24 @@ export function WarnIcon() {
   )
 }
 
+export function InfoIcon() {
+  return (
+    <Line>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4M12 8h.01" />
+    </Line>
+  )
+}
+
+export function CostIcon() {
+  return (
+    <Line>
+      <path d="M12 1v22" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </Line>
+  )
+}
+
 // ---- provider 로고(브랜드 마크) --------------------------------------------
 
 function GeminiLogo() {

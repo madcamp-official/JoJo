@@ -117,7 +117,7 @@
 - [x] ~~발음·사전 버튼 — 토글이 아니라 원샷 액션(`popup/Toolbar.tsx` `onPron`/`onDict` + `PopupScreen.tsx` `askPronunciation`/`askDictionary`). 누르면 즉시 채팅에 고정 라벨('발음 질문'/'사전 검색')로 질문이 남고 답변이 다른 채팅 메시지와 동일하게 스트리밍됨. 발음은 LLM 연동 완료, 사전은 아직 스텁이라 빈 답변~~
 - [x] ~~스트리밍 렌더 (`QUESTION_STREAM` 수신) — `PopupScreen.tsx` `onQuestionStream` 구독 후 진행 중 말풍선에 델타 append, `popup/Chat.tsx` 가 커서 표시~~
 - [x] ~~에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별 안내. `popup/Chat.tsx` 가 `errorTitle(code)` 로 배너 렌더, `PopupScreen.tsx` `InfoRow` 도 에러 렌더. (재시도/설정 이동 버튼은 미구현)~~
-- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / AI 주변 범위(Byte) / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소). Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유). API 키 섹션엔 **유효성 검사 상태 + 사용 모델 드롭다운**(위 B-llm 항목) 포함~~
+- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / 문맥 범위(Byte) / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소). Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유). API 키 섹션엔 **유효성 검사 상태 + 사용 모델 드롭다운**(위 B-llm 항목) 포함~~
 - [x] ~~API 키 `safeStorage` 암호화 저장·로드 영속화 — `keyStore.ts`, `userData/apikeys.json`(암호문 base64)~~
 - [x] ~~앱 설정 영속화 (파일 저장) — `settingsStore.ts`, `userData/settings.json`~~
 
