@@ -1,5 +1,5 @@
 import type { ExtractedSelection, SelectionContext, Word } from '@shared/types'
-import { computeContextRange } from '@shared/context'
+import { computeParagraphContextRange } from '@shared/context'
 
 // ============================================================================
 // 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §4.1 "팝업 내 범위 지정")
@@ -41,9 +41,9 @@ const DISPLAY_CONTEXT_BYTES_AFTER = 512
 const PARAGRAPH_INDENT = ' '
 
 /**
- * displayText 의 줄바꿈(\n) 다음에 오는 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를
- * 삽입된 만큼 보정해 반환한다. 윈도우 첫 줄은 원문에서 실제 문단 시작인지 알 수 없는
- * 중간 지점일 수 있어(바이트 예산으로 잘린 경우) 건드리지 않는다.
+ * displayText 의 각 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를 삽입된 만큼 보정해
+ * 반환한다. 창이 문단 경계로 확장돼 있어(computeParagraphContextRange) 첫 줄도 항상
+ * 진짜 문단 시작이므로 예외 없이 모든 줄을 대상으로 한다.
  */
 function indentParagraphs(
   text: string,
@@ -54,10 +54,10 @@ function indentParagraphs(
   let newSelStart = selStart
   let newSelEnd = selEnd
   let offset = 0
-  const out = paragraphs.map((p, i) => {
+  const out = paragraphs.map((p) => {
     const paraStart = offset
     offset += p.length + 1 // +1 = 소비되는 '\n'
-    if (i === 0 || /^[ \t]/.test(p)) return p
+    if (/^[ \t]/.test(p)) return p
     if (paraStart <= selStart) newSelStart += PARAGRAPH_INDENT.length
     if (paraStart <= selEnd) newSelEnd += PARAGRAPH_INDENT.length
     return PARAGRAPH_INDENT + p
@@ -81,8 +81,8 @@ function tokenizeAtoms(text: string): Atom[] {
 
 /** ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
 export function buildSelectionModel(extracted: ExtractedSelection): PopupSelectionModel {
-  // 원문 전체(extracted.text) 중 선택 앞뒤 512바이트(+문장 경계 확장)만 잘라서 보여준다.
-  const range = computeContextRange(
+  // 원문 전체(extracted.text) 중 선택 앞뒤 512바이트(+문단 경계 확장)만 잘라서 보여준다.
+  const range = computeParagraphContextRange(
     extracted.text,
     extracted.anchor.start,
     extracted.anchor.end,
