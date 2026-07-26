@@ -447,9 +447,11 @@ export function SettingsScreen() {
             <span className={`shortcut-keys${recording ? ' recording' : ''}`}>
               {recording ? '수식키+키 입력 (Esc 취소)' : settings.modeShortcut}
             </span>
-            <button type="button" className="btn-outline" onClick={() => setRecording(true)}>
-              <PencilIcon /> 변경
-            </button>
+            <div className="edit-delete-group">
+              <button type="button" className="edg-btn" title="변경" onClick={() => setRecording(true)}>
+                <PencilIcon size={14} />
+              </button>
+            </div>
           </div>
         </div>
         <div className="settings-note">
