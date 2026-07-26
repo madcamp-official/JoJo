@@ -1,4 +1,5 @@
 import type { ExtractedSelection, SelectionContext, Word } from '@shared/types'
+import { computeContextRange } from '@shared/context'
 
 // ============================================================================
 // 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §4.1 "팝업 내 범위 지정")
@@ -28,6 +29,12 @@ export interface PopupSelectionModel {
   initialTo: number
 }
 
+// 팝업 원문 문맥 표시 범위 — 선택 앞뒤 각 1024 바이트(AppSettings 기본값과 동일).
+// 순수 바이트 경계에서 문장이 잘리면 가장 가까운 문장 경계까지 더 넣어서 보여주고,
+// 원문이 그만큼 없으면(문서 시작/끝 근처) 있는 만큼만 보여준다 — @shared/context 공유 로직.
+const DISPLAY_CONTEXT_BYTES_BEFORE = 1024
+const DISPLAY_CONTEXT_BYTES_AFTER = 1024
+
 // 영어 atom: 알파벳/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로 취급 →
 // "well-to-do" 는 well / to / do 세 atom, "left-hand" 는 left / hand 두 atom 이 된다.
 const WORD_ATOM_RE = /[A-Za-z0-9]+(?:['’][A-Za-z]+)*/g
@@ -44,9 +51,17 @@ function tokenizeAtoms(text: string): Atom[] {
 
 /** ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
 export function buildSelectionModel(extracted: ExtractedSelection): PopupSelectionModel {
-  const displayText = extracted.text
-  const selStart = extracted.anchor.start
-  const selEnd = extracted.anchor.end
+  // 원문 전체(extracted.text) 중 선택 앞뒤 1024바이트(+문장 경계 확장)만 잘라서 보여준다.
+  const range = computeContextRange(
+    extracted.text,
+    extracted.anchor.start,
+    extracted.anchor.end,
+    DISPLAY_CONTEXT_BYTES_BEFORE,
+    DISPLAY_CONTEXT_BYTES_AFTER,
+  )
+  const displayText = extracted.text.slice(range.extStart, range.extEnd)
+  const selStart = extracted.anchor.start - range.extStart
+  const selEnd = extracted.anchor.end - range.extStart
   const atoms = tokenizeAtoms(displayText)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.
