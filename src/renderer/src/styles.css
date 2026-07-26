@@ -326,9 +326,9 @@ button:disabled { cursor: not-allowed; }
 .ctx-text ::selection { background: transparent; }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; cursor: pointer; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
-/* 드래그 도중엔 어떤 세그먼트(atom/gap) 위에 있든 커서를 grabbing 으로 고정 —
+/* 드래그 도중엔 어떤 세그먼트(atom/gap) 위에 있든 커서를 텍스트(I-beam) 로 고정 —
    개별 span 의 cursor: pointer/text 로 매 순간 바뀌어 보이는 걸 막는다. */
-.ctx-text.dragging, .ctx-text.dragging * { cursor: grabbing !important; }
+.ctx-text.dragging, .ctx-text.dragging * { cursor: text !important; }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
   background: var(--theme); color: var(--theme-text);
   border-radius: 0;
