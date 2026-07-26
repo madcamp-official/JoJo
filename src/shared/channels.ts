@@ -8,7 +8,6 @@ export const IPC = {
   WINDOW_SELECTED: 'window:selected',
   GET_SELECTED_WINDOW_ID: 'window:getSelectedId',
   GET_MODE: 'mode:get',
-  SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
 

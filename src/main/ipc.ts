@@ -17,7 +17,7 @@ import {
   getMainWindow,
   getOverlayMode,
   getPopupContext,
-  hideSelectionOverlay,
+  showMacSelectionOverlay,
   setMainWindowRoute,
   setOverlayInteractive,
   trackSelectionOverlay,
@@ -52,14 +52,19 @@ export function registerIpc(): void {
     setSelectedWindowId(source.id)
     getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, source)
 
+    // 대상 창을 맨 앞으로 올리고(가려진 채 선택되면 테두리와 실제 화면이 어긋나 보임)
+    // 선택 오버레이 테두리를 정렬한다. 메인 창을 숨기기 전에 먼저 처리한다.
     if (process.platform === 'win32') {
       const hwnd = BigInt(source.id)
       // win32Capture 는 koffi 로 DLL 을 로드하므로 Windows 경로에서만 동적 import.
       const { bringWindowToForeground } = await import('./selection/win32Capture')
-      bringWindowToForeground(hwnd) // 가려진 채로 선택되면 테두리와 실제 화면이 어긋나 보임
+      bringWindowToForeground(hwnd)
       await trackSelectionOverlay(hwnd) // 대상 창 이동/리사이즈를 따라 오버레이도 갱신
     } else {
-      hideSelectionOverlay()
+      // macOS: desktopCapturer 소스 id("window:12345:0")의 CGWindowID 로 대상 창을 앞으로
+      // 올리고 그 위치에 테두리 오버레이를 띄운다(CoreGraphics, selection/macWindow.ts).
+      const windowId = Number(/^window:(\d+)/.exec(source.id)?.[1])
+      if (Number.isFinite(windowId)) await showMacSelectionOverlay(windowId)
     }
 
     // PLAN.md §3: 창 선택 → 백그라운드 실행. 메인 창은 X 가 아니라 여기서 숨기고,
@@ -147,6 +152,4 @@ export function registerIpc(): void {
       await shell.openExternal(url)
     },
   )
-
-  // TODO: SET_MODE 핸들러 연결
 }
