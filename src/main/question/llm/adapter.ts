@@ -111,7 +111,8 @@ export function buildRequest(
     system: buildSystemPrompt(ctx),
     cacheableContext: buildContextBlock(ctx, byteBefore, byteAfter),
     messages: [...history, { role: 'user', content: prompt }],
-    model: DEFAULT_MODELS[provider],
+    // 설정 화면에서 provider 별로 고른 모델이 있으면 그것을, 없으면 기본값을 쓴다.
+    model: getSettings().models[provider] ?? DEFAULT_MODELS[provider],
     maxTokens: DEFAULT_MAX_TOKENS,
   }
 }

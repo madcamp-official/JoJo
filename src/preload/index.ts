@@ -7,6 +7,7 @@ import type {
   ExtractedSelection,
   Language,
   LlmProvider,
+  ProviderValidation,
   QuestionRequest,
   QuestionResult,
   SelectionContext,
@@ -79,6 +80,9 @@ const api = {
 
   deleteApiKey: (provider: LlmProvider): Promise<void> =>
     ipcRenderer.invoke(IPC.APIKEY_DELETE, provider),
+
+  validateProvider: (provider: LlmProvider, apiKey: string): Promise<ProviderValidation> =>
+    ipcRenderer.invoke(IPC.PROVIDER_VALIDATE, provider, apiKey),
 
   // 팝업 (담당 B)
   openPopup: (): Promise<void> => ipcRenderer.invoke(IPC.OPEN_POPUP),

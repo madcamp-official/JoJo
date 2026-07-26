@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, ProviderValidation, QuestionErrorCode } from '@shared/types'
 import { PROVIDERS, PROVIDER_ORDER } from '@shared/providers'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
@@ -128,6 +128,21 @@ function ByteControl({
   )
 }
 
+/** 키 검증 실패 사유(QuestionErrorCode) → 설정 화면 안내 문구 */
+function validationMessage(code?: QuestionErrorCode): string {
+  switch (code) {
+    case 'invalid_api_key':
+    case 'no_api_key':
+      return '유효하지 않은 API 키입니다.'
+    case 'rate_limited':
+      return '요청이 많아 확인에 실패했습니다. 잠시 후 다시 시도하세요.'
+    case 'network_error':
+      return '네트워크 오류로 확인하지 못했습니다.'
+    default:
+      return '키를 확인하지 못했습니다.'
+  }
+}
+
 const NON_KEY_MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
 
 /** F1~F12 처럼 수식키 없이 단독으로도 전역 단축키로 적절한 키 */
@@ -158,6 +173,9 @@ export function SettingsScreen() {
   const [keyEditing, setKeyEditing] = useState(false)
   const [keyVisible, setKeyVisible] = useState(false)
   const [recording, setRecording] = useState(false)
+  // 현재 provider 의 키 검증 결과(유효성 + 사용 가능 모델). 무과금 GET 기반.
+  const [validation, setValidation] = useState<ProviderValidation | null>(null)
+  const [validating, setValidating] = useState(false)
 
   const previewRef = useRef<HTMLDivElement>(null)
   const selRef = useRef<HTMLSpanElement>(null)
@@ -175,8 +193,33 @@ export function SettingsScreen() {
     window.nuance.getApiKey(settings.llm).then((k) => setApiKeyState(k ?? ''))
     setKeyEditing(false)
     setKeyVisible(false)
+    setValidation(null) // provider 가 바뀌면 이전 검증 결과 무효화
     // llm 이 바뀔 때만 다시 조회하면 된다(의도적으로 settings 전체가 아닌 llm 만 의존).
   }, [settings?.llm])
+
+  // provider 선택(키 있으면) + 키 입력/수정 시 → 디바운스 후 무과금 검증(유효성 + 모델 목록).
+  useEffect(() => {
+    const provider = settings?.llm
+    const key = apiKey.trim()
+    if (!provider || !key) {
+      setValidation(null)
+      setValidating(false)
+      return
+    }
+    let active = true
+    setValidating(true)
+    const t = setTimeout(() => {
+      void window.nuance.validateProvider(provider, key).then((v) => {
+        if (!active) return
+        setValidation(v)
+        setValidating(false)
+      })
+    }, 500)
+    return () => {
+      active = false
+      clearTimeout(t)
+    }
+  }, [settings?.llm, apiKey])
 
   // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 미리보기가 처음 뜰 때 1회만.
   // (바이트 값을 바꿀 때는 스크롤을 건드리지 않아 사용자가 보던 위치를 유지한다.)
@@ -326,6 +369,39 @@ export function SettingsScreen() {
                 🗑 삭제
               </button>
             </div>
+          </div>
+        )}
+
+        {/* 키 검증 상태 + 사용 모델 선택 (무과금 GET 기반) */}
+        {settings.llm && apiKey.trim() && (
+          <div className="provider-status">
+            {validating ? (
+              <span className="muted">API 키 확인 중…</span>
+            ) : validation?.ok ? (
+              <>
+                <span className="ok">✓ 유효한 키 · 사용 가능 모델 {validation.models.length}개</span>
+                <label className="model-select">
+                  <span>사용 모델</span>
+                  <select
+                    value={settings.models[settings.llm] ?? ''}
+                    onChange={(e) =>
+                      void patch({
+                        models: { ...settings.models, [settings.llm!]: e.target.value },
+                      })
+                    }
+                  >
+                    <option value="">기본값 사용</option>
+                    {validation.models.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : validation ? (
+              <span className="err">⚠️ {validationMessage(validation.error)}</span>
+            ) : null}
           </div>
         )}
 

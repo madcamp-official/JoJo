@@ -6,6 +6,7 @@ import type {
   ExtractedSelection,
   Language,
   LlmProvider,
+  ProviderValidation,
   QuestionRequest,
   SelectionContext,
 } from '@shared/types'
@@ -28,6 +29,7 @@ import { getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
+import { validateProvider } from './question/llm/validate'
 import { googleImageUrl, googlePronunciationUrl } from './question/google'
 
 // IPC 허브 (공동) — A→B 연결점.
@@ -128,6 +130,14 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.APIKEY_DELETE, async (_e, provider: LlmProvider): Promise<void> => {
     deleteApiKey(provider)
   })
+
+  // 담당 B: provider 키 검증 + 사용 가능 모델 조회 (무과금 GET, validate.ts)
+  ipcMain.handle(
+    IPC.PROVIDER_VALIDATE,
+    async (_e, provider: LlmProvider, apiKey: string): Promise<ProviderValidation> => {
+      return validateProvider(provider, apiKey)
+    },
+  )
 
   // 담당 B: 팝업 열기 (데모용 — ctx 없이 열면 렌더러가 목업으로 fallback)
   // 담당 A 통합 시엔 선택 파이프라인이 createPopupWindow(ctx) 를 직접 호출한다.

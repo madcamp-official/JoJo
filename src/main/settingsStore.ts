@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   contextBytesBefore: 1024,
   contextBytesAfter: 1024,
   contextBytesLinked: true,
+  models: {},
 }
 
 function filePath(): string {

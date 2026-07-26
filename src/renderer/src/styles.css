@@ -129,6 +129,18 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 .apikey-row { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+.provider-status {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  margin-top: 10px; font-size: 12px;
+}
+.provider-status .muted { color: #8b93a1; }
+.provider-status .ok { color: #15803d; }
+.provider-status .err { color: #b91c1c; }
+.provider-status .model-select { display: flex; align-items: center; gap: 6px; color: #4b5563; }
+.provider-status .model-select select {
+  padding: 5px 8px; border: 1px solid #dbe0e6; border-radius: 8px;
+  font-size: 12px; font-family: inherit; background: #fff; color: #1e2230; max-width: 260px;
+}
 .apikey-main { flex: 1; min-width: 0; }
 .apikey-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .apikey-row label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 6px; }
