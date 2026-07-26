@@ -34,6 +34,15 @@ export function PopupScreen() {
     })
   }, [])
 
+  // Esc 로 팝업 닫기 (헤더 ✕ 와 동일 동작)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') window.close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const model = useMemo(() => buildSelectionModel(baseCtx), [baseCtx])
   const [range, setRange] = useState({ from: model.initialFrom, to: model.initialTo })
 
@@ -174,7 +183,6 @@ export function PopupScreen() {
         </section>
 
         <Toolbar
-          language={currentCtx.language}
           pron={pronOn}
           dict={dictOn}
           onTogglePron={togglePron}

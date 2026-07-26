@@ -11,7 +11,7 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
       </button>
       <div className="center">
         <button className="primary" onClick={() => goto('picker')}>
-          🗔 창 선택
+          창 선택
         </button>
         <p className="hint">
           {selected ? `선택됨: ${selected.name}` : '사용할 창을 선택하세요.'}
