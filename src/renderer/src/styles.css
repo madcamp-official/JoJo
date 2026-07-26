@@ -324,7 +324,7 @@ button:disabled { cursor: not-allowed; }
    선택만 막는다(ContextView.tsx). 네이티브 선택의 파란 하이라이트 박스는 숨기고 아래
    .sel 클래스의 보라색 강조만 보이게 한다. */
 .ctx-text ::selection { background: transparent; }
-.ctx-text .atom { border-radius: 3px; padding: 0 1px; }
+.ctx-text .atom { border-radius: 3px; padding: 0 1px; cursor: pointer; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
   background: var(--theme); color: var(--theme-text);

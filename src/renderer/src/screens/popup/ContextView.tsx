@@ -86,7 +86,23 @@ export function ContextView({ model, from, to, onChange }: Props) {
                 // 좌클릭으로 공백/문장부호에서 드래그가 시작되는 것만 막는다(atom 과 동일
                 // 이유). CSS user-select: none 은 안 쓴다 — 우클릭 메뉴용 선택 텍스트에서
                 // 이 부분이 통째로 빠져 단어들이 붙어버리는 부작용이 있었다.
-                if (e.button !== 2) e.preventDefault()
+                if (e.button === 2) return
+                e.preventDefault()
+                // 단어 사이(공백·문장부호)에서 시작한 드래그도 단어 위 드래그와 동일하게
+                // 동작하도록, 이 gap 뒤쪽 단어(없으면 앞쪽 단어)를 기준(anchor)으로 잡는다.
+                const idx = next ?? prev
+                if (idx == null) return
+                anchorRef.current = idx
+                setDragging(true)
+                onChange(idx, idx)
+              }}
+              onMouseEnter={() => {
+                if (!dragging) return
+                // 드래그 도중 이 gap 을 지나갈 때, 방향(anchor 대비 진행 쪽)에 맞는
+                // 인접 단어까지 선택을 확장한다.
+                const forward = anchorRef.current <= (prev ?? next ?? anchorRef.current)
+                const idx = (forward ? next : prev) ?? next ?? prev
+                if (idx != null) onChange(anchorRef.current, idx)
               }}
             >
               {seg.text}
