@@ -46,7 +46,22 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
     }
   }
 
-  return { text: data.text, language, words: removeNoise(words) }
+  return { text: normalizeOcrText(data.text), language, words: removeNoise(words) }
+}
+
+/**
+ * Tesseract 가 조립한 원문은 관례적으로 문단 사이엔 연속 개행(빈 줄), 한 문단 안의
+ * 줄바꿈은 단일 개행을 쓴다. 단일 개행은 캡처 당시 창 폭 기준으로 어쩌다 끊긴 자리일
+ * 뿐이라 의미가 없어서 공백으로 합치고, 연속 개행(진짜 문단 구분)만 유지한다 —
+ * 안 그러면 팝업처럼 원본과 다른 폭의 컨테이너에 표시할 때 엉뚱한 자리에서 줄이
+ * 끊겨 보인다.
+ */
+function normalizeOcrText(raw: string): string {
+  return raw
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\s*\n\s*/g, ' ').trim())
+    .filter((paragraph) => paragraph.length > 0)
+    .join('\n\n')
 }
 
 interface OcrBbox { x0: number; y0: number; x1: number; y1: number }
