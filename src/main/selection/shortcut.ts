@@ -3,7 +3,7 @@ import type { AppMode } from '@shared/types'
 import { onWindowResized, sendOverlayNotice, sendRegionSelectionNeeded, setOverlayMode } from '../windows'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
-import { clearRegion, getRegion } from './regionSelection'
+import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
 
 // 담당 A — 모드 전환 전역 단축키 (PLAN.md §3, 기본 macOS: Option+Q / Windows: Alt+Q)
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
@@ -19,8 +19,8 @@ onWindowResized(() => {
   clearRegion()
   invalidateExtractionCache() // 이전 영역 기준 캐시/단어를 비움(오버레이에도 빈 배열 통지돼 박스가 사라짐)
   stopChangeWatcher() // 영역이 무효화됐으니 그 영역 기준 변화 감지도 멈춘다(재선택 후 다시 시작)
-  sendOverlayNotice('창 크기가 바뀌었어요. 영역을 다시 선택해주세요.')
-  sendRegionSelectionNeeded()
+  sendOverlayNotice('창 크기가 바뀌었어요. 본문 영역을 다시 찾는 중이에요…')
+  void acquireRegionAutomaticallyOrAskDrag()
 })
 
 function toggleMode(): void {
@@ -36,6 +36,27 @@ function toggleMode(): void {
     // 미리 캡처+추출해 캐시를 채워둔다(extractionCache.ts).
     refreshExtractionCache()
     startChangeWatcher() // 영역이 이미 있으니 바로 변화 감지 시작(changeWatcher.ts)
+  } else {
+    void acquireRegionAutomaticallyOrAskDrag()
+  }
+}
+
+/**
+ * 담당 A — 실험용 브랜치(experiment/doclayout-yolo). 영역이 없을 때(처음 선택한 창,
+ * 리사이즈로 무효화된 뒤) 먼저 DocLayout-YOLO 로 본문 영역 자동 감지를 시도한다
+ * (regionSelection.ts: autoDetectRegion) — 모드 진입 시 기본으로 뜨는 "텍스트 추출
+ * 중…" 표시가 이 대기 시간도 자연히 가려준다. 성공하면 드래그 없이 바로 그 영역으로
+ * 추출을 시작하고, 실패하면(Python 환경 없음, 본문 인식 실패 등) 기존처럼 오버레이에
+ * 드래그 선택을 요청한다 — 즉 이 실험 기능은 "잘 되면 자동, 안 되면 기존 수동 방식"
+ * 으로 완전히 폴백하므로 항상 안전하다.
+ */
+async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
+  const detected = await autoDetectRegion()
+  if (mode !== 'select') return // 그 사이 모드가 바뀌었으면(빠른 토글 등) 무시
+  if (detected) {
+    setRegion(detected)
+    refreshExtractionCache()
+    startChangeWatcher()
   } else {
     // 영역이 없으면(처음 선택하는 창이거나, 리사이즈로 무효화된 뒤) 오버레이에 드래그
     // 선택을 요청한다 — 사용자가 영역을 그리면 ipc.ts(SUBMIT_REGION)가 저장 후 추출을 시작한다.

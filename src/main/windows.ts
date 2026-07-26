@@ -170,6 +170,46 @@ function sameBounds(a: Electron.Rectangle, b: Electron.Rectangle): boolean {
   return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 }
 
+// 창 경계가 모니터 "진짜" 경계에서 이 정도(px) 이내면 "이 모니터를 꽉 채운
+// 진짜 전체화면"으로 보고 그 경계에 딱 붙인다(작업표시줄 유무와 무관하게).
+const DISPLAY_EDGE_SNAP_PX = 4
+
+/**
+ * 한 변의 스냅 좌표를 정한다.
+ *  1) 모니터의 물리적 진짜 경계(boundsEdge)에 거의 닿아있으면 — 작업표시줄을 덮는
+ *     진짜 전체화면(F11 등, 작업표시줄까지 밀어내는 창 스타일)이라는 뜻이므로 그
+ *     경계에 딱 맞춘다.
+ *  2) 작업영역 경계(workAreaEdge, 작업표시줄이 있으면 그만큼 안쪽)에 거의 닿아있으면
+ *     — 정상적으로 작업표시줄을 피해 최대화된 창이라는 뜻이므로 그 경계에 맞춘다
+ *     (반올림 오차 보정).
+ *  3) 둘 중 어디에도 안 닿아있으면 — 창을 최대화할 때 Windows 가 DWM 확장 프레임
+ *     경계(DWMWA_EXTENDED_FRAME_BOUNDS)를 작업영역보다도 바깥쪽(심하면 모니터 진짜
+ *     경계 너머)으로 보고하는 경우가 있다(Windows 자체의 알려진 동작) — 이 경우
+ *     작업영역보다 더 안 나가게 클램프한다. 그렇지 않으면 테두리가 작업표시줄
+ *     뒤로(더 나아가 모니터 밖으로) 밀려 들어가 그 부분이 안 보이게 된다.
+ */
+function snapEdge(
+  value: number,
+  boundsEdge: number,
+  workAreaEdge: number,
+  clamp: (a: number, b: number) => number,
+): number {
+  if (Math.abs(value - boundsEdge) <= DISPLAY_EDGE_SNAP_PX) return boundsEdge
+  if (Math.abs(value - workAreaEdge) <= DISPLAY_EDGE_SNAP_PX) return workAreaEdge
+  return clamp(value, workAreaEdge)
+}
+
+function snapToDisplayEdges(rect: Electron.Rectangle): Electron.Rectangle {
+  const display = screen.getDisplayMatching(rect)
+  const b = display.bounds
+  const wa = display.workArea
+  const x = snapEdge(rect.x, b.x, wa.x, Math.max)
+  const y = snapEdge(rect.y, b.y, wa.y, Math.max)
+  const right = snapEdge(rect.x + rect.width, b.x + b.width, wa.x + wa.width, Math.min)
+  const bottom = snapEdge(rect.y + rect.height, b.y + b.height, wa.y + wa.height, Math.min)
+  return { x, y, width: right - x, height: bottom - y }
+}
+
 const resizeListeners = new Set<() => void>()
 
 /** 대상 창의 크기(너비/높이)가 바뀔 때 통지받는다 — 위치만 바뀌는 이동은 대상 아님. */
@@ -238,7 +278,7 @@ function applyOverlayBounds(targetRect: Electron.Rectangle | null): void {
     return
   }
 
-  const bounds = physicalToDipRect(targetRect)
+  const bounds = snapToDisplayEdges(physicalToDipRect(targetRect))
   const win = ensureOverlayWindow(bounds)
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
     notifyIfResized(bounds)
@@ -338,7 +378,8 @@ let macCovered = false
 const MAC_TRACK_INTERVAL_MS = 16
 const MAC_OCCLUSION_EVERY = 6
 
-function showMacOverlayAt(bounds: { x: number; y: number; width: number; height: number }): void {
+function showMacOverlayAt(rawBounds: { x: number; y: number; width: number; height: number }): void {
+  const bounds = snapToDisplayEdges(rawBounds)
   const win = ensureOverlayWindow(bounds) // darwin 설정(미션컨트롤 숨김·floating)은 생성 시 1회
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
     notifyIfResized(bounds)

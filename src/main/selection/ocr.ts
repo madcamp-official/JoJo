@@ -1,6 +1,14 @@
+import { nativeImage } from 'electron'
 import { createWorker, type Worker } from 'tesseract.js'
 import type { Language, Rect, Word } from '@shared/types'
 import type { Extracted } from './extractDirect'
+import { detectLayoutBlocks, mergeIntoColumns, padRect } from './layoutDetect'
+
+// YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
+// 실측 결과 가로는 줄 끝 단어가 통째로 깨지지 않으려면 50px은 필요했고(10~30px 는
+// 부족), 세로는 크게 주면 메뉴바/툴바 문구가 딸려 들어와서 작게 유지한다.
+const BLOCK_PADDING_X = 50
+const BLOCK_PADDING_Y = 12
 
 // 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §6 / §8)
 // 범용 엔진: Tesseract.js 채택 확정(오프라인, 언어팩 교체로 다국어 대응). 언어별 특화
@@ -21,8 +29,52 @@ async function getWorker(language: Language): Promise<Worker> {
   return worker
 }
 
+/**
+ * 담당 A — 실험용 브랜치(experiment/doclayout-yolo). Tesseract 는 다단(2단 등)
+ * 레이아웃을 한 번에 인식시키면 열을 뒤섞어 읽는 경우가 있다(왼쪽 열 중간까지
+ * 읽다가 오른쪽 열로 넘어갔다가 다시 왼쪽으로 돌아오는 식). DocLayout-YOLO(python/
+ * layout_detect.py)로 블록(+열 인덱스)을 먼저 찾고, 같은 열의 블록은 하나로 합친
+ * 뒤(mergeIntoColumns) 열이 2개 이상이면(=진짜 다단으로 판단) 열마다 따로 Tesseract
+ * 를 돌려 순서대로 이어붙인다 — **모델이 검출한 블록 개수가 아니라 "합친 뒤 열 개수"**
+ * 로 판단하는 게 중요하다: 단일 열이라도 문단이 여러 블록으로 검출되는 경우가 흔한데,
+ * (합치기 전) 블록 단위로 나눠 인식하면 그 블록 경계가 실제 문장 중간을 가로질러
+ * 글자가 잘리는 문제가 있었다(실사용 중 "선택 영역 중간에도 클릭 안 되는 단어 + 팝업
+ * 에서 첫 글자 잘림"으로 재현) — 열이 1개면(=다단 아님) 굳이 나눌 이유가 없어서 기존
+ * 단일 패스로 처리한다. 열이 1개 이하거나 레이아웃 검출 자체가 실패하면(Python 환경
+ * 미설치 등) 기존 단일 패스로 폴백한다.
+ */
 export async function runOcr(image: Buffer, language: Language, region?: Rect): Promise<Extracted> {
   const w = await getWorker(language)
+  const layoutBlocks = await detectLayoutBlocks(image, region)
+  const columns = layoutBlocks ? mergeIntoColumns(layoutBlocks) : null
+
+  if (columns && columns.length > 1) {
+    const clampBounds: Rect =
+      region ?? (() => {
+        const { width, height } = nativeImage.createFromBuffer(image).getSize()
+        return { x: 0, y: 0, width, height }
+      })()
+    const texts: string[] = []
+    const words: Word[] = []
+    for (const column of columns) {
+      const paddedBbox = padRect(column.bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
+      const result = await recognizeRegion(w, image, paddedBbox)
+      if (result.text) texts.push(result.text)
+      words.push(...result.words)
+    }
+    return { text: texts.join('\n\n'), language, words }
+  }
+
+  const result = await recognizeRegion(w, image, region)
+  return { text: result.text, language, words: result.words }
+}
+
+/** 이미지 한 장(전체 또는 region 으로 제한된 한 블록)을 인식해 텍스트+단어 bbox 를 뽑는다. */
+async function recognizeRegion(
+  w: Worker,
+  image: Buffer,
+  region?: Rect,
+): Promise<{ text: string; words: Word[] }> {
   // blocks 출력은 기본 꺼져 있음 — 단어별 bbox 를 얻으려면 명시적으로 켜야 한다.
   // region 을 주면 Tesseract 가 그 사각형 안쪽만 인식한다(SetRectangle) — 반환되는
   // bbox 는 여전히 원본 이미지 전체 기준 절대좌표라 이후 정렬 로직은 안 바꿔도 된다.
@@ -62,7 +114,7 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
     }
   }
 
-  return { text: normalizeOcrText(data.text), language, words }
+  return { text: normalizeOcrText(data.text), words }
 }
 
 // 맨 위/아래 줄의 높이가 다른 줄들의 중앙값보다 이 비율 미만이면 "세로로 잘린 줄"로 본다.
