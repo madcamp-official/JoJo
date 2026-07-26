@@ -24,8 +24,10 @@ export async function decideExtraction(): Promise<ExtractionDecision> {
 
   // 표준 텍스트 컨트롤(메모장 등)이면 OCR 없이 바로 정확한 텍스트를 얻을 수 있다 —
   // 브라우저·PDF 뷰어처럼 캔버스에 그리는 앱은 여기서 안 잡히고 OCR 로 자연스럽게 폴백.
+  // readWindowText 는 Windows 전용(WM_GETTEXT)이고, 창 id 도 Windows 에서만 숫자 hwnd 다.
+  // macOS 의 desktopCapturer id 는 "window:7805:0" 형태라 BigInt 변환이 불가 → win32 에서만 시도.
   const id = getSelectedWindowId()
-  if (id) {
+  if (id && process.platform === 'win32') {
     const text = await readWindowText(BigInt(id))
     if (text && text.trim().length >= MIN_DIRECT_TEXT_LENGTH) {
       return { mode: 'direct', source: { kind: 'txt' }, language }
