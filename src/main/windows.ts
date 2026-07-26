@@ -21,11 +21,12 @@ export function resolveIconPath(): string {
   return join(__dirname, '../../build/icon.png')
 }
 
-function loadRoute(win: BrowserWindow, route: string) {
+function loadRoute(win: BrowserWindow, route: string, query?: string) {
+  const hash = query ? `${route}?${query}` : route
   if (process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/${route}`)
+    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/${hash}`)
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'), { hash: `/${route}` })
+    win.loadFile(join(__dirname, '../renderer/index.html'), { hash: `/${hash}` })
   }
 }
 
@@ -448,7 +449,10 @@ const POPUP_HEIGHT = 900
 // 높이에서 위아래 여백을 뺀 값을 상한으로 삼는다.
 const POPUP_HEIGHT_MARGIN = 40
 
-export function createPopupWindow(ctx: ExtractedSelection | null = null): BrowserWindow {
+export function createPopupWindow(
+  ctx: ExtractedSelection | null = null,
+  demo?: string,
+): BrowserWindow {
   popupContext = ctx
   if (popupWindow) {
     popupWindow.focus()
@@ -478,7 +482,7 @@ export function createPopupWindow(ctx: ExtractedSelection | null = null): Browse
     popupContext = null
   })
   popupWindow = win
-  loadRoute(win, 'popup')
+  loadRoute(win, 'popup', demo ? `demo=${demo}` : undefined)
   return win
 }
 

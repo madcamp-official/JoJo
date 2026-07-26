@@ -1,12 +1,16 @@
 import { createWorker, type Worker } from 'tesseract.js'
 import type { Language, Rect, Word } from '@shared/types'
 import type { Extracted } from './extractDirect'
+import { segmentJapaneseWords } from '../nlp/japanese'
+import { segmentChineseWords } from '../nlp/chinese'
 
 // 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §6 / §8)
 // 범용 엔진: Tesseract.js 채택 확정(오프라인, 언어팩 교체로 다국어 대응). 언어별 특화
 // 엔진(예: 중국어 PaddleOCR)은 나중에 벤치마킹 후 라우팅 추가 — 지금은 Tesseract 단일 경로.
 
-const TESS_LANG: Record<Language, string> = { en: 'eng', ja: 'jpn', zh: 'chi_sim' }
+// zh: 간체/번체를 사용자가 미리 고르게 하지 않고 두 언어팩을 합쳐 로드 — Tesseract 가
+// 글자마다 더 맞는 쪽(간체/번체) 사전으로 알아서 인식하게 해 자동 판별 효과를 낸다.
+const TESS_LANG: Record<Language, string> = { en: 'eng', ja: 'jpn', zh: 'chi_sim+chi_tra' }
 
 // 언어별 워커를 재사용한다 — 언어팩 로드 비용이 커서(수 MB 다운로드/초기화) 매 호출마다
 // 새로 만들지 않는다. 언어가 바뀌면 이전 워커를 정리하고 새로 만든다.
@@ -42,6 +46,12 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
   const words: Word[] = []
   for (const line of lines) {
     if (clippedLines.has(line)) continue
+    if (language === 'ja' || language === 'zh') {
+      // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
+      // 맞는다 — 줄 전체를 형태소 분석기(일: kuromoji, 중: segmentit)로 다시 분리한다.
+      words.push(...(await buildCjkLineWords(line, language, region)))
+      continue
+    }
     for (const word of line.words) {
       // 잘린 단어는 통째로 제외한다 — 두 가지 다른 원인을 각각 다른 방법으로 잡는다.
       //  1) 우리가 지정한 영역 경계 자체가 단어 중간을 가로지르는 경우: Tesseract 는
@@ -63,6 +73,55 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
   }
 
   return { text: normalizeOcrText(data.text), language, words }
+}
+
+/**
+ * 한 줄(line) 안의 Tesseract 단어들을 글자(symbol) 단위로 이어붙인 뒤, 형태소 분석기로
+ * 의미 단위 단어 경계를 다시 잡아 Word[] 를 만든다. 잘린 단어(isWordClippedByRegion/
+ * looksTruncated)는 기존과 동일하게 제외하되, 제외된 자리는 분석기가 단어를 이어붙이지
+ * 못하게 끊어준다(연속 구간=run 단위로 분석기를 돌린다).
+ */
+async function buildCjkLineWords(
+  line: { words: { text: string; bbox: OcrBbox; symbols?: OcrSymbol[]; confidence: number }[]; bbox: OcrBbox },
+  language: 'ja' | 'zh',
+  region: Rect | undefined,
+): Promise<Word[]> {
+  const runs: OcrSymbol[][] = []
+  let current: OcrSymbol[] = []
+  for (const word of line.words) {
+    if (region && (isWordClippedByRegion(word.bbox, region) || looksTruncated(word))) {
+      if (current.length > 0) {
+        runs.push(current)
+        current = []
+      }
+      continue
+    }
+    current.push(...(word.symbols ?? []))
+  }
+  if (current.length > 0) runs.push(current)
+
+  const words: Word[] = []
+  for (const run of runs) {
+    const text = run.map((s) => s.text).join('')
+    const boundaries =
+      language === 'ja' ? await segmentJapaneseWords(text) : segmentChineseWords(text)
+    for (const b of boundaries) {
+      const syms = run.slice(b.start, b.end)
+      if (syms.length === 0) continue
+      const x0 = Math.min(...syms.map((s) => s.bbox.x0))
+      const x1 = Math.max(...syms.map((s) => s.bbox.x1))
+      words.push({
+        text: b.text,
+        bbox: {
+          x: x0,
+          y: line.bbox.y0,
+          width: Math.max(0, x1 - x0),
+          height: line.bbox.y1 - line.bbox.y0,
+        },
+      })
+    }
+  }
+  return words
 }
 
 // 맨 위/아래 줄의 높이가 다른 줄들의 중앙값보다 이 비율 미만이면 "세로로 잘린 줄"로 본다.

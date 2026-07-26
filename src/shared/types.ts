@@ -136,3 +136,12 @@ export interface ProviderValidation {
   /** ok=false 일 때 사유 — 렌더링용 QuestionErrorCode(invalid_api_key 등) */
   error?: QuestionErrorCode
 }
+
+/** kuromoji 형태소 분석 결과 토큰 하나 (팝업 원문 문맥의 가나 atom 병합용, main/nlp/japanese.ts) */
+export interface JaToken {
+  surface: string
+  /** 品詞(품사) — 예: 助詞, 助動詞, 動詞, 名詞, 記号 */
+  pos: string
+  /** 분석 대상 문자열 상 0-based 문자 오프셋 */
+  start: number
+}

@@ -1,4 +1,4 @@
-import type { ExtractedSelection, SelectionContext, Word } from '@shared/types'
+import type { ExtractedSelection, JaToken, SelectionContext, Word } from '@shared/types'
 import { computeContextRange } from '@shared/context'
 
 // ============================================================================
@@ -70,20 +70,135 @@ function indentParagraphs(
 
 // 영어 atom: 알파벳/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로 취급 →
 // "well-to-do" 는 well / to / do 세 atom, "left-hand" 는 left / hand 두 atom 이 된다.
-const WORD_ATOM_RE = /[A-Za-z0-9]+(?:['’][A-Za-z]+)*/g
+const LATIN_ATOM_RE = /[A-Za-z0-9]+(?:['’][A-Za-z]+)*/y
 
-function tokenizeAtoms(text: string): Atom[] {
+// 한자(중/일 공통) atom: 한 글자가 곧 atom 하나 — "天线" 은 天 / 线 두 atom 으로,
+// 원하는 한 글자만 골라 선택할 수도 있다(PLAN.md §4.1 "문자 단위 세밀 선택").
+const KANJI_CHAR_RE = /[一-鿿㐀-䶿]/
+
+// 가나(히라가나+가타카나) 한 덩어리 — 아래 segmentKanaRun 이 의미 단위로 재분할한다.
+const KANA_RUN_RE = /[぀-ヿ]+/y
+
+// 助詞(조사) — kuromoji 결과가 아직 없을 때(비동기 로딩 중) 쓰는 즉석 대체 규칙에서만 참조.
+const JA_PARTICLES = new Set([
+  'は', 'が', 'を', 'に', 'で', 'と', 'も', 'の', 'から', 'まで', 'より', 'へ', 'や',
+  'ので', 'のに', 'けど', 'けれど', 'けれども', 'たら', 'なら', 'という', 'とか',
+  'やら', 'なり', 'きり', 'だけ', 'ばかり', 'ほど', 'くらい', 'ぐらい', 'まま', 'つつ',
+  'って', 'とも', 'こそ', 'すら', 'だに', 'ながら', 'し', 'ば', 'か', 'ね', 'よ', 'わ', 'さ', 'な',
+])
+const JA_AUX_FRAGMENTS = new Set([
+  'ます', 'ました', 'ません', 'でした', 'たい', 'たかった', 'なかった', 'ない',
+  'だった', 'だろう', 'でしょう', 'られる', 'れる', 'させる', 'せる', 'たり', 'だり',
+])
+
+const kanaSegmenter =
+  typeof Intl !== 'undefined' && 'Segmenter' in Intl
+    ? new Intl.Segmenter('ja', { granularity: 'word' })
+    : null
+
+/**
+ * kuromoji 결과(jaTokens)가 아직 도착하지 않은 짧은 순간에만 쓰는 즉석 대체 — 팝업이
+ * 열리자마자 바로 상호작용 가능해야 하므로 Intl.Segmenter 기반 근사치로 우선 렌더링한다
+ * (main/nlp/japanese.ts 의 kuromoji 결과가 도착하면 buildSelectionModel 재호출로 대체됨).
+ */
+function segmentKanaRunFallback(run: string): Atom[] {
+  if (!kanaSegmenter) return [{ start: 0, end: run.length }]
   const atoms: Atom[] = []
-  let m: RegExpExecArray | null
-  WORD_ATOM_RE.lastIndex = 0
-  while ((m = WORD_ATOM_RE.exec(text))) {
-    atoms.push({ start: m.index, end: m.index + m[0].length })
+  for (const { segment, index } of kanaSegmenter.segment(run)) {
+    const start = index
+    const end = index + segment.length
+    const isFragment =
+      !JA_PARTICLES.has(segment) && (segment.length === 1 || JA_AUX_FRAGMENTS.has(segment))
+    const prev = atoms[atoms.length - 1]
+    if (isFragment && prev) {
+      prev.end = end
+    } else {
+      atoms.push({ start, end })
+    }
   }
   return atoms
 }
 
-/** ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
-export function buildSelectionModel(extracted: ExtractedSelection): PopupSelectionModel {
+/**
+ * 가나 한 덩어리(run, text 상 절대 오프셋 absoluteStart부터)를 kuromoji 토큰 경계로
+ * 쪼갠다 — 조동사(助動詞, 예: た/ます/ない)로 시작하는 토큰만 앞 atom 에 이어붙여 동사
+ * 어간+어미를 하나로 취급하고(예: "渡った"의 った), 그 외(助詞·명사·동사 등)는 토큰이
+ * 시작할 때마다 새 atom 을 연다 — 조사는 자연히 항상 독립 atom 이 된다.
+ */
+function segmentKanaRunWithTokens(
+  run: string,
+  absoluteStart: number,
+  tokenAt: (pos: number) => JaToken | undefined,
+): Atom[] {
+  const atoms: Atom[] = []
+  let current: Atom | null = null
+  for (let i = 0; i < run.length; i++) {
+    const absPos = absoluteStart + i
+    const token = tokenAt(absPos)
+    const isTokenStart = !token || token.start === absPos
+    if (isTokenStart) {
+      const shouldMergeIntoPrev = !!current && token?.pos === '助動詞'
+      if (!shouldMergeIntoPrev) current = null
+    }
+    if (current) {
+      current.end = i + 1
+    } else {
+      current = { start: i, end: i + 1 }
+      atoms.push(current)
+    }
+  }
+  return atoms
+}
+
+/** text 상 절대 위치 → 그 위치를 포함하는 jaToken 조회 함수를 만든다(팝업 문맥은 짧아 선형 탐색으로 충분). */
+function buildTokenLookup(jaTokens: JaToken[]): (pos: number) => JaToken | undefined {
+  return (pos: number) => jaTokens.find((t) => pos >= t.start && pos < t.start + t.surface.length)
+}
+
+function tokenizeAtoms(text: string, jaTokens?: JaToken[]): Atom[] {
+  const tokenAt = jaTokens ? buildTokenLookup(jaTokens) : null
+  const atoms: Atom[] = []
+  let i = 0
+  while (i < text.length) {
+    LATIN_ATOM_RE.lastIndex = i
+    const latin = LATIN_ATOM_RE.exec(text)
+    if (latin) {
+      atoms.push({ start: i, end: i + latin[0].length })
+      i += latin[0].length
+      continue
+    }
+    KANA_RUN_RE.lastIndex = i
+    const kana = KANA_RUN_RE.exec(text)
+    if (kana) {
+      const sub = tokenAt
+        ? segmentKanaRunWithTokens(kana[0], i, tokenAt)
+        : segmentKanaRunFallback(kana[0])
+      for (const a of sub) atoms.push({ start: i + a.start, end: i + a.end })
+      i += kana[0].length
+      continue
+    }
+    if (KANJI_CHAR_RE.test(text[i]!)) {
+      atoms.push({ start: i, end: i + 1 })
+      i += 1
+      continue
+    }
+    i += 1
+  }
+  return atoms
+}
+
+interface DisplayText {
+  displayText: string
+  selStart: number
+  selEnd: number
+}
+
+/**
+ * ExtractedSelection 으로부터 표시 문자열(displayText)과 그 안에서의 선택 오프셋만 계산한다.
+ * language 와 무관 — 일본어 kuromoji 토큰(jaTokens)을 요청하려면 이 displayText 가 먼저
+ * 필요해서(PopupScreen 이 비동기로 IPC 호출) buildSelectionModel 과 분리해 둔다.
+ */
+export function buildDisplayText(extracted: ExtractedSelection): DisplayText {
   // 원문 전체(extracted.text) 중 선택 앞뒤 256바이트(+문장 경계 확장)만 잘라서 보여준다.
   const range = computeContextRange(
     extracted.text,
@@ -102,7 +217,19 @@ export function buildSelectionModel(extracted: ExtractedSelection): PopupSelecti
     windowedSelEnd,
     firstIsParagraphStart,
   )
-  const atoms = tokenizeAtoms(displayText)
+  return { displayText, selStart, selEnd }
+}
+
+/**
+ * ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. jaTokens 를 주면
+ * 일본어 가나 조각을 kuromoji 품사 기반으로 병합한다(없으면 즉석 대체 규칙으로 근사).
+ */
+export function buildSelectionModel(
+  extracted: ExtractedSelection,
+  jaTokens?: JaToken[],
+): PopupSelectionModel {
+  const { displayText, selStart, selEnd } = buildDisplayText(extracted)
+  const atoms = tokenizeAtoms(displayText, jaTokens)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.
   let initialFrom = atoms.findIndex((a) => a.end > selStart && a.start < selEnd)

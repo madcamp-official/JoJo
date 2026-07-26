@@ -5,6 +5,7 @@ import type {
   AppSettings,
   CaptureSource,
   ExtractedSelection,
+  JaToken,
   Language,
   LlmProvider,
   ProviderValidation,
@@ -120,7 +121,7 @@ const api = {
     ipcRenderer.invoke(IPC.PROVIDER_VALIDATE, provider, apiKey),
 
   // 팝업 (담당 B)
-  openPopup: (): Promise<void> => ipcRenderer.invoke(IPC.OPEN_POPUP),
+  openPopup: (demo?: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_POPUP, demo),
 
   getPopupContext: (): Promise<ExtractedSelection | null> =>
     ipcRenderer.invoke(IPC.POPUP_GET_CONTEXT),
@@ -134,6 +135,10 @@ const api = {
 
   openGoogle: (mode: 'pron' | 'image', text: string, lang: Language): Promise<void> =>
     ipcRenderer.invoke(IPC.OPEN_GOOGLE, { mode, text, lang }),
+
+  // 팝업 원문 문맥의 가나 atom 병합용 kuromoji 형태소 분석 요청
+  tokenizeJapanese: (text: string): Promise<JaToken[]> =>
+    ipcRenderer.invoke(IPC.TOKENIZE_JA, text),
 }
 
 contextBridge.exposeInMainWorld('nuance', api)

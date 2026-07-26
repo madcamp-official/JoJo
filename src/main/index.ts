@@ -8,6 +8,7 @@ import { loadSettings } from './settingsStore'
 import { getApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { registerContextMenu } from './contextMenu'
+import { warmJapaneseTokenizer } from './nlp/japanese'
 
 // 앱 진입점 — 윈도우 생성, IPC 등록, 전역 단축키 등록
 app.whenReady().then(() => {
@@ -23,6 +24,7 @@ app.whenReady().then(() => {
   createTray()
   registerIpc()
   registerModeShortcut(settings.modeShortcut)
+  warmJapaneseTokenizer() // kuromoji 사전 로드(~1초)를 미리 시작 — 첫 사용 시 지연 없게
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
