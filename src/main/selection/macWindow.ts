@@ -38,13 +38,18 @@ let CFArrayGetValueAtIndex: KFn | null = null
 let CFDictionaryGetValue: KFn | null = null
 let CFNumberGetValue: KFn | null = null
 let CFRelease: KFn | null = null
+let CFStringGetLength: KFn | null = null
+let CFStringGetCString: KFn | null = null
 let boundsKey: unknown = null // CFString "kCGWindowBounds" (재사용 위해 캐시)
 let ownerPidKey: unknown = null // CFString "kCGWindowOwnerPID"
 let numberKey: unknown = null // CFString "kCGWindowNumber"
 let layerKey: unknown = null // CFString "kCGWindowLayer"
+let nameKey: unknown = null // CFString "kCGWindowName"
+let ownerNameKey: unknown = null // CFString "kCGWindowOwnerName"
 
 const kCGWindowListOptionIncludingWindow = 1 << 3
 const kCGWindowListOptionOnScreenOnly = 1 << 0
+const kCGWindowListExcludeDesktopElements = 1 << 4
 const kCFStringEncodingUTF8 = 0x08000100
 const kCFNumberSInt32Type = 3
 
@@ -64,6 +69,10 @@ function ensureCoreGraphics(): boolean {
     CFDictionaryGetValue = cf.func('void* CFDictionaryGetValue(void* dict, void* key)')
     CFNumberGetValue = cf.func('bool CFNumberGetValue(void* number, long theType, void* value)')
     CFRelease = cf.func('void CFRelease(void* cf)')
+    CFStringGetLength = cf.func('long CFStringGetLength(void* str)')
+    CFStringGetCString = cf.func(
+      'bool CFStringGetCString(void* str, void* buffer, long bufferSize, uint32_t encoding)',
+    )
     const CFStringCreateWithCString = cf.func(
       'void* CFStringCreateWithCString(void* alloc, const char* cstr, uint32_t encoding)',
     )
@@ -71,6 +80,8 @@ function ensureCoreGraphics(): boolean {
     ownerPidKey = CFStringCreateWithCString(null, 'kCGWindowOwnerPID', kCFStringEncodingUTF8)
     numberKey = CFStringCreateWithCString(null, 'kCGWindowNumber', kCFStringEncodingUTF8)
     layerKey = CFStringCreateWithCString(null, 'kCGWindowLayer', kCFStringEncodingUTF8)
+    nameKey = CFStringCreateWithCString(null, 'kCGWindowName', kCFStringEncodingUTF8)
+    ownerNameKey = CFStringCreateWithCString(null, 'kCGWindowOwnerName', kCFStringEncodingUTF8)
     return true
   } catch {
     cg = cf = null
@@ -141,6 +152,19 @@ function readInt(dict: unknown, key: unknown): number | null {
   return null
 }
 
+/** dict 에서 문자열 값 하나를 읽는다(CFString → UTF-8). 키가 없거나 변환 실패 시 null. */
+function readString(dict: unknown, key: unknown): string | null {
+  const ref = CFDictionaryGetValue!(dict, key)
+  if (!ref) return null
+  const len = Number(CFStringGetLength!(ref))
+  if (len <= 0) return ''
+  // UTF-8 은 문자당 최대 4바이트 + null terminator.
+  const bufSize = len * 4 + 1
+  const buf = koffi.alloc('char', bufSize)
+  if (!CFStringGetCString!(ref, buf, bufSize, kCFStringEncodingUTF8)) return null
+  return koffi.decode(buf, koffi.array('char', bufSize)) as unknown as string
+}
+
 interface OnScreenWindow {
   windowId: number
   pid: number
@@ -168,6 +192,69 @@ function getOnScreenLayer0Windows(): OnScreenWindow[] {
       const pid = readInt(dict, ownerPidKey) ?? -1
       const wid = readInt(dict, numberKey) ?? -1
       out.push({ windowId: wid, pid, bounds: { x: r.x, y: r.y, width: r.width, height: r.height } })
+    }
+    return out
+  } catch {
+    return []
+  } finally {
+    if (arr) {
+      try {
+        CFRelease!(arr)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+export interface MacWindowEntry {
+  windowId: number
+  pid: number
+  title: string // 창 이름(없으면 소유 앱 이름으로 폴백)
+  bounds: MacWindowRect
+}
+
+/**
+ * 현재 화면(Space)뿐 아니라 다른 가상 데스크탑(Space)·미니마이즈된 창까지 포함해
+ * 시스템의 모든 일반(layer 0) 창을 열거한다. `kCGWindowListOptionOnScreenOnly` 를
+ * 주지 않고 `kCGWindowListExcludeDesktopElements` 만 주면(바탕화면 아이콘류만 제외)
+ * CGWindowList 가 Space 와 무관하게 전체 창을 반환한다 — Electron `desktopCapturer`
+ * 는 내부적으로 OnScreenOnly 로 고정돼 있어 이 용도로 못 쓴다(다른 Space 창 목록 자체가 안 옴).
+ */
+export function listAllMacWindows(): MacWindowEntry[] {
+  if (!ensureCoreGraphics()) return []
+  let arr: unknown = null
+  try {
+    arr = CGWindowListCopyWindowInfo!(kCGWindowListExcludeDesktopElements, 0)
+    if (!arr) return []
+    const count = Number(CFArrayGetCount!(arr))
+    const out: MacWindowEntry[] = []
+    for (let i = 0; i < count; i++) {
+      const dict = CFArrayGetValueAtIndex!(arr, i)
+      if (!dict) continue
+      if (readInt(dict, layerKey) !== 0) continue // 일반 앱 창만(메뉴바·독 등 제외)
+
+      const boundsDict = CFDictionaryGetValue!(dict, boundsKey)
+      if (!boundsDict) continue
+      const rectPtr = koffi.alloc(CGRect, 1)
+      if (!CGRectMakeWithDictionaryRepresentation!(boundsDict, rectPtr)) continue
+      const r = koffi.decode(rectPtr, CGRect) as MacWindowRect
+      if (!(r.width > 1 && r.height > 1)) continue // 0×0 근처 유령 창 제외
+
+      const windowId = readInt(dict, numberKey)
+      const pid = readInt(dict, ownerPidKey)
+      if (windowId == null || pid == null) continue
+
+      const name = readString(dict, nameKey)
+      const ownerName = readString(dict, ownerNameKey)
+      const title = name && name.length > 0 ? name : (ownerName ?? '')
+
+      out.push({
+        windowId,
+        pid,
+        title,
+        bounds: { x: r.x, y: r.y, width: r.width, height: r.height },
+      })
     }
     return out
   } catch {

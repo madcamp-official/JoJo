@@ -84,12 +84,77 @@ async function listWindowsElectron(): Promise<CaptureSource[]> {
   }))
 }
 
+// 1x1 투명 PNG — 캡처 실패(다른 Space 창 등) 시 목록에서 빠지지 않도록 두는 자리표시자.
+const BLANK_THUMBNAIL = nativeImage
+  .createFromBuffer(
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  )
+  .toDataURL()
+
+/**
+ * macOS 창 목록 — `desktopCapturer`(=`kCGWindowListOptionOnScreenOnly`) 대신
+ * `listAllMacWindows`(`macWindow.ts`, `kCGWindowListExcludeDesktopElements`)로 열거해
+ * 현재 Space 뿐 아니라 다른 가상 데스크탑(Space)에 있는 창도 목록에 올린다.
+ * 각 창은 `screencapture -l<id>`(captureMacWindowById)로 썸네일을 얻는데, 다른 Space에
+ * 있는 창은 이 캡처가 실패하거나 오래 걸릴 수 있어 타임아웃을 두고 실패 시 자리표시자
+ * 썸네일로 대체한다(목록/선택 자체는 계속 가능하게 유지).
+ */
+async function listWindowsMac(): Promise<CaptureSource[]> {
+  const { listAllMacWindows } = await import('./macWindow')
+  const ownPid = process.pid
+  const targets = listAllMacWindows().filter((w) => w.pid !== ownPid && w.title.trim().length > 0)
+
+  const sources: CaptureSource[] = []
+  for (let i = 0; i < targets.length; i++) {
+    const win = targets[i]!
+    if (i > 0) await new Promise((resolve) => setTimeout(resolve, 100))
+
+    let thumbnail = BLANK_THUMBNAIL
+    try {
+      const buf = await withTimeout(captureMacWindowById(win.windowId), 4000)
+      const image = nativeImage.createFromBuffer(buf)
+      if (!image.isEmpty()) thumbnail = toUniformThumbnail(image).toDataURL()
+    } catch (err) {
+      console.error('[capture] mac window thumbnail 캡처 실패:', win.windowId, err)
+    }
+
+    sources.push({ id: `window:${win.windowId}:0`, name: win.title, thumbnail })
+  }
+  return sources
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms)
+    p.then(
+      (v) => {
+        clearTimeout(t)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(t)
+        reject(e)
+      },
+    )
+  })
+}
+
 export async function listWindows(): Promise<CaptureSource[]> {
   if (process.platform === 'win32') {
     try {
       return await listWindowsWin32()
     } catch (err) {
       console.error('[capture] win32 window enumeration failed, falling back:', err)
+    }
+  }
+  if (process.platform === 'darwin') {
+    try {
+      return await listWindowsMac()
+    } catch (err) {
+      console.error('[capture] mac window enumeration failed, falling back:', err)
     }
   }
   return listWindowsElectron()
@@ -138,9 +203,13 @@ export async function captureFocusedWindow(): Promise<Buffer> {
 async function captureMacWindow(sourceId: string): Promise<Buffer> {
   const m = /^window:(\d+)/.exec(sourceId)
   if (!m) throw new Error(`captureFocusedWindow: mac window id 파싱 실패 (${sourceId})`)
-  const out = join(tmpdir(), `nuance-capture-${process.pid}-${Date.now()}.png`)
+  return captureMacWindowById(Number(m[1]))
+}
+
+async function captureMacWindowById(windowId: number): Promise<Buffer> {
+  const out = join(tmpdir(), `nuance-capture-${process.pid}-${Date.now()}-${windowId}.png`)
   // -x: 소리 없음, -o: 창 그림자 제외(창 프레임만), -t png: PNG, -l<id>: 해당 CGWindowID 창만
-  await execFileAsync('screencapture', ['-x', '-o', '-t', 'png', `-l${m[1]}`, out])
+  await execFileAsync('screencapture', ['-x', '-o', '-t', 'png', `-l${windowId}`, out])
   try {
     return await readFile(out)
   } finally {
