@@ -29,11 +29,11 @@ export interface PopupSelectionModel {
   initialTo: number
 }
 
-// 팝업 원문 문맥 표시 범위 — 선택 앞뒤 각 512 바이트.
+// 팝업 원문 문맥 표시 범위 — 선택 앞뒤 각 256 바이트.
 // 순수 바이트 경계에서 문장이 잘리면 가장 가까운 문장 경계까지 더 넣어서 보여주고,
 // 원문이 그만큼 없으면(문서 시작/끝 근처) 있는 만큼만 보여준다 — @shared/context 공유 로직.
-const DISPLAY_CONTEXT_BYTES_BEFORE = 512
-const DISPLAY_CONTEXT_BYTES_AFTER = 512
+const DISPLAY_CONTEXT_BYTES_BEFORE = 256
+const DISPLAY_CONTEXT_BYTES_AFTER = 256
 
 // 문단(줄바꿈) 시작에 넣는 들여쓰기 — 설정 화면 미리보기(SettingsScreen.tsx PREVIEW_TEXT)와
 // 동일한 1칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
@@ -84,7 +84,7 @@ function tokenizeAtoms(text: string): Atom[] {
 
 /** ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
 export function buildSelectionModel(extracted: ExtractedSelection): PopupSelectionModel {
-  // 원문 전체(extracted.text) 중 선택 앞뒤 512바이트(+문장 경계 확장)만 잘라서 보여준다.
+  // 원문 전체(extracted.text) 중 선택 앞뒤 256바이트(+문장 경계 확장)만 잘라서 보여준다.
   const range = computeContextRange(
     extracted.text,
     extracted.anchor.start,
