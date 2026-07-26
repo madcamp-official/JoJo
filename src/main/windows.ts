@@ -397,7 +397,7 @@ export function createPopupWindow(ctx: ExtractedSelection | null = null): Browse
     x: Math.round((screenWidth - POPUP_WIDTH) / 2),
     y: Math.round((screenHeight - POPUP_HEIGHT) / 2),
     frame: false,
-    alwaysOnTop: true,
+    // alwaysOnTop 을 쓰지 않는다 — 일반 창처럼 다른 창과 z-order 를 자유롭게 오갈 수 있게.
     show: false,
     webPreferences: { preload, sandbox: false },
   })
