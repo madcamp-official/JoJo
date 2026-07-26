@@ -9,7 +9,6 @@ import {
   CheckIcon,
   EyeIcon,
   EyeOffIcon,
-  PencilIcon,
   LockIcon,
   KeyboardIcon,
   WarnIcon,
@@ -177,6 +176,39 @@ function toAccelerator(e: KeyboardEvent): string | null {
   const key = e.key.length === 1 ? e.key.toUpperCase() : e.key
   if (mods.length === 0 && !isStandaloneKey(key)) return null // 수식키 없는 일반 키 거부
   return [...mods, key].join('+')
+}
+
+// Electron accelerator 토큰을 OS 에 맞는 표시 라벨로 바꾼다. macOS 에서는 Cmd 와 Ctrl 이
+// 서로 다른 물리 키인데, registerModeShortcut(shortcut.ts) 이 'CommandOrControl' 조합을
+// Cmd/Ctrl 두 키 모두로 등록해두었으므로(expandAccelerator) 표시도 실제 동작대로 "Cmd/Ctrl"
+// 둘 다 보여준다. macOS 가 아니면 물리적으로 Ctrl 하나뿐이라 그대로 Ctrl 만 표시.
+const IS_MAC = navigator.platform.toUpperCase().includes('MAC')
+
+const MODIFIER_LABELS: Record<string, string> = IS_MAC
+  ? { CommandOrControl: 'Cmd/Ctrl', Alt: 'Opt', Shift: 'Shift' }
+  : { CommandOrControl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' }
+
+// 수식키가 아닌 실제 키는 풀네임 대신 흔히 쓰는 약어/기호로 표시한다.
+const KEY_LABELS: Record<string, string> = {
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  Escape: 'Esc',
+  Delete: 'Del',
+  Backspace: '⌫',
+  Enter: '↵',
+  ' ': 'Space',
+  PageUp: 'PgUp',
+  PageDown: 'PgDn',
+}
+
+function formatAccelerator(accelerator: string): string {
+  if (!accelerator) return '해제됨'
+  return accelerator
+    .split('+')
+    .map((token) => MODIFIER_LABELS[token] ?? KEY_LABELS[token] ?? token)
+    .join('+')
 }
 
 export function SettingsScreen() {
@@ -441,13 +473,14 @@ export function SettingsScreen() {
           <span className="label">모드 전환 (일반 ↔ 선택)</span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recording ? ' recording' : ''}`}>
-              {recording ? '수식키+키 입력 (Esc 취소)' : settings.modeShortcut}
+              {recording ? '수식키+키 입력 (Esc 취소)' : formatAccelerator(settings.modeShortcut)}
             </span>
-            <div className="edit-delete-group">
-              <button type="button" className="edg-btn" title="변경" onClick={() => setRecording(true)}>
-                <PencilIcon size={14} />
-              </button>
-            </div>
+            <EditDeleteGroup
+              onEdit={() => setRecording(true)}
+              onDelete={() => void patch({ modeShortcut: '' })}
+              deleteTitle="단축키 해제"
+              deleteDisabled={!settings.modeShortcut}
+            />
           </div>
         </div>
         <div className="settings-note">

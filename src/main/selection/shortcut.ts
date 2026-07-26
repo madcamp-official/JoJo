@@ -6,7 +6,7 @@ import { refreshExtractionCache } from './extractionCache'
 // 담당 A — 모드 전환 전역 단축키 (PLAN.md §3, 기본 macOS: Option+Q / Windows: Alt+Q)
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
 let mode: AppMode = 'normal'
-let currentAccelerator: string | null = null
+let currentAccelerators: string[] = []
 
 function toggleMode(): void {
   mode = mode === 'normal' ? 'select' : 'normal'
@@ -16,14 +16,34 @@ function toggleMode(): void {
   if (mode === 'select') refreshExtractionCache()
 }
 
-export function registerModeShortcut(accelerator = 'Alt+Q'): void {
-  globalShortcut.register(accelerator, toggleMode)
-  currentAccelerator = accelerator
+/**
+ * accelerator 에 등록할 실제 조합 목록을 만든다. Electron 의 'CommandOrControl' 은
+ * "Cmd 또는 Ctrl 둘 다"가 아니라 macOS 에서는 Cmd, 그 외에서는 Ctrl 로 딱 하나만 고정
+ * 매핑된다 — 그래서 macOS 에서 물리 Ctrl 키를 눌러도 반응하지 않는다. macOS 에서
+ * 'CommandOrControl' 이 포함된 경우, 'Control' 로 치환한 조합도 함께 등록해 Cmd/Ctrl
+ * 둘 다 동작하게 한다.
+ */
+function expandAccelerator(accelerator: string): string[] {
+  if (process.platform !== 'darwin' || !accelerator.includes('CommandOrControl')) {
+    return [accelerator]
+  }
+  return [accelerator, accelerator.replace('CommandOrControl', 'Control')]
 }
 
-/** 설정 화면에서 단축키를 변경할 때 호출 — 기존 등록 해제 후 새 accelerator 로 재등록. */
+export function registerModeShortcut(accelerator = 'Alt+Q'): void {
+  if (!accelerator) return // 빈 문자열 = 단축키 해제 상태(등록 안 함)
+  const accelerators = expandAccelerator(accelerator)
+  accelerators.forEach((a) => globalShortcut.register(a, toggleMode))
+  currentAccelerators = accelerators
+}
+
+/**
+ * 설정 화면에서 단축키를 변경/해제할 때 호출 — 기존 등록을 해제한 뒤 새 accelerator 로
+ * 재등록한다. 빈 문자열을 넘기면 해제만 하고 새로 등록하지 않는다(단축키 없음 상태).
+ */
 export function updateModeShortcut(accelerator: string): void {
-  if (currentAccelerator) globalShortcut.unregister(currentAccelerator)
+  currentAccelerators.forEach((a) => globalShortcut.unregister(a))
+  currentAccelerators = []
   registerModeShortcut(accelerator)
 }
 

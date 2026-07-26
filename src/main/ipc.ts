@@ -109,7 +109,7 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.SETTINGS_SET, async (_e, patch: Partial<AppSettings>): Promise<AppSettings> => {
     const next = setSettings(patch)
     if (patch.llm) setActiveProvider(patch.llm)
-    if (patch.modeShortcut) updateModeShortcut(patch.modeShortcut)
+    if (patch.modeShortcut !== undefined) updateModeShortcut(patch.modeShortcut)
     return next
   })
 
