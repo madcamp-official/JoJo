@@ -434,7 +434,7 @@ export function SettingsScreen() {
                       })
                     }
                   >
-                    <option value="">기본값 ({DEFAULT_MODELS[settings.llm]})</option>
+                    <option value="">Default ({DEFAULT_MODELS[settings.llm]})</option>
                     {validation.models.map((m) => (
                       <option key={m} value={m}>
                         {m}
