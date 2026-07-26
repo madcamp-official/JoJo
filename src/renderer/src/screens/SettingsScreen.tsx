@@ -332,6 +332,11 @@ export function SettingsScreen() {
 
   const aiReady = !!settings.llm && apiKey.trim().length > 0
 
+  // provider 를 바꾼 직후에는 setValidation(null) 이 useEffect 에서 한 렌더 늦게 반영돼,
+  // 그 사이 잠깐 이전 provider 의 validation(모델 목록 등)이 새 provider 아래 그대로
+  // 보이는 깜빡임이 있었다. provider 가 실제로 일치할 때만 신뢰하도록 렌더에서 바로 걸러낸다.
+  const currentValidation = validation?.provider === settings.llm ? validation : null
+
   // 미리보기: 선택 기준 앞/뒤 바이트 범위 + 문장 경계 확장 범위 계산
   const range = computeContextRange(
     PREVIEW_TEXT,
@@ -419,10 +424,10 @@ export function SettingsScreen() {
           <div className="provider-status">
             {validating ? (
               <span className="muted">API 키 확인 중…</span>
-            ) : validation?.ok ? (
+            ) : currentValidation?.ok ? (
               <>
                 <span className="ok">
-                  <CheckIcon /> 유효한 키 · 사용 가능 모델 {validation.models.length}개
+                  <CheckIcon /> 유효한 키 · 사용 가능 모델 {currentValidation.models.length}개
                 </span>
                 <label className="model-select">
                   <span>사용 모델</span>
@@ -435,7 +440,7 @@ export function SettingsScreen() {
                     }
                   >
                     <option value="">Default ({DEFAULT_MODELS[settings.llm]})</option>
-                    {validation.models.map((m) => (
+                    {currentValidation.models.map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>
@@ -443,9 +448,9 @@ export function SettingsScreen() {
                   </select>
                 </label>
               </>
-            ) : validation ? (
+            ) : currentValidation ? (
               <span className="err">
-                <WarnIcon /> {validationMessage(validation.error)}
+                <WarnIcon /> {validationMessage(currentValidation.error)}
               </span>
             ) : null}
           </div>
