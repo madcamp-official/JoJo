@@ -153,7 +153,7 @@ export function PopupScreen() {
     <div className="screen popup-screen">
       <header className="popup-header">
         <span className="src">
-          {sourceLabel(baseCtx)} · {baseCtx.language.toUpperCase()}
+          {sourceLabel(baseCtx)} · {LANGUAGE_LABEL[baseCtx.language]}
         </span>
         <button className="icon-btn close" title="닫기" onClick={() => window.close()}>
           ✕
@@ -191,4 +191,10 @@ export function PopupScreen() {
 
 function sourceLabel(ex: ExtractedSelection): string {
   return ex.source.appName ?? ex.source.url ?? ex.source.kind
+}
+
+const LANGUAGE_LABEL: Record<ExtractedSelection['language'], string> = {
+  en: 'English',
+  ja: '日本語',
+  zh: '中文'
 }
