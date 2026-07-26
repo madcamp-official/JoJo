@@ -100,12 +100,6 @@
 - [x] ~~API 키 무효 / 크레딧(사용 한도) 소진 / 요청 과다 / 네트워크 오류를 구분하는 에러 체계 — `QuestionError`(`shared/types.ts`), `question/errors.ts`(메시지), `question/llm/errors.ts`(HTTP 상태코드 분류). UI 렌더링은 미구현(아래 UI 항목)~~
 - [x] ~~provider별 실제 사용 모델 확정 — **설정 화면에서 사용자가 선택**하도록 결정·구현. API 키 입력/수정·provider 선택 시 무과금 GET(`question/llm/validate.ts`)으로 유효성 검사 + 사용 가능 모델 목록을 받아 드롭다운으로 고르게 함. 선택값은 `AppSettings.models[provider]` 에 저장되고 `streamLlm()` 이 `settings.models[provider] ?? DEFAULT_MODELS[provider]` 로 사용. `DEFAULT_MODELS`(gpt: `gpt-4o`, gemini: `gemini-pro-latest`, claude: `claude-sonnet-5`)는 미선택 시 fallback 으로만 남김~~
 - [x] ~~API 키 유효성 검사 + 사용 모델 드롭다운 — IPC `PROVIDER_VALIDATE`(`validateProvider`) 로 provider별 models 엔드포인트 호출(OpenAI `/v1/models`, Gemini `/v1beta/models`, Anthropic `/v1/models`). **무과금 GET**(토큰 미소비)이라 유효성+모델목록만 확인. 401/403 → 유효하지 않은 키로 분류(`classifyLlmError`). 설정 화면은 0.5초 디바운스 후 호출하고 상태(확인중/유효/에러)+모델 `<select>` 표시. **잔액/크레딧 조회는 세 provider 모두 공개 API 부재로 제외** — 크레딧 부족은 실제 질문 시 에러 배너로 안내~~
-- [ ] 비용 고려사항 — 현재 `streamLlm()`이 `history` 전체를 매 요청마다 잘라내기/요약 없이 재전송함(`llm/adapter.ts`). 팝업 세션이 길어질수록 요청당 input 토큰이 선형 증가.
-  - [ ] 대화 history 길이 제한 정책 결정 (예: 최근 N턴만 유지, 또는 초과 시 요약으로 압축)
-  - [ ] 프롬프트 캐싱을 `cacheableContext`(선택 근방 문맥) 외에 대화 history에도 적용할지 검토 — 현재는 Claude의 `cache_control: ephemeral`도 문맥 블록에만 적용, history 메시지 배열은 캐싱 대상 아님
-  - [ ] GPT/Gemini에도 캐싱 연동 검토 — 현재 캐시 제어는 Claude 클라이언트에만 구현됨. GPT는 prefix 자동 캐싱(별도 API 불필요, prefix 안정성 필요), Gemini는 명시적 context caching API(`cachedContents`) 필요
-  - [ ] provider별 요청당 비용 추정치 산정 + 설정 화면에 예상 비용/사용량 노출 여부 결정
-  - [ ] 팝업 내 선택 범위 재수정 시 문맥 캐시 재사용 — 현재는 선택 근방 문맥(`cacheableContext`)을 한 번에 넘겨 캐싱하는데, 같은 팝업에서 선택 범위를 나중에 바꾸면 LLM에 필요한 근방 문맥이 살짝 달라짐(대부분 겹치고 경계만 약간 이동). 매번 전체를 새로 보내면 낭비가 크므로, 겹치는 prefix 재사용/증분 전송 등으로 캐시 적중을 유지하는 방안 검토(예: 문맥 블록을 넉넉히 한 번 캐싱해두고 선택 마커만 갱신)
 
 <a id="b-feature"></a>
 
@@ -115,7 +109,7 @@
   - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
 - [x] ~~자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화 — `popup/FrequentQuestions.tsx`. main 프로세스 `userData/frequent.json` 에 파일 저장(`main/frequentStore.ts` + IPC `FREQUENT_GET`/`SET`, 렌더러는 `popup/frequentStore.ts` 얇은 래퍼). localStorage 임시 저장에서 이전 완료 → 재시작·재설치 후 유지~~
-- [ ] 구글 검색 — 발음/이미지 탭을 **외부 브라우저로 여는 것까지 구현**(`question/google.ts`, `ipc.ts` `OPEN_GOOGLE`). 기본 브라우저 번들을 감지해 브라우저별로 분기: Chromium 계열은 `open -b <bundle> --args --new-window --window-position=... --window-size=... <url>`(mac), Firefox는 `--new-window`, Safari는 AppleScript로 새 문서+위치 지정 — `open -n`은 Chrome이 단일 인스턴스라 무시되고 새 탭으로 열려버려서 쓰지 않는다(코드 주석에 명시). Windows도 레지스트리로 기본 브라우저를 찾아 `--new-window`를 강제하는 별도 로직(`openWinNewWindow`)이 있고, 감지 실패 시(및 Linux)에만 `shell.openExternal`로 폴백. PLAN §4.2 "팝업 속 팝업"(임베드형 `BrowserWindow` child) 고도화는 미구현
+- [x] ~~구글 검색 — 발음/이미지 탭을 **외부 브라우저로 여는 것까지 구현**(`question/google.ts`, `ipc.ts` `OPEN_GOOGLE`). 기본 브라우저 번들을 감지해 브라우저별로 분기: Chromium 계열은 `open -b <bundle> --args --new-window --window-position=... --window-size=... <url>`(mac), Firefox는 `--new-window`, Safari는 AppleScript로 새 문서+위치 지정 — `open -n`은 Chrome이 단일 인스턴스라 무시되고 새 탭으로 열려버려서 쓰지 않는다(코드 주석에 명시). Windows도 레지스트리로 기본 브라우저를 찾아 `--new-window`를 강제하는 별도 로직(`openWinNewWindow`)이 있고, 감지 실패 시(및 Linux)에만 `shell.openExternal`로 폴백. PLAN §4.2 "팝업 속 팝업"(임베드형 `BrowserWindow` child)은 채택하지 않기로 확정 — 현재의 외부 브라우저 새 창 방식이 최종 구현.~~
 
 <a id="b-ui"></a>
 
@@ -164,6 +158,12 @@
 
 ## ⚠️ 미해결 문제
 
+- [ ] (담당 B) LLM 비용 고려사항 — 현재 `streamLlm()`이 `history` 전체를 매 요청마다 잘라내기/요약 없이 재전송함(`llm/adapter.ts`). 팝업 세션이 길어질수록 요청당 input 토큰이 선형 증가.
+  - [ ] 대화 history 길이 제한 정책 결정 (예: 최근 N턴만 유지, 또는 초과 시 요약으로 압축)
+  - [ ] 프롬프트 캐싱을 `cacheableContext`(선택 근방 문맥) 외에 대화 history에도 적용할지 검토 — 현재는 Claude의 `cache_control: ephemeral`도 문맥 블록에만 적용, history 메시지 배열은 캐싱 대상 아님
+  - [ ] GPT/Gemini에도 캐싱 연동 검토 — 현재 캐시 제어는 Claude 클라이언트에만 구현됨. GPT는 prefix 자동 캐싱(별도 API 불필요, prefix 안정성 필요), Gemini는 명시적 context caching API(`cachedContents`) 필요
+  - [ ] provider별 요청당 비용 추정치 산정 + 설정 화면에 예상 비용/사용량 노출 여부 결정
+  - [ ] 팝업 내 선택 범위 재수정 시 문맥 캐시 재사용 — 현재는 선택 근방 문맥(`cacheableContext`)을 한 번에 넘겨 캐싱하는데, 같은 팝업에서 선택 범위를 나중에 바꾸면 LLM에 필요한 근방 문맥이 살짝 달라짐(대부분 겹치고 경계만 약간 이동). 매번 전체를 새로 보내면 낭비가 크므로, 겹치는 prefix 재사용/증분 전송 등으로 캐시 적중을 유지하는 방안 검토(예: 문맥 블록을 넉넉히 한 번 캐싱해두고 선택 마커만 갱신)
 - [ ] (담당 B) 문맥 범위 '바이트 예산'의 언어별 형평성 검토 — 같은 의미의 글도 언어마다 바이트가 다름(실측: 세계인권선언 1조 = 영 170B / 일 252B / 중 129B). CJK는 1자=3바이트지만 훨씬 압축적(영 170자 vs 중 43자)이라 두 효과가 부분 상쇄되나 정확히 같진 않음 → 같은 예산이면 중국어가 가장 많이·일본어가 가장 적게 담김. 진짜 정밀한 문맥/비용 통제가 필요하면 바이트 대신 LLM 토큰 기준 예산으로 전환 검토. (설정: `AppSettings.contextBytesBefore/After`, `@shared/context.ts`)
 - [ ] (담당 A) 선택 창 테두리 오버레이 — 대상 창과의 실시간 동기화 지연. 대상 창을 드래그로 이동/리사이즈할 때 오버레이가 못 따라가는 프레임이 간헐적으로 있음(어떤 경우엔 창 크기 변화가 먼저 반영되고 테두리가 뒤따라옴, 어떤 경우엔 반대). `WinEventHook`(`EVENT_OBJECT_LOCATIONCHANGE`, `win32Capture.ts`)으로 즉시 반응 + 150ms 폴링 안전망까지 적용했지만, 오버레이 창과 대상 창이 서로 다른 프로세스의 독립된 최상위 창이라 DWM 이 두 창을 같은 컴포지터 프레임에 맞춰준다는 보장이 없어 완전한 동기화는 구조적으로 어려움. 더 근본적인 해결(예: 대상 창을 자식 창으로 편입 등)이 필요하면 위험도·부작용을 먼저 검토할 것.
 - [ ] (담당 A) 창 선택 목록 — 최소화된 창 썸네일 캡처 시 화면 구석에 짧은 깜빡임. `captureMinimizedWin32Window`(`win32Capture.ts`)가 DWM Thumbnail 합성 결과를 읽으려고 화면 우하단에 실제로(약 0.1~0.2초) 작은 캡처용 창을 띄웠다가 지운다 — 그 순간이 눈에 보임. `PrintWindow`/화면 밖 위치로는 DWM 합성 결과를 못 읽어서(이 시스템에서 재현·검증됨) 어쩔 수 없이 화면 안에 실제로 띄워야 했음. 완전히 없애려면 접근 방식 자체를 바꿔야 함(예: 최소화된 창은 실시간 썸네일 대신 아이콘+라벨로 표시, 또는 가상 데스크톱 활용 등) — 사용자와 논의 후 보류 중.

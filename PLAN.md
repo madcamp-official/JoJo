@@ -107,24 +107,24 @@
 
 **LLM 채팅 팝업** (GPT / Gemini / Claude 선택)
 - 하나의 팝업 = 하나의 대화 세션. 후속 질문이 이전 답변 맥락을 이어감.
-- 인근 텍스트(설정 범위)를 문맥으로 함께 전달. 전체 맥락 텍스트는 **프롬프트 캐싱**으로 비용 절감 — 현재 Claude 어댑터에 `cache_control: ephemeral`으로 구현되어 있고, GPT/Gemini는 아직 미적용(TODO.md §b-llm 비용 고려사항 참고).
+- 인근 텍스트(설정 범위)를 문맥으로 함께 전달. 전체 맥락 텍스트는 **프롬프트 캐싱**으로 비용 절감 — 현재 Claude 어댑터에 `cache_control: ephemeral`으로 구현되어 있고, GPT/Gemini는 아직 미적용(TODO.md §미해결 문제 "LLM 비용 고려사항" 참고).
 - 팝업 툴바에서 **발음·사전 검색은 누르면 즉시 질문이 전송되는 원샷 버튼**([발음]/[사전 검색]), **구글 검색은 별도 버튼**([발음 검색]/[시각 자료 검색])으로 구성하고, **통합 질문은 툴바가 아니라 그 아래 AI 채팅 영역의 입력창**에서 입력한다(§3 화면 구성 참고).
 
 1. **발음** — 선택 텍스트의 발음기호(영: IPA / 일: 히라가나 / 중: 한어병음). **맥락 의존 발음**을 반영: `read`(현재/과거), `associate`(명·형/동), `後`(あと·ご·のち), `人気`(にんき·ひとけ), `得`(de·dé·děi), `行`(xíng·háng). 지역별 발음이 여러 개면 `[미국]`/`[영국]`(영어), `[대륙]`/`[대만]`(중국어) 순으로 대괄호 라벨을 붙여 병기하고, 근거는 의미 중의성을 판정해 발음을 좁힌 경우에만 표시(단순 지역·격식 변이면 생략). 형식이 고정된 판정 작업이라 LLM 호출 시 temperature를 낮게 고정.
 2. **사전 검색** — 선택 영역을 단어 단위 분해 → 사전 API로 각 단어 정보 획득 → 문맥과 함께 LLM에 전달 → LLM이 **해당 맥락에서 사전상 몇 번 뜻인지** 판정.
 3. **통합 질문** — 자유 프롬프트. 자주 쓰는 질문을 사용자가 커스텀 등록·수정·삭제(예: 문맥 속 의미 / 문법적 역할 / 격식도·어투·뉘앙스 / 문장 구조).
 
-**구글 검색** (팝업 속 팝업)
+**구글 검색** (외부 브라우저 새 창 — 임베드형 팝업 속 팝업은 채택하지 않음)
 - 발음: "선택 텍스트 + pronunciation/読み方/拼音" 구글 웹 탭.
 - 시각 자료: 선택 텍스트 구글 이미지 탭.
-- 외부 브라우저로 열 때 이미 떠 있는 브라우저의 새 탭이 아니라 새 창으로 뜨도록 한다(macOS: `open -n`).
+- 이미 떠 있는 브라우저의 새 탭이 아니라 새 창으로 뜨도록, 기본 브라우저를 감지해 브라우저별로 새 창 옵션을 지정해 연다(Chromium/Firefox: `--new-window`, Safari: AppleScript, Windows는 레지스트리로 기본 브라우저 탐지 — 감지 실패 시에만 `shell.openExternal` 폴백).
 
 ## 5. 기술 아키텍처
 
 **전 구간 TypeScript 단일 언어**로 두 사람의 코드 이동 비용을 낮춘다. 구성 요소별 스택:
 
 - **앱**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + TypeScript + React(렌더러 UI).
-- **캡처/오버레이**: 창 열거·캡처는 Windows 네이티브 win32(user32/gdi32/dwmapi, `koffi` FFI 바인딩)를 우선 사용(가려진/최소화된 창까지 캡처). macOS도 창 열거·테두리 정렬·창 raise까지 CoreGraphics/AppKit을 `koffi`로 직접 바인딩(`main/selection/macWindow.ts`: `CGWindowListCopyWindowInfo`를 `kCGWindowListExcludeDesktopElements`로 호출해 다른 가상 데스크탑(Space)의 창까지 열거) — koffi FFI는 Windows 전용이 아니라 두 플랫폼 모두에서 쓰인다. 실제 화면 캡처엔 내장 `screencapture -l<windowID>`를 사용. `desktopCapturer`는 win32·macOS 네이티브 열거가 모두 실패했을 때만 쓰는 최종 폴백. 투명·클릭스루 BrowserWindow, `globalShortcut`.
+- **캡처/오버레이**: 창 열거·캡처는 Windows 네이티브 win32(user32/gdi32/dwmapi, `koffi` FFI 바인딩)를 우선 사용(가려진/최소화된 창까지 캡처, `desktopCapturer`는 win32 네이티브 열거가 실패했을 때만 쓰는 최종 폴백). macOS는 창 목록을 `desktopCapturer`로 1차 배치 조회(현재 Space, 썸네일 포함, 빠름)하고, 거기 없는 창(다른 가상 데스크탑/Space)만 CoreGraphics/AppKit을 `koffi`로 직접 바인딩한 `listAllMacWindows`(`main/selection/macWindow.ts`: `CGWindowListCopyWindowInfo`를 `kCGWindowListExcludeDesktopElements`로 호출)로 보충 — 즉 macOS는 `desktopCapturer`가 주, 네이티브 열거가 보조로 win32와 정반대 관계다. 테두리 정렬·창 raise는 macOS도 CoreGraphics/AppKit `koffi` 바인딩을 쓰고, 실제 화면 캡처엔 내장 `screencapture -l<windowID>`를 사용. koffi FFI는 Windows 전용이 아니라 두 플랫폼 모두에서 쓰인다. 투명·클릭스루 BrowserWindow, `globalShortcut`.
 - **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정. 중국어는 `chi_sim+chi_tra` 언어팩을 함께 로드해 간체/번체를 자동 판별. 일/중 단어 경계는 OCR 결과를 kuromoji/segmentit(`main/nlp/`)로 재분할해 의미 단위로 맞춘다.
 - **확장**: 브라우저 확장(Manifest V3) + native messaging.
 - **API**: LLM 3종 어댑터(GPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
@@ -137,7 +137,7 @@ flowchart TB
 
     subgraph APP["🖥️ Electron App · TypeScript"]
         direction TB
-        MAIN["<b>Main Process</b><br/>창 선택·캡처(win32/macOS 네이티브, desktopCapturer는 최종 폴백) · 전역 단축키(globalShortcut)<br/>접근성 API 브릿지(탭/URL 감지) · API 키 보관(safeStorage) · IPC 허브"]
+        MAIN["<b>Main Process</b><br/>창 선택·캡처(win32 네이티브 우선/desktopCapturer 폴백, macOS는 desktopCapturer 우선/네이티브 보충) · 전역 단축키(globalShortcut)<br/>접근성 API 브릿지(탭/URL 감지) · API 키 보관(safeStorage) · IPC 허브"]
 
         subgraph PIPE[" "]
             direction LR
@@ -176,7 +176,7 @@ flowchart TB
 두 사람을 **팝업창 기준**으로 나눈다. A는 팝업이 뜨기 전까지(창 선택·캡처·오버레이·모드·추출·좌표·클릭 감지), B는 팝업이 뜬 이후 전부(범위 확정·문맥 구성·질문·결과·설정)를 맡는다. **경계 = `ExtractedSelection`(A→B, 팝업 직전 추출 결과)와 `QuestionResult`(B→UI)**. 이 인터페이스를 가장 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
 
 ### 담당 A — 선택 준비 & 추출 (팝업 전)
-- 창 선택/화면 캡처(win32·macOS 네이티브 우선, desktopCapturer는 둘 다 실패 시 최종 폴백), 오버레이 윈도우, 전역 단축키, 모드 전환.
+- 창 선택/화면 캡처(win32는 네이티브 우선·desktopCapturer 폴백, macOS는 반대로 desktopCapturer로 현재 Space를 빠르게 채우고 다른 Space 창만 네이티브 열거로 보충), 오버레이 윈도우, 전역 단축키, 모드 전환.
 - OCR 파이프라인(캡처→언어 감지→언어 특화 OCR→좌표 매핑) + 노이즈 제거.
 - 소스별 직접 추출(txt/epub/PDF) + 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출, OCR 여부 판정 로직·판정 시점 캐싱.
 - 브라우저 확장(DOM 텍스트, 유튜브/넷플릭스 자막, 단어 하이라이트) + 앱과 native messaging.
@@ -288,7 +288,7 @@ JoJo/
 │   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
 │   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Alt+Q, macOS Cmd/Ctrl 이중 등록)
-│   │   │   ├── capture.ts       #   창 목록/캡처(win32·macOS 네이티브 우선 — 목록은 macWindow.ts, 캡처는 screencapture -l, desktopCapturer는 최종 폴백) + 선택 창 id 보관
+│   │   │   ├── capture.ts       #   창 목록/캡처 — win32는 네이티브 우선(desktopCapturer 폴백), macOS는 desktopCapturer로 현재 Space 일괄 조회 + macWindow.ts(listAllMacWindows)로 다른 Space만 보충, 캡처는 screencapture -l + 선택 창 id 보관
 │   │   │   ├── win32Capture.ts  #   Windows 네이티브 창 열거·캡처(koffi FFI, 가려짐/최소화 대응)
 │   │   │   ├── macWindow.ts     #   macOS CoreGraphics/AppKit 바인딩(koffi) — bounds 조회·창 raise
 │   │   │   ├── decideOcr.ts     #   OCR 사용 여부 판정(현재 파이프라인에선 미사용, 아래 참고)
