@@ -85,7 +85,8 @@
 - [x] ~~어댑터가 `history: ChatTurn[]`을 받아 요청에 이어붙임 (`askLlm`/`buildRequest`, `llm/adapter.ts`)~~
 - [x] ~~문맥 프롬프트 구성 + 프롬프트 캐싱(비용 절감)~~
 - [x] ~~API 키 무효 / 크레딧(사용 한도) 소진 / 요청 과다 / 네트워크 오류를 구분하는 에러 체계 — `QuestionError`(`shared/types.ts`), `question/errors.ts`(메시지), `question/llm/errors.ts`(HTTP 상태코드 분류). UI 렌더링은 미구현(아래 UI 항목)~~
-- [ ] provider별 실제 사용 모델 확정 — 현재 `DEFAULT_MODELS`(`llm/adapter.ts`)의 기본값은 gpt: `gpt-4o`, gemini: `gemini-pro-latest`, claude: `claude-sonnet-5`(모두 예시 placeholder, 확정 아님). 구현 시점에 모델을 고정할지, 설정 화면에서 사용자가 선택하게 할지 결정 필요
+- [x] ~~provider별 실제 사용 모델 확정 — **설정 화면에서 사용자가 선택**하도록 결정·구현. API 키 입력/수정·provider 선택 시 무과금 GET(`question/llm/validate.ts`)으로 유효성 검사 + 사용 가능 모델 목록을 받아 드롭다운으로 고르게 함. 선택값은 `AppSettings.models[provider]` 에 저장되고 `buildRequest()` 가 `settings.models[provider] ?? DEFAULT_MODELS[provider]` 로 사용. `DEFAULT_MODELS`(gpt: `gpt-4o`, gemini: `gemini-pro-latest`, claude: `claude-sonnet-5`)는 미선택 시 fallback 으로만 남김~~
+- [x] ~~API 키 유효성 검사 + 사용 모델 드롭다운 — IPC `PROVIDER_VALIDATE`(`validateProvider`) 로 provider별 models 엔드포인트 호출(OpenAI `/v1/models`, Gemini `/v1beta/models`, Anthropic `/v1/models`). **무과금 GET**(토큰 미소비)이라 유효성+모델목록만 확인. 401/403 → 유효하지 않은 키로 분류(`classifyLlmError`). 설정 화면은 0.5초 디바운스 후 호출하고 상태(확인중/유효/에러)+모델 `<select>` 표시. **잔액/크레딧 조회는 세 provider 모두 공개 API 부재로 제외** — 크레딧 부족은 실제 질문 시 에러 배너로 안내~~
 - [ ] 비용 고려사항 — 현재 `buildRequest()`가 `history` 전체를 매 요청마다 잘라내기/요약 없이 재전송함(`llm/adapter.ts`). 팝업 세션이 길어질수록 요청당 input 토큰이 선형 증가.
   - [ ] 대화 history 길이 제한 정책 결정 (예: 최근 N턴만 유지, 또는 초과 시 요약으로 압축)
   - [ ] 프롬프트 캐싱을 `cacheableContext`(선택 근방 문맥) 외에 대화 history에도 적용할지 검토 — 현재는 Claude의 `cache_control: ephemeral`도 문맥 블록에만 적용, history 메시지 배열은 캐싱 대상 아님
@@ -111,7 +112,7 @@
 - [x] ~~발음·사전 체크박스 토글 동작 (`popup/Toolbar.tsx` + `PopupScreen.tsx` `togglePron`/`toggleDict`; 선택 변경 시 결과 리셋). 단 결과 내용은 발음/사전 스텁이라 비어 있음~~
 - [x] ~~스트리밍 렌더 (`QUESTION_STREAM` 수신) — `PopupScreen.tsx` `onQuestionStream` 구독 후 진행 중 말풍선에 델타 append, `popup/Chat.tsx` 가 커서 표시~~
 - [x] ~~에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별 안내. `popup/Chat.tsx` 가 `errorTitle(code)` 로 배너 렌더, `PopupScreen.tsx` `InfoRow` 도 에러 렌더. (재시도/설정 이동 버튼은 미구현)~~
-- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / AI 주변 범위(Byte) / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소). Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유)~~
+- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / AI 주변 범위(Byte) / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소). Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유). API 키 섹션엔 **유효성 검사 상태 + 사용 모델 드롭다운**(위 B-llm 항목) 포함~~
 - [x] ~~API 키 `safeStorage` 암호화 저장·로드 영속화 — `keyStore.ts`, `userData/apikeys.json`(암호문 base64)~~
 - [x] ~~앱 설정 영속화 (파일 저장) — `settingsStore.ts`, `userData/settings.json`~~
 
@@ -124,7 +125,7 @@
 - [x] ~~`SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 → 실연결) — `SELECTION_EXTRACTED`/`QUESTION_REQUEST`/`QUESTION_STREAM` 실동작~~
 - [ ] 메인/피커/설정 창 통합 — 세 화면이 동시에 보일 필요가 없어 별도 창(피커·설정) 대신 메인 창 하나를 리사이즈(`windows.ts: setMainWindowRoute`/`navigateMainWindow`)해 재사용하도록 변경(`feat/settings-screen`). 전환 시 항상 창을 중앙 정렬하며, 애니메이션 없이 즉시 크기 변경(다른 창이 뜬 것처럼 보이지 않게)
 - [x] ~~IPC 허브 A→B 실연결 — 선택 파이프라인(A) → 팝업/질문(B) 이 `ipc.ts` 허브를 통해 실동작(오버레이 클릭 → 팝업 오픈 → 질문 스트리밍)~~
-- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문 — ⚠️ 현재 실경로는 **Windows 위주**(선택 오버레이 추적·직접추출 `readWindowText`·창 캡처가 win32). macOS 는 오버레이 테두리/창 raise 는 되지만 직접추출은 미구현(항상 OCR), OCR 캡처 경로 별도 점검 필요. PDF 직접추출 파서 자체도 아직 미구현
+- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문 — ⚠️ 현재 실경로는 **Windows 전용**. macOS 는 창 선택·테두리 오버레이·추적·창 raise 는 되지만 **선택모드 OCR/추출이 전혀 안 됨**: `captureFocusedWindow`(`capture.ts`)가 win32 전용이라 mac 에선 예외를 던지고, 그 결과 `refreshExtractionCache`→`runOcr`도, 단어 hover/클릭 감지도, 좌표 정렬(`alignWordsToOverlay`도 win32 전용)도 동작하지 않는다. mac 관통하려면 **mac용 `captureFocusedWindow`(CoreGraphics `CGWindowListCreateImage(windowID)`, koffi — `macWindow.ts`에 붙이면 됨)** 구현 필요. 직접추출(`readWindowText`)도 win32 전용, PDF 직접추출 파서 자체도 미구현
 - [x] ~~배포 패키징(electron-builder) — `electron-builder.yml`(appId `com.nuance`·productName `Nuance` 고정 → userData 경로 안정, 재설치/버전 업 후에도 설정·API 키·자주쓰는질문 유지). scripts: `pack:dir`(스모크) / `dist:mac`·`dist:win`·`dist:linux`. mac `--dir` 패키징 성공 확인(코드서명 없음: `identity: null`). 산출물은 `dist/`(gitignore)~~
   - [ ] 정식 배포 시 코드서명/공증 — mac: hardenedRuntime+notarize(Apple Developer 인증서), win: 서명 인증서. 현재는 사설 배포(미서명)라 Gatekeeper/SmartScreen 경고가 뜸
   - [ ] 앱 아이콘 교체 — 현재 `build/icon.png` 는 기존 256px 을 1024 로 업스케일한 임시본(정식 아이콘으로 교체 필요)
