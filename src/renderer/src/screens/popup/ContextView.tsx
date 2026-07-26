@@ -70,7 +70,10 @@ export function ContextView({ model, from, to, onChange }: Props) {
   const segments = toSegments(model)
 
   return (
-    <div className="ctx-text" onMouseLeave={() => setDragging(false)}>
+    <div
+      className={dragging ? 'ctx-text dragging' : 'ctx-text'}
+      onMouseLeave={() => setDragging(false)}
+    >
       {segments.map((seg, i) => {
         if (seg.atomIndex === null) {
           // gap: 양옆 atom 이 모두 선택 범위 안이면 연결부(하이픈 등)도 하이라이트
