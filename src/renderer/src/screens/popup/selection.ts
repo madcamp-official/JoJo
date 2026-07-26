@@ -29,11 +29,11 @@ export interface PopupSelectionModel {
   initialTo: number
 }
 
-// 팝업 원문 문맥 표시 범위 — 선택 앞뒤 각 1024 바이트(AppSettings 기본값과 동일).
+// 팝업 원문 문맥 표시 범위 — 선택 앞뒤 각 512 바이트.
 // 순수 바이트 경계에서 문장이 잘리면 가장 가까운 문장 경계까지 더 넣어서 보여주고,
 // 원문이 그만큼 없으면(문서 시작/끝 근처) 있는 만큼만 보여준다 — @shared/context 공유 로직.
-const DISPLAY_CONTEXT_BYTES_BEFORE = 1024
-const DISPLAY_CONTEXT_BYTES_AFTER = 1024
+const DISPLAY_CONTEXT_BYTES_BEFORE = 512
+const DISPLAY_CONTEXT_BYTES_AFTER = 512
 
 // 영어 atom: 알파벳/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로 취급 →
 // "well-to-do" 는 well / to / do 세 atom, "left-hand" 는 left / hand 두 atom 이 된다.
