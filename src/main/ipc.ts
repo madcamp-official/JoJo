@@ -154,7 +154,7 @@ export function registerIpc(): void {
     return getPopupContext()
   })
 
-  // 담당 B: 구글 발음/이미지 검색 — [실험] 앱 내 Electron 창으로 연다(Windows·macOS 둘 다 새 창)
+  // 담당 B: 구글 발음/이미지 검색 — 기본 브라우저의 새 창으로(팝업과 같은 위치·크기) 연다(google.ts)
   ipcMain.handle(
     IPC.OPEN_GOOGLE,
     async (_e, payload: { mode: 'pron' | 'image'; text: string; lang: Language }) => {
