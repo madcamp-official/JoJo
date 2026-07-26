@@ -35,6 +35,18 @@ function GoogleIcon() {
 export function Toolbar({ onPron, onDict, onGoogle, disabled }: Props) {
   return (
     <div className="toolbar">
+      <span className="llm-badge">
+        <GoogleIcon />
+      </span>
+      <button className="tb-btn" title="구글 발음 검색" onClick={() => onGoogle('pron')}>
+        발음
+      </button>
+      <button className="tb-btn" title="구글 이미지 검색" onClick={() => onGoogle('image')}>
+        이미지
+      </button>
+
+      <span className="tb-spacer" />
+
       <span className="llm-badge" title="사용 중인 AI 모델은 설정에서 선택합니다">
         AI
       </span>
@@ -45,16 +57,6 @@ export function Toolbar({ onPron, onDict, onGoogle, disabled }: Props) {
 
       <button className="tb-btn" disabled={disabled} onClick={onDict}>
         사전
-      </button>
-
-      <span className="tb-spacer" />
-
-      <GoogleIcon />
-      <button className="tb-btn" title="구글 발음 검색" onClick={() => onGoogle('pron')}>
-        발음
-      </button>
-      <button className="tb-btn" title="구글 이미지 검색" onClick={() => onGoogle('image')}>
-        이미지
       </button>
     </div>
   )

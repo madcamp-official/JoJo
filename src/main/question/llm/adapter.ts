@@ -29,6 +29,8 @@ export interface LlmRequest {
   model: string
   /** 응답 최대 토큰. 미지정 시 provider 클라이언트 기본값 적용. */
   maxTokens?: number
+  /** 샘플링 온도. 미지정 시 provider 기본값(대개 1) 적용. 형식이 고정된 판정 작업은 낮게 지정해 이탈을 줄인다. */
+  temperature?: number
 }
 
 /** provider 클라이언트 생성 설정 (인증 정보만). 모델·토큰 등 생성 파라미터는 LlmRequest 로. */
@@ -108,6 +110,7 @@ export async function streamLlm(
   prompt: string,
   history: ChatTurn[],
   onChunk: (chunk: QuestionResult) => void,
+  temperature?: number,
 ): Promise<QuestionResult> {
   const provider = getActiveProvider()
 
@@ -133,6 +136,7 @@ export async function streamLlm(
     messages: [...history, { role: 'user', content: prompt }],
     model: settings.models[provider] ?? DEFAULT_MODELS[provider],
     maxTokens: DEFAULT_MAX_TOKENS,
+    temperature,
   }
 
   try {

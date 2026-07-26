@@ -21,6 +21,7 @@ export function createGptClient(config: LlmConfig): LlmClient {
         body: JSON.stringify({
           model: req.model,
           stream: true,
+          temperature: req.temperature,
           messages: [{ role: 'system', content: system }, ...req.messages],
         }),
       })

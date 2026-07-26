@@ -27,6 +27,7 @@ export function createClaudeClient(config: LlmConfig): LlmClient {
         body: JSON.stringify({
           model: req.model,
           max_tokens: req.maxTokens ?? 1024,
+          temperature: req.temperature,
           stream: true,
           system,
           messages: req.messages,
