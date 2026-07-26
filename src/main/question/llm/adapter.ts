@@ -8,6 +8,7 @@ import { createClaudeClient } from './claude'
 import { renderPrompt } from '../prompts/template'
 import systemPromptTemplate from '../prompts/system.txt?raw'
 import { LANGUAGES } from '@shared/languages'
+import { DEFAULT_MODELS } from '@shared/providers'
 import { buildErrorResult } from '../errors'
 import { classifyLlmError } from './errors'
 
@@ -42,14 +43,6 @@ export interface LlmClient {
   stream(req: LlmRequest, onDelta: (delta: string) => void): Promise<string>
 }
 
-/** provider 별 기본 모델. 설정에서 재정의 가능(추후 설정 영속화 항목).
- *  gemini 는 'latest' 별칭을 써서 버전 번호 하드코딩으로 인한 404를 피한다
- *  (2026-07-25 실측: 'gemini-1.5-pro' 는 이미 404, 세대 교체가 잦음). */
-export const DEFAULT_MODELS: Record<LlmProvider, string> = {
-  gpt: 'gpt-4o',
-  gemini: 'gemini-pro-latest',
-  claude: 'claude-sonnet-5',
-}
 
 /** 응답 최대 토큰 기본값. 추후 설정 영속화([B-UI])와 연결. */
 export const DEFAULT_MAX_TOKENS = 1024

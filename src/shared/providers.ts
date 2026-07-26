@@ -18,3 +18,13 @@ export const PROVIDERS: Record<LlmProvider, ProviderInfo> = {
 }
 
 export const PROVIDER_ORDER: LlmProvider[] = ['gpt', 'gemini', 'claude']
+
+/** provider 별 기본 모델. 설정 화면에서 사용자가 고르지 않으면 이 값이 쓰인다.
+ *  gemini 는 'latest' 별칭을 써서 버전 번호 하드코딩으로 인한 404를 피한다
+ *  (2026-07-25 실측: 'gemini-1.5-pro' 는 이미 404, 세대 교체가 잦음).
+ *  main(adapter) 과 renderer(설정 화면) 가 함께 참조하는 단일 출처. */
+export const DEFAULT_MODELS: Record<LlmProvider, string> = {
+  gpt: 'gpt-4o',
+  gemini: 'gemini-pro-latest',
+  claude: 'claude-sonnet-5',
+}

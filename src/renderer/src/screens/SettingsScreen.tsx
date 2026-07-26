@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppSettings, ProviderValidation, QuestionErrorCode } from '@shared/types'
-import { PROVIDERS, PROVIDER_ORDER } from '@shared/providers'
+import { PROVIDERS, PROVIDER_ORDER, DEFAULT_MODELS } from '@shared/providers'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 import { goto } from '../navigate'
@@ -390,7 +390,7 @@ export function SettingsScreen() {
                       })
                     }
                   >
-                    <option value="">기본값 사용</option>
+                    <option value="">기본값 ({DEFAULT_MODELS[settings.llm]})</option>
                     {validation.models.map((m) => (
                       <option key={m} value={m}>
                         {m}
