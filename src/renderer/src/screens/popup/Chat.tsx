@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from './types'
 
 // 담당 B — 채팅 영역 (질문/답변 말풍선 + 스트리밍 렌더 + 입력창) — PLAN.md §4.2
@@ -32,17 +34,21 @@ export function Chat({ messages, onSend, busy }: Props) {
           <p className="chat-empty">선택한 표현에 대해 궁금한 점을 물어보세요.</p>
         )}
         {messages.map((m) => (
-          <div key={m.id} className={`bubble ${m.role} ${m.error ? 'error' : ''}`}>
+          <div
+            key={m.id}
+            className={`bubble ${m.role} ${m.error ? 'error' : ''} ${m.streaming ? 'streaming' : ''}`}
+          >
             {m.error ? (
               <div className="err-body">
                 <strong>⚠️ {errorTitle(m.error.code)}</strong>
                 <span>{m.content}</span>
               </div>
+            ) : m.role === 'assistant' ? (
+              <div className="md">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+              </div>
             ) : (
-              <span>
-                {m.content}
-                {m.streaming && <span className="caret" />}
-              </span>
+              m.content
             )}
           </div>
         ))}
