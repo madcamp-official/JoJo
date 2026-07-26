@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatTurn, ExtractedSelection, QuestionRequest, QuestionResult } from '@shared/types'
+import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
@@ -13,8 +14,9 @@ import { newId, type ChatMessage } from './popup/types'
 // 담당 B — 팝업 화면 (PLAN.md §3/§4.2)
 // 선택 확정 후 뜨는 검색·채팅 팝업. 위→아래:
 //   헤더(드래그 이동) · 원문 문맥(범위 재지정) · 툴바(발음/사전 버튼 포함) · 채팅 · 자주 쓰는 질문
-// 발음/사전 버튼은 토글이 아니라 원샷 액션: 누르면 즉시 채팅에 고정 라벨('발음 질문'/'사전 검색')로
-// 질문이 남고 LLM 응답이 다른 채팅 메시지와 동일하게 스트리밍된다.
+// 발음/사전 버튼은 토글이 아니라 원샷 액션: 누르면 즉시 채팅에 실제 LLM 요청 문구
+// (PRONUNCIATION_QUESTION/DICTIONARY_QUESTION, @shared/questionText)로 질문이 남고
+// LLM 응답이 다른 채팅 메시지와 동일하게 스트리밍된다.
 //
 // 데이터 진입:
 //   - 실제(담당 A 통합): main 이 createPopupWindow(ctx) 로 넘긴 ExtractedSelection 을
@@ -114,12 +116,12 @@ export function PopupScreen() {
     return send(prompt, { type: 'ask', prompt, history })
   }
 
-  // 발음 / 사전 버튼 — 누르면 즉시 요청. 채팅창에는 실제 질문 대신 고정 라벨만 남긴다.
+  // 발음 / 사전 버튼 — 누르면 즉시 요청. 채팅창에는 실제로 LLM에 보내는 user 메시지를 그대로 남긴다.
   function askPronunciation() {
-    return send('발음 질문', { type: 'pronunciation' })
+    return send(PRONUNCIATION_QUESTION, { type: 'pronunciation' })
   }
   function askDictionary() {
-    return send('사전 검색', { type: 'dictionary' })
+    return send(DICTIONARY_QUESTION, { type: 'dictionary' })
   }
 
   function google(mode: 'pron' | 'image') {
