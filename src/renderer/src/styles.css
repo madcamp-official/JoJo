@@ -99,12 +99,12 @@ button:disabled { cursor: not-allowed; }
 }
 .picker-header h2 { margin: 0; font-size: 16px; }
 .picker-header .hint { margin: 0; font-size: 12px; }
-.picker-header .icon-btn.close {
-  margin-left: auto; align-self: flex-start;
-  background: none; border: none; color: #94a3b8; font-size: 16px; cursor: pointer;
+.picker-header .icon-btn.back {
+  background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;
+  padding: 4px 8px; border-radius: 6px; align-self: flex-start;
   -webkit-app-region: no-drag;
 }
-.picker-header .icon-btn.close:hover { color: #fff; }
+.picker-header .icon-btn.back:hover { background: #2a2a33; color: #fff; }
 .window-grid {
   flex: 1; overflow-y: auto;
   display: grid; grid-template-columns: repeat(3, 1fr);
