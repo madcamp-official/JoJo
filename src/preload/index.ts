@@ -10,6 +10,7 @@ import type {
   QuestionRequest,
   QuestionResult,
   SelectionContext,
+  Word,
 } from '@shared/types'
 
 // preload — 렌더러에 안전한 API 만 노출 (공동)
@@ -52,6 +53,14 @@ const api = {
 
   extractSelection: (point: { x: number; y: number }): Promise<ExtractedSelection> =>
     ipcRenderer.invoke(IPC.SELECTION_EXTRACTED, point),
+
+  // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록 수신(extractionCache.ts) — 오버레이가
+  // hover/클릭 판정에 실제 텍스트 위치를 쓸 수 있게 한다.
+  onExtractionWords: (cb: (words: Word[]) => void): (() => void) => {
+    const listener = (_e: unknown, words: Word[]) => cb(words)
+    ipcRenderer.on(IPC.EXTRACTION_WORDS, listener)
+    return () => ipcRenderer.removeListener(IPC.EXTRACTION_WORDS, listener)
+  },
 
   question: (ctx: SelectionContext, req: QuestionRequest): Promise<QuestionResult> =>
     ipcRenderer.invoke(IPC.QUESTION_REQUEST, ctx, req),

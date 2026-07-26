@@ -254,6 +254,23 @@ export function getWindowScreenRect(
   return { x: rect.left, y: rect.top, width, height }
 }
 
+/**
+ * `captureWin32Window`(PrintWindow)가 그리는 이미지는 `GetWindowRect` 좌표계(눈에 안
+ * 보이는 리사이즈 테두리 포함) 기준인데, 오버레이는 `getWindowScreenRect`(DWM 확장
+ * 프레임 = 실제로 보이는 경계) 기준으로 배치된다 — 그래서 이미지에서 뽑은 OCR 단어
+ * bbox 를 오버레이 좌표로 그대로 쓰면 그 차이(보통 몇 px)만큼 밀려 보인다. 두 좌표계의
+ * 원점 차이를 반환한다 — bbox.x/y 에서 이 값을 빼면 오버레이 기준으로 정렬된다.
+ */
+export function getCaptureOriginOffset(hwnd: bigint): { x: number; y: number } {
+  const winRect = { left: 0, top: 0, right: 0, bottom: 0 }
+  const extRect = { left: 0, top: 0, right: 0, bottom: 0 }
+  if (!GetWindowRect(hwnd, winRect)) return { x: 0, y: 0 }
+  if (DwmGetWindowAttributeRect(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, extRect, 16) !== 0) {
+    return { x: 0, y: 0 }
+  }
+  return { x: extRect.left - winRect.left, y: extRect.top - winRect.top }
+}
+
 const SW_RESTORE = 9
 
 /**

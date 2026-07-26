@@ -11,6 +11,8 @@ export const IPC = {
   SET_MODE: 'mode:set',
   MODE_CHANGED: 'mode:changed',
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
+  // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록을 오버레이로 통지 (extractionCache.ts)
+  EXTRACTION_WORDS: 'selection:words',
 
   // 메인/피커/설정 화면 전환 (공동) — 세 화면은 한 창을 재사용한다(동시 표시 불필요).
   // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.

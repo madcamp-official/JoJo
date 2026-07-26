@@ -1,26 +1,18 @@
 import type { ExtractedSelection, Word } from '@shared/types'
 import { findWordAtPoint } from '@shared/wordMapping'
-import { captureFocusedWindow } from './capture'
-import { decideExtraction } from './decideOcr'
-import { extractDirect } from './extractDirect'
-import { runOcr } from './ocr'
+import { getExtraction } from './extractionCache'
 
 // ============================================================================
 // 담당 A — 선택 준비 & 추출 파이프라인 (PLAN.md §4.1 / §7) — 팝업 전까지
-// 선택 모드 활성화 → OCR 여부 판정 → 텍스트+좌표 추출 → 클릭 단어 매핑
-// → ExtractedSelection 생성 (B 로 전달, 최종 선택 확정은 B가 팝업에서)
+// 선택 모드 진입 시 미리 캡처+추출해둔 캐시(extractionCache.ts)에서 클릭 좌표에
+// 해당하는 단어를 찾아 → ExtractedSelection 생성 (B 로 전달, 최종 선택 확정은 B가 팝업에서)
 // ============================================================================
 
 export async function runSelectionPipeline(point: {
   x: number
   y: number
 }): Promise<ExtractedSelection> {
-  const decision = await decideExtraction()
-
-  const extracted =
-    decision.mode === 'ocr'
-      ? await runOcr(await captureFocusedWindow(), decision.language)
-      : await extractDirect(decision.source)
+  const extracted = await getExtraction()
 
   const word = findWordAtPoint(extracted.words, point)
   const anchor = word
@@ -32,8 +24,8 @@ export async function runSelectionPipeline(point: {
     anchor,
     words: extracted.words,
     language: extracted.language,
-    source: decision.source,
-    extraction: decision.mode,
+    source: extracted.source,
+    extraction: extracted.extraction,
   }
 }
 

@@ -1,6 +1,7 @@
 import { Menu, Tray, app, nativeImage } from 'electron'
 import { IPC } from '@shared/channels'
 import { getSelectedWindowId, setSelectedWindowId } from './selection/capture'
+import { invalidateExtractionCache } from './selection/extractionCache'
 import { getMainWindow, hideSelectionOverlay, navigateMainWindow, resolveIconPath } from './windows'
 
 // 담당 A — 백그라운드 실행 + 트레이 아이콘 (PLAN.md §3)
@@ -13,6 +14,7 @@ let tray: Tray | null = null
 
 function deselectWindow(): void {
   setSelectedWindowId(null)
+  invalidateExtractionCache()
   hideSelectionOverlay()
   const main = getMainWindow()
   main?.webContents.send(IPC.WINDOW_SELECTED, null)
