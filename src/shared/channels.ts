@@ -12,6 +12,9 @@ export const IPC = {
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
   // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록을 오버레이로 통지 (extractionCache.ts)
   EXTRACTION_WORDS: 'selection:words',
+  // 화면 내용 변화 감지로 백그라운드 재추출을 시작할 때 오버레이에 "추출 중" 표시를
+  // 띄우기 위한 통지 (changeWatcher.ts). 끝나면 EXTRACTION_WORDS 가 그 표시를 끈다.
+  EXTRACTION_STARTED: 'selection:extractionStarted',
   // OCR 대상 영역 지정 — 선택 모드 진입 시 영역이 없으면 메인이 오버레이에 드래그
   // 선택을 요청하고(REGION_SELECTION_NEEDED), 오버레이가 드래그 완료 시 그 영역을
   // 돌려준다(SUBMIT_REGION). OVERLAY_NOTICE 는 리사이즈로 영역이 무효화됐을 때 같은

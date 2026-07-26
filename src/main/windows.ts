@@ -420,6 +420,11 @@ export function sendOverlayWords(words: Word[]): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_WORDS, words)
 }
 
+/** changeWatcher.ts 가 화면 변화 감지로 재추출을 시작할 때 호출 — 오버레이에 "추출 중" 표시를 띄운다. */
+export function sendExtractionStarted(): void {
+  overlayWindow?.webContents.send(IPC.EXTRACTION_STARTED)
+}
+
 /** shortcut.ts 가 선택 모드 진입 시(영역 미지정) 또는 "영역 재선택" 요청 시 호출. */
 export function sendRegionSelectionNeeded(): void {
   overlayWindow?.webContents.send(IPC.REGION_SELECTION_NEEDED)

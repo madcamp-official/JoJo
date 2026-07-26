@@ -61,6 +61,10 @@ export function Overlay() {
     [],
   )
 
+  // 화면 변화 감지로 백그라운드 재추출이 시작될 때(changeWatcher.ts)도 초기 진입 때와
+  // 같은 "텍스트 추출 중…" 표시를 띄운다 — onExtractionWords 가 오면 자동으로 꺼진다.
+  useEffect(() => window.nuance.onExtractionStarted(() => setExtracting(true)), [])
+
   useEffect(
     () =>
       window.nuance.onRegionSelectionNeeded(() => {
