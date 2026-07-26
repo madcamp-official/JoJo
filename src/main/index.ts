@@ -7,6 +7,7 @@ import { seedApiKeysFromEnv } from './devSeed'
 import { loadSettings } from './settingsStore'
 import { getApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
+import { registerContextMenu } from './contextMenu'
 
 // 앱 진입점 — 윈도우 생성, IPC 등록, 전역 단축키 등록
 app.whenReady().then(() => {
@@ -17,6 +18,7 @@ app.whenReady().then(() => {
   // 저장된 provider 의 키가 있으면 재실행 시에도 바로 활성화(사용자가 매번 설정에서 다시 고를 필요 없게).
   if (settings.llm && getApiKey(settings.llm)) setActiveProvider(settings.llm)
 
+  registerContextMenu()
   createMainWindow()
   createTray()
   registerIpc()
