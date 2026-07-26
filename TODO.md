@@ -82,7 +82,7 @@
 **팝업 선택 & 문맥 확정**
 - [x] ~~A가 넘긴 근방 텍스트·단어 좌표를 팝업에 표시 (`PopupScreen.tsx` + `popup/ContextView.tsx`; `getPopupContext()`/`onPopupContext()` 로 수신, 없으면 목업 fallback)~~
 - [ ] 팝업 내 범위 지정 — 영어=단어(atom) 단위는 구현(`popup/selection.ts`, 하이픈 단어 조각별 선택 포함). **일·중 문자 단위 미구현**(atom 규칙만 언어별로 분기하면 됨)
-- [x] ~~클릭(단어) vs 드래그(범위) 구분 — `popup/ContextView.tsx` 가 mousedown+mouseenter+전역 mouseup 으로 처리(클릭=단일 atom, 드래그=범위)~~
+- [x] ~~클릭(단어) vs 드래그(범위) 구분 — `popup/ContextView.tsx` 가 mousedown+mouseenter+전역 mouseup 으로 처리(클릭=단일 atom, 드래그=범위). 단어 사이(공백·문장부호) gap 에서 mousedown 해도 그 gap 인접 단어를 anchor 로 드래그가 시작되고, 드래그 중 gap 을 지날 때도 진행 방향에 맞는 인접 단어까지 선택이 확장됨(gap 도 onMouseEnter 로 처리). atom(단어) hover 시 커서를 `pointer` 로 표시(`styles.css` `.ctx-text .atom`)~~
 - [x] ~~최종 선택 확정 + 앞뒤 문맥(preceding/following) 구성 → `SelectionContext` 생성 (`popup/selection.ts` `deriveContext`)~~
 - [x] ~~팝업 원문 문맥 표시 범위를 선택 앞뒤 각 512바이트로 제한 — `buildSelectionModel`(`popup/selection.ts`)이 A가 넘긴 추출 텍스트 전체를 그대로 보여주던 것을, `@shared/context.ts` `computeContextRange` 로 앞뒤 512바이트(+문장 경계까지 확장, 부족하면 있는 만큼만) 잘라 표시하도록 변경. 데모 목업(`popup/mockSelection.ts`)도 문장 수 기반 사전 트리밍을 없애고 원문 전체를 넘기도록 정리해 동일 로직을 그대로 시연~~
 - [x] ~~문장 경계 판정이 영어 약어·이니셜·소수점·줄임표(`Mr.`/`e.g.`/`i.e.`/`U.S.`/`3.14`/`J. K.`/`...`)의 `.`을 문장 끝으로 오인해 LLM 문맥·팝업 표시 범위가 조기에 잘리던 문제 수정 — `@shared/context.ts` `isAbbreviationDot`. CJK 종결부호(`。！？…`)는 영향 없음~~
