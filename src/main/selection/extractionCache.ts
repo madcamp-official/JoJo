@@ -51,6 +51,39 @@ async function runExtraction(): Promise<CachedExtraction> {
  * 원점 보정을 물리 픽셀 단위에서 먼저 적용한 뒤 배율로 나눈다(순서 중요).
  */
 async function alignWordsToOverlay(words: Word[]): Promise<Word[]> {
+  // macOS: screencapture 는 물리 픽셀(Retina 2x 등)로 캡처하고, 오버레이는 창의 DIP bounds 에
+  // 정렬돼 있다(macWindow: CGWindow bounds = 포인트). 원점은 창 좌상단으로 동일하므로 배율만
+  // 보정한다(물리 px → DIP: scaleFactor 로 나눔). win32 처럼 프레임 원점 오프셋은 없다.
+  if (process.platform === 'darwin') {
+    const id = getSelectedWindowId()
+    const wid = Number(/^window:(\d+)/.exec(id ?? '')?.[1])
+    if (!Number.isFinite(wid)) return words
+    const { getMacWindowBounds } = await import('./macWindow')
+    const bounds = getMacWindowBounds(wid)
+    if (!bounds) return words
+    const { screen } = await import('electron')
+    const scale =
+      screen.getDisplayMatching({
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
+        width: Math.round(bounds.width),
+        height: Math.round(bounds.height),
+      }).scaleFactor || 1
+    if (scale === 1) return words
+    return words.map((w) =>
+      w.bbox
+        ? {
+            ...w,
+            bbox: {
+              x: w.bbox.x / scale,
+              y: w.bbox.y / scale,
+              width: w.bbox.width / scale,
+              height: w.bbox.height / scale,
+            },
+          }
+        : w,
+    )
+  }
   if (process.platform !== 'win32') return words
   const id = getSelectedWindowId()
   if (!id) return words
