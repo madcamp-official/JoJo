@@ -35,6 +35,36 @@ export interface PopupSelectionModel {
 const DISPLAY_CONTEXT_BYTES_BEFORE = 512
 const DISPLAY_CONTEXT_BYTES_AFTER = 512
 
+// 문단(줄바꿈) 시작에 넣는 들여쓰기 — 설정 화면 미리보기(SettingsScreen.tsx PREVIEW_TEXT)와
+// 동일한 3칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
+// 없을 때만 넣어서 "있으면 그대로, 없으면 있는 것처럼 보이게" 만든다.
+const PARAGRAPH_INDENT = '   '
+
+/**
+ * displayText 의 줄바꿈(\n) 다음에 오는 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를
+ * 삽입된 만큼 보정해 반환한다. 윈도우 첫 줄은 원문에서 실제 문단 시작인지 알 수 없는
+ * 중간 지점일 수 있어(바이트 예산으로 잘린 경우) 건드리지 않는다.
+ */
+function indentParagraphs(
+  text: string,
+  selStart: number,
+  selEnd: number,
+): { text: string; selStart: number; selEnd: number } {
+  const paragraphs = text.split('\n')
+  let newSelStart = selStart
+  let newSelEnd = selEnd
+  let offset = 0
+  const out = paragraphs.map((p, i) => {
+    const paraStart = offset
+    offset += p.length + 1 // +1 = 소비되는 '\n'
+    if (i === 0 || /^[ \t]/.test(p)) return p
+    if (paraStart <= selStart) newSelStart += PARAGRAPH_INDENT.length
+    if (paraStart <= selEnd) newSelEnd += PARAGRAPH_INDENT.length
+    return PARAGRAPH_INDENT + p
+  })
+  return { text: out.join('\n'), selStart: newSelStart, selEnd: newSelEnd }
+}
+
 // 영어 atom: 알파벳/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로 취급 →
 // "well-to-do" 는 well / to / do 세 atom, "left-hand" 는 left / hand 두 atom 이 된다.
 const WORD_ATOM_RE = /[A-Za-z0-9]+(?:['’][A-Za-z]+)*/g
@@ -51,7 +81,7 @@ function tokenizeAtoms(text: string): Atom[] {
 
 /** ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
 export function buildSelectionModel(extracted: ExtractedSelection): PopupSelectionModel {
-  // 원문 전체(extracted.text) 중 선택 앞뒤 1024바이트(+문장 경계 확장)만 잘라서 보여준다.
+  // 원문 전체(extracted.text) 중 선택 앞뒤 512바이트(+문장 경계 확장)만 잘라서 보여준다.
   const range = computeContextRange(
     extracted.text,
     extracted.anchor.start,
@@ -59,9 +89,14 @@ export function buildSelectionModel(extracted: ExtractedSelection): PopupSelecti
     DISPLAY_CONTEXT_BYTES_BEFORE,
     DISPLAY_CONTEXT_BYTES_AFTER,
   )
-  const displayText = extracted.text.slice(range.extStart, range.extEnd)
-  const selStart = extracted.anchor.start - range.extStart
-  const selEnd = extracted.anchor.end - range.extStart
+  const windowedText = extracted.text.slice(range.extStart, range.extEnd)
+  const windowedSelStart = extracted.anchor.start - range.extStart
+  const windowedSelEnd = extracted.anchor.end - range.extStart
+  const { text: displayText, selStart, selEnd } = indentParagraphs(
+    windowedText,
+    windowedSelStart,
+    windowedSelEnd,
+  )
   const atoms = tokenizeAtoms(displayText)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.

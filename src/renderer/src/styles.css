@@ -290,7 +290,7 @@ button:disabled { cursor: not-allowed; }
 .ctx-label { font-size: 12px; font-weight: 600; color: #374151; }
 .ctx-hint { font-size: 11px; color: #8b93a1; }
 .ctx-text {
-  line-height: 1.7;
+  line-height: 1.7; white-space: pre-wrap;
   user-select: none; cursor: text; color: #4b5563;
 }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
