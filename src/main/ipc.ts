@@ -7,12 +7,14 @@ import type {
   Language,
   LlmProvider,
   QuestionRequest,
+  Rect,
   SelectionContext,
 } from '@shared/types'
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
 import { getSelectedWindowId, listWindows, setSelectedWindowId } from './selection/capture'
-import { invalidateExtractionCache } from './selection/extractionCache'
+import { invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
+import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
 import {
   createPopupWindow,
   getMainWindow,
@@ -52,6 +54,7 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.SELECT_WINDOW, async (_e, source: CaptureSource) => {
     setSelectedWindowId(source.id)
     invalidateExtractionCache() // 이전 창(재선택 포함)의 캐시가 새 창으로 넘어가지 않게
+    clearRegion() // 이전 창 기준 좌표라 새 창에 그대로 쓰면 안 맞음
     resetToNormalMode() // 재선택 시 선택 모드였다면 일반 모드로 — 새 창엔 아직 캐시된 단어가 없음
     getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, source)
 
@@ -86,6 +89,12 @@ export function registerIpc(): void {
     const extracted: ExtractedSelection = await runSelectionPipeline(point)
     createPopupWindow(extracted)
     return extracted
+  })
+
+  // 담당 A: 오버레이에서 드래그로 그린 OCR 대상 영역을 저장하고, 바로 그 영역으로 추출 시작
+  ipcMain.handle(IPC.SUBMIT_REGION, async (_e, rect: Rect) => {
+    await submitRegionFromOverlay(rect)
+    refreshExtractionCache()
   })
 
   // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)

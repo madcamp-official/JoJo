@@ -3,6 +3,7 @@ import { getPhysicalToDipScale, sendOverlayWords } from '../windows'
 import { captureFocusedWindow, getSelectedWindowId } from './capture'
 import { detectLanguage } from './langDetect'
 import { runOcr } from './ocr'
+import { getRegion } from './regionSelection'
 
 // 담당 A — 선택 창 추출 결과 캐시 (PLAN.md §4.1 / §6)
 // 클릭할 때마다 캡처+OCR을 새로 돌리면 매번 1~3초씩 걸린다 — 대신 선택 모드
@@ -29,7 +30,9 @@ let inFlight: Promise<CachedExtraction> | null = null
 
 async function runExtraction(): Promise<CachedExtraction> {
   const language = await detectLanguage()
-  const extracted = await runOcr(await captureFocusedWindow(), language)
+  // getRegion() 은 이미 캡처 좌표계(물리 픽셀)로 저장돼 있어(regionSelection.ts:
+  // submitRegionFromOverlay 가 변환) 추가 변환 없이 그대로 runOcr 에 넘길 수 있다.
+  const extracted = await runOcr(await captureFocusedWindow(), language, getRegion() ?? undefined)
 
   return {
     text: extracted.text,
@@ -93,7 +96,10 @@ export function refreshExtractionCache(): void {
     })
     .catch((err) => {
       console.error('[extractionCache] refresh failed:', err)
-      if (inFlight === promise) inFlight = null
+      if (inFlight === promise) {
+        inFlight = null
+        sendOverlayWords([]) // 실패해도 "생성 중" 표시가 안 멈추지 않게 빈 결과로 통지
+      }
     })
 }
 

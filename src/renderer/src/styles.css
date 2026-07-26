@@ -40,11 +40,41 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   pointer-events: none;
 }
 
+/* OCR 대상 영역을 드래그로 그리는 동안(Overlay.tsx: needsRegion) 캡처 도구처럼 화면을
+   어둡게 하고, 드래그 사각형 자리만 원래 밝기로 "구멍"을 낸다 — 거대한 box-shadow 로
+   사각형 바깥 전체를 채우는 트릭. overflow:hidden 래퍼로 뷰포트 밖까지 안 새게 자른다. */
+.region-dim-clip {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.region-dim {
+  position: absolute; box-sizing: border-box;
+  border: 2px solid var(--blue);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+}
+/* region-dim(자식)이 부모(overlay-root)의 outline 을 덮어버려서, 같은 테두리를 DOM
+   순서상 맨 뒤(=항상 맨 위)에 한 번 더 그린다 — 위치를 딱 맞출 필요 없이 덮어씌운다. */
+.region-border-topcoat {
+  position: absolute; inset: 0; box-sizing: border-box;
+  border: 6px solid var(--purple);
+  pointer-events: none;
+}
+
 .overlay-resolving {
   position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
   padding: 6px 14px; border-radius: 8px;
   background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 13px;
   pointer-events: none;
+}
+.overlay-spinner {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff;
+  animation: overlay-spin 0.7s linear infinite;
+}
+@keyframes overlay-spin {
+  to { transform: rotate(360deg); }
 }
 
 .picker-screen {

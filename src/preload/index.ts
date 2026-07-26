@@ -9,6 +9,7 @@ import type {
   LlmProvider,
   QuestionRequest,
   QuestionResult,
+  Rect,
   SelectionContext,
   Word,
 } from '@shared/types'
@@ -60,6 +61,23 @@ const api = {
     const listener = (_e: unknown, words: Word[]) => cb(words)
     ipcRenderer.on(IPC.EXTRACTION_WORDS, listener)
     return () => ipcRenderer.removeListener(IPC.EXTRACTION_WORDS, listener)
+  },
+
+  // OCR 대상 영역 지정 — 메인이 오버레이에 드래그 선택을 요청(영역 없거나 "영역 재선택")
+  onRegionSelectionNeeded: (cb: () => void): (() => void) => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.REGION_SELECTION_NEEDED, listener)
+    return () => ipcRenderer.removeListener(IPC.REGION_SELECTION_NEEDED, listener)
+  },
+
+  // 오버레이가 드래그로 그린 영역(오버레이 로컬 DIP 좌표)을 메인에 전달
+  submitRegion: (rect: Rect): Promise<void> => ipcRenderer.invoke(IPC.SUBMIT_REGION, rect),
+
+  // 오버레이 상단에 잠깐 뜨는 안내 배너(예: 리사이즈로 영역 무효화 안내)
+  onOverlayNotice: (cb: (text: string) => void): (() => void) => {
+    const listener = (_e: unknown, text: string) => cb(text)
+    ipcRenderer.on(IPC.OVERLAY_NOTICE, listener)
+    return () => ipcRenderer.removeListener(IPC.OVERLAY_NOTICE, listener)
   },
 
   question: (ctx: SelectionContext, req: QuestionRequest): Promise<QuestionResult> =>

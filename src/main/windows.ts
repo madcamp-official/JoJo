@@ -150,6 +150,20 @@ function sameBounds(a: Electron.Rectangle, b: Electron.Rectangle): boolean {
   return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 }
 
+const resizeListeners = new Set<() => void>()
+
+/** 대상 창의 크기(너비/높이)가 바뀔 때 통지받는다 — 위치만 바뀌는 이동은 대상 아님. */
+export function onWindowResized(cb: () => void): void {
+  resizeListeners.add(cb)
+}
+
+/** applyOverlayBounds/showMacOverlayAt 이 lastBounds 를 갱신하기 직전에 호출 — 크기 변화만 감지. */
+function notifyIfResized(newBounds: Electron.Rectangle): void {
+  if (lastBounds && (lastBounds.width !== newBounds.width || lastBounds.height !== newBounds.height)) {
+    for (const cb of resizeListeners) cb()
+  }
+}
+
 function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   if (overlayWindow) return overlayWindow
   const win = new BrowserWindow({
@@ -162,6 +176,12 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     skipTaskbar: true,
     hasShadow: false,
     focusable: false,
+    // 오버레이 크기/위치는 항상 setBounds() 로만 프로그래밍적으로 바뀐다(대상 창을
+    // 따라감) — resizable/movable 기본값(true)을 그대로 두면, 영역 선택 대기 중
+    // (needsRegion) 처럼 오버레이가 완전히 인터랙티브해질 때 사용자가 대상 창 가장자리를
+    // 드래그한 게 오버레이 자신의 OS 리사이즈로 잡혀 대상 창과 따로 놀게 되는 문제가 있었다.
+    resizable: false,
+    movable: false,
     show: false,
     webPreferences: { preload, sandbox: false },
   })
@@ -201,6 +221,7 @@ function applyOverlayBounds(targetRect: Electron.Rectangle | null): void {
   const bounds = physicalToDipRect(targetRect)
   const win = ensureOverlayWindow(bounds)
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
+    notifyIfResized(bounds)
     win.setBounds(bounds)
     lastBounds = bounds
     // Windows 에서 transparent+frameless 창은 setBounds 직후 한 번에 정확히 반영되지
@@ -271,6 +292,11 @@ export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
   trackTimer = setInterval(() => {
     if (trackedHwnd === null) return
     applyOverlayBounds(getWindowScreenRect(trackedHwnd))
+    // 탭 전환처럼 같은 창(hwnd) 안에서 내부적으로 다시 그려지는 경우는 포그라운드
+    // 전환 이벤트가 안 떠서(창 자체는 안 바뀌니까) syncOverlayZOrder 가 그 순간에
+    // 안 불린다 — 그 사이 오버레이가 뒤로 밀려도 다음 포그라운드 이벤트가 오기 전까지
+    // 안 돌아왔었다. 폴링에도 같이 넣어서 최대 150ms 안에 항상 다시 앞으로 오게 한다.
+    syncOverlayZOrder(mod, trackedHwnd)
   }, TRACK_FALLBACK_INTERVAL_MS)
 }
 
@@ -295,6 +321,7 @@ const MAC_OCCLUSION_EVERY = 6
 function showMacOverlayAt(bounds: { x: number; y: number; width: number; height: number }): void {
   const win = ensureOverlayWindow(bounds) // darwin 설정(미션컨트롤 숨김·floating)은 생성 시 1회
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
+    notifyIfResized(bounds)
     win.setBounds(bounds)
     lastBounds = bounds
   }
@@ -371,6 +398,16 @@ export function setOverlayMode(mode: AppMode): void {
 /** extractionCache.ts 가 캐시를 채우거나 무효화할 때 호출 — 오버레이가 실제 단어 bbox 로 hover/클릭 판정을 하게 한다. */
 export function sendOverlayWords(words: Word[]): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_WORDS, words)
+}
+
+/** shortcut.ts 가 선택 모드 진입 시(영역 미지정) 또는 "영역 재선택" 요청 시 호출. */
+export function sendRegionSelectionNeeded(): void {
+  overlayWindow?.webContents.send(IPC.REGION_SELECTION_NEEDED)
+}
+
+/** 오버레이 상단에 잠깐 뜨는 안내 배너 — 리사이즈로 영역이 무효화됐을 때 등에 사용. */
+export function sendOverlayNotice(text: string): void {
+  overlayWindow?.webContents.send(IPC.OVERLAY_NOTICE, text)
 }
 
 // 선택 확정 후 뜨는 검색/채팅 팝업 (담당 B).
