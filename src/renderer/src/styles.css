@@ -317,6 +317,11 @@ button:disabled { cursor: not-allowed; }
   line-height: 1.7; white-space: pre-line;
   user-select: none; cursor: text; color: #4b5563;
 }
+/* user-select: none 은 마우스 드래그로 사용자가 직접 브라우저 선택을 만드는 것만 막을 뿐,
+   ContextView.tsx(syncNativeSelection)가 JS 로 프로그램상 만드는 선택(Selection/Range)은
+   그대로 유지된다 — 우클릭 메뉴의 복사/찾아보기는 그 선택을 그대로 인식해 동작한다.
+   네이티브 선택의 파란 하이라이트 박스는 숨기고 아래 .sel 클래스의 보라색 강조만 보이게 한다. */
+.ctx-text ::selection { background: transparent; }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
