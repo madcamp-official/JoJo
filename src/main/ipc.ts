@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+import { ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
   AppSettings,
@@ -31,7 +31,7 @@ import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { validateProvider } from './question/llm/validate'
-import { googleImageUrl, googlePronunciationUrl } from './question/google'
+import { googleImageUrl, googlePronunciationUrl, openGoogleSearchInNewWindow } from './question/google'
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
@@ -162,7 +162,7 @@ export function registerIpc(): void {
         payload.mode === 'pron'
           ? googlePronunciationUrl(payload.text, payload.lang)
           : googleImageUrl(payload.text)
-      await shell.openExternal(url)
+      await openGoogleSearchInNewWindow(url)
     },
   )
 }

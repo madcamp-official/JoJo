@@ -55,11 +55,12 @@ export function Toolbar({ language, pron, dict, onTogglePron, onToggleDict, onGo
 
       <span className="tb-spacer" />
 
+      <GoogleIcon />
       <button className="tb-btn" title="구글 발음 검색" onClick={() => onGoogle('pron')}>
-        🔊 발음 <GoogleIcon />
+        🔊 발음
       </button>
       <button className="tb-btn" title="구글 이미지 검색" onClick={() => onGoogle('image')}>
-        🖼 이미지 <GoogleIcon />
+        🖼 이미지
       </button>
       <span className="lang-tag">{language.toUpperCase()}</span>
     </div>
