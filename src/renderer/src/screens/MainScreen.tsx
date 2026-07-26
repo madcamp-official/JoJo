@@ -1,5 +1,6 @@
 import type { CaptureSource } from '@shared/types'
 import { goto } from '../navigate'
+import { GearIcon } from './icons'
 
 // 메인 화면 (PLAN.md §3 화면 구성) — 중앙 [창 선택] + 우상단 설정 아이콘.
 // [담당 A] 창 선택 버튼 → 같은 창 안에서 피커 화면으로 전환(goto), 선택 완료 시 App 이 통지받는다.
@@ -7,11 +8,11 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
   return (
     <div className="screen main-screen">
       <button className="icon-btn settings" title="설정" onClick={() => goto('settings')}>
-        ⚙️
+        <GearIcon size={22} />
       </button>
       <div className="center">
         <button className="primary" onClick={() => goto('picker')}>
-          🗔 창 선택
+          창 선택
         </button>
         <p className="hint">
           {selected ? `선택됨: ${selected.name}` : '사용할 창을 선택하세요.'}

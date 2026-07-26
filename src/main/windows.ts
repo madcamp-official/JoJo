@@ -39,10 +39,22 @@ export function setQuitting(value: boolean): void {
   isQuitting = value
 }
 
+/** 커서(활성 모니터)가 있는 디스플레이의 작업영역 중앙에 width×height 창을 놓을 좌표. */
+function centerOnCursorDisplay(width: number, height: number): { x: number; y: number } {
+  const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  return {
+    x: Math.round(wa.x + (wa.width - width) / 2),
+    y: Math.round(wa.y + (wa.height - height) / 2),
+  }
+}
+
 export function createMainWindow(): BrowserWindow {
+  const { x, y } = centerOnCursorDisplay(760, 460) // 실행 시 커서가 있는 모니터에 뜨도록
   const win = new BrowserWindow({
     width: 760,
     height: 460,
+    x,
+    y,
     show: true,
     autoHideMenuBar: true,
     icon: resolveIconPath(),
@@ -86,11 +98,19 @@ function resizeMainWindowForRoute(route: MainRoute): void {
   const win = mainWindow
   if (!win || win.isDestroyed()) return
   const { width, height } = ROUTE_SIZES[route]
-  const { width: workWidth, height: workHeight } = screen.getPrimaryDisplay().workAreaSize
-  const targetWidth = Math.min(width, workWidth - 40)
-  const targetHeight = Math.min(height, workHeight - 40)
-  win.setSize(targetWidth, targetHeight, false)
-  win.center()
+  // 창이 현재 놓인 모니터를 기준으로 크기 제한 + 중앙 정렬(멀티모니터에서 주 모니터로 튀지 않게).
+  const wa = screen.getDisplayMatching(win.getBounds()).workArea
+  const targetWidth = Math.min(width, wa.width - 40)
+  const targetHeight = Math.min(height, wa.height - 40)
+  win.setBounds(
+    {
+      x: Math.round(wa.x + (wa.width - targetWidth) / 2),
+      y: Math.round(wa.y + (wa.height - targetHeight) / 2),
+      width: targetWidth,
+      height: targetHeight,
+    },
+    false,
+  )
 }
 
 /** 렌더러(navigate.ts: goto())가 호출 — 렌더러가 이미 해시를 바꿨으므로 창 크기만 맞춘다. */
@@ -427,14 +447,14 @@ export function createPopupWindow(ctx: ExtractedSelection | null = null): Browse
     popupWindow.webContents.send(IPC.POPUP_GET_CONTEXT, ctx) // 이미 열려 있으면 컨텍스트만 갱신
     return popupWindow
   }
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
+  const { x, y } = centerOnCursorDisplay(POPUP_WIDTH, POPUP_HEIGHT) // 활성 모니터에 뜨도록
   const win = new BrowserWindow({
     width: POPUP_WIDTH,
     height: POPUP_HEIGHT,
-    x: Math.round((screenWidth - POPUP_WIDTH) / 2),
-    y: Math.round((screenHeight - POPUP_HEIGHT) / 2),
+    x,
+    y,
     frame: false,
-    alwaysOnTop: true,
+    // alwaysOnTop 을 쓰지 않는다 — 일반 창처럼 다른 창과 z-order 를 자유롭게 오갈 수 있게.
     show: false,
     webPreferences: { preload, sandbox: false },
   })
@@ -455,4 +475,10 @@ export function createPopupWindow(ctx: ExtractedSelection | null = null): Browse
 /** 팝업 렌더러가 마운트 시 조회하는 현재 ExtractedSelection (없으면 null → 렌더러가 목업 fallback). */
 export function getPopupContext(): ExtractedSelection | null {
   return popupContext
+}
+
+/** 현재 팝업 창의 화면 좌표/크기(DIP). 구글 검색 창을 같은 위치·크기로 띄우는 데 쓴다. */
+export function getPopupBounds(): { x: number; y: number; width: number; height: number } | null {
+  if (!popupWindow || popupWindow.isDestroyed()) return null
+  return popupWindow.getBounds()
 }

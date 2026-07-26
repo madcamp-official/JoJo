@@ -1,12 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppSettings } from '@shared/types'
-import { PROVIDERS, PROVIDER_ORDER } from '@shared/providers'
+import type { AppSettings, ProviderValidation, QuestionErrorCode } from '@shared/types'
+import { PROVIDERS, PROVIDER_ORDER, DEFAULT_MODELS } from '@shared/providers'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 import { goto } from '../navigate'
+import {
+  ProviderLogo,
+  CheckIcon,
+  EyeIcon,
+  EyeOffIcon,
+  LockIcon,
+  KeyboardIcon,
+  WarnIcon,
+  InfoIcon,
+} from './icons'
+import { EditDeleteGroup } from './EditDeleteGroup'
 
 // 설정 화면 (PLAN.md §3) — 담당 B
-// LLM·API 키 / 단축키 / AI 주변 범위(Byte) / 언어
+// LLM·API 키 / 단축키 / 문맥 범위(Byte) / 언어
 // 메인 창 안에서 해시 라우팅으로 뜬다(#/main ↔ #/settings, 별도 창 아님).
 
 // Byte 예산은 자유 지정(고정 단위 없음). 슬라이더 범위/숫자 입력 공통 하한.
@@ -20,16 +31,16 @@ function clampByte(n: number): number {
 
 // 미리보기 예시 — Lorem Ipsum. 선택 영역 기준으로 앞/뒤 바이트 범위 +
 // 문장 경계 확장을 실시간 시각화한다.
-const PREVIEW_TEXT = `   Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
-   Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt, neque porro quisquam est.
-   Qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur qui in ea voluptate velit esse quam nihil molestiae consequatur.
-   Vel illum qui dolorem eum fugiat quo voluptas nulla pariatur. At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident, similique sunt in culpa qui officia deserunt mollitia animi, id est laborum et dolorum fuga.
-   Et harum quidem rerum facilis est et expedita distinctio. Nam libero tempore, cum soluta nobis est eligendi optio cumque nihil impedit quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est, omnis dolor repellendus. Temporibus autem quibusdam et aut officiis debitis aut rerum necessitatibus saepe eveniet ut et voluptates repudiandae sint et molestiae non recusandae.
-   Itaque earum rerum hic tenetur a sapiente delectus, ut aut reiciendis voluptatibus maiores alias consequatur aut perferendis doloribus asperiores repellat. Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur excepteur sint occaecat cupidatat.
-   Nam libero tempore cum soluta nobis est eligendi optio cumque nihil impedit, quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.
-   Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est qui dolorem ipsum quia dolor sit amet consectetur adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem.
-   Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur. Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur sint obcaecati.
-   Doloremque laudantium totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt, neque porro quisquam est qui dolorem ipsum quia dolor sit amet consectetur adipisci velit numquam.`
+const PREVIEW_TEXT = ` Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+ Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt, neque porro quisquam est.
+ Qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur qui in ea voluptate velit esse quam nihil molestiae consequatur.
+ Vel illum qui dolorem eum fugiat quo voluptas nulla pariatur. At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident, similique sunt in culpa qui officia deserunt mollitia animi, id est laborum et dolorum fuga.
+ Et harum quidem rerum facilis est et expedita distinctio. Nam libero tempore, cum soluta nobis est eligendi optio cumque nihil impedit quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est, omnis dolor repellendus. Temporibus autem quibusdam et aut officiis debitis aut rerum necessitatibus saepe eveniet ut et voluptates repudiandae sint et molestiae non recusandae.
+ Itaque earum rerum hic tenetur a sapiente delectus, ut aut reiciendis voluptatibus maiores alias consequatur aut perferendis doloribus asperiores repellat. Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur excepteur sint occaecat cupidatat.
+ Nam libero tempore cum soluta nobis est eligendi optio cumque nihil impedit, quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.
+ Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est qui dolorem ipsum quia dolor sit amet consectetur adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem.
+ Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur. Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur sint obcaecati.
+ Doloremque laudantium totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt, neque porro quisquam est qui dolorem ipsum quia dolor sit amet consectetur adipisci velit numquam.`
 
 // 선택 표현 = 전체 글의 정중앙에 걸친 단어를 중심으로 앞뒤 1개씩, 총 3개 단어(앞뒤 문장부호 제거).
 // 먼저 모든 단어를 훑어 그 중심이 글 중앙에 가장 가까운 단어(중앙 단어)를 찾고,
@@ -128,6 +139,21 @@ function ByteControl({
   )
 }
 
+/** 키 검증 실패 사유(QuestionErrorCode) → 설정 화면 안내 문구 */
+function validationMessage(code?: QuestionErrorCode): string {
+  switch (code) {
+    case 'invalid_api_key':
+    case 'no_api_key':
+      return '유효하지 않은 API 키입니다.'
+    case 'rate_limited':
+      return '요청이 많아 확인에 실패했습니다. 잠시 후 다시 시도하세요.'
+    case 'network_error':
+      return '네트워크 오류로 확인하지 못했습니다.'
+    default:
+      return '키를 확인하지 못했습니다.'
+  }
+}
+
 const NON_KEY_MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
 
 /** F1~F12 처럼 수식키 없이 단독으로도 전역 단축키로 적절한 키 */
@@ -152,12 +178,48 @@ function toAccelerator(e: KeyboardEvent): string | null {
   return [...mods, key].join('+')
 }
 
+// Electron accelerator 토큰을 OS 에 맞는 표시 라벨로 바꾼다. macOS 에서는 Cmd 와 Ctrl 이
+// 서로 다른 물리 키인데, registerModeShortcut(shortcut.ts) 이 'CommandOrControl' 조합을
+// Cmd/Ctrl 두 키 모두로 등록해두었으므로(expandAccelerator) 표시도 실제 동작대로 "Cmd/Ctrl"
+// 둘 다 보여준다. macOS 가 아니면 물리적으로 Ctrl 하나뿐이라 그대로 Ctrl 만 표시.
+const IS_MAC = navigator.platform.toUpperCase().includes('MAC')
+
+const MODIFIER_LABELS: Record<string, string> = IS_MAC
+  ? { CommandOrControl: 'Cmd/Ctrl', Alt: 'Opt', Shift: 'Shift' }
+  : { CommandOrControl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' }
+
+// 수식키가 아닌 실제 키는 풀네임 대신 흔히 쓰는 약어/기호로 표시한다.
+const KEY_LABELS: Record<string, string> = {
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  Escape: 'Esc',
+  Delete: 'Del',
+  Backspace: '⌫',
+  Enter: '↵',
+  ' ': 'Space',
+  PageUp: 'PgUp',
+  PageDown: 'PgDn',
+}
+
+function formatAccelerator(accelerator: string): string {
+  if (!accelerator) return '해제됨'
+  return accelerator
+    .split('+')
+    .map((token) => MODIFIER_LABELS[token] ?? KEY_LABELS[token] ?? token)
+    .join('+')
+}
+
 export function SettingsScreen() {
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [apiKey, setApiKeyState] = useState('')
   const [keyEditing, setKeyEditing] = useState(false)
   const [keyVisible, setKeyVisible] = useState(false)
   const [recording, setRecording] = useState(false)
+  // 현재 provider 의 키 검증 결과(유효성 + 사용 가능 모델). 무과금 GET 기반.
+  const [validation, setValidation] = useState<ProviderValidation | null>(null)
+  const [validating, setValidating] = useState(false)
 
   const previewRef = useRef<HTMLDivElement>(null)
   const selRef = useRef<HTMLSpanElement>(null)
@@ -175,8 +237,33 @@ export function SettingsScreen() {
     window.nuance.getApiKey(settings.llm).then((k) => setApiKeyState(k ?? ''))
     setKeyEditing(false)
     setKeyVisible(false)
+    setValidation(null) // provider 가 바뀌면 이전 검증 결과 무효화
     // llm 이 바뀔 때만 다시 조회하면 된다(의도적으로 settings 전체가 아닌 llm 만 의존).
   }, [settings?.llm])
+
+  // provider 선택(키 있으면) + 키 입력/수정 시 → 디바운스 후 무과금 검증(유효성 + 모델 목록).
+  useEffect(() => {
+    const provider = settings?.llm
+    const key = apiKey.trim()
+    if (!provider || !key) {
+      setValidation(null)
+      setValidating(false)
+      return
+    }
+    let active = true
+    setValidating(true)
+    const t = setTimeout(() => {
+      void window.nuance.validateProvider(provider, key).then((v) => {
+        if (!active) return
+        setValidation(v)
+        setValidating(false)
+      })
+    }, 500)
+    return () => {
+      active = false
+      clearTimeout(t)
+    }
+  }, [settings?.llm, apiKey])
 
   // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 미리보기가 처음 뜰 때 1회만.
   // (바이트 값을 바꿀 때는 스크롤을 건드리지 않아 사용자가 보던 위치를 유지한다.)
@@ -261,10 +348,7 @@ export function SettingsScreen() {
         <button className="icon-btn back" onClick={() => goto('main')}>
           ←
         </button>
-        <div>
-          <h1>설정</h1>
-          <p>AI 기능 및 단축키를 설정하고 관리하세요.</p>
-        </div>
+        <h1>설정</h1>
       </div>
 
       {/* LLM 및 API 키 */}
@@ -282,8 +366,14 @@ export function SettingsScreen() {
                 className={`provider-card${active ? ' active' : ''}`}
                 onClick={() => void patch({ llm: p })}
               >
-                {active && <span className="check">✓</span>}
-                <span className="icon">{info.icon}</span>
+                {active && (
+                  <span className="check">
+                    <CheckIcon />
+                  </span>
+                )}
+                <span className="icon">
+                  <ProviderLogo provider={p} />
+                </span>
                 <span className="label">{info.label}</span>
               </button>
             )
@@ -309,29 +399,61 @@ export function SettingsScreen() {
                   onClick={() => setKeyVisible((v) => !v)}
                   title={keyVisible ? '숨기기' : '보기'}
                 >
-                  {keyVisible ? '🙈' : '👁'}
+                  {keyVisible ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
               </div>
             </div>
             <div className="apikey-actions">
-              <button type="button" className="btn-outline" onClick={() => setKeyEditing(true)}>
-                ✏️ 수정
-              </button>
-              <button
-                type="button"
-                className="btn-outline danger"
-                onClick={() => void deleteKey()}
-                disabled={!apiKey}
-              >
-                🗑 삭제
-              </button>
+              <EditDeleteGroup
+                onEdit={() => setKeyEditing(true)}
+                onDelete={() => void deleteKey()}
+                deleteTitle="API 키 삭제"
+                deleteDisabled={!apiKey}
+              />
             </div>
+          </div>
+        )}
+
+        {/* 키 검증 상태 + 사용 모델 선택 (무과금 GET 기반) */}
+        {settings.llm && apiKey.trim() && (
+          <div className="provider-status">
+            {validating ? (
+              <span className="muted">API 키 확인 중…</span>
+            ) : validation?.ok ? (
+              <>
+                <span className="ok">
+                  <CheckIcon /> 유효한 키 · 사용 가능 모델 {validation.models.length}개
+                </span>
+                <label className="model-select">
+                  <span>사용 모델</span>
+                  <select
+                    value={settings.models[settings.llm] ?? ''}
+                    onChange={(e) =>
+                      void patch({
+                        models: { ...settings.models, [settings.llm!]: e.target.value },
+                      })
+                    }
+                  >
+                    <option value="">Default ({DEFAULT_MODELS[settings.llm]})</option>
+                    {validation.models.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : validation ? (
+              <span className="err">
+                <WarnIcon /> {validationMessage(validation.error)}
+              </span>
+            ) : null}
           </div>
         )}
 
         {!aiReady && (
           <div className="settings-warning">
-            ⚠️{' '}
+            <WarnIcon />{' '}
             {settings.llm
               ? 'API 키가 입력되지 않아 AI 관련 기능(발음·사전·통합 질문)을 사용할 수 없습니다.'
               : '사용할 LLM을 선택하고 API 키를 입력해야 AI 관련 기능을 사용할 수 있습니다.'}
@@ -339,7 +461,7 @@ export function SettingsScreen() {
         )}
 
         <div className="settings-note">
-          🔒 API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
+          <LockIcon /> API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
         </div>
       </section>
 
@@ -348,24 +470,27 @@ export function SettingsScreen() {
         <h2>단축키 설정</h2>
         <p className="desc">일반 모드와 선택 모드를 전환하는 단축키를 지정하세요.</p>
         <div className="shortcut-row">
-          <span className="label">⌨️ 모드 전환 (일반 ↔ 선택)</span>
+          <span className="label">모드 전환 (일반 ↔ 선택)</span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recording ? ' recording' : ''}`}>
-              {recording ? '수식키+키 입력 (Esc 취소)' : settings.modeShortcut}
+              {recording ? '수식키+키 입력 (Esc 취소)' : formatAccelerator(settings.modeShortcut)}
             </span>
-            <button type="button" className="btn-outline" onClick={() => setRecording(true)}>
-              ✏️ 변경
-            </button>
+            <EditDeleteGroup
+              onEdit={() => setRecording(true)}
+              onDelete={() => void patch({ modeShortcut: '' })}
+              deleteTitle="단축키 해제"
+              deleteDisabled={!settings.modeShortcut}
+            />
           </div>
         </div>
         <div className="settings-note">
-          ⌨️ 설정한 단축키를 누를 때마다 일반 모드와 선택 모드가 전환됩니다.
+          <KeyboardIcon /> 설정한 단축키를 누를 때마다 일반 모드와 선택 모드가 전환됩니다.
         </div>
       </section>
 
-      {/* AI 주변 범위(Byte) */}
+      {/* 문맥 범위(Byte) */}
       <section className="settings-section">
-        <h2>AI 주변 범위 (Byte)</h2>
+        <h2>문맥 범위 (Byte)</h2>
         <p className="desc">
           선택한 표현을 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
           전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
@@ -409,7 +534,7 @@ export function SettingsScreen() {
             <span className="swatch selected" /> 사용자 선택 영역
           </span>
           <span>
-            <span className="swatch context" /> 바이트 범위
+            <span className="swatch range" /> 바이트 범위
           </span>
           <span>
             <span className="swatch extend" /> 문장 경계 확장
@@ -427,12 +552,12 @@ export function SettingsScreen() {
           {seg(PREVIEW_TEXT.slice(range.extEnd), 'excluded', 'e2')}
         </div>
         <div className="settings-note">
-          ℹ️ 설정 앞 {settings.contextBytesBefore} · 뒤 {settings.contextBytesAfter} Byte → 문장 경계
-          확장 포함 실제 약 {includedBytes} Byte 가 문맥으로 전달됩니다.
+          <InfoIcon /> 설정 앞 {settings.contextBytesBefore} · 뒤 {settings.contextBytesAfter} Byte →
+          문장 경계 확장 포함 실제 약 {includedBytes} Byte 가 문맥으로 전달됩니다.
         </div>
         <div className="settings-note cost">
-          💸 범위를 넓게 잡을수록 AI가 문맥을 더 잘 이해하지만, 전달 텍스트가 늘어 요청 비용도
-          증가합니다.
+          <InfoIcon /> 범위를 넓게 잡을수록 AI가 문맥을 더 잘 이해하지만, 전달 텍스트가 늘어 요청
+          비용도 증가합니다.
         </div>
       </section>
 

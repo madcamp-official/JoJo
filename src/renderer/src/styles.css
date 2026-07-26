@@ -10,10 +10,21 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
 
+/* 클릭 가능한 요소 위에서 커서 모양 변경(전역) — 개별 지정 누락분까지 커버.
+   텍스트 입력(input[type=text]/textarea)은 제외되어 기존 텍스트 커서 유지. */
+button:not(:disabled), select, a,
+input[type='checkbox'], input[type='radio'], input[type='range'] { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
 .screen { width: 100vw; height: 100vh; }
 
 .main-screen { display: grid; place-items: center; position: relative; }
-.main-screen .icon-btn.settings { position: absolute; top: 16px; right: 16px; }
+.main-screen .icon-btn.settings {
+  position: absolute; top: 16px; right: 16px;
+  background: none; border: none; cursor: pointer; color: inherit;
+  font-size: 22px; line-height: 1; padding: 4px;
+}
+.main-screen .icon-btn.settings:hover { opacity: 0.7; }
 .main-screen .center { text-align: center; }
 .main-screen .primary {
   padding: 18px 40px; font-size: 18px; color: var(--theme-text);
@@ -128,7 +139,6 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 .settings-header .icon-btn.back:hover { background: #eceef2; }
 .settings-header h1 { font-size: 20px; margin: 0; }
-.settings-header p { font-size: 13px; color: #6b7280; margin: 2px 0 0; }
 
 .settings-section {
   background: #fff; border: 1px solid #e6e8ec; border-radius: 12px;
@@ -159,6 +169,23 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 .apikey-row { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+.provider-status {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  margin-top: 10px; font-size: 12px;
+}
+.provider-status .muted { color: #8b93a1; }
+.provider-status .ok { color: #15803d; }
+.provider-status .err { color: #b91c1c; }
+.provider-status .model-select { display: flex; align-items: center; gap: 6px; color: #4b5563; }
+.provider-status .model-select select {
+  padding: 5px 8px; border: 1px solid #dbe0e6; border-radius: 8px;
+  font-size: 12px; font-family: inherit; background: #fff; color: #1e2230; max-width: 260px;
+}
+/* 인라인 SVG 아이콘 ↔ 텍스트 세로 정렬 */
+.provider-status .ok, .provider-status .err { display: inline-flex; align-items: center; gap: 4px; }
+.settings-warning { display: flex; align-items: flex-start; gap: 6px; }
+.settings-warning svg, .settings-note svg { flex-shrink: 0; margin-top: 1px; }
+.apikey-field .toggle-visibility { display: inline-flex; align-items: center; justify-content: center; }
 .apikey-main { flex: 1; min-width: 0; }
 .apikey-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .apikey-row label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 6px; }
@@ -172,22 +199,13 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
   background: none; border: none; cursor: pointer; color: #8b93a1; font-size: 15px;
 }
-.btn-outline {
-  display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px;
-  border-radius: 8px; border: 1px solid #dbe0e6; background: #fff; color: #374151;
-  font-size: 13px; cursor: pointer; white-space: nowrap;
-}
-.btn-outline:hover { background: #f4f6fa; }
-.btn-outline.danger { color: #dc2626; border-color: #f3c9c9; }
-.btn-outline.danger:hover { background: #fdf1f1; }
-.btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
-
 .shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .shortcut-row .label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .shortcut-control { display: flex; gap: 8px; align-items: center; }
 .shortcut-keys {
   min-width: 96px; text-align: center; padding: 8px 14px; border-radius: 8px;
   border: 1px solid #dbe0e6; background: #f6f7f9; font-size: 13px; font-family: ui-monospace, monospace;
+  white-space: nowrap;
 }
 .shortcut-keys.recording { border-color: var(--theme); color: var(--theme); background: var(--theme-weak); }
 
@@ -218,7 +236,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .byte-preview-legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
 .swatch.excluded { background: #e5e7eb; }
 .swatch.selected { background: var(--theme); }
-.swatch.context { background: var(--theme-weak); border: 1px solid var(--theme); }
+.swatch.range { background: var(--theme-weak); border: 1px solid var(--theme); }
 .swatch.extend { background: color-mix(in srgb, #2f6bff 20%, white); border: 1px solid #2f6bff; }
 .byte-preview {
   position: relative; /* selected-span offsetTop 기준(스크롤 자동 이동) */
@@ -292,14 +310,14 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .ctx-label { font-size: 12px; font-weight: 600; color: #374151; }
 .ctx-hint { font-size: 11px; color: #8b93a1; }
 .ctx-text {
-  line-height: 1.7; max-height: 128px; overflow-y: auto;
+  line-height: 1.7; white-space: pre-wrap;
   user-select: none; cursor: text; color: #4b5563;
 }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
   background: var(--theme); color: var(--theme-text);
-  border-radius: 0; padding: 0;
+  border-radius: 0;
 }
 /* 툴바 */
 .toolbar {
@@ -307,14 +325,8 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 .llm-badge {
   font-size: 12px; padding: 3px 8px; border-radius: 6px;
-  background: var(--theme-weak); color: var(--theme);
+  color: #4b5563;
 }
-.toolbar .chk {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 13px; padding: 3px 8px; border-radius: 6px;
-  background: #fff; border: 1px solid #dbe0e6; cursor: pointer; user-select: none;
-}
-.toolbar .chk.on { background: var(--theme-weak); color: var(--theme); border-color: var(--theme); }
 .tb-spacer { flex: 1; }
 .tb-btn {
   display: inline-flex; align-items: center; gap: 4px;
@@ -322,20 +334,8 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   background: #fff; color: #374151; border: 1px solid #dbe0e6; cursor: pointer;
 }
 .tb-btn:hover { background: #f4f6fa; }
+.tb-btn:disabled { opacity: 0.5; cursor: default; }
 .google-icon { flex-shrink: 0; }
-.lang-tag { font-size: 11px; color: #8b93a1; }
-
-/* 발음/사전 결과 */
-.info-panel {
-  display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
-  background: #fff; border: 1px solid #e6e8ec; border-radius: 8px; padding: 8px 10px;
-}
-.info-row { display: flex; gap: 8px; font-size: 13px; align-items: baseline; }
-.info-tag {
-  font-size: 11px; padding: 1px 6px; border-radius: 4px;
-  background: var(--theme-weak); color: var(--theme); flex-shrink: 0;
-}
-.info-row .muted { color: #8b93a1; }
 
 /* 채팅 */
 .chat {
@@ -382,7 +382,17 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;
 }
 .freq-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.freq-item { display: flex; align-items: center; gap: 4px; }
+.freq-item {
+  display: flex; align-items: center; gap: 4px;
+  border-top: 2px solid transparent; border-bottom: 2px solid transparent;
+}
+.freq-item.dragging { opacity: 0.5; }
+.freq-item.drag-over { border-top-color: var(--theme); }
+.drag-handle {
+  flex-shrink: 0; color: #c3c8d1; font-size: 13px; cursor: grab; padding: 2px 2px;
+  line-height: 1;
+}
+.drag-handle:active { cursor: grabbing; }
 .freq-ask {
   flex: 1; text-align: left; min-width: 0;
   background: #fff; border: 1px solid #dbe0e6; border-radius: 6px;
@@ -395,8 +405,16 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   flex: 1; background: #fff; border: 1px solid var(--theme); border-radius: 6px;
   color: #1e2230; padding: 6px 10px; font: inherit; font-size: 12px;
 }
-.icon-mini {
-  background: none; border: none; color: #8b93a1; cursor: pointer; font-size: 13px; padding: 2px 4px;
+/* 수정/삭제 아이콘 버튼 쌍(EditDeleteGroup) — 앱 전역 공용 */
+.edit-delete-group {
+  display: inline-flex; align-items: stretch; flex-shrink: 0;
+  border: 1px solid #dbe0e6; border-radius: 8px; overflow: hidden; background: #fff;
 }
-.icon-mini:hover:not(:disabled) { color: #1e2230; }
-.icon-mini:disabled { color: #d1d5db; cursor: default; }
+.edg-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 26px; background: none; border: none; cursor: pointer; color: #6b7280;
+}
+.edg-btn:hover:not(:disabled) { background: #f4f6fa; color: #1e2230; }
+.edg-btn.danger:hover:not(:disabled) { background: #fdf1f1; color: #dc2626; }
+.edg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.edg-divider { width: 1px; background: #dbe0e6; }

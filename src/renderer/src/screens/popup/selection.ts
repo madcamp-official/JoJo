@@ -1,4 +1,5 @@
 import type { ExtractedSelection, SelectionContext, Word } from '@shared/types'
+import { computeParagraphContextRange } from '@shared/context'
 
 // ============================================================================
 // 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §4.1 "팝업 내 범위 지정")
@@ -28,6 +29,42 @@ export interface PopupSelectionModel {
   initialTo: number
 }
 
+// 팝업 원문 문맥 표시 범위 — 선택 앞뒤 각 512 바이트.
+// 순수 바이트 경계에서 문장이 잘리면 가장 가까운 문장 경계까지 더 넣어서 보여주고,
+// 원문이 그만큼 없으면(문서 시작/끝 근처) 있는 만큼만 보여준다 — @shared/context 공유 로직.
+const DISPLAY_CONTEXT_BYTES_BEFORE = 512
+const DISPLAY_CONTEXT_BYTES_AFTER = 512
+
+// 문단(줄바꿈) 시작에 넣는 들여쓰기 — 설정 화면 미리보기(SettingsScreen.tsx PREVIEW_TEXT)와
+// 동일한 1칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
+// 없을 때만 넣어서 "있으면 그대로, 없으면 있는 것처럼 보이게" 만든다.
+const PARAGRAPH_INDENT = ' '
+
+/**
+ * displayText 의 각 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를 삽입된 만큼 보정해
+ * 반환한다. 창이 문단 경계로 확장돼 있어(computeParagraphContextRange) 첫 줄도 항상
+ * 진짜 문단 시작이므로 예외 없이 모든 줄을 대상으로 한다.
+ */
+function indentParagraphs(
+  text: string,
+  selStart: number,
+  selEnd: number,
+): { text: string; selStart: number; selEnd: number } {
+  const paragraphs = text.split('\n')
+  let newSelStart = selStart
+  let newSelEnd = selEnd
+  let offset = 0
+  const out = paragraphs.map((p) => {
+    const paraStart = offset
+    offset += p.length + 1 // +1 = 소비되는 '\n'
+    if (/^[ \t]/.test(p)) return p
+    if (paraStart <= selStart) newSelStart += PARAGRAPH_INDENT.length
+    if (paraStart <= selEnd) newSelEnd += PARAGRAPH_INDENT.length
+    return PARAGRAPH_INDENT + p
+  })
+  return { text: out.join('\n'), selStart: newSelStart, selEnd: newSelEnd }
+}
+
 // 영어 atom: 알파벳/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로 취급 →
 // "well-to-do" 는 well / to / do 세 atom, "left-hand" 는 left / hand 두 atom 이 된다.
 const WORD_ATOM_RE = /[A-Za-z0-9]+(?:['’][A-Za-z]+)*/g
@@ -44,9 +81,22 @@ function tokenizeAtoms(text: string): Atom[] {
 
 /** ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. */
 export function buildSelectionModel(extracted: ExtractedSelection): PopupSelectionModel {
-  const displayText = extracted.text
-  const selStart = extracted.anchor.start
-  const selEnd = extracted.anchor.end
+  // 원문 전체(extracted.text) 중 선택 앞뒤 512바이트(+문단 경계 확장)만 잘라서 보여준다.
+  const range = computeParagraphContextRange(
+    extracted.text,
+    extracted.anchor.start,
+    extracted.anchor.end,
+    DISPLAY_CONTEXT_BYTES_BEFORE,
+    DISPLAY_CONTEXT_BYTES_AFTER,
+  )
+  const windowedText = extracted.text.slice(range.extStart, range.extEnd)
+  const windowedSelStart = extracted.anchor.start - range.extStart
+  const windowedSelEnd = extracted.anchor.end - range.extStart
+  const { text: displayText, selStart, selEnd } = indentParagraphs(
+    windowedText,
+    windowedSelStart,
+    windowedSelEnd,
+  )
   const atoms = tokenizeAtoms(displayText)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.

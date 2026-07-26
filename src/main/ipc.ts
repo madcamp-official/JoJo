@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+import { ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
   AppSettings,
@@ -6,6 +6,7 @@ import type {
   ExtractedSelection,
   Language,
   LlmProvider,
+  ProviderValidation,
   QuestionRequest,
   Rect,
   SelectionContext,
@@ -20,6 +21,7 @@ import {
   getMainWindow,
   getOverlayMode,
   getPopupContext,
+  getPopupBounds,
   showMacSelectionOverlay,
   setMainWindowRoute,
   setOverlayInteractive,
@@ -31,7 +33,8 @@ import { getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
-import { googleImageUrl, googlePronunciationUrl } from './question/google'
+import { validateProvider } from './question/llm/validate'
+import { googleImageUrl, googlePronunciationUrl, openGoogleSearchInNewWindow } from './question/google'
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
@@ -115,7 +118,7 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.SETTINGS_SET, async (_e, patch: Partial<AppSettings>): Promise<AppSettings> => {
     const next = setSettings(patch)
     if (patch.llm) setActiveProvider(patch.llm)
-    if (patch.modeShortcut) updateModeShortcut(patch.modeShortcut)
+    if (patch.modeShortcut !== undefined) updateModeShortcut(patch.modeShortcut)
     return next
   })
 
@@ -141,6 +144,14 @@ export function registerIpc(): void {
     deleteApiKey(provider)
   })
 
+  // 담당 B: provider 키 검증 + 사용 가능 모델 조회 (무과금 GET, validate.ts)
+  ipcMain.handle(
+    IPC.PROVIDER_VALIDATE,
+    async (_e, provider: LlmProvider, apiKey: string): Promise<ProviderValidation> => {
+      return validateProvider(provider, apiKey)
+    },
+  )
+
   // 담당 B: 팝업 열기 (데모용 — ctx 없이 열면 렌더러가 목업으로 fallback)
   // 담당 A 통합 시엔 선택 파이프라인이 createPopupWindow(ctx) 를 직접 호출한다.
   ipcMain.handle(IPC.OPEN_POPUP, async () => {
@@ -152,8 +163,7 @@ export function registerIpc(): void {
     return getPopupContext()
   })
 
-  // 담당 B: 구글 발음/이미지 탭을 외부 브라우저로 연다
-  // TODO(담당 B): PLAN §4.2 "팝업 속 팝업" — 임베드형 구글 탭(BrowserWindow child)으로 고도화
+  // 담당 B: 구글 발음/이미지 검색 — 기본 브라우저의 새 창으로(팝업과 같은 위치·크기) 연다(google.ts)
   ipcMain.handle(
     IPC.OPEN_GOOGLE,
     async (_e, payload: { mode: 'pron' | 'image'; text: string; lang: Language }) => {
@@ -161,7 +171,7 @@ export function registerIpc(): void {
         payload.mode === 'pron'
           ? googlePronunciationUrl(payload.text, payload.lang)
           : googleImageUrl(payload.text)
-      await shell.openExternal(url)
+      await openGoogleSearchInNewWindow(url, getPopupBounds() ?? undefined)
     },
   )
 }

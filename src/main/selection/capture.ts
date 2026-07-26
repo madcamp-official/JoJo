@@ -1,5 +1,12 @@
 import { BrowserWindow, desktopCapturer, nativeImage } from 'electron'
+import { execFile } from 'node:child_process'
+import { readFile, unlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { CaptureSource } from '@shared/types'
+
+const execFileAsync = promisify(execFile)
 // win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
 // Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
 // → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
@@ -101,8 +108,9 @@ export function setSelectedWindowId(id: string | null): void {
 // 선택된 창을 프레임 캡처하여 OCR 입력용 이미지 버퍼(PNG) 반환.
 export async function captureFocusedWindow(): Promise<Buffer> {
   if (!selectedWindowId) throw new Error('captureFocusedWindow: 선택된 창 없음')
+  if (process.platform === 'darwin') return captureMacWindow(selectedWindowId)
   if (process.platform !== 'win32') {
-    throw new Error('captureFocusedWindow: win32 전용 (macOS 미구현)')
+    throw new Error('captureFocusedWindow: 지원하지 않는 플랫폼')
   }
 
   const hwnd = BigInt(selectedWindowId)
@@ -119,4 +127,23 @@ export async function captureFocusedWindow(): Promise<Buffer> {
   return nativeImage
     .createFromBitmap(shot.buffer, { width: shot.width, height: shot.height })
     .toPNG()
+}
+
+/**
+ * macOS 창 캡처 — 내장 `screencapture -l<windowID>` 로 대상 창을 네이티브 해상도 PNG 로 캡처한다
+ * (Windows 의 PrintWindow 와 동급 품질). desktopCapturer 썸네일보다 선명해 OCR 정확도가 높다.
+ * 화면 기록 권한이 필요하다(창 목록 표시에서 이미 요구됨). Retina 에선 물리 픽셀(2x)로 캡처되며,
+ * OCR bbox 의 배율 보정은 alignWordsToOverlay(mac 분기)에서 처리한다.
+ */
+async function captureMacWindow(sourceId: string): Promise<Buffer> {
+  const m = /^window:(\d+)/.exec(sourceId)
+  if (!m) throw new Error(`captureFocusedWindow: mac window id 파싱 실패 (${sourceId})`)
+  const out = join(tmpdir(), `nuance-capture-${process.pid}-${Date.now()}.png`)
+  // -x: 소리 없음, -o: 창 그림자 제외(창 프레임만), -t png: PNG, -l<id>: 해당 CGWindowID 창만
+  await execFileAsync('screencapture', ['-x', '-o', '-t', 'png', `-l${m[1]}`, out])
+  try {
+    return await readFile(out)
+  } finally {
+    void unlink(out).catch(() => {})
+  }
 }

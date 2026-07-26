@@ -118,9 +118,21 @@ export type LlmProvider = 'gpt' | 'gemini' | 'claude'
 export interface AppSettings {
   llm: LlmProvider | null // 사용자가 아직 고르지 않았으면 null (기본 provider 를 임의로 정하지 않는다)
   language: Language | 'auto'
-  modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑)
+  modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑). 빈 문자열 = 단축키 해제
   // 선택 앞/뒤로 포함할 문맥 바이트 예산(자유 지정). 실제로는 문장 경계까지 확장됨.
   contextBytesBefore: number
   contextBytesAfter: number
   contextBytesLinked: boolean // true 면 앞/뒤를 동일 값으로 사용
+  // provider 별 사용 모델(설정 화면 드롭다운으로 선택). 미지정 provider 는 DEFAULT_MODELS 사용.
+  models: Partial<Record<LlmProvider, string>>
+}
+
+/** provider 별 API 키 검증 결과 (설정 화면: 유효성 + 사용 가능 모델 목록). 무과금 GET 기반. */
+export interface ProviderValidation {
+  provider: LlmProvider
+  ok: boolean
+  /** ok=true 일 때 사용 가능한(채팅형) 모델 id 목록 */
+  models: string[]
+  /** ok=false 일 때 사유 — 렌더링용 QuestionErrorCode(invalid_api_key 등) */
+  error?: QuestionErrorCode
 }

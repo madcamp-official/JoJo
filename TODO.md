@@ -52,7 +52,10 @@
 - [ ] 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출
 - [ ] 언어 자동 감지 (유니코드 블록 기반 경량 분류) — 현재 `detectLanguage()`는 항상 `'en'` 반환하는 스텁.
 - [x] OCR 엔진 연동 — **범용 엔진(전체 언어 공통/자동감지용) + 언어별 최적 엔진(개별 특화) 이중 구조**로 결정.
-  - [x] 범용 엔진: **Tesseract.js** 채택 확정 및 연동 완료 — **Tesseract.js 자체(엔진)는 플랫폼 무관**이지만 입력 이미지를 만드는 `captureFocusedWindow()`가 **Windows 전용**이라 지금은 Windows에서만 실제로 동작함(macOS 캡처 구현되면 이 OCR 연동은 그대로 재사용 가능). `ocr.ts`: `captureFocusedWindow()`(win32 캡처 → PNG) → `createWorker` → `recognize(image, {}, {blocks:true})` → block/paragraph/line 을 평탄화해 단어별 bbox 추출. 언어별 워커를 재사용(언어 바뀌면 재생성)하고, `detectLanguage()`가 고른 `Language`로 traineddata를 선택. 실제 창 캡처 + OCR 로 검증됨(단, 언어 자동 감지가 스텁이라 항상 `eng` 모델 사용 — 한국어 등 미지원 언어 인식 시 깨진 텍스트가 나오는 게 정상, 언어 자동 감지 구현 후 해소).
+  - [x] 범용 엔진: **Tesseract.js** 채택 확정 및 연동 완료 — `ocr.ts`: `captureFocusedWindow()`(창 캡처 → PNG) → `createWorker` → `recognize(image, {}, {blocks:true})` → block/paragraph/line 을 평탄화해 단어별 bbox 추출. 언어별 워커를 재사용(언어 바뀌면 재생성)하고, `detectLanguage()`가 고른 `Language`로 traineddata를 선택. 실제 창 캡처 + OCR 로 검증됨(단, 언어 자동 감지가 스텁이라 항상 `eng` 모델 사용 — 한국어 등 미지원 언어 인식 시 깨진 텍스트가 나오는 게 정상, 언어 자동 감지 구현 후 해소).
+  - [x] **창 캡처 크로스플랫폼** — OCR 엔진(Tesseract)은 PNG 버퍼만 받으므로 플랫폼 무관, 캡처만 분기. Windows: win32 `PrintWindow`. **macOS: 내장 `screencapture -o -l<windowID>`**(`capture.ts`, 네이티브 해상도라 PrintWindow 동급 품질). mac 은 물리 픽셀(Retina 2x)이라 `alignWordsToOverlay`(`extractionCache.ts`) darwin 분기에서 bbox 를 `scaleFactor` 로 나눠 오버레이 DIP 에 정합. `screencapture -l` 실기기 동작 확인(760×460 창 → 1520×920 PNG).
+    - [ ] mac 실사용 검증 — 실제 선택모드에서 단어 hover/클릭 좌표가 정확히 맞는지(배율·프레임 미세보정 필요 여부) GUI 확인 필요. **화면 기록 권한** 최초 허용 + 앱 재시작 1회 필요.
+    - [ ] OCR 대상 영역 지정(바로 위 항목)은 아직 **Windows 전용** — 좌표 변환이 win32 API(`getCaptureOriginOffset` 등) 기반이라, mac 캡처가 붙었어도 영역 드래그 지정 자체는 mac에서 미구현 상태(전체 창 대상으로만 동작).
   - [ ] 언어별 특화 엔진: 영어/일본어/중국어 각각 Tesseract보다 더 정확한 전용 엔진이 있는지 벤치마킹 후 결정 (예: 중국어는 PaddleOCR 등) — 나중에 진행. 결정되면 언어별로 다른 엔진을 호출하도록 라우팅 필요(의존성 여러 개 추가되는 만큼 복잡도 증가 감안).
 - [x] 좌표 기반 노이즈 제거(제목·페이지번호·메뉴바·상태표시줄) — **1차(위치 휴리스틱)만 구현, 플랫폼 무관**(`ocr.ts: removeNoise`, 순수 JS 로직, 어떤 OS든 캡처+OCR 결과에 동일하게 적용 가능). 캡처 한 장의 세로 범위 기준 위/아래 5% 여백 안에서 세 규칙 적용: (1) 순수 숫자 토큰 → 페이지 번호/글자 수로 보고 제거, (2) 하단 한정으로 "자/글자/words/Ln/Col" 등 상태표시줄 라벨 제거, (3) 상단에서 "같은 줄에 메뉴 단어(파일/편집/보기/File/Edit/View 등)가 2개 이상"인 줄만 메뉴바로 확정해 그 단어들만 제거 — 단어 1개만으로 판단하면 본문에 "File" 같은 흔한 단어가 우연히 여백에 걸렸을 때 잘못 지워질 위험이 있어서, "메뉴바는 여러 항목이 한 줄에 나란히 있다"는 구조로 보강(같은 줄 판정은 단어 높이를 line bbox 로 통일해둔 덕에 y/height 값만으로 그룹핑). ~~제목 제거~~는 여전히 미구현 — 여백에 있다고 전부 지우면 여백 없이 본문이 가장자리부터 시작하는 창에서 실제 본문까지 날아갈 위험이 커서 이번에도 제외. 캡처 1장만으로 판단하는 한계상 정확도는 높지 않고, 언어별 메뉴 단어 목록도 한/영만 있음(다른 언어 추가 시 목록 보강 필요). 더 정확한 판별(제목 포함)은 여러 캡처에 걸쳐 같은 위치에 반복되는 텍스트를 찾는 2차 방식(반복 기반) 필요 — 캡처 히스토리 저장 구조가 없어서 별도 작업.
 - [ ] 반복 기반 노이즈 제거(2차) — 같은 창을 여러 번 캡처했을 때 같은 위치에 반복되는 텍스트(헤더/워터마크 등)를 찾아 제거. 1차(위치 휴리스틱)보다 정확하지만 최근 캡처 몇 개를 기억해두는 히스토리 저장소가 새로 필요하고, 첫 캡처에는 비교 대상이 없어 효과가 없음(재진입을 몇 번 해야 누적됨) — 1차와 병행해서 보완하는 형태로 나중에 추가 예정.
@@ -79,6 +82,8 @@
 - [ ] 팝업 내 범위 지정 — 영어=단어(atom) 단위는 구현(`popup/selection.ts`, 하이픈 단어 조각별 선택 포함). **일·중 문자 단위 미구현**(atom 규칙만 언어별로 분기하면 됨)
 - [x] ~~클릭(단어) vs 드래그(범위) 구분 — `popup/ContextView.tsx` 가 mousedown+mouseenter+전역 mouseup 으로 처리(클릭=단일 atom, 드래그=범위)~~
 - [x] ~~최종 선택 확정 + 앞뒤 문맥(preceding/following) 구성 → `SelectionContext` 생성 (`popup/selection.ts` `deriveContext`)~~
+- [x] ~~팝업 원문 문맥 표시 범위를 선택 앞뒤 각 512바이트로 제한 — `buildSelectionModel`(`popup/selection.ts`)이 A가 넘긴 추출 텍스트 전체를 그대로 보여주던 것을, `@shared/context.ts` `computeContextRange` 로 앞뒤 512바이트(+문장 경계까지 확장, 부족하면 있는 만큼만) 잘라 표시하도록 변경. 데모 목업(`popup/mockSelection.ts`)도 문장 수 기반 사전 트리밍을 없애고 원문 전체를 넘기도록 정리해 동일 로직을 그대로 시연~~
+- [x] ~~문장 경계 판정이 영어 약어·이니셜·소수점·줄임표(`Mr.`/`e.g.`/`i.e.`/`U.S.`/`3.14`/`J. K.`/`...`)의 `.`을 문장 끝으로 오인해 LLM 문맥·팝업 표시 범위가 조기에 잘리던 문제 수정 — `@shared/context.ts` `isAbbreviationDot`. CJK 종결부호(`。！？…`)는 영향 없음~~
 
 <a id="b-llm"></a>
 
@@ -88,7 +93,8 @@
 - [x] ~~어댑터가 `history: ChatTurn[]`을 받아 요청에 이어붙임 (`askLlm`/`buildRequest`, `llm/adapter.ts`)~~
 - [x] ~~문맥 프롬프트 구성 + 프롬프트 캐싱(비용 절감)~~
 - [x] ~~API 키 무효 / 크레딧(사용 한도) 소진 / 요청 과다 / 네트워크 오류를 구분하는 에러 체계 — `QuestionError`(`shared/types.ts`), `question/errors.ts`(메시지), `question/llm/errors.ts`(HTTP 상태코드 분류). UI 렌더링은 미구현(아래 UI 항목)~~
-- [ ] provider별 실제 사용 모델 확정 — 현재 `DEFAULT_MODELS`(`llm/adapter.ts`)의 기본값은 gpt: `gpt-4o`, gemini: `gemini-pro-latest`, claude: `claude-sonnet-5`(모두 예시 placeholder, 확정 아님). 구현 시점에 모델을 고정할지, 설정 화면에서 사용자가 선택하게 할지 결정 필요
+- [x] ~~provider별 실제 사용 모델 확정 — **설정 화면에서 사용자가 선택**하도록 결정·구현. API 키 입력/수정·provider 선택 시 무과금 GET(`question/llm/validate.ts`)으로 유효성 검사 + 사용 가능 모델 목록을 받아 드롭다운으로 고르게 함. 선택값은 `AppSettings.models[provider]` 에 저장되고 `buildRequest()` 가 `settings.models[provider] ?? DEFAULT_MODELS[provider]` 로 사용. `DEFAULT_MODELS`(gpt: `gpt-4o`, gemini: `gemini-pro-latest`, claude: `claude-sonnet-5`)는 미선택 시 fallback 으로만 남김~~
+- [x] ~~API 키 유효성 검사 + 사용 모델 드롭다운 — IPC `PROVIDER_VALIDATE`(`validateProvider`) 로 provider별 models 엔드포인트 호출(OpenAI `/v1/models`, Gemini `/v1beta/models`, Anthropic `/v1/models`). **무과금 GET**(토큰 미소비)이라 유효성+모델목록만 확인. 401/403 → 유효하지 않은 키로 분류(`classifyLlmError`). 설정 화면은 0.5초 디바운스 후 호출하고 상태(확인중/유효/에러)+모델 `<select>` 표시. **잔액/크레딧 조회는 세 provider 모두 공개 API 부재로 제외** — 크레딧 부족은 실제 질문 시 에러 배너로 안내~~
 - [ ] 비용 고려사항 — 현재 `buildRequest()`가 `history` 전체를 매 요청마다 잘라내기/요약 없이 재전송함(`llm/adapter.ts`). 팝업 세션이 길어질수록 요청당 input 토큰이 선형 증가.
   - [ ] 대화 history 길이 제한 정책 결정 (예: 최근 N턴만 유지, 또는 초과 시 요약으로 압축)
   - [ ] 프롬프트 캐싱을 `cacheableContext`(선택 근방 문맥) 외에 대화 history에도 적용할지 검토 — 현재는 Claude의 `cache_control: ephemeral`도 문맥 블록에만 적용, history 메시지 배열은 캐싱 대상 아님
@@ -99,22 +105,23 @@
 <a id="b-feature"></a>
 
 **질문 기능**
-- [ ] 발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — **스텁만 존재**(`question/pronunciation.ts` 가 빈 문자열 반환). LLM 프롬프트 연동 미구현
+- [x] ~~발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — `question/pronunciation.ts` 가 전용 시스템 프롬프트(`prompts/pronunciation.txt`)로 `llm/adapter.ts` `streamLlm`(구 `askLlm` 오케스트레이션을 'ask'/'pronunciation' 공용으로 일반화)을 호출해 문맥 기반 발음을 스트리밍 반환. 언어별 표기 체계는 `shared/languages.ts` `pronunciationNotation`에 등록~~
 - [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑 — **스텁만 존재**(`question/dictionary.ts` 가 빈 문자열 반환)
   - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
 - [x] ~~자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화 — `popup/FrequentQuestions.tsx`. main 프로세스 `userData/frequent.json` 에 파일 저장(`main/frequentStore.ts` + IPC `FREQUENT_GET`/`SET`, 렌더러는 `popup/frequentStore.ts` 얇은 래퍼). localStorage 임시 저장에서 이전 완료 → 재시작·재설치 후 유지~~
-- [ ] 구글 검색 — 발음/이미지 탭을 **외부 브라우저로 여는 것까지 구현**(`question/google.ts`, `ipc.ts` `OPEN_GOOGLE` → `shell.openExternal`). PLAN §4.2 "팝업 속 팝업"(임베드형 `BrowserWindow` child) 고도화는 미구현
+- [ ] 구글 검색 — 발음/이미지 탭을 **외부 브라우저로 여는 것까지 구현**(`question/google.ts`, `ipc.ts` `OPEN_GOOGLE`). macOS는 `openGoogleSearchInNewWindow`가 `shell.openExternal` 대신 `open -n <url>`(execFile)로 열어 기존 브라우저 창의 새 탭이 아니라 새 창으로 뜨게 함(다른 OS는 `shell.openExternal` 폴백). PLAN §4.2 "팝업 속 팝업"(임베드형 `BrowserWindow` child) 고도화는 미구현
 
 <a id="b-ui"></a>
 
 **UI · 설정**
 - [x] ~~팝업 화면: 원문 + 툴바(발음·사전 체크박스 / 입력 / 구글) + 채팅 + 자주쓰는질문 (`PopupScreen.tsx` + `popup/*`)~~
+- [x] ~~팝업 UI 다듬기 — 창 크기를 설정 창과 통일(1200×800), 다크→라이트 모드 전환(설정 화면과 동일 팔레트), 선택 하이라이트가 atom·gap 조각마다 라운드가 있어 끊겨 보이던 것을 이어지게 수정, 원문 문맥 박스 내부 스크롤을 없애고 텍스트 양만큼 자동으로 높이 확장, 구글 로고를 발음/이미지 버튼 왼쪽에 배치, 자주 쓰는 질문 순서를 드래그(HTML5 DnD)로 변경(`popup/FrequentQuestions.tsx`)~~
 - [x] ~~채팅 세션 상태 유지 — 팝업 = 1세션. `PopupScreen.tsx` 가 `messages` 상태를 누적하고 `question()` 호출 시 `history: ChatTurn[]`(에러 메시지 제외)를 함께 전달~~
-- [x] ~~발음·사전 체크박스 토글 동작 (`popup/Toolbar.tsx` + `PopupScreen.tsx` `togglePron`/`toggleDict`; 선택 변경 시 결과 리셋). 단 결과 내용은 발음/사전 스텁이라 비어 있음~~
+- [x] ~~발음·사전 버튼 — 토글이 아니라 원샷 액션(`popup/Toolbar.tsx` `onPron`/`onDict` + `PopupScreen.tsx` `askPronunciation`/`askDictionary`). 누르면 즉시 채팅에 고정 라벨('발음 질문'/'사전 검색')로 질문이 남고 답변이 다른 채팅 메시지와 동일하게 스트리밍됨. 발음은 LLM 연동 완료, 사전은 아직 스텁이라 빈 답변~~
 - [x] ~~스트리밍 렌더 (`QUESTION_STREAM` 수신) — `PopupScreen.tsx` `onQuestionStream` 구독 후 진행 중 말풍선에 델타 append, `popup/Chat.tsx` 가 커서 표시~~
 - [x] ~~에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별 안내. `popup/Chat.tsx` 가 `errorTitle(code)` 로 배너 렌더, `PopupScreen.tsx` `InfoRow` 도 에러 렌더. (재시도/설정 이동 버튼은 미구현)~~
-- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / AI 주변 범위(Byte) / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소). Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유)~~
+- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / 문맥 범위(Byte) / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소). Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유). API 키 섹션엔 **유효성 검사 상태 + 사용 모델 드롭다운**(위 B-llm 항목) 포함~~
 - [x] ~~API 키 `safeStorage` 암호화 저장·로드 영속화 — `keyStore.ts`, `userData/apikeys.json`(암호문 base64)~~
 - [x] ~~앱 설정 영속화 (파일 저장) — `settingsStore.ts`, `userData/settings.json`~~
 
@@ -127,7 +134,7 @@
 - [x] ~~`SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 → 실연결) — `SELECTION_EXTRACTED`/`QUESTION_REQUEST`/`QUESTION_STREAM` 실동작~~
 - [ ] 메인/피커/설정 창 통합 — 세 화면이 동시에 보일 필요가 없어 별도 창(피커·설정) 대신 메인 창 하나를 리사이즈(`windows.ts: setMainWindowRoute`/`navigateMainWindow`)해 재사용하도록 변경(`feat/settings-screen`). 전환 시 항상 창을 중앙 정렬하며, 애니메이션 없이 즉시 크기 변경(다른 창이 뜬 것처럼 보이지 않게)
 - [x] ~~IPC 허브 A→B 실연결 — 선택 파이프라인(A) → 팝업/질문(B) 이 `ipc.ts` 허브를 통해 실동작(오버레이 클릭 → 팝업 오픈 → 질문 스트리밍)~~
-- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문 — ⚠️ 현재 실경로는 **Windows 위주**(선택 오버레이 추적·직접추출 `readWindowText`·창 캡처가 win32). macOS 는 오버레이 테두리/창 raise 는 되지만 직접추출은 미구현(항상 OCR), OCR 캡처 경로 별도 점검 필요. PDF 직접추출 파서 자체도 아직 미구현
+- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문 — **선택모드 OCR 관통은 Windows·macOS 둘 다 됨**(mac 은 아래 OCR 항목 참고). 남은 건: **직접추출 경로**(`readWindowText` 접근성 API 는 win32 전용, mac 미구현) + **PDF 직접추출 파서 자체 미구현** → 현재는 양 플랫폼 모두 OCR 로만 텍스트를 얻는다. PDF 직접추출을 붙이면 관통 완성.
 - [x] ~~배포 패키징(electron-builder) — `electron-builder.yml`(appId `com.nuance`·productName `Nuance` 고정 → userData 경로 안정, 재설치/버전 업 후에도 설정·API 키·자주쓰는질문 유지). scripts: `pack:dir`(스모크) / `dist:mac`·`dist:win`·`dist:linux`. mac `--dir` 패키징 성공 확인(코드서명 없음: `identity: null`). 산출물은 `dist/`(gitignore)~~
   - [ ] 정식 배포 시 코드서명/공증 — mac: hardenedRuntime+notarize(Apple Developer 인증서), win: 서명 인증서. 현재는 사설 배포(미서명)라 Gatekeeper/SmartScreen 경고가 뜸
   - [ ] 앱 아이콘 교체 — 현재 `build/icon.png` 는 기존 256px 을 1024 로 업스케일한 임시본(정식 아이콘으로 교체 필요)

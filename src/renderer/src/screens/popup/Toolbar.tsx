@@ -1,14 +1,10 @@
-import type { Language } from '@shared/types'
-
 // 담당 B — 팝업 툴바 (PLAN.md §3/§4.2)
-// [발음]·[사전] 체크박스 토글 · 구글 발음/이미지 버튼. 통합 질문 입력은 하단 채팅 입력창.
+// [발음]·[사전] 버튼 — 누르면 즉시 채팅에 질문을 넣고 LLM 요청 · 구글 발음/이미지 버튼.
+// 통합 질문 입력은 하단 채팅 입력창.
 
 interface Props {
-  language: Language
-  pron: boolean
-  dict: boolean
-  onTogglePron: () => void
-  onToggleDict: () => void
+  onPron: () => void
+  onDict: () => void
   onGoogle: (mode: 'pron' | 'image') => void
   disabled?: boolean
 }
@@ -36,32 +32,30 @@ function GoogleIcon() {
   )
 }
 
-export function Toolbar({ language, pron, dict, onTogglePron, onToggleDict, onGoogle, disabled }: Props) {
+export function Toolbar({ onPron, onDict, onGoogle, disabled }: Props) {
   return (
     <div className="toolbar">
       <span className="llm-badge" title="사용 중인 AI 모델은 설정에서 선택합니다">
-        ✨ AI
+        AI
       </span>
 
-      <label className={`chk ${pron ? 'on' : ''}`}>
-        <input type="checkbox" checked={pron} disabled={disabled} onChange={onTogglePron} />
+      <button className="tb-btn" disabled={disabled} onClick={onPron}>
         발음
-      </label>
+      </button>
 
-      <label className={`chk ${dict ? 'on' : ''}`}>
-        <input type="checkbox" checked={dict} disabled={disabled} onChange={onToggleDict} />
+      <button className="tb-btn" disabled={disabled} onClick={onDict}>
         사전
-      </label>
+      </button>
 
       <span className="tb-spacer" />
 
+      <GoogleIcon />
       <button className="tb-btn" title="구글 발음 검색" onClick={() => onGoogle('pron')}>
-        🔊 발음 <GoogleIcon />
+        발음
       </button>
       <button className="tb-btn" title="구글 이미지 검색" onClick={() => onGoogle('image')}>
-        🖼 이미지 <GoogleIcon />
+        이미지
       </button>
-      <span className="lang-tag">{language.toUpperCase()}</span>
     </div>
   )
 }
