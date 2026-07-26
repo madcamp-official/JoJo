@@ -10,6 +10,9 @@ import { streamLlm } from './llm/adapter'
 
 const PRONUNCIATION_QUESTION = '[선택된 표현]의 문맥상 발음을 판정해 주세요.'
 
+// 형식이 고정된 판정 작업이라 낮은 temperature 로 응답 이탈(엉뚱한 토큰 삽입 등)을 줄인다.
+const PRONUNCIATION_TEMPERATURE = 0.2
+
 function buildPronunciationSystemPrompt(ctx: SelectionContext): string {
   const info = LANGUAGES[ctx.language]
   return renderPrompt(pronunciationPromptTemplate, {
@@ -29,5 +32,6 @@ export async function getPronunciation(
     PRONUNCIATION_QUESTION,
     [],
     onChunk,
+    PRONUNCIATION_TEMPERATURE,
   )
 }

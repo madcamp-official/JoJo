@@ -105,7 +105,7 @@
 <a id="b-feature"></a>
 
 **질문 기능**
-- [x] ~~발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — `question/pronunciation.ts` 가 전용 시스템 프롬프트(`prompts/pronunciation.txt`)로 `llm/adapter.ts` `streamLlm`(구 `askLlm` 오케스트레이션을 'ask'/'pronunciation' 공용으로 일반화)을 호출해 문맥 기반 발음을 스트리밍 반환. 언어별 표기 체계는 `shared/languages.ts` `pronunciationNotation`에 등록~~
+- [x] ~~발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — `question/pronunciation.ts` 가 전용 시스템 프롬프트(`prompts/pronunciation.txt`)로 `llm/adapter.ts` `streamLlm`(구 `askLlm` 오케스트레이션을 'ask'/'pronunciation' 공용으로 일반화)을 호출해 문맥 기반 발음을 스트리밍 반환. 언어별 표기 체계는 `shared/languages.ts` `pronunciationNotation`에 등록. 지역별 발음이 여러 개일 땐 `[미국]`/`[영국]`(영어), `[대륙]`/`[대만]`(중국어) 순으로 대괄호 라벨을 발음 앞에 붙이고, 근거(`근거:`)는 의미 중의성(품사·뜻 차이)을 판정해 발음을 좁힌 경우에만 작성 — 단순 지역/격식 변이거나 발음이 하나뿐이면 생략. `llm/adapter.ts` `LlmRequest.temperature` 를 추가해 GPT/Gemini/Claude 클라이언트 모두 전달하도록 배선하고, 발음 질문은 형식이 고정된 판정 작업이라 `temperature=0.2`로 낮춰 응답 이탈(문맥과 무관한 토큰 삽입 등)을 줄임(`pronunciation.ts` `PRONUNCIATION_TEMPERATURE`). `ask`(자유 질문)는 다양성을 위해 기본값 유지~~
 - [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑 — **스텁만 존재**(`question/dictionary.ts` 가 빈 문자열 반환)
   - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
@@ -115,21 +115,25 @@
 <a id="b-ui"></a>
 
 **UI · 설정**
-- [x] ~~팝업 화면: 원문 + 툴바(발음·사전 체크박스 / 입력 / 구글) + 채팅 + 자주쓰는질문 (`PopupScreen.tsx` + `popup/*`)~~
+- [x] ~~팝업 화면: 원문 + 툴바(발음·사전 버튼 / 입력 / 구글) + 채팅 + 자주쓰는질문 (`PopupScreen.tsx` + `popup/*`)~~
 - [x] ~~팝업 UI 다듬기 — 창 크기를 설정 창과 통일(1200×800), 다크→라이트 모드 전환(설정 화면과 동일 팔레트), 선택 하이라이트가 atom·gap 조각마다 라운드가 있어 끊겨 보이던 것을 이어지게 수정, 원문 문맥 박스 내부 스크롤을 없애고 텍스트 양만큼 자동으로 높이 확장, 구글 로고를 발음/이미지 버튼 왼쪽에 배치, 자주 쓰는 질문 순서를 드래그(HTML5 DnD)로 변경(`popup/FrequentQuestions.tsx`)~~
+- [x] ~~툴바 버튼 그룹 순서 반전 — 구글(발음/이미지) 그룹을 왼쪽, AI(발음/사전) 그룹을 오른쪽으로 배치 변경(`popup/Toolbar.tsx`). 구글 로고도 `AI` 배지와 동일한 `.llm-badge` 스타일(패딩·라운드)로 감싸 두 그룹의 배치감을 통일(`styles.css` `.llm-badge`에 `inline-flex` 정렬 추가)~~
 - [x] ~~채팅 세션 상태 유지 — 팝업 = 1세션. `PopupScreen.tsx` 가 `messages` 상태를 누적하고 `question()` 호출 시 `history: ChatTurn[]`(에러 메시지 제외)를 함께 전달~~
 - [x] ~~발음·사전 버튼 — 토글이 아니라 원샷 액션(`popup/Toolbar.tsx` `onPron`/`onDict` + `PopupScreen.tsx` `askPronunciation`/`askDictionary`). 누르면 즉시 채팅에 고정 라벨('발음 질문'/'사전 검색')로 질문이 남고 답변이 다른 채팅 메시지와 동일하게 스트리밍됨. 발음은 LLM 연동 완료, 사전은 아직 스텁이라 빈 답변~~
 - [x] ~~스트리밍 렌더 (`QUESTION_STREAM` 수신) — `PopupScreen.tsx` `onQuestionStream` 구독 후 진행 중 말풍선에 델타 append, `popup/Chat.tsx` 가 커서 표시~~
-- [x] ~~에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별 안내. `popup/Chat.tsx` 가 `errorTitle(code)` 로 배너 렌더, `PopupScreen.tsx` `InfoRow` 도 에러 렌더. (재시도/설정 이동 버튼은 미구현)~~
-- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / 문맥 범위(Byte) / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소). Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유). API 키 섹션엔 **유효성 검사 상태 + 사용 모델 드롭다운**(위 B-llm 항목) 포함~~
+- [x] ~~에러 배너/토스트 — `QuestionResult.error` 존재 시 `error.code`별 안내. `popup/Chat.tsx` 가 `errorTitle(code)` 로 배너 렌더(발음/사전도 채팅 메시지로 통합되면서 에러도 같은 경로로 렌더됨, 구 `InfoRow`는 제거됨). (재시도/설정 이동 버튼은 미구현)~~
+- [x] ~~설정 화면 5개 섹션: LLM 선택 / API 키(입력·보기·수정·삭제) / 단축키 / 문맥 범위(Byte, 구 "AI 주변 범위") / 언어 (`SettingsScreen.tsx`). API 키는 사진과 동일하게 현재 선택된 LLM 1개에 대해서만 표시. 단축키는 실제 keydown 캡처로 accelerator 문자열 생성(수식키 필수·F1~F12 예외·Esc 취소), OS별 표시·Cmd/Ctrl 이중 지원·해제는 위 공동 항목 참고. Byte 범위는 **자유 지정**(연속 슬라이더 + 숫자 입력, 상한 4096, `clampByte`)이며 **앞/뒤 예산 분리**(`contextBytesBefore`/`After` + `contextBytesLinked` 로 동일값 잠금) + 미리보기(`@shared/context` `computeContextRange` 공유). API 키 섹션엔 **유효성 검사 상태 + 사용 모델 드롭다운**(위 B-llm 항목) 포함~~
 - [x] ~~API 키 `safeStorage` 암호화 저장·로드 영속화 — `keyStore.ts`, `userData/apikeys.json`(암호문 base64)~~
 - [x] ~~앱 설정 영속화 (파일 저장) — `settingsStore.ts`, `userData/settings.json`~~
+- [x] ~~아이콘/UI 통일 정리 — 이모지(⌨️/ℹ️/💸/⚙️) 를 SVG 아이콘으로 교체, 항목별로 제각각이던 수정/삭제 버튼을 공용 `EditDeleteGroup`(`screens/EditDeleteGroup.tsx`, 연필+휴지통 아이콘 쌍)으로 통일해 자주 쓰는 질문·API 키·단축키에 동일 적용. 연필/휴지통/설정 톱니 아이콘은 손으로 그린 SVG 대신 `lucide-react`(Pencil/Trash2/Settings)로 교체(`screens/icons.tsx`). 눈(EyeOff) 아이콘의 슬래시 방향과 눈 윤곽 틈이 어긋나 구멍처럼 보이던 것도 수정~~
 
 <a id="공동"></a>
 
 ## 🤝 공동
-- [ ] 모드 전환 단축키 기본값 변경 — `Ctrl+1` → `Alt+Q`(macOS: Electron이 Option 키로 자동 매핑, Windows: Alt 그대로) 로 변경됨(`selection/shortcut.ts`, 설정 화면 요구사항 반영). 담당 A 항목("앱·윈도우·모드")의 "기본 Ctrl+1" 문구는 그대로 두었으니 참고해서 갱신 바람
-- [ ] (향후) 단축키 항목 확장 — 현재는 '모드 전환' 단축키 1개만 지원(`AppSettings.modeShortcut`, `selection/shortcut.ts` 의 `currentAccelerator` 단일 변수). 나중에 '선택창(picker) 전환'·'선택 해제' 등도 단축키로 지정하려면: (1) `AppSettings` 에 `pickerShortcut`/`deselectShortcut` 등 필드 추가, (2) `shortcut.ts` 등록 로직을 `Map<action, accelerator>` 로 일반화(액션별 register/unregister), (3) 각 액션 핸들러 연결(전환=picker 라우팅, 선택 해제=트레이 메뉴 동작 재사용), (4) 설정 화면 단축키 캡처 컴포넌트에 항목 추가. ⚠️ 전역 단축키(`globalShortcut`)라 상호/타앱 충돌 검증(`isRegistered()` 로 등록 실패 시 UI 안내) 필요. (A: 등록·핸들러 / B: `AppSettings` 확장·설정 UI)
+- [x] ~~모드 전환 단축키 기본값 변경 — `Ctrl+1` → `Alt+Q`(macOS: Electron이 Option 키로 자동 매핑, Windows: Alt 그대로) 로 변경 완료(`selection/shortcut.ts` 34행 등 문구 갱신됨)~~
+- [x] ~~단축키 macOS Cmd/Ctrl 둘 다 지원 + 해제 가능 — Electron 의 `CommandOrControl` 은 macOS 에서 Cmd 하나로만 고정 매핑돼 물리 Ctrl 키가 반응하지 않던 것을, `Control` 조합도 함께 등록해(`shortcut.ts` `expandAccelerator`) Cmd/Ctrl 둘 다 실제로 동작하게 함. 설정 화면 표시도 실제 동작에 맞춰 "Cmd/Ctrl"(그 외 OS는 "Ctrl")로 보여주고(`SettingsScreen.tsx` `formatAccelerator`), 방향키·Esc·Del 등도 흔한 약어/기호로 표시. 단축키 행이 `EditDeleteGroup`(연필=변경/휴지통=해제)으로 바뀌어 빈 문자열(해제 상태)로 설정 가능(`ipc.ts`/`updateModeShortcut` 이 빈 문자열도 처리하도록 수정)~~
+- [ ] (향후) 단축키 항목 확장 — 현재는 '모드 전환' 단축키 1개만 지원(`AppSettings.modeShortcut`, `selection/shortcut.ts` 의 `currentAccelerators`, macOS 에선 Cmd/Ctrl 이중 등록으로 배열). 나중에 '선택창(picker) 전환'·'선택 해제' 등도 단축키로 지정하려면: (1) `AppSettings` 에 `pickerShortcut`/`deselectShortcut` 등 필드 추가, (2) `shortcut.ts` 등록 로직을 `Map<action, accelerator[]>` 로 일반화(액션별 register/unregister), (3) 각 액션 핸들러 연결(전환=picker 라우팅, 선택 해제=트레이 메뉴 동작 재사용), (4) 설정 화면 단축키 캡처 컴포넌트에 항목 추가. ⚠️ 전역 단축키(`globalShortcut`)라 상호/타앱 충돌 검증(`isRegistered()` 로 등록 실패 시 UI 안내) 필요. (A: 등록·핸들러 / B: `AppSettings` 확장·설정 UI)
+- [x] ~~모든 창에 OS 수준 기본 우클릭 메뉴 — Electron 은 우클릭 메뉴를 자동으로 붙여주지 않아 지금까지 어느 창에서도 반응이 없던 것을, `electron-context-menu` 로 잘라내기/복사/붙여넣기·맞춤법 제안·macOS 찾아보기·서비스 메뉴까지 구성해 앱의 모든 창(메인/설정/팝업/오버레이)에 공통 적용(`main/contextMenu.ts`, `main/index.ts` `registerContextMenu()`)~~
 - [x] ~~A→B 경계 재정의(팝업 기준) 반영 — A는 '팝업 직전 추출 결과(근방 텍스트 + 단어 좌표 + 클릭 기준점)'를 `ExtractedSelection` 으로 넘기고, B가 팝업에서 최종 `SelectionContext` 를 확정. 경계 인터페이스·IPC 채널 실연결 완료(`shared/types.ts`, `SELECTION_EXTRACTED`)~~ (PLAN.md §7/§8 계약 문구 동기화는 별도 확인 권장)
 - [x] ~~`SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 → 실연결) — `SELECTION_EXTRACTED`/`QUESTION_REQUEST`/`QUESTION_STREAM` 실동작~~
 - [ ] 메인/피커/설정 창 통합 — 세 화면이 동시에 보일 필요가 없어 별도 창(피커·설정) 대신 메인 창 하나를 리사이즈(`windows.ts: setMainWindowRoute`/`navigateMainWindow`)해 재사용하도록 변경(`feat/settings-screen`). 전환 시 항상 창을 중앙 정렬하며, 애니메이션 없이 즉시 크기 변경(다른 창이 뜬 것처럼 보이지 않게)

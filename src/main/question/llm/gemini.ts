@@ -31,6 +31,8 @@ export function createGeminiClient(config: LlmConfig): LlmClient {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemText }] },
           contents,
+          generationConfig:
+            req.temperature !== undefined ? { temperature: req.temperature } : undefined,
         }),
       })
       await ensureOk(res, 'Gemini')
