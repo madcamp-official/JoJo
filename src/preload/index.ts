@@ -64,6 +64,14 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.EXTRACTION_WORDS, listener)
   },
 
+  // 화면 변화 감지로 백그라운드 재추출이 시작될 때 수신(changeWatcher.ts) — 끝나면
+  // onExtractionWords 가 다시 와서 "추출 중" 표시를 끈다.
+  onExtractionStarted: (cb: () => void): (() => void) => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.EXTRACTION_STARTED, listener)
+    return () => ipcRenderer.removeListener(IPC.EXTRACTION_STARTED, listener)
+  },
+
   // OCR 대상 영역 지정 — 메인이 오버레이에 드래그 선택을 요청(영역 없거나 "영역 재선택")
   onRegionSelectionNeeded: (cb: () => void): (() => void) => {
     const listener = () => cb()

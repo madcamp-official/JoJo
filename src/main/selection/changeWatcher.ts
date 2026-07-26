@@ -1,5 +1,5 @@
 import { nativeImage } from 'electron'
-import { sendOverlayWords } from '../windows'
+import { sendExtractionStarted, sendOverlayWords } from '../windows'
 import { captureFocusedWindow } from './capture'
 import { refreshExtractionCache } from './extractionCache'
 import { getRegion } from './regionSelection'
@@ -69,7 +69,7 @@ async function poll(): Promise<void> {
         // refreshExtractionCache 는 자체적으로 inFlight promise 를 최신 호출로 덮어써서,
         // 이 시점에 이전 추출이 진행 중이었더라도 그 결과는 캐시에 반영되지 않고
         // 이번 호출 결과만 반영된다("진행 중인 추출을 취소하고 새로 시작"과 동일한 효과).
-        // 별도 안내 배너 없이 조용히 갱신한다(sendOverlayWords 로 단어 박스만 갱신됨).
+        sendExtractionStarted() // 오버레이에 "텍스트 추출 중…" 표시(초기 진입 때와 동일한 배너)
         refreshExtractionCache()
       }, SETTLE_DELAY_MS)
     }
