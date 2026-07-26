@@ -225,7 +225,6 @@ button:disabled { cursor: not-allowed; }
   color: #4b5563; margin: 2px 0 14px; cursor: pointer; user-select: none;
 }
 .byte-link-toggle input { accent-color: var(--theme); }
-.settings-note.cost { color: #92400e; }
 .settings-warning {
   margin-top: 12px; padding: 10px 12px; border-radius: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
