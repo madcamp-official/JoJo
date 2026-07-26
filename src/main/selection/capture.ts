@@ -95,51 +95,41 @@ const BLANK_THUMBNAIL = nativeImage
   .toDataURL()
 
 /**
- * macOS 창 목록 — `desktopCapturer`(=`kCGWindowListOptionOnScreenOnly`) 대신
- * `listAllMacWindows`(`macWindow.ts`, `kCGWindowListExcludeDesktopElements`)로 열거해
- * 현재 Space 뿐 아니라 다른 가상 데스크탑(Space)에 있는 창도 목록에 올린다.
- * 각 창은 `screencapture -l<id>`(captureMacWindowById)로 썸네일을 얻는데, 다른 Space에
- * 있는 창은 이 캡처가 실패하거나 오래 걸릴 수 있어 타임아웃을 두고 실패 시 자리표시자
- * 썸네일로 대체한다(목록/선택 자체는 계속 가능하게 유지).
+ * macOS 창 목록 — 현재 Space(=on-screen)는 기존처럼 `desktopCapturer`로 빠르게 일괄
+ * 조회(썸네일 포함)하고, 거기 없는 창(다른 가상 데스크탑/Space에 있는 창)만
+ * `listAllMacWindows`(`macWindow.ts`, `kCGWindowListExcludeDesktopElements`)로 추가
+ * 열거해 자리표시자 썸네일과 함께 목록에 얹는다.
+ *
+ * 처음엔 전체를 `listAllMacWindows`로만 열거하고 각 창을 `screencapture -l<id>`로
+ * 순차 캡처했는데, 창이 많으면(실기 130개+) 창 하나당 프로세스 스폰 비용 때문에
+ * 전체 목록이 뜨기까지 수십 초씩 걸려 "창 목록을 불러오는 중…"에서 멈춘 것처럼
+ * 보이는 문제가 있었다 — `desktopCapturer` 한 번 호출로 대부분(=현재 Space)을 빠르게
+ * 채우고, 다른 Space 처럼 desktopCapturer 에 안 잡히는 나머지만 추가하는 방식으로 변경.
+ * 다른 Space 창의 실제 썸네일은 만들지 않는다(선택 시 캡처되는 원본 화질과 별개로,
+ * 목록 단계에서까지 다시 `screencapture` 를 여러 번 돌리는 비용을 피함).
  */
 async function listWindowsMac(): Promise<CaptureSource[]> {
-  const { listAllMacWindows } = await import('./macWindow')
-  const ownPid = process.pid
-  const targets = listAllMacWindows().filter((w) => w.pid !== ownPid && w.title.trim().length > 0)
+  const { listAllMacWindows, parseMacWindowId } = await import('./macWindow')
 
-  const sources: CaptureSource[] = []
-  for (let i = 0; i < targets.length; i++) {
-    const win = targets[i]!
-    if (i > 0) await new Promise((resolve) => setTimeout(resolve, 100))
-
-    let thumbnail = BLANK_THUMBNAIL
-    try {
-      const buf = await withTimeout(captureMacWindowById(win.windowId), 4000)
-      const image = nativeImage.createFromBuffer(buf)
-      if (!image.isEmpty()) thumbnail = toUniformThumbnail(image).toDataURL()
-    } catch (err) {
-      console.error('[capture] mac window thumbnail 캡처 실패:', win.windowId, err)
-    }
-
-    sources.push({ id: `window:${win.windowId}:0`, name: win.title, thumbnail })
-  }
-  return sources
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('timeout')), ms)
-    p.then(
-      (v) => {
-        clearTimeout(t)
-        resolve(v)
-      },
-      (e) => {
-        clearTimeout(t)
-        reject(e)
-      },
-    )
+  const onScreen = await desktopCapturer.getSources({
+    types: ['window'],
+    thumbnailSize: { width: THUMBNAIL_SIZE.width * 2, height: THUMBNAIL_SIZE.height * 2 },
   })
+  const onScreenIds = new Set(
+    onScreen.map((s) => parseMacWindowId(s.id)).filter((id): id is number => id != null),
+  )
+  const onScreenSources: CaptureSource[] = onScreen.map((s) => ({
+    id: s.id,
+    name: s.name,
+    thumbnail: toUniformThumbnail(s.thumbnail).toDataURL(),
+  }))
+
+  const ownPid = process.pid
+  const extraSources: CaptureSource[] = listAllMacWindows()
+    .filter((w) => w.pid !== ownPid && w.title.trim().length > 0 && !onScreenIds.has(w.windowId))
+    .map((w) => ({ id: `window:${w.windowId}:0`, name: w.title, thumbnail: BLANK_THUMBNAIL }))
+
+  return [...onScreenSources, ...extraSources]
 }
 
 export async function listWindows(): Promise<CaptureSource[]> {
