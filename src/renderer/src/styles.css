@@ -145,7 +145,7 @@ button:disabled { cursor: not-allowed; }
   padding: 20px 22px; margin-bottom: 16px;
 }
 .settings-section h2 { font-size: 15px; margin: 0 0 2px; }
-.settings-section .desc { font-size: 12px; color: #8b93a1; margin: 0 0 14px; }
+.settings-section .desc { font-size: 12px; color: #8b93a1; margin: 0 0 14px; text-align: justify; }
 
 .provider-cards { display: flex; gap: 12px; }
 .provider-card {
@@ -165,7 +165,7 @@ button:disabled { cursor: not-allowed; }
 .settings-note {
   display: flex; gap: 8px; align-items: flex-start; margin-top: 14px;
   background: #f4f6fa; border-radius: 8px; padding: 10px 12px;
-  font-size: 12px; color: #6b7280;
+  font-size: 12px; color: #6b7280; text-align: justify;
 }
 
 .apikey-row { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
@@ -183,7 +183,7 @@ button:disabled { cursor: not-allowed; }
 }
 /* 인라인 SVG 아이콘 ↔ 텍스트 세로 정렬 */
 .provider-status .ok, .provider-status .err { display: inline-flex; align-items: center; gap: 4px; }
-.settings-warning { display: flex; align-items: flex-start; gap: 6px; }
+.settings-warning { display: flex; align-items: flex-start; gap: 6px; text-align: justify; }
 .settings-warning svg, .settings-note svg { flex-shrink: 0; margin-top: 1px; }
 .apikey-field .toggle-visibility { display: inline-flex; align-items: center; justify-content: center; }
 .apikey-main { flex: 1; min-width: 0; }
@@ -225,7 +225,6 @@ button:disabled { cursor: not-allowed; }
   color: #4b5563; margin: 2px 0 14px; cursor: pointer; user-select: none;
 }
 .byte-link-toggle input { accent-color: var(--theme); }
-.settings-note.cost { color: #92400e; }
 .settings-warning {
   margin-top: 12px; padding: 10px 12px; border-radius: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
@@ -314,9 +313,14 @@ button:disabled { cursor: not-allowed; }
      단일 개행은 공백으로 합치고 진짜 문단 구분(연속 개행)만 남겨뒀다 — 그래서 여기서는
      pre-wrap(원본 개행을 전부 지킴 → 팝업 폭에 안 맞아 들쭉날쭉) 대신, 남은 개행(=진짜
      문단 구분)만 존중하고 그 외 공백은 정리하는 pre-line 을 쓴다. */
-  line-height: 1.7; white-space: pre-line;
+  line-height: 1.7; white-space: pre-line; text-align: justify;
   user-select: none; cursor: text; color: #4b5563;
 }
+/* user-select: none 은 마우스 드래그로 사용자가 직접 브라우저 선택을 만드는 것만 막을 뿐,
+   ContextView.tsx(syncNativeSelection)가 JS 로 프로그램상 만드는 선택(Selection/Range)은
+   그대로 유지된다 — 우클릭 메뉴의 복사/찾아보기는 그 선택을 그대로 인식해 동작한다.
+   네이티브 선택의 파란 하이라이트 박스는 숨기고 아래 .sel 클래스의 보라색 강조만 보이게 한다. */
+.ctx-text ::selection { background: transparent; }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
@@ -353,6 +357,7 @@ button:disabled { cursor: not-allowed; }
 .bubble {
   max-width: 85%; padding: 7px 10px; border-radius: 10px;
   font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  text-align: justify;
 }
 .bubble.user { align-self: flex-end; background: var(--theme); color: var(--theme-text); }
 .bubble.assistant { align-self: flex-start; background: #f4f6fa; color: #1e2230; }

@@ -97,18 +97,6 @@ function sentenceEnd(text: string, p: number): number {
   return i
 }
 
-/** p 를 포함하는 문단의 시작 인덱스 (직전 줄바꿈 다음, 없으면 텍스트 시작) */
-function paragraphStart(text: string, p: number): number {
-  const i = text.lastIndexOf('\n', p - 1)
-  return i === -1 ? 0 : i + 1
-}
-
-/** p 를 포함하는 문단의 끝 인덱스 (다음 줄바꿈 직전, 없으면 텍스트 끝) */
-function paragraphEnd(text: string, p: number): number {
-  const i = text.indexOf('\n', p)
-  return i === -1 ? text.length : i
-}
-
 /** 문자 인덱스로 표현한 문맥 범위 경계 */
 export interface ContextRange {
   extStart: number // 경계까지 확장된 시작(가장 바깥)
@@ -140,29 +128,5 @@ export function computeContextRange(
     selEnd,
     byteEnd,
     extEnd: sentenceEnd(text, byteEnd),
-  }
-}
-
-/**
- * computeContextRange 와 같지만 문장 경계 대신 문단(줄바꿈) 경계까지 확장한다.
- * 팝업의 원문 문맥 표시 전용 — 문장 단위로 잘리면 문단 중간에서 끊겨 보이므로,
- * 걸친 문단 전체를 보여준다.
- */
-export function computeParagraphContextRange(
-  text: string,
-  selStart: number,
-  selEnd: number,
-  byteBefore: number,
-  byteAfter: number,
-): ContextRange {
-  const byteStart = stepBack(text, selStart, byteBefore)
-  const byteEnd = stepForward(text, selEnd, byteAfter)
-  return {
-    extStart: paragraphStart(text, byteStart),
-    byteStart,
-    selStart,
-    selEnd,
-    byteEnd,
-    extEnd: paragraphEnd(text, byteEnd),
   }
 }
