@@ -307,12 +307,6 @@ button:disabled { cursor: not-allowed; }
   font-size: 12px; padding: 3px 8px; border-radius: 6px;
   color: #4b5563;
 }
-.toolbar .chk {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 13px; padding: 3px 8px; border-radius: 6px;
-  background: #fff; border: 1px solid #dbe0e6; cursor: pointer; user-select: none;
-}
-.toolbar .chk.on { background: var(--theme-weak); color: var(--theme); border-color: var(--theme); }
 .tb-spacer { flex: 1; }
 .tb-btn {
   display: inline-flex; align-items: center; gap: 4px;
@@ -320,19 +314,8 @@ button:disabled { cursor: not-allowed; }
   background: #fff; color: #374151; border: 1px solid #dbe0e6; cursor: pointer;
 }
 .tb-btn:hover { background: #f4f6fa; }
+.tb-btn:disabled { opacity: 0.5; cursor: default; }
 .google-icon { flex-shrink: 0; }
-
-/* 발음/사전 결과 */
-.info-panel {
-  display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
-  background: #fff; border: 1px solid #e6e8ec; border-radius: 8px; padding: 8px 10px;
-}
-.info-row { display: flex; gap: 8px; font-size: 13px; align-items: baseline; }
-.info-tag {
-  font-size: 11px; padding: 1px 6px; border-radius: 4px;
-  background: var(--theme-weak); color: var(--theme); flex-shrink: 0;
-}
-.info-row .muted { color: #8b93a1; }
 
 /* 채팅 */
 .chat {

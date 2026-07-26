@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatTurn, ExtractedSelection, QuestionResult } from '@shared/types'
+import type { ChatTurn, ExtractedSelection, QuestionRequest, QuestionResult } from '@shared/types'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
@@ -12,7 +12,9 @@ import { newId, type ChatMessage } from './popup/types'
 // ============================================================================
 // 담당 B — 팝업 화면 (PLAN.md §3/§4.2)
 // 선택 확정 후 뜨는 검색·채팅 팝업. 위→아래:
-//   헤더(드래그 이동) · 원문 문맥(범위 재지정) · 툴바 · 발음/사전 결과 · 채팅 · 자주 쓰는 질문
+//   헤더(드래그 이동) · 원문 문맥(범위 재지정) · 툴바(발음/사전 버튼 포함) · 채팅 · 자주 쓰는 질문
+// 발음/사전 버튼은 토글이 아니라 원샷 액션: 누르면 즉시 채팅에 고정 라벨('발음 질문'/'사전 검색')로
+// 질문이 남고 LLM 응답이 다른 채팅 메시지와 동일하게 스트리밍된다.
 //
 // 데이터 진입:
 //   - 실제(담당 A 통합): main 이 createPopupWindow(ctx) 로 넘긴 ExtractedSelection 을
@@ -78,15 +80,12 @@ export function PopupScreen() {
     })
   }, [])
 
-  async function ask(prompt: string) {
+  // 채팅창에 사용자 말풍선(userLabel)을 남기고 req 를 요청, 답변을 assistant 말풍선에 스트리밍한다.
+  async function send(userLabel: string, req: QuestionRequest) {
     if (busy) return
     setBusy(true)
 
-    const history: ChatTurn[] = messages
-      .filter((m) => !m.error)
-      .map((m) => ({ role: m.role, content: m.content }))
-
-    const userMsg: ChatMessage = { id: newId(), role: 'user', content: prompt }
+    const userMsg: ChatMessage = { id: newId(), role: 'user', content: userLabel }
     const asstId = newId()
     streamingIdRef.current = asstId
     setMessages((prev) => [
@@ -95,7 +94,7 @@ export function PopupScreen() {
       { id: asstId, role: 'assistant', content: '', streaming: true },
     ])
 
-    const result = await window.nuance.question(currentCtx, { type: 'ask', prompt, history })
+    const result = await window.nuance.question(currentCtx, req)
 
     setMessages((prev) =>
       prev.map((m) =>
@@ -108,34 +107,20 @@ export function PopupScreen() {
     setBusy(false)
   }
 
-  // ---- 발음 / 사전 (체크박스 토글) ------------------------------------------
-  const [pronOn, setPronOn] = useState(false)
-  const [dictOn, setDictOn] = useState(false)
-  const [pronResult, setPronResult] = useState<QuestionResult | null>(null)
-  const [dictResult, setDictResult] = useState<QuestionResult | null>(null)
-
-  async function togglePron() {
-    const next = !pronOn
-    setPronOn(next)
-    if (!next) return setPronResult(null)
-    const r = await window.nuance.question(currentCtx, { type: 'pronunciation' })
-    setPronResult(r)
-  }
-  async function toggleDict() {
-    const next = !dictOn
-    setDictOn(next)
-    if (!next) return setDictResult(null)
-    const r = await window.nuance.question(currentCtx, { type: 'dictionary' })
-    setDictResult(r)
+  function ask(prompt: string) {
+    const history: ChatTurn[] = messages
+      .filter((m) => !m.error)
+      .map((m) => ({ role: m.role, content: m.content }))
+    return send(prompt, { type: 'ask', prompt, history })
   }
 
-  // 선택이 바뀌면 이전 발음/사전 결과는 무효 → 다시 체크하도록 리셋
-  useEffect(() => {
-    setPronOn(false)
-    setDictOn(false)
-    setPronResult(null)
-    setDictResult(null)
-  }, [currentCtx.selectedText])
+  // 발음 / 사전 버튼 — 누르면 즉시 요청. 채팅창에는 실제 질문 대신 고정 라벨만 남긴다.
+  function askPronunciation() {
+    return send('발음 질문', { type: 'pronunciation' })
+  }
+  function askDictionary() {
+    return send('사전 검색', { type: 'dictionary' })
+  }
 
   function google(mode: 'pron' | 'image') {
     window.nuance.openGoogle(mode, currentCtx.selectedText, currentCtx.language)
@@ -183,42 +168,16 @@ export function PopupScreen() {
         </section>
 
         <Toolbar
-          pron={pronOn}
-          dict={dictOn}
-          onTogglePron={togglePron}
-          onToggleDict={toggleDict}
+          onPron={askPronunciation}
+          onDict={askDictionary}
           onGoogle={google}
           disabled={busy}
         />
-
-        {(pronOn || dictOn) && (
-          <div className="info-panel">
-            {pronOn && <InfoRow label="발음" result={pronResult} />}
-            {dictOn && <InfoRow label="사전" result={dictResult} />}
-          </div>
-        )}
 
         <Chat messages={messages} onSend={ask} busy={busy} />
 
         <FrequentQuestions items={frequent} onAsk={ask} onChange={updateFrequent} disabled={busy} />
       </div>
-    </div>
-  )
-}
-
-function InfoRow({ label, result }: { label: string; result: QuestionResult | null }) {
-  return (
-    <div className="info-row">
-      <span className="info-tag">{label}</span>
-      {result == null ? (
-        <span className="muted">불러오는 중…</span>
-      ) : result.error ? (
-        <span className="muted">{result.content}</span>
-      ) : result.content ? (
-        <span>{result.content}</span>
-      ) : (
-        <span className="muted">아직 구현되지 않은 기능입니다(스텁).</span>
-      )}
     </div>
   )
 }
