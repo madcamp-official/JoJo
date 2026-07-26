@@ -268,7 +268,7 @@ button:disabled { cursor: not-allowed; }
   font-size: 13px; cursor: pointer; padding: 2px 4px;
 }
 .link-btn:hover { text-decoration: underline; }
-.link-btn.demo { margin-top: 14px; display: inline-block; }
+.link-btn.demo { display: block; width: fit-content; margin: 14px auto 0; }
 
 /* ============================ 팝업 (담당 B) ============================ */
 .popup-screen {
@@ -314,12 +314,15 @@ button:disabled { cursor: not-allowed; }
      pre-wrap(원본 개행을 전부 지킴 → 팝업 폭에 안 맞아 들쭉날쭉) 대신, 남은 개행(=진짜
      문단 구분)만 존중하고 그 외 공백은 정리하는 pre-line 을 쓴다. */
   line-height: 1.7; white-space: pre-line; text-align: justify;
-  user-select: none; cursor: text; color: #4b5563;
+  cursor: text; color: #4b5563;
 }
-/* user-select: none 은 마우스 드래그로 사용자가 직접 브라우저 선택을 만드는 것만 막을 뿐,
-   ContextView.tsx(syncNativeSelection)가 JS 로 프로그램상 만드는 선택(Selection/Range)은
-   그대로 유지된다 — 우클릭 메뉴의 복사/찾아보기는 그 선택을 그대로 인식해 동작한다.
-   네이티브 선택의 파란 하이라이트 박스는 숨기고 아래 .sel 클래스의 보라색 강조만 보이게 한다. */
+/* .ctx-text 어디에도 user-select: none 을 두지 않는다 — Chromium 은 user-select: none
+   인 요소의 텍스트를 프로그램상 선택(Selection.addRange, ContextView.tsx
+   syncNativeSelection)에 Range 로 포함시켜도 우클릭 메뉴용 텍스트(복사/찾아보기)에서
+   빼버린다(예: gap 에 걸었더니 "looking over his garden" 이 "lookingoverhisgarden"
+   으로 붙어버림). atom/gap 모두 mousedown 에서 preventDefault 로 사용자의 직접 드래그
+   선택만 막는다(ContextView.tsx). 네이티브 선택의 파란 하이라이트 박스는 숨기고 아래
+   .sel 클래스의 보라색 강조만 보이게 한다. */
 .ctx-text ::selection { background: transparent; }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
@@ -364,11 +367,39 @@ button:disabled { cursor: not-allowed; }
 .bubble.error { align-self: stretch; max-width: 100%; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
 .err-body { display: flex; flex-direction: column; gap: 2px; }
 .err-body strong { font-size: 12px; }
-.caret {
-  display: inline-block; width: 7px; height: 14px; margin-left: 2px;
+.bubble.streaming .md::after {
+  content: ''; display: inline-block; width: 7px; height: 14px; margin-left: 2px;
   background: currentColor; vertical-align: text-bottom; animation: blink 1s steps(1) infinite;
 }
 @keyframes blink { 50% { opacity: 0; } }
+
+/* 마크다운 렌더 결과(assistant 답변) — 말풍선 안에서 기본 여백을 줄이고 폰트 크기를 통일 */
+.bubble .md { white-space: normal; }
+.bubble .md > :first-child { margin-top: 0; }
+.bubble .md > :last-child { margin-bottom: 0; }
+.bubble .md p { margin: 0 0 6px; }
+.bubble .md ul, .bubble .md ol { margin: 0 0 6px; padding-left: 20px; }
+.bubble .md li { margin: 2px 0; }
+.bubble .md li > p { margin: 0; }
+.bubble .md h1, .bubble .md h2, .bubble .md h3 { margin: 8px 0 4px; font-size: 1em; }
+.bubble .md strong { font-weight: 700; }
+.bubble .md code {
+  background: rgba(0, 0, 0, 0.08); border-radius: 4px; padding: 1px 4px;
+  font-size: 0.92em; font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+.bubble.user .md code { background: rgba(255, 255, 255, 0.2); }
+.bubble .md pre {
+  background: rgba(0, 0, 0, 0.08); border-radius: 6px; padding: 8px 10px;
+  margin: 0 0 6px; overflow-x: auto;
+}
+.bubble .md pre code { background: none; padding: 0; }
+.bubble .md blockquote {
+  margin: 0 0 6px; padding-left: 8px; border-left: 2px solid currentColor; opacity: 0.85;
+}
+.bubble .md a { color: inherit; text-decoration: underline; }
+.bubble .md hr { border: none; border-top: 1px solid currentColor; opacity: 0.2; margin: 8px 0; }
+.bubble .md table { border-collapse: collapse; margin: 0 0 6px; font-size: 0.95em; }
+.bubble .md th, .bubble .md td { border: 1px solid currentColor; padding: 3px 6px; opacity: 0.95; }
 
 .chat-input {
   display: flex; gap: 8px; padding: 8px; border-top: 1px solid #e6e8ec; flex-shrink: 0;

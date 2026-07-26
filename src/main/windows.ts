@@ -443,7 +443,10 @@ let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
 
 const POPUP_WIDTH = 760
-const POPUP_HEIGHT = 1000
+const POPUP_HEIGHT = 900
+// 화면이 작을 때 팝업이 화면을 넘어가지 않도록, 세로 길이는 활성 모니터 작업 영역
+// 높이에서 위아래 여백을 뺀 값을 상한으로 삼는다.
+const POPUP_HEIGHT_MARGIN = 40
 
 export function createPopupWindow(ctx: ExtractedSelection | null = null): BrowserWindow {
   popupContext = ctx
@@ -452,10 +455,12 @@ export function createPopupWindow(ctx: ExtractedSelection | null = null): Browse
     popupWindow.webContents.send(IPC.POPUP_GET_CONTEXT, ctx) // 이미 열려 있으면 컨텍스트만 갱신
     return popupWindow
   }
-  const { x, y } = centerOnCursorDisplay(POPUP_WIDTH, POPUP_HEIGHT) // 활성 모니터에 뜨도록
+  const workAreaHeight = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea.height
+  const popupHeight = Math.min(POPUP_HEIGHT, workAreaHeight - POPUP_HEIGHT_MARGIN)
+  const { x, y } = centerOnCursorDisplay(POPUP_WIDTH, popupHeight) // 활성 모니터에 뜨도록
   const win = new BrowserWindow({
     width: POPUP_WIDTH,
-    height: POPUP_HEIGHT,
+    height: popupHeight,
     x,
     y,
     frame: false,

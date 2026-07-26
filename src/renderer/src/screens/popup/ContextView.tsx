@@ -79,7 +79,16 @@ export function ContextView({ model, from, to, onChange }: Props) {
           const inside =
             prev != null && next != null && prev >= lo && prev <= hi && next >= lo && next <= hi
           return (
-            <span key={i} className={inside ? 'gap sel' : 'gap'}>
+            <span
+              key={i}
+              className={inside ? 'gap sel' : 'gap'}
+              onMouseDown={(e) => {
+                // 좌클릭으로 공백/문장부호에서 드래그가 시작되는 것만 막는다(atom 과 동일
+                // 이유). CSS user-select: none 은 안 쓴다 — 우클릭 메뉴용 선택 텍스트에서
+                // 이 부분이 통째로 빠져 단어들이 붙어버리는 부작용이 있었다.
+                if (e.button !== 2) e.preventDefault()
+              }}
+            >
               {seg.text}
             </span>
           )
