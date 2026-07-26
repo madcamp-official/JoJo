@@ -19,6 +19,7 @@ import {
   getMainWindow,
   getOverlayMode,
   getPopupContext,
+  getPopupBounds,
   showMacSelectionOverlay,
   setMainWindowRoute,
   setOverlayInteractive,
@@ -153,8 +154,7 @@ export function registerIpc(): void {
     return getPopupContext()
   })
 
-  // 담당 B: 구글 발음/이미지 탭을 외부 브라우저로 연다
-  // TODO(담당 B): PLAN §4.2 "팝업 속 팝업" — 임베드형 구글 탭(BrowserWindow child)으로 고도화
+  // 담당 B: 구글 발음/이미지 검색 — [실험] 앱 내 Electron 창으로 연다(Windows·macOS 둘 다 새 창)
   ipcMain.handle(
     IPC.OPEN_GOOGLE,
     async (_e, payload: { mode: 'pron' | 'image'; text: string; lang: Language }) => {
@@ -162,7 +162,7 @@ export function registerIpc(): void {
         payload.mode === 'pron'
           ? googlePronunciationUrl(payload.text, payload.lang)
           : googleImageUrl(payload.text)
-      await openGoogleSearchInNewWindow(url)
+      await openGoogleSearchInNewWindow(url, getPopupBounds() ?? undefined)
     },
   )
 }

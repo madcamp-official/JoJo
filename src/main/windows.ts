@@ -439,3 +439,9 @@ export function createPopupWindow(ctx: ExtractedSelection | null = null): Browse
 export function getPopupContext(): ExtractedSelection | null {
   return popupContext
 }
+
+/** 현재 팝업 창의 화면 좌표/크기(DIP). 구글 검색 창을 같은 위치·크기로 띄우는 데 쓴다. */
+export function getPopupBounds(): { x: number; y: number; width: number; height: number } | null {
+  if (!popupWindow || popupWindow.isDestroyed()) return null
+  return popupWindow.getBounds()
+}
