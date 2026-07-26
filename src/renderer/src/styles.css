@@ -152,6 +152,11 @@ button:disabled { cursor: not-allowed; }
   padding: 5px 8px; border: 1px solid #dbe0e6; border-radius: 8px;
   font-size: 12px; font-family: inherit; background: #fff; color: #1e2230; max-width: 260px;
 }
+/* 인라인 SVG 아이콘 ↔ 텍스트 세로 정렬 */
+.provider-status .ok, .provider-status .err { display: inline-flex; align-items: center; gap: 4px; }
+.settings-warning { display: flex; align-items: flex-start; gap: 6px; }
+.settings-warning svg, .settings-note svg { flex-shrink: 0; margin-top: 1px; }
+.apikey-field .toggle-visibility { display: inline-flex; align-items: center; justify-content: center; }
 .apikey-main { flex: 1; min-width: 0; }
 .apikey-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .apikey-row label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 6px; }

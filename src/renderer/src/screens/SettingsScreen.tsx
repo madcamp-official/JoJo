@@ -4,6 +4,17 @@ import { PROVIDERS, PROVIDER_ORDER, DEFAULT_MODELS } from '@shared/providers'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 import { goto } from '../navigate'
+import {
+  ProviderLogo,
+  CheckIcon,
+  EyeIcon,
+  EyeOffIcon,
+  PencilIcon,
+  TrashIcon,
+  LockIcon,
+  KeyboardIcon,
+  WarnIcon,
+} from './icons'
 
 // 설정 화면 (PLAN.md §3) — 담당 B
 // LLM·API 키 / 단축키 / AI 주변 범위(Byte) / 언어
@@ -325,8 +336,14 @@ export function SettingsScreen() {
                 className={`provider-card${active ? ' active' : ''}`}
                 onClick={() => void patch({ llm: p })}
               >
-                {active && <span className="check">✓</span>}
-                <span className="icon">{info.icon}</span>
+                {active && (
+                  <span className="check">
+                    <CheckIcon />
+                  </span>
+                )}
+                <span className="icon">
+                  <ProviderLogo provider={p} />
+                </span>
                 <span className="label">{info.label}</span>
               </button>
             )
@@ -352,13 +369,13 @@ export function SettingsScreen() {
                   onClick={() => setKeyVisible((v) => !v)}
                   title={keyVisible ? '숨기기' : '보기'}
                 >
-                  {keyVisible ? '🙈' : '👁'}
+                  {keyVisible ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
               </div>
             </div>
             <div className="apikey-actions">
               <button type="button" className="btn-outline" onClick={() => setKeyEditing(true)}>
-                ✏️ 수정
+                <PencilIcon /> 수정
               </button>
               <button
                 type="button"
@@ -366,7 +383,7 @@ export function SettingsScreen() {
                 onClick={() => void deleteKey()}
                 disabled={!apiKey}
               >
-                🗑 삭제
+                <TrashIcon /> 삭제
               </button>
             </div>
           </div>
@@ -379,7 +396,9 @@ export function SettingsScreen() {
               <span className="muted">API 키 확인 중…</span>
             ) : validation?.ok ? (
               <>
-                <span className="ok">✓ 유효한 키 · 사용 가능 모델 {validation.models.length}개</span>
+                <span className="ok">
+                  <CheckIcon /> 유효한 키 · 사용 가능 모델 {validation.models.length}개
+                </span>
                 <label className="model-select">
                   <span>사용 모델</span>
                   <select
@@ -400,14 +419,16 @@ export function SettingsScreen() {
                 </label>
               </>
             ) : validation ? (
-              <span className="err">⚠️ {validationMessage(validation.error)}</span>
+              <span className="err">
+                <WarnIcon /> {validationMessage(validation.error)}
+              </span>
             ) : null}
           </div>
         )}
 
         {!aiReady && (
           <div className="settings-warning">
-            ⚠️{' '}
+            <WarnIcon />{' '}
             {settings.llm
               ? 'API 키가 입력되지 않아 AI 관련 기능(발음·사전·통합 질문)을 사용할 수 없습니다.'
               : '사용할 LLM을 선택하고 API 키를 입력해야 AI 관련 기능을 사용할 수 있습니다.'}
@@ -415,7 +436,7 @@ export function SettingsScreen() {
         )}
 
         <div className="settings-note">
-          🔒 API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
+          <LockIcon /> API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
         </div>
       </section>
 
@@ -424,13 +445,15 @@ export function SettingsScreen() {
         <h2>단축키 설정</h2>
         <p className="desc">일반 모드와 선택 모드를 전환하는 단축키를 지정하세요.</p>
         <div className="shortcut-row">
-          <span className="label">⌨️ 모드 전환 (일반 ↔ 선택)</span>
+          <span className="label">
+            <KeyboardIcon /> 모드 전환 (일반 ↔ 선택)
+          </span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recording ? ' recording' : ''}`}>
               {recording ? '수식키+키 입력 (Esc 취소)' : settings.modeShortcut}
             </span>
             <button type="button" className="btn-outline" onClick={() => setRecording(true)}>
-              ✏️ 변경
+              <PencilIcon /> 변경
             </button>
           </div>
         </div>
