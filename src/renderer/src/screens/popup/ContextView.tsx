@@ -95,6 +95,19 @@ export function ContextView({ model, from, to, onChange }: Props) {
             }}
             className={selected ? 'atom sel' : 'atom'}
             onMouseDown={(e) => {
+              if (e.button === 2) {
+                // 우클릭 — 커스텀 드래그 선택(preventDefault)을 시작하지 않는다. preventDefault
+                // 를 부르면 Electron 이 contextmenu 를 정상 처리하지 못해 Inspect Element 만
+                // 뜨는 문제가 있었다. 지금 범위 밖의 단어를 우클릭했으면 그 단어 하나로 네이티브
+                // 선택을 맞춰서(mousedown 은 contextmenu 보다 먼저 발생 — 타이밍 보장) 우클릭
+                // 메뉴가 그 단어를 대상으로 복사/찾아보기를 보여주게 한다.
+                if (idx < lo || idx > hi) {
+                  anchorRef.current = idx
+                  onChange(idx, idx)
+                  syncNativeSelection(idx, idx)
+                }
+                return
+              }
               e.preventDefault()
               anchorRef.current = idx
               setDragging(true)
@@ -102,16 +115,6 @@ export function ContextView({ model, from, to, onChange }: Props) {
             }}
             onMouseEnter={() => {
               if (dragging) onChange(anchorRef.current, idx)
-            }}
-            onContextMenu={() => {
-              // 지금 선택 범위 밖의 단어를 우클릭하면, 그 단어 하나만 먼저 선택해서
-              // (커밋 후 useEffect 를 기다리면 한 프레임 늦어 메뉴가 이전 선택을 보고 뜨므로)
-              // 네이티브 선택도 여기서 바로 맞춰야 우클릭 메뉴가 그 단어를 대상으로 뜬다.
-              if (idx < lo || idx > hi) {
-                anchorRef.current = idx
-                onChange(idx, idx)
-                syncNativeSelection(idx, idx)
-              }
             }}
           >
             {seg.text}
