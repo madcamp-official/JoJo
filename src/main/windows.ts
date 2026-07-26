@@ -437,8 +437,8 @@ export function sendOverlayNotice(text: string): void {
 let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
 
-const POPUP_WIDTH = 600
-const POPUP_HEIGHT = 800
+const POPUP_WIDTH = 760
+const POPUP_HEIGHT = 1000
 
 export function createPopupWindow(ctx: ExtractedSelection | null = null): BrowserWindow {
   popupContext = ctx
