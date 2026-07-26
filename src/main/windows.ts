@@ -293,8 +293,8 @@ export function setOverlayMode(mode: AppMode): void {
 let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
 
-const POPUP_WIDTH = 460
-const POPUP_HEIGHT = 640
+const POPUP_WIDTH = 1200
+const POPUP_HEIGHT = 800
 
 export function createPopupWindow(ctx: ExtractedSelection | null = null): BrowserWindow {
   popupContext = ctx
