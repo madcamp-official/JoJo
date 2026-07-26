@@ -97,21 +97,56 @@ export function buildContextBlock(
   return `[앞 문맥]\n${before}\n\n[선택된 표현]\n${ctx.selectedText}\n\n[뒤 문맥]\n${after}`
 }
 
-export function buildRequest(
+// ---- 공통 스트리밍 진입점 ------------------------------------------------------
+// 'ask'(통합 질문)와 'pronunciation'(발음) 등 문맥 기반 LLM 요청이 공유하는 오케스트레이션.
+// system 프롬프트와 사용자 메시지만 호출부에서 다르게 넣으면 된다.
+
+export async function streamLlm(
+  kind: QuestionResult['kind'],
   ctx: SelectionContext,
+  system: string,
   prompt: string,
   history: ChatTurn[],
-  provider: LlmProvider,
-  byteBefore: number,
-  byteAfter: number,
-): LlmRequest {
-  return {
-    system: buildSystemPrompt(ctx),
-    cacheableContext: buildContextBlock(ctx, byteBefore, byteAfter),
+  onChunk: (chunk: QuestionResult) => void,
+): Promise<QuestionResult> {
+  const provider = getActiveProvider()
+
+  if (!provider) {
+    const result = buildErrorResult(kind, 'no_active_provider')
+    onChunk(result)
+    return result
+  }
+
+  const apiKey = getApiKey(provider)
+
+  if (!apiKey) {
+    const result = buildErrorResult(kind, 'no_api_key', provider)
+    onChunk(result)
+    return result
+  }
+
+  const client = createClient(provider, { apiKey })
+  const settings = getSettings()
+  const req: LlmRequest = {
+    system,
+    cacheableContext: buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter),
     messages: [...history, { role: 'user', content: prompt }],
-    // 설정 화면에서 provider 별로 고른 모델이 있으면 그것을, 없으면 기본값을 쓴다.
-    model: getSettings().models[provider] ?? DEFAULT_MODELS[provider],
+    model: settings.models[provider] ?? DEFAULT_MODELS[provider],
     maxTokens: DEFAULT_MAX_TOKENS,
+  }
+
+  try {
+    // 델타를 그대로 스트리밍(렌더러가 append), 최종 전체 텍스트를 반환한다.
+    const full = await client.stream(req, (delta) => {
+      onChunk({ kind, content: delta, meta: { provider, streaming: true } })
+    })
+    return { kind, content: full, meta: { provider } }
+  } catch (err) {
+    // API 키 무효, 사용 한도(크레딧) 소진, 요청 과다, 네트워크 오류 등을 UI가 구분할 수 있는
+    // QuestionErrorCode 로 분류해 반환한다. 예외를 그대로 흘려보내 IPC 를 실패시키지 않는다.
+    const result = buildErrorResult(kind, classifyLlmError(err), provider)
+    onChunk(result)
+    return result
   }
 }
 
@@ -123,44 +158,5 @@ export async function askLlm(
   history: ChatTurn[],
   onChunk: (chunk: QuestionResult) => void,
 ): Promise<QuestionResult> {
-  const provider = getActiveProvider()
-
-  if (!provider) {
-    const result = buildErrorResult('ask', 'no_active_provider')
-    onChunk(result)
-    return result
-  }
-
-  const apiKey = getApiKey(provider)
-
-  if (!apiKey) {
-    const result = buildErrorResult('ask', 'no_api_key', provider)
-    onChunk(result)
-    return result
-  }
-
-  const client = createClient(provider, { apiKey })
-  const settings = getSettings()
-  const req = buildRequest(
-    ctx,
-    prompt,
-    history,
-    provider,
-    settings.contextBytesBefore,
-    settings.contextBytesAfter,
-  )
-
-  try {
-    // 델타를 그대로 스트리밍(렌더러가 append), 최종 전체 텍스트를 반환한다.
-    const full = await client.stream(req, (delta) => {
-      onChunk({ kind: 'ask', content: delta, meta: { provider, streaming: true } })
-    })
-    return { kind: 'ask', content: full, meta: { provider } }
-  } catch (err) {
-    // API 키 무효, 사용 한도(크레딧) 소진, 요청 과다, 네트워크 오류 등을 UI가 구분할 수 있는
-    // QuestionErrorCode 로 분류해 반환한다. 예외를 그대로 흘려보내 IPC 를 실패시키지 않는다.
-    const result = buildErrorResult('ask', classifyLlmError(err), provider)
-    onChunk(result)
-    return result
-  }
+  return streamLlm('ask', ctx, buildSystemPrompt(ctx), prompt, history, onChunk)
 }

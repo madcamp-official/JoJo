@@ -101,7 +101,7 @@
 <a id="b-feature"></a>
 
 **질문 기능**
-- [ ] 발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — **스텁만 존재**(`question/pronunciation.ts` 가 빈 문자열 반환). LLM 프롬프트 연동 미구현
+- [x] ~~발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — `question/pronunciation.ts` 가 전용 시스템 프롬프트(`prompts/pronunciation.txt`)로 `llm/adapter.ts` `streamLlm`(구 `askLlm` 오케스트레이션을 'ask'/'pronunciation' 공용으로 일반화)을 호출해 문맥 기반 발음을 스트리밍 반환. 언어별 표기 체계는 `shared/languages.ts` `pronunciationNotation`에 등록~~
 - [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑 — **스텁만 존재**(`question/dictionary.ts` 가 빈 문자열 반환)
   - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
