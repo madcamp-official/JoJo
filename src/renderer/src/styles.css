@@ -269,13 +269,8 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .ctx-text .atom:hover { background: var(--theme-weak); }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
   background: var(--theme); color: var(--theme-text);
+  border-radius: 0; padding: 0;
 }
-.selected-line {
-  margin-top: 8px; font-size: 12px; color: #64748b;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.selected-line b { color: #1e2230; }
-
 /* 툴바 */
 .toolbar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0;
@@ -292,10 +287,12 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .toolbar .chk.on { background: var(--theme-weak); color: var(--theme); border-color: var(--theme); }
 .tb-spacer { flex: 1; }
 .tb-btn {
+  display: inline-flex; align-items: center; gap: 4px;
   font-size: 12px; padding: 4px 8px; border-radius: 6px;
   background: #fff; color: #374151; border: 1px solid #dbe0e6; cursor: pointer;
 }
 .tb-btn:hover { background: #f4f6fa; }
+.google-icon { flex-shrink: 0; }
 .lang-tag { font-size: 11px; color: #8b93a1; }
 
 /* 발음/사전 결과 */
@@ -371,4 +368,5 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .icon-mini {
   background: none; border: none; color: #8b93a1; cursor: pointer; font-size: 13px; padding: 2px 4px;
 }
-.icon-mini:hover { color: #1e2230; }
+.icon-mini:hover:not(:disabled) { color: #1e2230; }
+.icon-mini:disabled { color: #d1d5db; cursor: default; }

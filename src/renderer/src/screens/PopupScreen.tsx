@@ -171,9 +171,6 @@ export function PopupScreen() {
             to={range.to}
             onChange={(from, to) => setRange({ from, to })}
           />
-          <div className="selected-line">
-            선택: <b>{currentCtx.selectedText}</b>
-          </div>
         </section>
 
         <Toolbar
