@@ -485,7 +485,7 @@ export function SettingsScreen() {
             <span className="swatch selected" /> 사용자 선택 영역
           </span>
           <span>
-            <span className="swatch context" /> 바이트 범위
+            <span className="swatch range" /> 바이트 범위
           </span>
           <span>
             <span className="swatch extend" /> 문장 경계 확장

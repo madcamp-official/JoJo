@@ -7,14 +7,10 @@ import type { ExtractedSelection } from '@shared/types'
 //    createPopupWindow(ctx) 로 넘기면 이 목업은 자연스럽게 대체된다.
 //    (팝업 렌더러는 실제 ctx 가 없을 때만 이 목업으로 fallback 한다.)
 //
-// 문맥 범위는 "선택 문장 앞뒤 N개 문장"으로 잡아 문장 중간에서 잘리지 않게 한다.
-// 범위를 넓히거나 좁히려면 아래 두 상수만 바꾸면 된다.
+// text 는 원문 전체를 그대로 담는다 — 표시 범위(선택 앞뒤 1024바이트 + 문장 경계
+// 확장)는 팝업이 buildSelectionModel(@renderer/screens/popup/selection.ts)에서
+// 잘라내므로, 여기서는 A 의 실제 추출 결과처럼 트리밍 없이 넘기기만 하면 된다.
 // ============================================================================
-
-/** 선택 문장 기준 앞으로 포함할 문장 수 */
-export const CONTEXT_SENTENCES_BEFORE = 1
-/** 선택 문장 기준 뒤로 포함할 문장 수 */
-export const CONTEXT_SENTENCES_AFTER = 1
 
 /** 호빗 첫 페이지 원문 (담당 A 가 PDF 에서 추출했다고 가정한 전체 텍스트) */
 export const HOBBIT_TEXT = [
@@ -26,60 +22,18 @@ export const HOBBIT_TEXT = [
 /** 사용자가 클릭한 표현(하이픈으로 묶인 하나의 표현) */
 export const HOBBIT_TARGET = 'well-to-do'
 
-interface SentenceSpan {
-  start: number
-  end: number
-}
-
-// 문장 경계 휴리스틱: `.!?` 뒤에 공백/끝이 오면 문장 종료로 본다.
-// (약어·소수점 등 예외는 이 목업 텍스트에선 발생하지 않는다. 실제 추출 텍스트엔
-//  더 정교한 분할이 필요할 수 있으나, 그건 담당 A 의 추출 단계에서 다뤄진다.)
-function sentenceSpans(text: string): SentenceSpan[] {
-  const spans: SentenceSpan[] = []
-  const re = /[.!?]+(?=\s|$)/g
-  let start = 0
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text))) {
-    const end = m.index + m[0].length
-    spans.push({ start, end })
-    let s = end
-    while (s < text.length && /\s/.test(text[s]!)) s++
-    start = s
-  }
-  if (start < text.length) spans.push({ start, end: text.length })
-  return spans
-}
-
-function collapseWhitespace(s: string): string {
-  return s.replace(/\s+/g, ' ').trim()
-}
-
 /**
- * 전체 원문에서 target 을 찾아, 그 문장 앞뒤로 N개 문장을 포함한 문맥 창을 만들어
- * ExtractedSelection 으로 조립한다(A가 넘길 형태). 문장 경계로 자르므로 문맥이 중간에서
- * 끊기지 않고, target 위치는 anchor(초기 선택)로 표시한다.
+ * 전체 원문에서 target 을 찾아 anchor(초기 선택)로 표시한 ExtractedSelection 을
+ * 조립한다(A가 넘길 형태 — 트리밍 없이 원문 그대로).
  */
-export function buildExtractedSelection(
-  full: string,
-  target: string,
-  before = CONTEXT_SENTENCES_BEFORE,
-  after = CONTEXT_SENTENCES_AFTER,
-): ExtractedSelection {
+export function buildExtractedSelection(full: string, target: string): ExtractedSelection {
   const targetPos = full.indexOf(target)
   if (targetPos < 0) throw new Error(`target(${target}) 를 원문에서 찾지 못했습니다.`)
 
-  const spans = sentenceSpans(full)
-  const hostIdx = spans.findIndex((sp) => targetPos >= sp.start && targetPos < sp.end)
-  const from = Math.max(0, hostIdx - before)
-  const to = Math.min(spans.length - 1, hostIdx + after)
-
-  const windowText = collapseWhitespace(full.slice(spans[from]!.start, spans[to]!.end))
-  const selStart = windowText.indexOf(target)
-
   return {
-    text: windowText,
-    anchor: { start: selStart, end: selStart + target.length },
-    words: windowText
+    text: full,
+    anchor: { start: targetPos, end: targetPos + target.length },
+    words: full
       .split(/\s+/)
       .filter(Boolean)
       .map((t) => ({ text: t })),

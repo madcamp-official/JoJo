@@ -13,6 +13,8 @@ export function FrequentQuestions({ items, onAsk, onChange, disabled }: Props) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [adding, setAdding] = useState(false)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
 
   function commitEdit(i: number) {
     const v = draft.trim()
@@ -36,11 +38,11 @@ export function FrequentQuestions({ items, onAsk, onChange, disabled }: Props) {
     onChange(items.filter((_, idx) => idx !== i))
   }
 
-  function move(i: number, dir: -1 | 1) {
-    const j = i + dir
-    if (j < 0 || j >= items.length) return
+  function reorder(from: number, to: number) {
+    if (from === to) return
     const next = items.slice()
-    ;[next[i], next[j]] = [next[j], next[i]]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved!)
     onChange(next)
   }
 
@@ -81,23 +83,29 @@ export function FrequentQuestions({ items, onAsk, onChange, disabled }: Props) {
               </button>
             </li>
           ) : (
-            <li key={i} className="freq-item">
-              <button
-                className="icon-mini"
-                title="위로 이동"
-                disabled={i === 0}
-                onClick={() => move(i, -1)}
-              >
-                ▲
-              </button>
-              <button
-                className="icon-mini"
-                title="아래로 이동"
-                disabled={i === items.length - 1}
-                onClick={() => move(i, 1)}
-              >
-                ▼
-              </button>
+            <li
+              key={i}
+              className={`freq-item ${dragIndex === i ? 'dragging' : ''} ${overIndex === i ? 'drag-over' : ''}`}
+              draggable
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => {
+                e.preventDefault()
+                if (dragIndex !== null && dragIndex !== i) setOverIndex(i)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragIndex !== null) reorder(dragIndex, i)
+                setDragIndex(null)
+                setOverIndex(null)
+              }}
+              onDragEnd={() => {
+                setDragIndex(null)
+                setOverIndex(null)
+              }}
+            >
+              <span className="drag-handle" title="드래그해서 순서 변경">
+                ⠿
+              </span>
               <button className="freq-ask" disabled={disabled} onClick={() => onAsk(q)} title={q}>
                 {q}
               </button>

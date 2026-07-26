@@ -200,7 +200,7 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 .byte-preview-legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
 .swatch.excluded { background: #e5e7eb; }
 .swatch.selected { background: var(--theme); }
-.swatch.context { background: var(--theme-weak); border: 1px solid var(--theme); }
+.swatch.range { background: var(--theme-weak); border: 1px solid var(--theme); }
 .swatch.extend { background: color-mix(in srgb, #2f6bff 20%, white); border: 1px solid #2f6bff; }
 .byte-preview {
   position: relative; /* selected-span offsetTop 기준(스크롤 자동 이동) */
@@ -364,7 +364,17 @@ body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;
 }
 .freq-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.freq-item { display: flex; align-items: center; gap: 4px; }
+.freq-item {
+  display: flex; align-items: center; gap: 4px;
+  border-top: 2px solid transparent; border-bottom: 2px solid transparent;
+}
+.freq-item.dragging { opacity: 0.5; }
+.freq-item.drag-over { border-top-color: var(--theme); }
+.drag-handle {
+  flex-shrink: 0; color: #c3c8d1; font-size: 13px; cursor: grab; padding: 2px 2px;
+  line-height: 1;
+}
+.drag-handle:active { cursor: grabbing; }
 .freq-ask {
   flex: 1; text-align: left; min-width: 0;
   background: #fff; border: 1px solid #dbe0e6; border-radius: 6px;
