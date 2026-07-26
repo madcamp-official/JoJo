@@ -10,11 +10,11 @@ import {
   EyeIcon,
   EyeOffIcon,
   PencilIcon,
-  TrashIcon,
   LockIcon,
   KeyboardIcon,
   WarnIcon,
 } from './icons'
+import { EditDeleteGroup } from './EditDeleteGroup'
 
 // 설정 화면 (PLAN.md §3) — 담당 B
 // LLM·API 키 / 단축키 / AI 주변 범위(Byte) / 언어
@@ -374,17 +374,12 @@ export function SettingsScreen() {
               </div>
             </div>
             <div className="apikey-actions">
-              <button type="button" className="btn-outline" onClick={() => setKeyEditing(true)}>
-                <PencilIcon /> 수정
-              </button>
-              <button
-                type="button"
-                className="btn-outline danger"
-                onClick={() => void deleteKey()}
-                disabled={!apiKey}
-              >
-                <TrashIcon /> 삭제
-              </button>
+              <EditDeleteGroup
+                onEdit={() => setKeyEditing(true)}
+                onDelete={() => void deleteKey()}
+                deleteTitle="API 키 삭제"
+                deleteDisabled={!apiKey}
+              />
             </div>
           </div>
         )}

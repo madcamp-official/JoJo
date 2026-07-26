@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { EditDeleteGroup } from '../EditDeleteGroup'
 
 // 담당 B — 자주 쓰는 질문 목록 (등록·수정·삭제 + 클릭 시 질문 실행) — PLAN.md §3/§4.2-3
 
@@ -109,20 +110,15 @@ export function FrequentQuestions({ items, onAsk, onChange, disabled }: Props) {
               <button className="freq-ask" disabled={disabled} onClick={() => onAsk(q)} title={q}>
                 {q}
               </button>
-              <button
-                className="icon-mini"
-                title="수정"
-                onClick={() => {
+              <EditDeleteGroup
+                onEdit={() => {
                   setEditing(i)
                   setAdding(false)
                   setDraft(q)
                 }}
-              >
-                ✎
-              </button>
-              <button className="icon-mini" title="삭제" onClick={() => remove(i)}>
-                🗑
-              </button>
+                onDelete={() => remove(i)}
+                disabled={disabled}
+              />
             </li>
           ),
         )}

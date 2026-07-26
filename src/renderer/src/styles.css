@@ -385,8 +385,16 @@ button:disabled { cursor: not-allowed; }
   flex: 1; background: #fff; border: 1px solid var(--theme); border-radius: 6px;
   color: #1e2230; padding: 6px 10px; font: inherit; font-size: 12px;
 }
-.icon-mini {
-  background: none; border: none; color: #8b93a1; cursor: pointer; font-size: 13px; padding: 2px 4px;
+/* 수정/삭제 아이콘 버튼 쌍(EditDeleteGroup) — 앱 전역 공용 */
+.edit-delete-group {
+  display: inline-flex; align-items: stretch; flex-shrink: 0;
+  border: 1px solid #dbe0e6; border-radius: 8px; overflow: hidden; background: #fff;
 }
-.icon-mini:hover:not(:disabled) { color: #1e2230; }
-.icon-mini:disabled { color: #d1d5db; cursor: default; }
+.edg-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 26px; background: none; border: none; cursor: pointer; color: #6b7280;
+}
+.edg-btn:hover:not(:disabled) { background: #f4f6fa; color: #1e2230; }
+.edg-btn.danger:hover:not(:disabled) { background: #fdf1f1; color: #dc2626; }
+.edg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.edg-divider { width: 1px; background: #dbe0e6; }

@@ -41,18 +41,18 @@ export function EyeOffIcon() {
   )
 }
 
-export function PencilIcon() {
+export function PencilIcon({ size = 16 }: { size?: number }) {
   return (
-    <Line>
+    <Line size={size}>
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </Line>
   )
 }
 
-export function TrashIcon() {
+export function TrashIcon({ size = 16 }: { size?: number }) {
   return (
-    <Line>
+    <Line size={size}>
       <path d="M3 6h18" />
       <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
       <path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" />
