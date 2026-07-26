@@ -129,20 +129,3 @@ export function computeContextRange(
     extEnd: sentenceEnd(text, byteEnd),
   }
 }
-
-/** 선택 표현을 mark 로 감싼 최종 문맥 블록 문자열(LLM 전달용). */
-export function buildContextText(
-  text: string,
-  selStart: number,
-  selEnd: number,
-  byteBefore: number,
-  byteAfter: number,
-  mark: (sel: string) => string,
-): string {
-  const r = computeContextRange(text, selStart, selEnd, byteBefore, byteAfter)
-  return (
-    text.slice(r.extStart, selStart) +
-    mark(text.slice(selStart, selEnd)) +
-    text.slice(selEnd, r.extEnd)
-  )
-}

@@ -1,7 +1,7 @@
 import type { ChatTurn, LlmProvider, QuestionResult, SelectionContext } from '@shared/types'
 import { getApiKey } from '@main/keyStore'
 import { getSettings } from '@main/settingsStore'
-import { buildContextText } from '@shared/context'
+import { computeContextRange } from '@shared/context'
 import { createGptClient } from './gpt'
 import { createGeminiClient } from './gemini'
 import { createClaudeClient } from './claude'
@@ -77,9 +77,11 @@ export function buildSystemPrompt(ctx: SelectionContext): string {
 }
 
 /**
- * 선택 표현을 ⟦⟧ 로 표시한 근방 문맥 블록. 프롬프트 캐싱 대상.
+ * 앞 문맥 / 선택된 표현 / 뒤 문맥을 라벨로 구분한 문맥 블록. 프롬프트 캐싱 대상.
  * 앞 byteBefore / 뒤 byteAfter 바이트를 포함하되, 순수 바이트 경계에서 문장이 잘리지
  * 않도록 문장 경계까지 확장한다(설정 화면 미리보기와 동일한 @shared/context 로직).
+ * 원문 안에 인라인 마커 문자를 끼워 넣지 않고 세 섹션으로 분리해서, 마커로 쓸 문자가
+ * 우연히 원문에 이미 등장해 선택 표시와 헷갈릴 가능성 자체를 없앤다.
  */
 export function buildContextBlock(
   ctx: SelectionContext,
@@ -89,7 +91,10 @@ export function buildContextBlock(
   const full = `${ctx.precedingText}${ctx.selectedText}${ctx.followingText}`
   const selStart = ctx.precedingText.length
   const selEnd = selStart + ctx.selectedText.length
-  return buildContextText(full, selStart, selEnd, byteBefore, byteAfter, (s) => `⟦${s}⟧`)
+  const r = computeContextRange(full, selStart, selEnd, byteBefore, byteAfter)
+  const before = full.slice(r.extStart, selStart)
+  const after = full.slice(selEnd, r.extEnd)
+  return `[앞 문맥]\n${before}\n\n[선택된 표현]\n${ctx.selectedText}\n\n[뒤 문맥]\n${after}`
 }
 
 export function buildRequest(
