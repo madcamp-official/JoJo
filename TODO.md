@@ -51,7 +51,9 @@
 - [ ] 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출
 - [ ] 언어 자동 감지 (유니코드 블록 기반 경량 분류) — 현재 `detectLanguage()`는 항상 `'en'` 반환하는 스텁.
 - [x] OCR 엔진 연동 — **범용 엔진(전체 언어 공통/자동감지용) + 언어별 최적 엔진(개별 특화) 이중 구조**로 결정.
-  - [x] 범용 엔진: **Tesseract.js** 채택 확정 및 연동 완료 — `ocr.ts`: `captureFocusedWindow()`(win32 캡처 → PNG) → `createWorker` → `recognize(image, {}, {blocks:true})` → block/paragraph/line 을 평탄화해 단어별 bbox 추출. 언어별 워커를 재사용(언어 바뀌면 재생성)하고, `detectLanguage()`가 고른 `Language`로 traineddata를 선택. 실제 창 캡처 + OCR 로 검증됨(단, 언어 자동 감지가 스텁이라 항상 `eng` 모델 사용 — 한국어 등 미지원 언어 인식 시 깨진 텍스트가 나오는 게 정상, 언어 자동 감지 구현 후 해소).
+  - [x] 범용 엔진: **Tesseract.js** 채택 확정 및 연동 완료 — `ocr.ts`: `captureFocusedWindow()`(창 캡처 → PNG) → `createWorker` → `recognize(image, {}, {blocks:true})` → block/paragraph/line 을 평탄화해 단어별 bbox 추출. 언어별 워커를 재사용(언어 바뀌면 재생성)하고, `detectLanguage()`가 고른 `Language`로 traineddata를 선택. 실제 창 캡처 + OCR 로 검증됨(단, 언어 자동 감지가 스텁이라 항상 `eng` 모델 사용 — 한국어 등 미지원 언어 인식 시 깨진 텍스트가 나오는 게 정상, 언어 자동 감지 구현 후 해소).
+  - [x] **창 캡처 크로스플랫폼** — OCR 엔진(Tesseract)은 PNG 버퍼만 받으므로 플랫폼 무관, 캡처만 분기. Windows: win32 `PrintWindow`. **macOS: 내장 `screencapture -o -l<windowID>`**(`capture.ts`, 네이티브 해상도라 PrintWindow 동급 품질). mac 은 물리 픽셀(Retina 2x)이라 `alignWordsToOverlay`(`extractionCache.ts`) darwin 분기에서 bbox 를 `scaleFactor` 로 나눠 오버레이 DIP 에 정합. `screencapture -l` 실기기 동작 확인(760×460 창 → 1520×920 PNG).
+    - [ ] mac 실사용 검증 — 실제 선택모드에서 단어 hover/클릭 좌표가 정확히 맞는지(배율·프레임 미세보정 필요 여부) GUI 확인 필요. **화면 기록 권한** 최초 허용 + 앱 재시작 1회 필요.
   - [ ] 언어별 특화 엔진: 영어/일본어/중국어 각각 Tesseract보다 더 정확한 전용 엔진이 있는지 벤치마킹 후 결정 (예: 중국어는 PaddleOCR 등) — 나중에 진행. 결정되면 언어별로 다른 엔진을 호출하도록 라우팅 필요(의존성 여러 개 추가되는 만큼 복잡도 증가 감안).
 - [ ] 좌표 기반 노이즈 제거(제목·페이지번호) + 페이지 경계 문장 이어붙이기 — `removeNoise()`는 현재 통과만 시키는 no-op.
 
@@ -125,7 +127,7 @@
 - [x] ~~`SelectionContext` / `QuestionResult` + IPC 채널 확정 (스텁 → 실연결) — `SELECTION_EXTRACTED`/`QUESTION_REQUEST`/`QUESTION_STREAM` 실동작~~
 - [ ] 메인/피커/설정 창 통합 — 세 화면이 동시에 보일 필요가 없어 별도 창(피커·설정) 대신 메인 창 하나를 리사이즈(`windows.ts: setMainWindowRoute`/`navigateMainWindow`)해 재사용하도록 변경(`feat/settings-screen`). 전환 시 항상 창을 중앙 정렬하며, 애니메이션 없이 즉시 크기 변경(다른 창이 뜬 것처럼 보이지 않게)
 - [x] ~~IPC 허브 A→B 실연결 — 선택 파이프라인(A) → 팝업/질문(B) 이 `ipc.ts` 허브를 통해 실동작(오버레이 클릭 → 팝업 오픈 → 질문 스트리밍)~~
-- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문 — ⚠️ 현재 실경로는 **Windows 전용**. macOS 는 창 선택·테두리 오버레이·추적·창 raise 는 되지만 **선택모드 OCR/추출이 전혀 안 됨**: `captureFocusedWindow`(`capture.ts`)가 win32 전용이라 mac 에선 예외를 던지고, 그 결과 `refreshExtractionCache`→`runOcr`도, 단어 hover/클릭 감지도, 좌표 정렬(`alignWordsToOverlay`도 win32 전용)도 동작하지 않는다. mac 관통하려면 **mac용 `captureFocusedWindow`(CoreGraphics `CGWindowListCreateImage(windowID)`, koffi — `macWindow.ts`에 붙이면 됨)** 구현 필요. 직접추출(`readWindowText`)도 win32 전용, PDF 직접추출 파서 자체도 미구현
+- [ ] 첫 관통 경로: PDF 직접추출 → 통합 질문 — **선택모드 OCR 관통은 Windows·macOS 둘 다 됨**(mac 은 아래 OCR 항목 참고). 남은 건: **직접추출 경로**(`readWindowText` 접근성 API 는 win32 전용, mac 미구현) + **PDF 직접추출 파서 자체 미구현** → 현재는 양 플랫폼 모두 OCR 로만 텍스트를 얻는다. PDF 직접추출을 붙이면 관통 완성.
 - [x] ~~배포 패키징(electron-builder) — `electron-builder.yml`(appId `com.nuance`·productName `Nuance` 고정 → userData 경로 안정, 재설치/버전 업 후에도 설정·API 키·자주쓰는질문 유지). scripts: `pack:dir`(스모크) / `dist:mac`·`dist:win`·`dist:linux`. mac `--dir` 패키징 성공 확인(코드서명 없음: `identity: null`). 산출물은 `dist/`(gitignore)~~
   - [ ] 정식 배포 시 코드서명/공증 — mac: hardenedRuntime+notarize(Apple Developer 인증서), win: 서명 인증서. 현재는 사설 배포(미서명)라 Gatekeeper/SmartScreen 경고가 뜸
   - [ ] 앱 아이콘 교체 — 현재 `build/icon.png` 는 기존 256px 을 1024 로 업스케일한 임시본(정식 아이콘으로 교체 필요)
