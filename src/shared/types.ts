@@ -271,19 +271,34 @@ export interface ProviderValidation {
   error?: QuestionErrorCode
 }
 
+/** 일본어 형태소 분석 엔진 선택지 — main/nlp/japanese.ts JA_ENGINE 상수로만 전환한다(개발자 전용,
+ *  사용자 UI 없음). 어느 걸 골라도 아래 tokenizeJapanese/segmentJapaneseWords 계약은 동일하다. */
+export type JaEngine = 'kuromoji' | 'lindera' | 'sudachi-b' | 'sudachi-c'
+
 /**
- * kuromoji 형태소 분석 결과 토큰 하나 — OCR 단어 분리(main/nlp/japanese.ts)와 팝업 원문
- * 문맥 atom 병합(renderer popup/selection.ts) 양쪽에서 공용으로 쓴다(@shared/nlp/ja.ts
- * mergeJaTokens 참고).
+ * 형태소 분석 결과 토큰 하나 — OCR 단어 분리(main/nlp/japanese.ts)와 팝업 원문 문맥 atom
+ * 병합(renderer popup/selection.ts) 양쪽에서 공용으로 쓴다. pos/posDetail1 체계는 엔진마다
+ * 다르다(kuromoji/lindera=IPADIC 自立·非自立, sudachi=UniDic 一般·非自立可能) — 병합 로직도
+ * 그래서 엔진별로 나뉜다(@shared/nlp/ja.ts=IPADIC 용, @shared/nlp/ja-unidic.ts=UniDic 용).
  */
 export interface JaToken {
   surface: string
   /** 品詞(품사) 대분류 — 예: 助詞, 助動詞, 動詞, 名詞, 記号 */
   pos: string
-  /** 品詞細分類1(품사 세분류 1) — 예: 自立, 非自立, 接尾, 接続助詞. 미분류는 kuromoji 관례대로 "*" */
+  /** 品詞細分類1(품사 세분류 1) — 엔진별 체계가 다름(JaToken 주석 참고). 미분류는 "*" */
   posDetail1: string
+  /** 표제어/기본형(예: 活用된 "向かっ" → "向かう") — UniDic 기반 병합(ja-unidic.ts)의 보조동사
+   *  판별에 필요. IPADIC 엔진(kuromoji/lindera)도 채워주지만 그쪽 병합 로직은 안 씀. */
+  baseForm?: string
   /** 분석 대상 문자열 상 0-based 문자 오프셋 */
   start: number
+}
+
+/** IPC TOKENIZE_JA 응답 — 렌더러가 병합 함수(mergeJaTokens vs mergeJaTokensUnidic)를
+ *  고르려면 토큰이 어느 엔진 결과인지 알아야 해서 engine 태그를 같이 내려준다. */
+export interface JaTokenizeResult {
+  engine: JaEngine
+  tokens: JaToken[]
 }
 
 /**
