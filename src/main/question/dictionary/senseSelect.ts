@@ -126,17 +126,18 @@ export function formatDictionaryAnswer(
 ): string {
   if (!selected.length) return `**${headword}**\n\n문맥에 맞는 뜻을 찾지 못했습니다.`
 
-  const pronunciation = selected.find((s) => s.sense.pronunciation)?.sense.pronunciation
   const lines: string[] = []
-  lines.push(pronunciation ? `**${headword}** [${pronunciation}]` : `**${headword}**`)
-  lines.push('')
 
+  // sense 마다 발음·품사가 다를 수 있어(예: bank 명사 vs bank 동사) 표제어 줄 자체를
+  // sense 블록 단위로 반복한다 — 선택된 sense 가 하나뿐인 보통의 경우엔 한 줄만 나온다.
   for (const { sense, translatedGloss, translatedExample } of selected) {
     const label = (sense.pos && POS_KO[sense.pos]) ?? sense.posRaw
     const idiomTag = sense.isIdiom ? ' (관용구)' : ''
-    lines.push(`${label ? `**${label}${idiomTag}**` : ''}`.trim())
-    // 원문·번역을 둘 다 보여준다 — 원문만으론 영어 학습에 안 맞고, 번역만으론 사전
-    // 원문 표현을 확인할 수가 없다.
+    const posSuffix = label ? ` · ${label}${idiomTag}` : ''
+    const pronSuffix = sense.pronunciation ? ` [${sense.pronunciation}]` : ''
+    lines.push(`**${headword}**${pronSuffix}${posSuffix}`)
+    // 원문·번역을 둘 다, 각각 다른 줄에 보여준다 — 원문만으론 영어 학습에 안 맞고,
+    // 번역만으론 사전 원문 표현을 확인할 수가 없다.
     lines.push(sense.gloss.join('; '))
     lines.push(translatedGloss)
     if (sense.examples?.[0]) {
@@ -150,5 +151,7 @@ export function formatDictionaryAnswer(
   }
 
   lines.push(`_출처: ${SOURCE_LABELS[source]}_`)
-  return lines.join('\n').trim()
+  // 마크다운은 줄바꿈 하나(\n)만으론 같은 문단으로 합쳐 렌더링하므로(예: 원문/번역이
+  // 한 줄로 붙어버림), 줄 끝에 공백 2개를 붙여 강제 줄바꿈(hard break)으로 만든다.
+  return lines.join('  \n').trim()
 }

@@ -170,11 +170,18 @@ function findMatchingUro(entry: MwEntry, queryWord: string): MwUro | undefined {
 
 // ---- MwEntry → DictionaryReading -------------------------------------------
 
-function entryToReading(entry: MwEntry, queryWord: string): DictionaryReading | null {
+function entryToReading(
+  entry: MwEntry,
+  queryWord: string,
+  fallbackPronunciations: DictionaryReading['pronunciations'],
+): DictionaryReading | null {
   const uro = findMatchingUro(entry, queryWord)
   const fl = uro?.fl ?? entry.fl
   const pos = flToPos(fl)
-  const irregularForms = (entry.ins ?? []).map((i) => i.if).filter((v): v is string => !!v)
+  // ins[].if 도 headword 와 같은 '·'(중점) 음절 경계 표기를 씀(실측: "banked, bank·ing, banks").
+  const irregularForms = (entry.ins ?? [])
+    .map((i) => i.if?.replace(/[·*]/g, ''))
+    .filter((v): v is string => !!v)
 
   const senseNodes: MwSense[] = []
   for (const def of entry.def ?? []) collectSenseNodes(def.sseq, senseNodes)
@@ -198,13 +205,17 @@ function entryToReading(entry: MwEntry, queryWord: string): DictionaryReading | 
   if (!senses.length) return null
 
   const prs = uro?.prs ?? entry.hwi.prs
-  const pronunciations = prs
+  const ownPronunciations = prs
     ?.map((p) => p.mw)
     .filter((v): v is string => !!v)
     .map((value) => ({ value }))
+  // MW 는 같은 hw 를 공유하는 후속 entry(예: bank 명사 다음의 bank 동사)에서 발음이
+  // 이전과 같으면 hwi.prs 자체를 생략하는 경우가 실측 확인됨 — 이 경우 직전 entry의
+  // 발음을 그대로 물려받는다(완전히 새 단어라 prs 가 없는 경우는 fallback 도 없어 undefined).
+  const pronunciations = ownPronunciations?.length ? ownPronunciations : fallbackPronunciations
 
   return {
-    pronunciations: pronunciations?.length ? pronunciations : undefined,
+    pronunciations,
     senses,
   }
 }
@@ -247,6 +258,7 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
   const readings: DictionaryReading[] = []
   let isIdiom = false
   const headwordSet = new Set<string>()
+  let lastPronunciations: DictionaryReading['pronunciations']
 
   for (const entry of entries) {
     headwordSet.add(entry.hwi.hw.replace(/[·*]/g, '')) // MW hw 는 음절 경계를 '·'(중점)로 표시(uros.ure 와 동일 표기 체계)
@@ -260,8 +272,11 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
       }
     }
 
-    const reading = entryToReading(entry, word)
-    if (reading) readings.push(reading)
+    const reading = entryToReading(entry, word, lastPronunciations)
+    if (reading) {
+      readings.push(reading)
+      if (reading.pronunciations?.length) lastPronunciations = reading.pronunciations
+    }
   }
 
   if (!readings.length) return {}
