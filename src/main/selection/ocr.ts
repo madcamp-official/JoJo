@@ -8,9 +8,16 @@ import { segmentChineseWords } from '../nlp/chinese'
 // 범용 엔진: Tesseract.js 채택 확정(오프라인, 언어팩 교체로 다국어 대응). 언어별 특화
 // 엔진(예: 중국어 PaddleOCR)은 나중에 벤치마킹 후 라우팅 추가 — 지금은 Tesseract 단일 경로.
 
-// zh: 간체/번체를 사용자가 미리 고르게 하지 않고 두 언어팩을 합쳐 로드 — Tesseract 가
-// 글자마다 더 맞는 쪽(간체/번체) 사전으로 알아서 인식하게 해 자동 판별 효과를 낸다.
-const TESS_LANG: Record<Language, string> = { en: 'eng', ja: 'jpn', zh: 'chi_sim+chi_tra' }
+// zh-Hans/zh-Hant: langDetect.ts 가 OCR 이전에 스크립트까지 판정해 넘겨주므로, 여기서는
+// 판정된 스크립트에 맞는 언어팩 하나만 로드한다(간체/번체 결합 로드는 스크립트를 미리
+// 모를 때의 임시방편이었는데, 사전 판별 단계가 생기면서 더 이상 필요 없어짐 — 결합 로드
+// 대비 다운로드/메모리도 줄고, Tesseract 가 두 사전 사이에서 헷갈릴 여지도 없어짐).
+const TESS_LANG: Record<Language, string> = {
+  en: 'eng',
+  ja: 'jpn',
+  'zh-Hans': 'chi_sim',
+  'zh-Hant': 'chi_tra',
+}
 
 // 언어별 워커를 재사용한다 — 언어팩 로드 비용이 커서(수 MB 다운로드/초기화) 매 호출마다
 // 새로 만들지 않는다. 언어가 바뀌면 이전 워커를 정리하고 새로 만든다.
@@ -46,7 +53,7 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
   const words: Word[] = []
   for (const line of lines) {
     if (clippedLines.has(line)) continue
-    if (language === 'ja' || language === 'zh') {
+    if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
       // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
       // 맞는다 — 줄 전체를 형태소 분석기(일: kuromoji, 중: segmentit)로 다시 분리한다.
       words.push(...(await buildCjkLineWords(line, language, region)))
@@ -83,7 +90,7 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
  */
 async function buildCjkLineWords(
   line: { words: { text: string; bbox: OcrBbox; symbols?: OcrSymbol[]; confidence: number }[]; bbox: OcrBbox },
-  language: 'ja' | 'zh',
+  language: 'ja' | 'zh-Hans' | 'zh-Hant',
   region: Rect | undefined,
 ): Promise<Word[]> {
   const runs: OcrSymbol[][] = []

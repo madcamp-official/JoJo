@@ -18,7 +18,8 @@ export interface LanguageInfo {
   googleSearchSuffix: string
   /** 발음 프롬프트에서 LLM에게 요구할 표기 체계(한국어 설명) */
   pronunciationNotation: string
-  /** 네이버 사전 서브도메인(en/ja/zh.dict.naver.com) */
+  /** 네이버 사전 서브도메인(en/ja/zh.dict.naver.com) — 네이버는 간체/번체를 구분하지 않고
+   * 하나의 zh 서브도메인만 제공하므로 zh-Hans/zh-Hant 모두 'zh'로 매핑한다. */
   naverDictSubdomain: string
 }
 
@@ -35,12 +36,18 @@ export const LANGUAGES: Record<Language, LanguageInfo> = {
     pronunciationNotation: '히라가나',
     naverDictSubdomain: 'ja',
   },
-  zh: {
-    name: '중국어',
+  'zh-Hans': {
+    name: '중국어(간체)',
+    googleSearchSuffix: '拼音',
+    pronunciationNotation: '한어병음(성조 표시 포함)',
+    naverDictSubdomain: 'zh',
+  },
+  'zh-Hant': {
+    name: '중국어(번체)',
     googleSearchSuffix: '拼音',
     pronunciationNotation: '한어병음(성조 표시 포함)',
     naverDictSubdomain: 'zh',
   },
 }
 
-export const LANGUAGE_ORDER: Language[] = ['en', 'ja', 'zh']
+export const LANGUAGE_ORDER: Language[] = ['en', 'ja', 'zh-Hans', 'zh-Hant']
