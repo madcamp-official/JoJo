@@ -107,11 +107,20 @@
 **질문 기능**
 - [x] ~~발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — `question/pronunciation.ts` 가 전용 시스템 프롬프트(`prompts/pronunciation.txt`)로 `llm/adapter.ts` `streamLlm`(구 `askLlm` 오케스트레이션을 'ask'/'pronunciation' 공용으로 일반화)을 호출해 문맥 기반 발음을 스트리밍 반환. 언어별 표기 체계는 `shared/languages.ts` `pronunciationNotation`에 등록. 지역별 발음이 여러 개일 땐 `[미국]`/`[영국]`(영어), `[대륙]`/`[대만]`(중국어) 순으로 대괄호 라벨을 발음 앞에 붙이고, 근거(`근거:`)는 의미 중의성(품사·뜻 차이)을 판정해 발음을 좁힌 경우에만 작성 — 단순 지역/격식 변이거나 발음이 하나뿐이면 생략. `llm/adapter.ts` `LlmRequest.temperature` 를 추가해 GPT/Gemini/Claude 클라이언트 모두 전달하도록 배선하고, 발음 질문은 형식이 고정된 판정 작업이라 `temperature=0.2`로 낮춰 응답 이탈(문맥과 무관한 토큰 삽입 등)을 줄임(`pronunciation.ts` `PRONUNCIATION_TEMPERATURE`). `ask`(자유 질문)는 다양성을 위해 기본값 유지~~
 - [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑 — **스텁만 존재**(`question/dictionary.ts` 가 빈 문자열 반환). 소스 구성은 확정 완료(PLAN.md §5), 아래는 구현 세부 작업 목록(아직 착수 전).
-  - [ ] `shared/types.ts`의 `Language` 타입 확장 — `'zh'` 단일값을 `'zh-Hans' | 'zh-Hant'`로 분리(또는 `zh` + 별도 script 필드). `SelectionContext`/`ExtractedSelection` 등 이 타입을 쓰는 모든 곳에 영향.
-  - [ ] `selection/langDetect.ts` 구현 — 현재 항상 `'en'` 반환하는 스텁. 유니코드 블록 기반 언어 판별 + 중국어는 스크립트(간체/번체) 판별까지 포함(변환이 아니라 판별이라 상대적으로 신뢰도 높게 가능 — 스크립트별 고유 한자 존재).
-  - [ ] en 어댑터: Merriam-Webster(키 등록, 무료 개인용 티어) → WordNet(로컬 데이터셋 번들) → Wiktionary(en.wiktionary.org 또는 kaikki.org 추출 데이터, 신조어 전용 최종 폴백) 순차 폴백 구현
-  - [ ] ja 어댑터: Kotobank(스크래핑) → JMdict(로컬 데이터셋 번들, jmdict-simplified 등) → Wiktionary(en.wiktionary.org의 ja 항목) 순차 폴백 구현
+  - [x] ~~`shared/types.ts`의 `Language` 타입 확장 — `'zh'` 단일값을 `'zh-Hans' | 'zh-Hant'`로 분리. `LANGUAGES` 레지스트리(`shared/languages.ts`)·OCR 언어팩 로딩(`selection/ocr.ts`, 결합 로드 대신 판정된 스크립트 하나만 로드)·팝업 UI 라벨(`中文(简体)`/`中文(繁體)`)까지 반영 완료. `selection/langDetect.ts`는 아직 스텁이라 담당 A가 zh-Hans/zh-Hant 판별 시 참고할 가이드만 문서화해둠(OpenCC 매핑 데이터로 판별, 변환과 달리 모호함이 적음).~~
+  - [ ] `selection/langDetect.ts` 구현 — 현재 항상 `'en'` 반환하는 스텁. 유니코드 블록 기반 언어 판별 + 중국어는 스크립트(간체/번체) 판별까지 포함(가이드는 파일 내 주석 참고). **담당 A 작업.**
+  - [ ] **활용형(활용된 동사/형용사) 대응 — 언어별 사전 소스가 활용형을 원형으로 자동 변환해주는지 실측한 결과, 특히 일본어 쪽이 반드시 선행 처리가 필요함:**
+    - en: Merriam-Webster·Wiktionary는 활용형(ran/went/ate 등)을 원형과 교차 연결해둬서 그대로 조회해도 정상 동작(실측 확인). WordNet은 원시 synset DB 자체엔 활용형이 없지만, 표준 배포판에 포함된 **Morphy**(형태소 처리기, 불규칙은 예외 목록/규칙 활용은 어미 제거 규칙으로 원형 탐색)가 이를 해결 — 사용할 Node WordNet 라이브러리가 Morphy를 감싸고 있는지 확인 필요.
+    - **ja: Kotobank·JMdict 둘 다 활용형(食べた/美しかった 등)을 원형(食べる/美しい)으로 자동 변환해주지 않음(실측 확인, 둘 다 검색 결과 없음).** 사전 API 호출 전에 **kuromoji(이미 팝업 atom 병합에 사용 중, `main/nlp/japanese.ts`)로 선택 텍스트를 토큰화해 動詞·形容詞 토큰은 表層形 대신 基本形(기본형)을 사전 조회 쿼리로 사용**하는 전처리 단계를 반드시 추가해야 함 — 없으면 활용된 동사/형용사 대부분이 사전 조회 자체가 실패함.
+    - zh: 활용(어미 변화) 자체가 없는 언어라 해당 없음.
+  - [ ] en 어댑터: Merriam-Webster(키 등록, 무료 개인용 티어) → WordNet(로컬 데이터셋 번들, Morphy 포함 라이브러리 사용) → Wiktionary(en.wiktionary.org 또는 kaikki.org 추출 데이터, 신조어 전용 최종 폴백) 순차 폴백 구현
+  - [ ] ja 어댑터: (위 kuromoji 기본형 전처리 선행) Kotobank(스크래핑) → JMdict(로컬 데이터셋 번들, jmdict-simplified 등) → Wiktionary(en.wiktionary.org의 ja 항목) 순차 폴백 구현
   - [ ] zh 어댑터: zh-Hans는 汉典(`/hans/`, 스크래핑) → CC-CEDICT(로컬 데이터셋), zh-Hant는 萌典(스크래핑) → 汉典(`/hant/`) → CC-CEDICT, 공통 최종 폴백으로 Wiktionary(en.wiktionary.org의 zh 항목)
+  - [ ] 다중 단어 선택 처리 — 사용자가 팝업에서 여러 단어(atom)를 한 번에 드래그 선택하고 사전 검색을 요청하는 경우:
+    1. 선택된 텍스트 전체를 먼저 표제어로 조회(관용구·복합명사 등은 통째로 사전에 있을 수 있음 — 예: "kick the bucket", "一石二鳥")
+    2. 못 찾으면 팝업이 이미 갖고 있는 atom 분해 결과(`popup/selection.ts`)를 재사용해 단어 단위로 쪼개 개별 조회(병렬 호출) — 조사·관사 등 사전에 애초에 없는 기능어는 조회 자체를 건너뜀
+    3. ja는 단어별 조회 전에 위 활용형 전처리(基本形 치환)를 각각 적용
+    4. 선택 범위가 과도하게 길 때(문장 전체 드래그 등) 개별 조회 호출 수 상한 여부 검토
   - [ ] 한국어 설명 처리 — 사전 API는 원어 sense 목록만 제공, LLM이 문맥 판정 + 한국어 설명을 함께 생성하도록 프롬프트 구성
   - [ ] (선택) 스크래핑 소스(Kotobank/汉典/萌典)의 안정성 대비 — 페이지 구조 변경/일시 차단 시 다음 폴백 단계로 자연스럽게 넘어가도록 에러 처리
   - [ ] 상업화 시 재검토(별도 트리거 필요, 지금은 미착수) — en: MW 제외하고 WordNet+Wiktionary만 / ja: Kotobank 제외하고 JMdict+日本語WordNet(NICT) 조합으로 교체 / zh: 汉典·萌典 제외하고 CC-CEDICT 중심 + 有道詞典 API(유료) 검토. 상세 근거는 PLAN.md §5 참고
