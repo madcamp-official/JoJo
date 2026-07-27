@@ -53,12 +53,12 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 ### OEWN (Open English WordNet)
 
-**접근**: 공식 GitHub JSON 릴리스(`globalwordnet/english-wordnet`, 2025 Edition: `https://en-word.net/static/english-wordnet-2025-json.zip`, 실제 다운로드 링크 2026-07-28 재확인)를 직접 받아 로컬 번들. 라이브 API(`en-word.net/api/...`)는 **2026-07-28에 재호출해도 여전히 503 Service Unavailable로 불안정함을 재확인** — API 대신 데이터 파일 번들 방침 유지. 원본 Princeton WordNet(2011년 이후 갱신 없음, 발음 정보 없음) 대신 이 커뮤니티 후속판(CC-BY 4.0) 채택.
+**접근**: 공식 GitHub 저장소(`globalwordnet/english-wordnet`)의 JSON 릴리스를 받아 로컬 번들. **`en-word.net/static/...` 정적 다운로드 링크는 2026-07-28 재실측 결과 503 Service Unavailable로 죽어있었으나, 같은 파일의 GitHub Releases 직접 다운로드 URL(`https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025-json.zip`)은 같은 날 실측으로 HTTP 200/9.98MB 정상 다운로드 확인됨** — 그래서 다운로드 경로를 en-word.net 정적 링크가 아니라 GitHub Releases 에셋 URL로 확정한다. 별도 미러 저장소(`x-englishwordnet/json`)는 불필요 — 공식 GitHub Releases만으로 충분히 안정적이라 폴백 없이 이거 하나로 확정(이전에 검토했던 미러 폴백 방침은 폐기). 라이브 API(`en-word.net/api/...`)는 **2026-07-28에 재호출해도 여전히 503 Service Unavailable로 불안정함을 재확인** — API 대신 데이터 파일 번들 방침 유지(정적 파일 링크 자체도 en-word.net 도메인은 불안정하니, 다운로드는 항상 GitHub Releases 쪽에서). 원본 Princeton WordNet(2011년 이후 갱신 없음, 발음 정보 없음) 대신 이 커뮤니티 후속판(CC-BY 4.0) 채택.
 
-**원본 구조 특징**(`run`/`kick the bucket`으로 실측, **zip 내부 JSON 필드 세부 구조는 이번 세션에서 파일을 직접 열람하지 못해 재검증 안 됨** — 아래는 기존 기록 유지):
-- `pronunciation[]`에 지역별 발음이 여러 개(각각 `variety` 태그) 붙을 수 있음 — 실제 IPA(예: run(v) → "ɹʌn").
+**원본 구조 특징**(`run`/`kick the bucket`으로 실측 — **2026-07-28, GitHub Releases 에셋을 실제로 받아 압축 해제 후 파일 직접 열람으로 재검증 완료**, 이전 세션엔 못 열어봐서 기존 기록만 승계했던 상태였음):
+- `pronunciation[]`에 지역별 발음이 여러 개(각각 `variety` 태그) 붙을 수 있음(실측 확인: `Bach` 항목이 `variety: "US"`/`"GB"` 2개, `Balinese`는 `"GB"` 등 — 태그 값은 "미국"/"영국" 같은 한글 라벨이 아니라 `US`/`GB`/`NZ` 같은 짧은 코드 원문 그대로) — 실제 IPA(예: run(v) → "ɹʌn").
 - synset이 패러프레이즈 대안 정의를 여러 개 가질 수 있음(실측: `81484980-r` synset이 정의 3개: "quickly and without warning" / "happening unexpectedly" / "on impulse; without premeditation").
-- `tagcount`(SemCor 코퍼스 실사용 빈도수, sense마다 다름 — 실측: run(v) "달리다" 뜻 tagcount=106, 뒤쪽 rare sense는 이 필드 자체가 없음).
+- ~~`tagcount`(SemCor 코퍼스 실사용 빈도수, sense마다 다름 — 실측: run(v) "달리다" 뜻 tagcount=106)~~ → **정정(2026-07-28, GitHub Releases `english-wordnet-2025-json.zip`을 실제로 받아 압축 해제 후 전수 검사)**: 이 필드는 이 JSON 릴리스에 **존재하지 않는다** — `grep -r "tagcount"` 결과 0건, sense 객체가 실제로 갖는 키 전체(26종: `id`/`synset`/`derivation`/`sent`/`agent`/`also`/`antonym`/`similar`/`pertainym`/`subcat` 등 프레임 의미 정보 위주)를 전수 확인해도 빈도 관련 필드가 없다. 예전 Princeton WordNet WNDB 배포판의 `index.sense`(`tag_cnt`)에 있던 개념으로 추정되나, 이 GitHub JSON 릴리스로는 가져올 수 없다 — **`DictionarySense.tagCount` 필드는 이 데이터 소스로 채울 수 없으므로 폐기하거나 다른 소스(WNDB 원본 파일을 별도로 받는 등)를 찾아야 한다.**
 - entry의 `form` 필드가 불규칙 활용형을 배열로 제공(예: run(v) → `["ran", "running"]`) — MW의 반쯤 자유 텍스트 `ins`보다 구조가 깔끔함. 원시 synset 데이터 자체엔 활용형이 없지만 WNDB 배포판 포맷에 포함된 **Morphy**(형태소 처리기)가 처리 — 사용할 라이브러리가 Morphy를 감싸고 있는지 확인 필요.
 
 **스키마 매핑**:
@@ -68,7 +68,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 | synset 정의 (복수 가능) | `DictionarySense.gloss[]` |
 | `pronunciation[].value` | `DictionaryReading.pronunciations[].value` (실제 IPA) |
 | `pronunciation[].variety` | `DictionaryReading.pronunciations[].variety` |
-| `tagcount` | `DictionarySense.tagCount` (LLM 프롬프트엔 안 넣음, sense 정렬용) |
+| ~~`tagcount`~~ | ~~`DictionarySense.tagCount`~~ — **이 JSON 릴리스엔 필드 자체가 없어 채울 수 없음(2026-07-28 확인), 폐기 검토 대상** |
 | `form` | `DictionarySense.irregularForms` |
 
 ---
@@ -173,11 +173,11 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - 단어(词语) 페이지(`打算`)와 한자(单字) 페이지(`打`)가 **템플릿이 다르다**: 공통으로 `gy-reading__py`(병음)+`gy-reading__zy`(주음부호)로 발음을, `gy-sense-list` 안 `gy-sense__num`(번호)+`gy-sense__def`(뜻풀이)로 뜻을 나열하는 것까지는 같지만, 인용 방식이 다름 — `打算`(단어)은 뜻풀이마다 **저자·출전이 붙은 고전 인용문**이 실측 확인됨(예: "究竟上天不生无禄的人，等慢慢再打算就是了。 ——《官话指南·卷一·应对须知》"), 반면 `打`(단일 한자)는 인용문 없이 **"如：「打铁趁热」" 식의 짧은 용례구**만 붙음. 예문 출전 메타데이터(저자/출전)는 지금 스키마의 `examples?: string[]`(평문)로는 못 담고 통째로 버려지는 문제가 TODO.md(150번 항목 하위)에 이미 기록돼 있음 — Kotobank 精選版日本国語大辞典의 `[初出の実例]`와 동일 축의 문제.
 - `打`(한자) 페이지는 **다음(多音, 이 경우 dǎ/dá) 2개 발음** 아래 각각 다른 뜻풀이 세트(`gy-sense-list`)가 있고, 첫 발음(dǎ) 밑에만 23개 뜻풀이가 있는 것을 확인 — `DictionaryReading[]` 배열 구조에 자연스럽게 대응(CC-CEDICT의 異音字 구조와 동일 패턴).
 - **품사(词性) 필드 자체가 없음** — `打算`/`打` 페이지 둘 다 명시적 품사 마커를 못 찾음(`pos` 는 이 소스는 항상 undefined로 취급).
-- **近反义词(유의어/반의어) 섹션은 실제로 있지만 `data-lazy` 속성이 붙어 있어 정적 HTML엔 내용이 비어있고 JS/AJAX로 뒤늦게 채워짐** — `打算`/`一石二鸟` 페이지 둘 다 이 섹션 자체(탭 헤더)는 있는데 정적 HTML만 받으면 내용이 안 옴. 정적 HTML만 받는 스크래핑 방식(curl 등)으로는 이 섹션을 못 채운다 — 채우려면 별도 AJAX 엔드포인트를 찾아 호출하거나 헤드리스 브라우저가 필요.
-- 성어(idiom, `一石二鸟`) 페이지는 **자체 근반의어 탭과 별개로, 뜻풀이 블록 안에 "国语辞典"(대만 교육부 사전 — 萌典과 같은 데이터 계열) 서브섹션을 정적으로 통째로 끼워 넣고, 그 안에 자체 유의어 목록(`近义词: 一箭双雕, 一举两得`, CSS class `xxjs-block-label--syn`)과 영어 번역(`英语: to kill two birds with one stone (idiom)`)까지 포함**돼 있음 — 이건 위 data-lazy 섹션과 별개로 정적 HTML에 바로 존재. 즉 **성어 항목은 유의어·영어 번역을 정적으로 얻을 수 있지만, 일반 단어/한자 항목은 (lazy 섹션 채우는 별도 작업 없이는) 유의어를 못 얻는다** — 어댑터가 표제어 타입(단어/한자/성어)에 따라 다르게 동작해야 함을 시사.
+- ~~近反义词(유의어/반의어) 섹션은 실제로 있지만 `data-lazy` 속성이 붙어 있어 정적 HTML엔 내용이 비어있고 JS/AJAX로 뒤늦게 채워짐~~ → **정정(2026-07-28, curl로 打算/一石二鸟/结婚 3개 페이지 재확인)**: `id="syn" data-section="近反义词"` 섹션에 `data-lazy` 속성은 여전히 붙어있지만, **정적 HTML 자체에 내용이 이미 채워져 있다** — `打算`은 근의어 7개(盘算/打定/计划/计算/企图/准备/预备), `一石二鸟`는 근의어 2개(一箭双雕/一举两得), `结婚`은 근의어 6개+반의어 3개가 `<a class="synonym-tag">` 링크로 정적 HTML에 그대로 존재함을 확인. `data-lazy`는 AJAX로 내용을 채우는 게 아니라 다른 용도(예: 지연 렌더링 애니메이션 등 프런트엔드 훅)로 보인다 — **AJAX 엔드포인트를 찾거나 헤드리스 브라우저를 쓸 필요가 없다**, curl 스크래핑만으로 근반의어를 그대로 파싱할 수 있다. 단, 단일 한자 페이지(`打`)는 이 섹션 자체가 아예 없음(비어있는 게 아니라 미제공) — 표제어가 단어/성어일 때만 근반의어 데이터가 있는 것으로 보임.
+- 성어(idiom, `一石二鸟`) 페이지는 위 근반의어 섹션과 별개로, 뜻풀이 블록 안에 "国语辞典"(대만 교육부 사전 — 萌典과 같은 데이터 계열) 서브섹션을 정적으로 통째로 끼워 넣고, 그 안에도 자체 유의어 목록(`近义词: 一箭双雕, 一举两得`, CSS class `xxjs-block-label--syn`)과 영어 번역(`英语: to kill two birds with one stone (idiom)`)이 중복 포함돼 있음 — 이 부분은 기존 기록대로 유지(정정 대상 아님).
 - `CL:`(양사) 마커나 CC-CEDICT식 명시적 태그는 이 세 페이지에선 안 보임(단어 자체에 양사가 필요 없는 예시들이라 존재 여부 자체가 미확정 — 명사류 단어로 재확인 필요).
 
-**스키마 매핑**: `gy-sense__def`(고전 인용 있는 경우 분리 필요) → `gloss[]`(+ 인용 메타데이터는 스코프 보류), `gy-reading__py` → `pronunciations[].value`, 성어 페이지의 근의어/영어 번역 → `synonyms`/(번역은 스키마 밖, LLM 한국어 설명 단계에서 참고 가능). `pos`는 항상 undefined.
+**스키마 매핑**: `gy-sense__def`(고전 인용 있는 경우 분리 필요) → `gloss[]`(+ 인용 메타데이터는 스코프 보류), `gy-reading__py` → `pronunciations[].value`, `#syn` 섹션의 `synonym-tag`(근의어)/`synonym-label--ant` 그룹(반의어) → `synonyms`/`antonyms`(단어/성어 표제어에서만, 한자 단독 표제어는 이 섹션이 없어 항상 undefined), 성어 페이지 "国语辞典" 서브섹션의 근의어/영어 번역도 동일하게 `synonyms`로 흡수(번역은 스키마 밖, LLM 한국어 설명 단계에서 참고 가능). `pos`는 항상 undefined.
 
 ### 萌典 (zh-Hant)
 
@@ -216,14 +216,14 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 여러 소스에 걸쳐 있는 스키마 설계 판단(전체 근거는 `src/shared/types.ts` 해당 필드 주석 참고):
 
 - `DictionaryEntry.source`는 스키마엔 유지하되 LLM 프롬프트엔 넣지 않음 — 폴백 체인 디버깅·UI 출처 표기(예: "출처: JMdict")용으로만 사용.
-- `isCommon`(entry 선택용 필드)은 최종적으로 없앰 — 동일 표기의 서로 다른 reading(예: はし/きょう)은 **하나의 entry로 병합**되는 게 맞는 설계(MW hom, 萌典 heteronyms와 동일 패턴)라 우선순위 신호의 역할은 "entry 선택"이 아니라 "그 entry 안 어느 reading/sense가 대표인지"로 축소 — `DictionaryReading.isCommon`(JMdict 전용, reading 레벨)과 `DictionarySense.tagCount`(OEWN 전용, sense 레벨)로 분리해 실제 데이터가 있는 레벨에 맞춰 부활시킴.
+- `isCommon`(entry 선택용 필드)은 최종적으로 없앰 — 동일 표기의 서로 다른 reading(예: はし/きょう)은 **하나의 entry로 병합**되는 게 맞는 설계(MW hom, 萌典 heteronyms와 동일 패턴)라 우선순위 신호의 역할은 "entry 선택"이 아니라 "그 entry 안 어느 reading/sense가 대표인지"로 축소 — `DictionaryReading.isCommon`(JMdict 전용, reading 레벨)으로 분리해 실제 데이터가 있는 레벨에 맞춰 부활시킴. (당초 함께 부활시켰던 `DictionarySense.tagCount`(OEWN 전용, sense 레벨)는 **2026-07-28 실제 데이터 확인 결과 이 JSON 릴리스에 해당 필드가 없어 폐기 대상** — 아래 OEWN 섹션 참고.)
 - `pos`(CanonicalPos)는 언어 간 겹치는 범위로만 표준화하고, 원본 세부 표기는 `posRaw`(LLM에 전달 안 함)에 보존. 문법 설명에 실제로 필요한 세부 정보(활용 분류 등)는 `posRaw`에만 있으면 버려지는 것과 같으므로 `conjugationClass`(사람이 읽을 수 있는 문자열, LLM에도 전달)로 별도 승격.
 - 판별 유니온(discriminated union) 대신 공통 베이스+옵셔널 확장 필드 방식을 의도적으로 채택 — 언어 전용 필드가 2~3개 규모에서는 유니온이 과한 복잡도로 판단(실행 시점엔 JSON 직렬화로 undefined 키 자동 생략되어 안전, 다만 타입 수준에서 "이 필드는 이 언어 전용"을 컴파일러가 강제하지는 않음).
 
 **아직 미확인 항목** (실측 필요, 확인되는 대로 위 해당 섹션에 반영):
-- **汉典 近反义词(lazy 섹션)를 채우는 실제 AJAX 엔드포인트** — 섹션이 `data-lazy`로 비어있는 것까진 확인했지만, 그걸 채우는 요청 자체는 아직 안 찾음(정적 HTML 스크래핑만으론 근본적으로 못 채움).
+- ~~汉典 近反义词(lazy 섹션)를 채우는 실제 AJAX 엔드포인트~~ → **해소(2026-07-28)**: 애초에 AJAX가 필요 없었다 — `data-lazy` 속성과 무관하게 정적 HTML에 이미 내용이 채워져 있음을 재확인(위 汉典 섹션 참고). 찾을 엔드포인트 자체가 없다.
 - **MW sense 단위 "usage note" 필드의 정확한 이름**(`uns`인지 `usages`가 sense에도 나오는지) — API 키 없이는 확정 불가.
-- **OEWN JSON 릴리스 내부 스키마** — 다운로드 링크는 재확인했지만 zip 내부 실제 필드 구조는 이번 세션에서 재검증 못함(기존 기록 그대로 승계).
+- ~~**OEWN JSON 릴리스 내부 스키마**~~ → **확인 완료(2026-07-28)**: GitHub Releases 에셋을 실제로 받아 압축 해제 후 확인 — `pronunciation[].variety`/`form`/synset 다중 `definition[]`은 기존 기록대로 실재하나, `tagcount`는 존재하지 않음(위 OEWN 섹션 참고, `DictionarySense.tagCount` 폐기 필요).
 - en 불규칙 동사 활용(MW `ins` 필드)을 `irregular?: boolean` 플래그로 별도 승격할지 여부.
-- zh 이합사(离合词, 结婚/见面처럼 중간에 성분 삽입 가능한 특이 문법) — CC-CEDICT는 태깅 없음으로 확인됨(재확인). 汉典/萌典은 이번에 접근·구조는 확인했지만 이 항목 자체(离合词 태깅 여부)를 표적으로 확인하진 않아 여전히 미확인.
+- ~~zh 이합사(离合词, 结婚/见面처럼 중간에 성분 삽입 가능한 특이 문법)~~ → **확인 완료(2026-07-28)**: CC-CEDICT는 태깅 없음(기존 확인). 汉典 `结婚`, 萌典 `見面` 페이지를 직접 실측한 결과 둘 다 离合词/구조(动宾式 등) 관련 태그나 필드가 전혀 없음을 확인 — 汉典·萌典·CC-CEDICT 세 소스 모두 이 문법 범주를 태깅하지 않는다. 스키마에 별도 필드 안 만드는 결정 확정, 필요시 LLM 자체 지식으로 설명.
 - MW의 전문분야 라벨(`lbs` 필드가 존재하는 것은 확인됨) — 실제 값·의미론은 API 실호출 필요.
