@@ -29,6 +29,22 @@ export interface PythonServer {
   request<Req, Res>(req: Req): Promise<Res>
 }
 
+// Node 의 child_process.spawn 은 부모(Electron 메인 프로세스)가 죽어도 자식을 자동으로
+// 안 죽인다 — 그래서 지금까지 여러 번(진단 스크립트 반복 실행 등) 스폰된 python 프로세스가
+// 고아로 남아 계속 쌓이는 걸 실측으로 확인했다(레이아웃/PaddleOCR 프로세스가 예상보다
+// 2배 떠있어 메모리 ~2.8GB 낭비). 실제 앱도 여러 번 껐다 켜면 같은 식으로 프로세스가
+// 누적될 수 있어서, 스폰된 프로세스를 전부 여기 추적해뒀다가 앱 종료 시(index.ts:
+// before-quit) 일괄 정리한다.
+const activeProcesses = new Set<ChildProcessWithoutNullStreams>()
+
+/** 앱 종료 시(index.ts) 호출 — 지금까지 스폰된 python 서버 프로세스를 전부 죽인다. */
+export function killAllPythonServers(): void {
+  for (const proc of activeProcesses) {
+    proc.kill()
+  }
+  activeProcesses.clear()
+}
+
 /**
  * `python/<scriptName>`을 상주 프로세스로 띄우고(죽으면 다음 요청 때 자동 재기동)
  * 표준입출력으로 통신하는 클라이언트를 만든다. 응답 JSON 에 `error` 필드가 있으면
@@ -46,7 +62,9 @@ export function createPythonServer(scriptName: string, extraArgs: string[] = [])
   function ensureProcess(): ChildProcessWithoutNullStreams {
     if (proc && !proc.killed) return proc
     const p = spawn(PYTHON_BIN, [scriptPath, ...extraArgs])
+    activeProcesses.add(p)
     const reset = () => {
+      activeProcesses.delete(p)
       if (proc === p) {
         proc = null
         rl = null
