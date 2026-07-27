@@ -23,6 +23,13 @@ export const IPC = {
   SUBMIT_REGION: 'region:submit',
   OVERLAY_NOTICE: 'overlay:notice',
 
+  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout-YOLO/PaddleOCR/manga-ocr
+  // Python 엔진 예열 상태. 앱 시작 시 백그라운드로 예열을 시작하는데(main/index.ts),
+  // 다 끝나기 전에 사용자가 창 선택을 누르면 첫 선택 모드 진입 때 예열 대기 시간을
+  // 그대로 겪게 된다 — 그래서 예열 중엔 창 선택 버튼을 막고 안내를 보여준다.
+  WARMUP_GET: 'warmup:get',
+  WARMUP_READY: 'warmup:ready',
+
   // 메인/피커/설정 화면 전환 (공동) — 세 화면은 한 창을 재사용한다(동시 표시 불필요).
   // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.
   WINDOW_SET_ROUTE: 'window:setRoute',

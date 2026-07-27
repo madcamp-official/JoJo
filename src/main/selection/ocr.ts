@@ -1,8 +1,24 @@
+import { nativeImage } from 'electron'
 import { createWorker, type Worker } from 'tesseract.js'
 import type { Language, Rect, Word } from '@shared/types'
 import type { Extracted } from './extractDirect'
-import { segmentJapaneseWords } from '../nlp/japanese'
 import { segmentChineseWords } from '../nlp/chinese'
+import { segmentJapaneseWords } from '../nlp/japanese'
+import { detectLayoutBlocks, filterBlocksByRegion, type LayoutBlock, mergeIntoColumns, padRect } from './layoutDetect'
+import {
+  detectLinesWithPaddle,
+  isVerticalByLineShape,
+  recognizeLinesWithPaddle,
+  recognizeVerticalColumnWithPaddle,
+  recognizeWithPaddle,
+} from './ocrPaddle'
+import { getCachedDetection } from './regionSelection'
+
+// YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
+// 실측 결과 가로는 줄 끝 단어가 통째로 깨지지 않으려면 50px은 필요했고(10~30px 는
+// 부족), 세로는 크게 주면 메뉴바/툴바 문구가 딸려 들어와서 작게 유지한다.
+const BLOCK_PADDING_X = 50
+const BLOCK_PADDING_Y = 12
 
 // 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §7 / §9)
 // 범용 엔진: Tesseract.js 채택 확정(오프라인, 언어팩 교체로 다국어 대응). 언어별 특화
@@ -32,8 +48,200 @@ async function getWorker(language: Language): Promise<Worker> {
   return worker
 }
 
+// region 이 없을 때(전체 창을 대상으로 함) "이미지 전체"를 나타내는 Rect 가 여러
+// 군데에서 필요해서(clampBounds, 판별용 폴백 등) 헬퍼로 뽑았다.
+function fullImageRect(image: Buffer): Rect {
+  const { width, height } = nativeImage.createFromBuffer(image).getSize()
+  return { x: 0, y: 0, width, height }
+}
+
+interface LayoutInfo {
+  blocks: LayoutBlock[]
+  vertical: boolean
+  /** DocLayout 이 블록을 못 찾아서(blocks=0) 대신 찾아둔 PaddleOCR 줄 — 캐시에서 왔을
+   * 수도, 여기 없을 수도 있다(캐시 자체가 없으면 항상 null). */
+  fallbackLines: Rect[] | null
+}
+
+/**
+ * DocLayout 검출 결과를 얻는다 — 모드 진입 시 영역 자동 감지(regionSelection.ts:
+ * autoDetectRegion)가 이미 이 캡처 내용으로 DocLayout(+실패 시 PaddleOCR 줄 검출)을
+ * 한 번 돌려놨으므로, 그 결과가 캐시돼 있으면 재사용하고 없을 때만(수동 드래그로 영역을
+ * 지정한 경우 등) 새로 검출한다. 캐시 재사용 시 blocks 는 이미지 전체 기준으로 검출된
+ * 것이라 region 이 있으면 그 안에 겹치는 것만 걸러낸다(layoutDetect.ts: filterBlocksByRegion
+ * — Python 쪽 detect() 가 region 인자로 하던 필터링을 캐시 재사용 시엔 JS 에서 대신함).
+ */
+async function resolveLayout(image: Buffer, region: Rect | undefined): Promise<LayoutInfo> {
+  const cached = getCachedDetection()
+  if (cached) {
+    const blocks = region ? filterBlocksByRegion(cached.blocks, region) : cached.blocks
+    console.log(`[timing] layout detect: 캐시 재사용 (blocks=${blocks.length}, vertical=${cached.vertical})`)
+    return { blocks, vertical: cached.vertical, fallbackLines: cached.fallbackLines }
+  }
+  const layoutStart = Date.now()
+  const detected = await detectLayoutBlocks(image, region)
+  console.log(
+    `[timing] layout detect: ${Date.now() - layoutStart}ms (blocks=${detected?.blocks.length ?? 'null'}, vertical=${detected?.vertical ?? 'n/a'})`,
+  )
+  return { blocks: detected?.blocks ?? [], vertical: detected?.vertical ?? false, fallbackLines: null }
+}
+
+/**
+ * 담당 A — 실험용 브랜치(experiment/doclayout-yolo). Tesseract 는 다단(2단 등)
+ * 레이아웃을 한 번에 인식시키면 열을 뒤섞어 읽는 경우가 있다(왼쪽 열 중간까지
+ * 읽다가 오른쪽 열로 넘어갔다가 다시 왼쪽으로 돌아오는 식). DocLayout-YOLO(python/
+ * layout_detect.py)로 블록(+열 인덱스)을 먼저 찾고, 같은 열의 블록은 하나로 합친
+ * 뒤(mergeIntoColumns) 열이 2개 이상이면(=진짜 다단으로 판단) 열마다 따로 Tesseract
+ * 를 돌려 순서대로 이어붙인다 — **모델이 검출한 블록 개수가 아니라 "합친 뒤 열 개수"**
+ * 로 판단하는 게 중요하다: 단일 열이라도 문단이 여러 블록으로 검출되는 경우가 흔한데,
+ * (합치기 전) 블록 단위로 나눠 인식하면 그 블록 경계가 실제 문장 중간을 가로질러
+ * 글자가 잘리는 문제가 있었다(실사용 중 "선택 영역 중간에도 클릭 안 되는 단어 + 팝업
+ * 에서 첫 글자 잘림"으로 재현) — 열이 1개면(=다단 아님) 굳이 나눌 이유가 없어서 기존
+ * 단일 패스로 처리한다. 열이 1개 이하거나 레이아웃 검출 자체가 실패하면(Python 환경
+ * 미설치 등) 기존 단일 패스로 폴백한다.
+ */
 export async function runOcr(image: Buffer, language: Language, region?: Rect): Promise<Extracted> {
+  const { blocks, vertical: shapeVertical, fallbackLines } = await resolveLayout(image, region)
+  const columns = mergeIntoColumns(blocks)
+
+  // 중국어/일본어는 PaddleOCR을 먼저 시도한다(세로쓰기면 recognizeVerticalColumnWithPaddle,
+  // 가로쓰기면 recognizeWithPaddle/recognizeLinesWithPaddle) — 일본어 스캔 파일에서
+  // Tesseract 인식률이 낮았던 문제(실사용 확인)로 도입. 실패하면(Python 환경 없음 등)
+  // null 이 와서 그대로 아래 Tesseract 경로로 흘러간다.
+  if (language === 'zh-Hans' || language === 'zh-Hant' || language === 'ja') {
+    // DocLayout 이 블록을 하나도 못 찾으면(blocks=0) `vertical` 판정 자체가 근거가
+    // 없어 기본값 false 로 떨어지는데, 그러면 전체 영역이 통째로 "블록 1개" 취급돼
+    // 열/줄 분리 없이 페이지 전체를 PaddleOCR 한 번에 통으로 넘기게 된다(실측: 200자대
+    // 세로쓰기 페이지에서 38초) — 이러면 열/줄 병렬화 이득이 전혀 없는 최악의 경로다.
+    // 예전엔 "언어가 ja/zh 면 무조건 세로쓰기로 가정"하는 블라인드 폴백을 썼는데, 대신
+    // PaddleOCR 로 줄을 직접 찾아(어차피 다음 단계에서도 필요한 호출) 그 모양(h/w 비율)
+    // 으로 실측 판별한다(isVerticalByLineShape) — 진짜로 보고 판단하는 쪽이 더 정확하다.
+    const blocksFound = blocks.length > 0
+    let vertical = shapeVertical
+    let precomputedLines: Rect[] | undefined
+    if (!blocksFound) {
+      // fallbackLines 가 이미 있으면(캐시에서 왔음) 재검출 안 하고 그대로 쓴다 — 없으면
+      // (캐시 자체가 없는 경우, 예: 수동 드래그 영역) 지금 새로 찾는다.
+      const lines = fallbackLines ?? (await detectLinesWithPaddle(image, region ?? fullImageRect(image)))
+      vertical = lines ? isVerticalByLineShape(lines) : false
+      precomputedLines = lines ?? undefined
+      console.log(
+        `[timing] 세로/가로 실측 판별${fallbackLines ? '(캐시 재사용)' : '(새로 검출)'}: vertical=${vertical} (lines=${lines?.length ?? 'null'})`,
+      )
+    }
+    const nonTessStart = Date.now()
+    const result = vertical
+      ? await runVerticalOcr(image, language, region, precomputedLines)
+      : await runNonTesseractOcr(image, language, region, columns, precomputedLines)
+    console.log(
+      `[timing] non-tesseract ocr (${vertical ? '세로쓰기, 전체 영역' : `columns=${columns.length || 1}`}): ${Date.now() - nonTessStart}ms (${result ? 'success' : 'failed, falling back to tesseract'})`,
+    )
+    if (result) return result
+  }
+
   const w = await getWorker(language)
+  if (columns.length > 1) {
+    const clampBounds = region ?? fullImageRect(image)
+    const texts: string[] = []
+    const words: Word[] = []
+    for (const column of columns) {
+      const paddedBbox = padRect(column.bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
+      const result = await recognizeRegion(w, image, language, paddedBbox)
+      if (result.text) texts.push(result.text)
+      words.push(...result.words)
+    }
+    return { text: texts.join('\n\n'), language, words }
+  }
+
+  const result = await recognizeRegion(w, image, language, region)
+  return { text: result.text, language, words: result.words }
+}
+
+/**
+ * 세로쓰기 전용 — DocLayout(PP-DocLayout_plus-L)이 블록을 몇 개로 나누든, 그 블록 단위
+ * 열 분할을 아예 안 믿는다. 실측 확인: 실제 페이지에서 PP-DocLayout이 같은 자리에 폭이
+ * 다른(여러 열을 뭉친 것/열 하나짜리) 박스를 중복으로 내놓는 경우가 있어서, 이 블록
+ * 단위 분할(mergeIntoColumns)에 기대면 열이 뒤섞이거나 특정 열 위치에 인식이 아예
+ * 안 되는 문제가 있었다("우측 열에 텍스트 박스 자체가 안 뜸"으로 확인). 그래서 DocLayout
+ * 은 "본문이 대략 어디 있는지"(= region, 이미 body 라벨 기준으로 계산된 값)만 신뢰하고,
+ * 실제 열 구분·읽기 순서는 이미 검증된 줄 단위 로직(recognizeVerticalColumnWithPaddle
+ * 내부의 clusterVerticalLinesIntoColumns — PaddleOCR로 찾은 줄을 x좌표로 재군집화)에
+ * 전부 맡긴다. 이러면 DocLayout이 블록을 몇 개로/어떻게 쪼개든 결과가 항상 같은 경로를
+ * 타서 일관되게 정확하다 — 대가는 속도(좁은 열 크롭 여러 개 대신 넓은 영역 하나를
+ * 통째로 줄 검출해야 함)인데, 이건 별도로(병렬 분할/축소 등) 다뤄야 할 문제로 분리한다.
+ */
+async function runVerticalOcr(
+  image: Buffer,
+  language: 'zh-Hans' | 'zh-Hant' | 'ja',
+  region: Rect | undefined,
+  precomputedLines: Rect[] | undefined,
+): Promise<Extracted | null> {
+  const target = region ?? fullImageRect(image)
+  const start = Date.now()
+  const words = await recognizeVerticalColumnWithPaddle(image, language, target, precomputedLines)
+  console.log(`[timing]   세로쓰기(전체 영역): ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
+  if (!words) return null
+  // zh/ja 는 띄어쓰기 없는 문자 체계라 단어 사이를 공백 없이 그냥 이어붙인다.
+  const text = words.map((w) => w.text).join('')
+  return { text, language, words }
+}
+
+/**
+ * 가로쓰기 전용 — PaddleOCR(en 은 이 함수 자체를 안 씀, 항상 Tesseract)로 열 단위 인식을
+ * 시도한다. DocLayout 이 열을 여러 개 찾아줬으면(다단 성공) 열마다 이미 적당히 작은
+ * 크롭이라 recognizeWithPaddle 한 번으로 충분하고(PaddleOCR 자체 검출기가 그 안에서
+ * 알아서 줄을 찾아 인식), 열 구분이 없으면(다단 아님/레이아웃 검출 실패) region(또는
+ * 이미지 전체) 하나를 recognizeLinesWithPaddle 로 줄 단위 병렬 인식한다(그 크롭이 페이지
+ * 전체 크기라 한 번에 넘기면 느림 — 실측 38초). 열 하나라도 실패하면 전체를 null 로
+ * 반환해 호출부가 통째로 Tesseract 로 폴백하게 한다 — 열마다 다른 엔진이 섞이는 것보다
+ * 일관된 폴백이 안전하다.
+ */
+async function runNonTesseractOcr(
+  image: Buffer,
+  language: 'zh-Hans' | 'zh-Hant' | 'ja',
+  region: Rect | undefined,
+  columns: LayoutBlock[],
+  precomputedLines?: Rect[],
+): Promise<Extracted | null> {
+  const clampBounds = region ?? fullImageRect(image)
+  const targets = columns.length > 0 ? columns.map((c) => c.bbox) : [region ?? clampBounds]
+  // precomputedLines 는 "블록 0개 → 대상 전체를 통짜 크롭 1개로 처리" 케이스에서만
+  // 채워져 오고, 그 크롭은 항상 이 targets 배열의 유일한 원소(위 fallback 대입)와 같은
+  // region/clampBounds 기준이라 targets.length===1 일 때만 안전하게 재사용할 수 있다.
+
+  // 열마다 순차로(for...await) 호출하면 ocrPaddle.ts 에 만들어둔 워커 풀(POOL_SIZE=3)을
+  // 쓰는 의미가 없다 — 한 열이 끝나야 다음 열을 보내니 워커 하나만 쓰는 것과 같다
+  // (실사용 중 "다단/세로쓰기 페이지 인식이 오래 걸림"으로 확인). 전부 한꺼번에 보내야
+  // 여러 워커에 나뉘어 실제로 동시에 처리된다 — Promise.all 은 입력 순서(=열 순서)를
+  // 그대로 보존해서 반환하므로 완료 순서와 무관하게 결과가 올바르게 이어붙는다.
+  const perColumn = await Promise.all(
+    targets.map(async (bbox, i) => {
+      const padded = padRect(bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
+      const start = Date.now()
+      const lines = targets.length === 1 ? precomputedLines : undefined
+      const words =
+        targets.length === 1
+          ? await recognizeLinesWithPaddle(image, language, padded, lines)
+          : await recognizeWithPaddle(image, language, padded)
+      console.log(`[timing]   column ${i}: ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
+      return words
+    }),
+  )
+  if (perColumn.some((columnWords) => !columnWords)) return null // 열 하나라도 실패하면 통째로 Tesseract 폴백
+  const words = perColumn.flatMap((columnWords) => columnWords!)
+  // 이 함수는 zh/ja 전용이라(en 은 항상 Tesseract) 원래 띄어쓰기 없는 문자 체계다 —
+  // 단어 사이를 공백 없이 그냥 이어붙인다.
+  const text = words.map((w) => w.text).join('')
+  return { text, language, words }
+}
+
+/** 이미지 한 장(전체 또는 region 으로 제한된 한 블록)을 인식해 텍스트+단어 bbox 를 뽑는다. */
+async function recognizeRegion(
+  w: Worker,
+  image: Buffer,
+  language: Language,
+  region?: Rect,
+): Promise<{ text: string; words: Word[] }> {
   // blocks 출력은 기본 꺼져 있음 — 단어별 bbox 를 얻으려면 명시적으로 켜야 한다.
   // region 을 주면 Tesseract 가 그 사각형 안쪽만 인식한다(SetRectangle) — 반환되는
   // bbox 는 여전히 원본 이미지 전체 기준 절대좌표라 이후 정렬 로직은 안 바꿔도 된다.
@@ -79,7 +287,7 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
     }
   }
 
-  return { text: normalizeOcrText(data.text), language, words }
+  return { text: normalizeOcrText(data.text), words }
 }
 
 /**
@@ -209,24 +417,17 @@ function isWordClippedByRegion(bbox: OcrBbox, region: Rect): boolean {
   )
 }
 
-// 단어 평균 신뢰도가 이보다 낮으면 잘렸을 가능성이 큰 것으로 본다. 정상 단어가
-// 오탐으로 같이 빠지진 않는 게 확인돼서 임계값을 더 올려 잡아내는 범위를 넓혔다.
-const MIN_WORD_CONFIDENCE = 90
+// Tesseract 의 단어 confidence 는 심볼 평균이 아니라 자체 언어모델/사전 매칭까지 반영한
+//값이라, 아포스트로피가 낀 단어("isn't"=88, "I'll"=88, "soon."=86 등, 실측)는 글자
+// 하나하나는 98~99%로 다 정확히 읽었는데도 단어 전체 confidence 는 90 밑으로 곧잘
+// 떨어진다 — 예전에 90까지 올렸을 때 이런 케이스가 전부 오탐으로 잘려나갔다("아포스트
+// 로피/세미콜론 낀 단어, 줄 끝 단어 클릭 안 됨"으로 확인). 반면 실제로 잘리거나 깨진
+// 단어는 확 낮은 값(같은 실측에서 크롭 경계에 걸려 깨진 단어가 46)이 나와서, 60 정도면
+// 정상 단어의 최저치(86)와 충분한 여유를 두면서도 진짜 깨진 단어는 잡아낸다.
+const MIN_WORD_CONFIDENCE = 60
 // 단어 전체 평균은 넘겨도, 특정 글자 하나만 유독 신뢰도가 낮으면(예: 마지막 글자만
 // 반쯤 잘림) 그 한 글자 때문에 단어 전체가 부정확해지므로 별도로 확인한다.
 const MIN_SYMBOL_CONFIDENCE = 75
-
-/**
- * 위치(isWordClippedByRegion)가 아니라 "제대로 안 보이는 글자"를 인식 신뢰도로 판정한다.
- * 사용자가 영역을 넉넉하게 잡아서 잘린 지점이 영역 경계와 멀리 떨어져 있어도(예: 원본
- * 화면 자체의 스크롤 패널 경계에 걸쳐 반만 보이는 줄), 글자 획 일부만 보이면 Tesseract
- * 도 확신을 못 해 confidence 가 낮게 나오는 경향을 이용한다 — 위치 기반 판정을 못
- * 빠져나가는 잘림까지 잡기 위한 보완 규칙.
- */
-function looksTruncated(word: { confidence: number; symbols?: OcrSymbol[] }): boolean {
-  if (word.confidence < MIN_WORD_CONFIDENCE) return true
-  return (word.symbols ?? []).some((s) => s.confidence < MIN_SYMBOL_CONFIDENCE)
-}
 
 // 끝에 붙는 문장부호(마침표·쉼표·닫는 인용부호/괄호 등, 한/영/일 공통) — 박스 계산에서
 // 만 제외하고 심볼 자체는 버린다(뒤에 더 없는 "끝"에서만 적용, 단어 중간엔 안 건드림).
@@ -236,20 +437,45 @@ const TRAILING_PUNCT_RE = /^[.,!?;:'")\]}»›」』、。！？；：]$/
 const DASH_CHARS = new Set(['—', '–'])
 
 /**
+ * 위치(isWordClippedByRegion)가 아니라 "제대로 안 보이는 글자"를 인식 신뢰도로 판정한다.
+ * 사용자가 영역을 넉넉하게 잡아서 잘린 지점이 영역 경계와 멀리 떨어져 있어도(예: 원본
+ * 화면 자체의 스크롤 패널 경계에 걸쳐 반만 보이는 줄), 글자 획 일부만 보이면 Tesseract
+ * 도 확신을 못 해 confidence 가 낮게 나오는 경향을 이용한다 — 위치 기반 판정을 못
+ * 빠져나가는 잘림까지 잡기 위한 보완 규칙.
+ *
+ * 문장부호/대시 심볼은 신뢰도 검사에서 제외한다 — 아포스트로피(')·세미콜론(;)·
+ * em/en dash 처럼 획이 가늘고 작은 글자는 완전히 멀쩡하게 보여도 Tesseract 가 원래
+ * 낮은 confidence 를 주는 경향이 있어서, 이걸 그대로 "잘림" 신호로 쓰면 그런 문장
+ * 부호가 낀 단어(줄 끝 단어는 흔히 문장부호로 끝남, 대시로 이어진 단어는 대시 자체가
+ * 심볼로 포함됨)가 실제로는 안 잘렸는데도 통째로 걸러지는 오탐이 생겼다(실사용 중
+ * "아포스트로피/세미콜론 낀 단어, 줄 끝 단어, em/en dash 단어가 클릭 안 됨"으로 확인).
+ * 실제 글자(알파벳/숫자/한글 등)의 신뢰도만 본다.
+ */
+function looksTruncated(word: { confidence: number; symbols?: OcrSymbol[] }): boolean {
+  if (word.confidence < MIN_WORD_CONFIDENCE) return true
+  return (word.symbols ?? []).some(
+    (s) => !TRAILING_PUNCT_RE.test(s.text) && !DASH_CHARS.has(s.text) && s.confidence < MIN_SYMBOL_CONFIDENCE,
+  )
+}
+
+/**
  * Tesseract 단어 1개를 글자(symbol) 단위로 훑어서, em/en dash 를 경계로 여러 단어로
  * 쪼개고 각 조각 끝의 문장부호는 텍스트에서 제외한다. `symbols` 가 없으면(드묾) 기존
  * 단어 bbox 그대로 반환.
  *
- * 개별 글자의 bbox 는 어디에도 신뢰하지 않는다 — 마침표·쉼표 같은 작은 문장부호는
- * Tesseract 가 잡는 경계 상자가 실제보다 부풀려져서(앞 글자 쪽으로 침범) 나오는
- * 경우가 있어서, 그걸 "잘라내는 기준선"으로 쓰면 마지막 글자가 통째로 잘리거나
- * 반만 잡히는 문제가 생겼다(대시 자신의 bbox 를 기준선으로 썼을 때도 마찬가지 위험).
- * 그래서:
- *  - 대시가 없는 단어: 박스는 원본 단어 bbox 를 그대로 유지(잘림 위험 자체가 없음),
- *    끝 문장부호는 텍스트 문자열에서만 제거한다.
- *  - 대시가 있는 단어: 어차피 조각마다 별도 박스가 필요해서 폭을 나눠야 하는데,
- *    개별 글자 bbox 대신 "글자 개수 비율"로 원본 폭을 나눈다 — 완벽히 정밀하진
- *    않지만(글자 폭이 다 다르므로) 어떤 심볼 bbox 도 안 믿으므로 잘림 위험이 없다.
+ * 대시가 없는 단어는 박스를 원본 단어 bbox 그대로 유지한다(끝 문장부호는 텍스트
+ * 문자열에서만 제거) — 어차피 나눌 필요가 없어서 심볼 bbox 를 볼 이유도 없다.
+ *
+ * 대시가 있는 단어는 조각마다 별도 박스가 꼭 필요한데, 예전엔 "글자 개수 비율"로
+ * 원본 폭을 나눴었다 — 그런데 실측해보니(예: "officials—will") 글자 폭이 균일하지
+ * 않아서(좁은 i/l 과 넓은 o/w 가 섞여있음) 개수 비율로는 실제 잉크 경계와 최대 15px
+ * 이상 어긋났고, 그 결과 박스가 대시 한가운데서 끝나거나 대시를 통째로 삼키는
+ * 문제가 있었다("단어 박스가 대시 중간에서 잘리거나 대시 전체가 박스 안에 포함됨"으로
+ * 재현). 그래서 대시로 나뉜 각 글자 그룹은 그 그룹에 속한 실제 글자(알파벳/숫자 등,
+ * 문장부호 제외) 심볼들의 bbox 를 합쳐서(min x0 ~ max x1) 박스를 만든다 — 대시 자신의
+ * bbox 나 문장부호 bbox 는 여전히 안 믿지만(그 둘은 작고 옆 글자 쪽으로 부풀려지는
+ * 경우가 있어서), 일반 글자 심볼들의 bbox 는 confidence 도 높고(실측 98~99%) 서로
+ * 뚜렷이 구분돼 있어서 이걸 합친 값은 신뢰할 수 있다.
  */
 function splitWordBySymbols(
   word: { text: string; bbox: OcrBbox; symbols?: OcrSymbol[] },
@@ -273,18 +499,13 @@ function splitWordBySymbols(
     return [mk(text, word.bbox.x0, word.bbox.x1)]
   }
 
-  // 대시를 경계로 글자 그룹을 나눈다(대시 자신은 어느 그룹에도 안 넣음). 대시가 차지하는
-  // 폭은 그룹 사이 "빈 틈"으로 따로 기록해둔다 — 이 폭을 안 빼고 그냥 전체 폭을 글자 수
-  // 비율로만 나누면, 대시 자신의 공간이 양쪽 단어 중 하나에 잘못 흡수돼서(단어 길이
-  // 비율에 따라) 대시 한가운데서 잘리거나 통째로 한쪽 박스에 포함되는 문제가 있었다.
+  // 대시를 경계로 글자 그룹을 나눈다(대시 자신은 어느 그룹에도 안 넣음).
   const groups: OcrSymbol[][] = []
-  const gapWidths: number[] = [] // gapWidths[i] = groups[i] 와 groups[i+1] 사이 대시 폭
   let current: OcrSymbol[] = []
   for (const sym of symbols) {
     if (DASH_CHARS.has(sym.text)) {
       if (current.length > 0) {
         groups.push(current)
-        gapWidths.push(sym.bbox.x1 - sym.bbox.x0)
         current = []
       }
       // current 가 비어있는 채로 대시를 만나면(대시가 맨 앞 등, 드묾) 그냥 건너뜀.
@@ -294,13 +515,7 @@ function splitWordBySymbols(
   }
   if (current.length > 0) groups.push(current)
 
-  const totalGapWidth = gapWidths.reduce((sum, w) => sum + w, 0)
-  const totalWidth = word.bbox.x1 - word.bbox.x0 - totalGapWidth
-  const totalLen = groups.reduce((sum, g) => sum + g.length, 0)
-  if (totalLen === 0) return []
-
   const results: Word[] = []
-  let x = word.bbox.x0
   for (let i = 0; i < groups.length; i++) {
     const group = groups[i]!
     const isLast = i === groups.length - 1
@@ -308,14 +523,12 @@ function splitWordBySymbols(
     if (isLast) {
       while (end > 0 && TRAILING_PUNCT_RE.test(group[end - 1]!.text)) end--
     }
-    const fullWidth = totalWidth * (group.length / totalLen)
-    if (end > 0) {
-      const keptWidth = totalWidth * (end / totalLen)
-      const text = group.slice(0, end).map((s) => s.text).join('')
-      results.push(mk(text, x, x + keptWidth))
-    }
-    x += fullWidth
-    if (i < gapWidths.length) x += gapWidths[i]!
+    if (end === 0) continue // 그룹 전체가 문장부호면(드묾) 버림
+    const kept = group.slice(0, end)
+    const x0 = Math.min(...kept.map((s) => s.bbox.x0))
+    const x1 = Math.max(...kept.map((s) => s.bbox.x1))
+    const text = kept.map((s) => s.text).join('')
+    results.push(mk(text, x0, x1))
   }
   return results
 }

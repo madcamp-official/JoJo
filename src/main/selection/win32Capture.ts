@@ -23,6 +23,7 @@ const EnumWindows = user32.func(
 )
 const IsWindowVisible = user32.func('int __stdcall IsWindowVisible(void *hwnd)')
 const IsIconic = user32.func('int __stdcall IsIconic(void *hwnd)')
+const IsZoomed = user32.func('int __stdcall IsZoomed(void *hwnd)')
 const GetWindow = user32.func('void * __stdcall GetWindow(void *hwnd, uint32_t uCmd)')
 const GetWindowLongPtrW = user32.func(
   'intptr_t __stdcall GetWindowLongPtrW(void *hwnd, int32_t nIndex)',
@@ -288,6 +289,18 @@ export function getWindowScreenRect(
   const height = rect.bottom - rect.top
   if (width <= 0 || height <= 0) return null
   return { x: rect.left, y: rect.top, width, height }
+}
+
+/**
+ * 창이 (제목표시줄 더블클릭/Win+Up 등으로) 진짜 OS 최대화 상태인지 — `IsZoomed`.
+ * 최대화된 창은 정의상 모니터의 작업영역(작업표시줄 제외)에 정확히 맞춰지므로,
+ * 오버레이 테두리를 그 작업영역에 그대로 스냅시켜도 항상 정확하다(windows.ts:
+ * snapToDisplayEdges) — 실측 기반 여유값을 추측할 필요가 없다. F11 같은 커스텀
+ * 전체화면(테두리 없는 창을 앱이 직접 모니터 크기로 맞춘 것)은 이 API로는 최대화가
+ * 아니라고 나온다 — 그 경우는 windows.ts 에서 별도로(모니터 진짜 경계 근접 여부) 처리.
+ */
+export function isWindowMaximized(hwnd: bigint): boolean {
+  return !!IsZoomed(hwnd)
 }
 
 /**

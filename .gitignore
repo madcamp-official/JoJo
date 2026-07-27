@@ -25,3 +25,8 @@ Thumbs.db
 
 # Tesseract.js 언어팩 캐시 (실행 중 자동 다운로드됨)
 *.traineddata
+
+# 실험용 브랜치(experiment/doclayout-yolo) — Python venv 와 다운로드되는 모델
+# 가중치는 크고 재생성 가능해서 커밋하지 않는다(python/README.md 참고).
+python/.venv/
+

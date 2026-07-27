@@ -18,6 +18,7 @@ import { startChangeWatcher } from './selection/changeWatcher'
 import { getSelectedWindowId, listWindows, setSelectedWindowId } from './selection/capture'
 import { invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
 import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
+import { isWarmedUp } from './selection/warmup'
 import {
   createPopupWindow,
   getMainWindow,
@@ -85,6 +86,13 @@ export function registerIpc(): void {
     // PLAN.md §3: 창 선택 → 백그라운드 실행. 메인 창은 X 가 아니라 여기서 숨기고,
     // 트레이 메뉴(선택 해제/재선택/설정/종료)로만 다시 꺼낸다(windows.ts, tray.ts).
     getMainWindow()?.hide()
+  })
+
+  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR/manga-ocr 예열
+  // 완료 여부. MainScreen 이 마운트 시 조회하고(예열 도중 창을 새로고침/재오픈해도
+  // 상태를 다시 알 수 있게), 이후 변화는 WARMUP_READY push(main/index.ts)로 받는다.
+  ipcMain.handle(IPC.WARMUP_GET, async (): Promise<boolean> => {
+    return isWarmedUp()
   })
 
   ipcMain.handle(IPC.GET_MODE, async () => getOverlayMode())
