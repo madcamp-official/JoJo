@@ -44,6 +44,17 @@ _detector: TextDetection | None = None
 RECOGNITION_MODEL_NAME = "PP-OCRv6_small_rec"
 
 
+# 워커 프로세스를 6개(POOL_SIZE, ocrPaddle.ts)나 띄우는데, 실사용 중 같은 조건(캐시
+# 재사용, 예열 완료)으로 반복 실행해도 16.8~25.4초로 편차가 컸던 적이 있어서 "워커별
+# 내부 스레드(OpenMP/MKL)까지 겹쳐서 코어를 오버서브스크립션하는 게 원인 아닐까" 의심
+# 하고 cpu_threads=1 로 제한해 실측 비교했다 — 그런데 같은 이미지로 통제 비교해보니
+# (3회 반복) cpu_threads=1 이 오히려 변동폭이 더 크고(23.8~25.8s) 기본값(제한 없음)이
+# 더 일정했다(23.4~23.7s). 즉 이 환경에서는 오버서브스크립션이 주된 원인이 아닌 걸로
+# 보여서(실사용 중 봤던 편차는 그 세션에 떠 있던 다른 프로그램의 영향일 가능성이 더
+# 큼 — 격리된 진단 스크립트로는 재현 안 됨) 기본값으로 되돌린다.
+CPU_THREADS = None
+
+
 def get_engine(language: str) -> PaddleOCR:
     paddle_lang = LANG_MAP.get(language, "en")
     if paddle_lang not in _engines:
@@ -54,6 +65,7 @@ def get_engine(language: str) -> PaddleOCR:
         _engines[paddle_lang] = PaddleOCR(
             lang=paddle_lang,
             text_recognition_model_name=RECOGNITION_MODEL_NAME,
+            cpu_threads=CPU_THREADS,
             enable_mkldnn=False,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
@@ -64,7 +76,7 @@ def get_engine(language: str) -> PaddleOCR:
 def get_detector() -> TextDetection:
     global _detector
     if _detector is None:
-        _detector = TextDetection(enable_mkldnn=False)
+        _detector = TextDetection(cpu_threads=CPU_THREADS, enable_mkldnn=False)
     return _detector
 
 
