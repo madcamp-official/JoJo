@@ -130,9 +130,11 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
       )
     }
     const nonTessStart = Date.now()
-    const result = await runNonTesseractOcr(image, language, region, columns, vertical, precomputedLines)
+    const result = vertical
+      ? await runVerticalOcr(image, language, region, precomputedLines)
+      : await runNonTesseractOcr(image, language, region, columns, precomputedLines)
     console.log(
-      `[timing] non-tesseract ocr (columns=${columns.length || 1}): ${Date.now() - nonTessStart}ms (${result ? 'success' : 'failed, falling back to tesseract'})`,
+      `[timing] non-tesseract ocr (${vertical ? '세로쓰기, 전체 영역' : `columns=${columns.length || 1}`}): ${Date.now() - nonTessStart}ms (${result ? 'success' : 'failed, falling back to tesseract'})`,
     )
     if (result) return result
   }
@@ -156,17 +158,49 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
 }
 
 /**
- * PaddleOCR(+세로쓰기 일본어면 manga-ocr)로 열 단위 인식을 시도한다. 열이 없으면
- * (다단 아님/레이아웃 검출 실패) region(또는 이미지 전체) 하나를 통째로 한 열처럼
- * 처리한다. 열 하나라도 실패하면 전체를 null 로 반환해 호출부가 통째로 Tesseract
- * 로 폴백하게 한다 — 열마다 다른 엔진이 섞이는 것보다 일관된 폴백이 안전하다.
+ * 세로쓰기 전용 — DocLayout(PP-DocLayout_plus-L)이 블록을 몇 개로 나누든, 그 블록 단위
+ * 열 분할을 아예 안 믿는다. 실측 확인: 실제 페이지에서 PP-DocLayout이 같은 자리에 폭이
+ * 다른(여러 열을 뭉친 것/열 하나짜리) 박스를 중복으로 내놓는 경우가 있어서, 이 블록
+ * 단위 분할(mergeIntoColumns)에 기대면 열이 뒤섞이거나 특정 열 위치에 인식이 아예
+ * 안 되는 문제가 있었다("우측 열에 텍스트 박스 자체가 안 뜸"으로 확인). 그래서 DocLayout
+ * 은 "본문이 대략 어디 있는지"(= region, 이미 body 라벨 기준으로 계산된 값)만 신뢰하고,
+ * 실제 열 구분·읽기 순서는 이미 검증된 줄 단위 로직(recognizeVerticalColumnWithPaddle
+ * 내부의 clusterVerticalLinesIntoColumns — PaddleOCR로 찾은 줄을 x좌표로 재군집화)에
+ * 전부 맡긴다. 이러면 DocLayout이 블록을 몇 개로/어떻게 쪼개든 결과가 항상 같은 경로를
+ * 타서 일관되게 정확하다 — 대가는 속도(좁은 열 크롭 여러 개 대신 넓은 영역 하나를
+ * 통째로 줄 검출해야 함)인데, 이건 별도로(병렬 분할/축소 등) 다뤄야 할 문제로 분리한다.
+ */
+async function runVerticalOcr(
+  image: Buffer,
+  language: 'zh-Hans' | 'zh-Hant' | 'ja',
+  region: Rect | undefined,
+  precomputedLines: Rect[] | undefined,
+): Promise<Extracted | null> {
+  const target = region ?? fullImageRect(image)
+  const start = Date.now()
+  const words = await recognizeVerticalColumnWithPaddle(image, language, target, precomputedLines)
+  console.log(`[timing]   세로쓰기(전체 영역): ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
+  if (!words) return null
+  // zh/ja 는 띄어쓰기 없는 문자 체계라 단어 사이를 공백 없이 그냥 이어붙인다.
+  const text = words.map((w) => w.text).join('')
+  return { text, language, words }
+}
+
+/**
+ * 가로쓰기 전용 — PaddleOCR(en 은 이 함수 자체를 안 씀, 항상 Tesseract)로 열 단위 인식을
+ * 시도한다. DocLayout 이 열을 여러 개 찾아줬으면(다단 성공) 열마다 이미 적당히 작은
+ * 크롭이라 recognizeWithPaddle 한 번으로 충분하고(PaddleOCR 자체 검출기가 그 안에서
+ * 알아서 줄을 찾아 인식), 열 구분이 없으면(다단 아님/레이아웃 검출 실패) region(또는
+ * 이미지 전체) 하나를 recognizeLinesWithPaddle 로 줄 단위 병렬 인식한다(그 크롭이 페이지
+ * 전체 크기라 한 번에 넘기면 느림 — 실측 38초). 열 하나라도 실패하면 전체를 null 로
+ * 반환해 호출부가 통째로 Tesseract 로 폴백하게 한다 — 열마다 다른 엔진이 섞이는 것보다
+ * 일관된 폴백이 안전하다.
  */
 async function runNonTesseractOcr(
   image: Buffer,
   language: 'zh-Hans' | 'zh-Hant' | 'ja',
   region: Rect | undefined,
   columns: LayoutBlock[],
-  vertical: boolean,
   precomputedLines?: Rect[],
 ): Promise<Extracted | null> {
   const clampBounds = region ?? fullImageRect(image)
@@ -185,20 +219,8 @@ async function runNonTesseractOcr(
       const padded = padRect(bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
       const start = Date.now()
       const lines = targets.length === 1 ? precomputedLines : undefined
-      // 세로쓰기는 PaddleOCR 로 처리한다(recognizeVerticalColumnWithPaddle 주석 참고 —
-      // manga-ocr 대비 실측 4.6배 빠르고 정확도도 동일). 이전엔 일본어만 세로쓰기
-      // 전용 경로(manga-ocr, ja 전용 모델)가 있어서 중국어 세로쓰기는 사실상 가로쓰기와
-      // 동일하게 처리됐는데, PaddleOCR 기반으로 바뀌면서 zh/ja 둘 다 같은 방식으로
-      // 세로쓰기를 지원하게 됐다.
-      //
-      // 가로쓰기는 열이 여러 개(DocLayout 성공, targets.length>1)면 열 하나하나가 이미
-      // 적당히 작은 크롭이라 기존처럼 recognizeWithPaddle 한 번으로 충분하지만(PaddleOCR
-      // 자체 검출기가 그 안에서 알아서 줄을 찾아 인식), 열 구분이 없는 통짜 크롭
-      // (targets.length===1, blocks=0 폴백)일 땐 그 크롭이 페이지 전체 크기라 한 번에
-      // 넘기면 느리다(실측 38초) — recognizeLinesWithPaddle 로 줄 단위 병렬 인식한다.
-      const words = vertical
-        ? await recognizeVerticalColumnWithPaddle(image, language, padded, lines)
-        : targets.length === 1
+      const words =
+        targets.length === 1
           ? await recognizeLinesWithPaddle(image, language, padded, lines)
           : await recognizeWithPaddle(image, language, padded)
       console.log(`[timing]   column ${i}: ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)

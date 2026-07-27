@@ -20,7 +20,7 @@ layout_detect.py 와 같은 상주 서버 패턴이다(표준입출력, 한 줄 
 import json
 import sys
 
-from paddleocr import PaddleOCR
+from paddleocr import PaddleOCR, TextDetection
 
 # 우리 Language 타입(en/ja/zh-Hans/zh-Hant) → PaddleOCR lang 코드. 일본어는 'japan'
 # (ja 아님) — PaddleOCR 고유 코드라 헷갈리기 쉬워서 주석으로 명시. 중국어는 PaddleOCR
@@ -30,6 +30,7 @@ from paddleocr import PaddleOCR
 LANG_MAP = {"en": "en", "ja": "japan", "zh-Hans": "ch", "zh-Hant": "chinese_cht"}
 
 _engines: dict[str, PaddleOCR] = {}
+_detector: TextDetection | None = None
 
 
 def get_engine(language: str) -> PaddleOCR:
@@ -48,21 +49,35 @@ def get_engine(language: str) -> PaddleOCR:
     return _engines[paddle_lang]
 
 
-def detect_lines(image_path: str, language: str) -> list[dict]:
-    """줄 단위 박스만 필요할 때(세로쓰기 일본어 → manga-ocr 조합, ocrManga.ts 참고) —
-    PaddleOCR 자체 인식 텍스트(rec_texts)는 세로쓰기에 최적화돼있지 않아 품질을 못
-    믿으므로 버리고, 검출 박스(rec_boxes, 줄 단위 axis-aligned bbox)만 쓴다. 실제 텍스트는
-    이 박스로 크롭한 이미지를 manga-ocr 에 따로 넘겨서 얻는다."""
-    engine = get_engine(language)
-    results = engine.predict(image_path)
+def get_detector() -> TextDetection:
+    global _detector
+    if _detector is None:
+        _detector = TextDetection(enable_mkldnn=False)
+    return _detector
+
+
+def detect_lines(image_path: str, _language: str) -> list[dict]:
+    """줄 단위 박스만 필요할 때(세로쓰기 일본어 등 — ocr.ts/ocrManga.ts 참고) 쓴다.
+
+    예전엔 `PaddleOCR.predict()`(검출+인식 풀 파이프라인)를 통째로 돌리고 인식된 텍스트
+    (rec_texts)만 버리는 식이었는데, 실측 확인 결과 이러면 우리가 안 쓰는 인식 단계까지
+    매번 돌게 돼서 소요 시간이 크롭 면적이 아니라 "검출된 줄 개수"에 비례해 늘어났다
+    (넓은 영역이라 줄이 많이 나올수록 그만큼 느려짐 — 실측: 560×880 크롭에서 22~38초).
+    `TextDetection`(검출 전용, 인식 없음)으로 바꾸니 같은 크롭이 7초 안팎으로 끝났다.
+    `_language` 는 이제 안 쓴다(검출은 언어를 안 타서 — Node 쪽이 여전히 이 필드를
+    요청에 실어 보내므로 시그니처만 유지하고 무시한다, 프로토콜 변경 없이 교체하려고).
+    """
+    detector = get_detector()
+    results = detector.predict(image_path)
     lines = []
     for r in results:
-        boxes = r.get("rec_boxes")
-        if boxes is None:
+        polys = r.get("dt_polys")
+        if polys is None:
             continue
-        for b in boxes.tolist():
-            x0, y0, x1, y1 = b
-            lines.append({"x0": float(x0), "y0": float(y0), "x1": float(x1), "y1": float(y1)})
+        for poly in polys:
+            xs = [float(pt[0]) for pt in poly]
+            ys = [float(pt[1]) for pt in poly]
+            lines.append({"x0": min(xs), "y0": min(ys), "x1": max(xs), "y1": max(ys)})
     return lines
 
 

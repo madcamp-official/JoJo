@@ -99,6 +99,15 @@ const DETECTION_ONLY_LANGUAGE: Language = 'en'
  * 인식할 때 "어느 크롭을 manga-ocr 에 넘길지"를 정하거나(ocrManga.ts), DocLayout 이
  * 아예 실패했을 때 본문 영역을 텍스트 위치로 직접 추정하는 데(regionSelection.ts)
  * 쓴다.
+ *
+ * Python 쪽(ocr_paddle.py: detect_lines)이 예전엔 `PaddleOCR.predict()`(검출+인식 풀
+ * 파이프라인)를 돌리고 인식된 텍스트만 버리는 식이었는데, 그러면 우리가 안 쓰는 인식
+ * 단계까지 매번 돌아서 소요 시간이 크롭 면적이 아니라 "검출된 줄 개수"에 비례해
+ * 늘어났다(넓은 영역이라 줄이 많이 나올수록 그만큼 느려짐 — 실측: 560×880 크롭에서
+ * 22~38초). 검출 전용 API(`TextDetection`)로 바꾸니 같은 크롭이 7초 안팎으로 끝나서
+ * (실측 확인) 여기서 굳이 크롭을 조각내어 병렬화할 필요가 없어졌다 — 처음에 조각
+ * 분할로 시도했다가(워커 풀에 나눠 돌림) 겹침 폭 설정에 따라 오히려 더 느려지는 등
+ * 부작용만 있고 이 근본 수정만큼 효과가 없어서 뺐다.
  */
 export async function detectLinesWithPaddle(image: Buffer, cropBbox: Rect): Promise<Rect[] | null> {
   const tmpPath = await writeCrop(image, cropBbox)
@@ -144,6 +153,46 @@ export function isVerticalByLineShape(lines: Rect[]): boolean {
   return verticalCount / lines.length >= VERTICAL_LINE_MIN_FRACTION
 }
 
+// 후리가나(루비 문자)는 본문 옆에 훨씬 좁은 폭으로, 그 본문 글자와 y 범위가 겹치게
+// 붙어서 검출된다 — 이전엔 "중앙값 대비 폭 비율"만으로 후리가나를 걸렀는데, 실측 확인
+// 결과 그 방식은 그냥 짧은 본문 줄까지 오탐으로 같이 잘라냈다(이웃이 없어도 좁으면
+// 다 걸림). 그래서 여기서는 "이 줄보다 훨씬 넓고(FURIGANA_WIDTH_RATIO 배 이상) y 범위가
+// 많이 겹치는(FURIGANA_Y_OVERLAP_MIN 이상) '부모' 줄이 바로 옆에 있는가"를 직접 확인한다
+// — 후리가나의 기하학적 특징(좁고, 본문 옆에 딱 붙어서, 같은 세로 범위를 차지) 자체를
+// 보는 것이라 오탐이 훨씬 적다. 부모가 없는 좁은 줄(예: 짧은 독립된 본문 줄)은 그대로
+// 살아남는다. 실제 여러 열짜리 페이지에서 이 필터 없이 열 병합을 했더니 후리가나가
+// 만든 잡음 줄들 때문에 열 간격 판정 자체가 흔들려 순서가 뒤섞이고 내용이 빠지는 문제가
+// 있었다(실측 확인) — 그래서 열 병합보다 먼저 적용한다.
+const FURIGANA_WIDTH_RATIO = 1.8
+const FURIGANA_Y_OVERLAP_MIN = 0.5
+// 후리가나는 본문 글자에 거의 맞닿아 있다 — 간격이 이 배율(자기 폭 기준)보다 멀면
+// "옆에 붙은 주석"이 아니라 그냥 다른 열로 본다.
+const FURIGANA_MAX_GAP_RATIO = 2
+
+function yOverlapFraction(a: Rect, b: Rect): number {
+  const top = Math.max(a.y, b.y)
+  const bottom = Math.min(a.y + a.height, b.y + b.height)
+  const overlap = Math.max(0, bottom - top)
+  const minHeight = Math.min(a.height, b.height)
+  return minHeight > 0 ? overlap / minHeight : 0
+}
+
+function xGap(a: Rect, b: Rect): number {
+  return Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width))
+}
+
+export function excludeFurigana(lines: Rect[]): Rect[] {
+  return lines.filter((line) => {
+    const hasWiderNeighbor = lines.some((other) => {
+      if (other === line) return false
+      if (other.width < line.width * FURIGANA_WIDTH_RATIO) return false
+      if (yOverlapFraction(line, other) < FURIGANA_Y_OVERLAP_MIN) return false
+      return xGap(line, other) <= line.width * FURIGANA_MAX_GAP_RATIO
+    })
+    return !hasWiderNeighbor
+  })
+}
+
 // 세로쓰기 열이 여러 개인 페이지에서 DocLayout 이 열을 못 나눠주면(blocks=0) 줄 검출
 // 결과가 열 구분 없이 전부 섞여서 온다 — 이걸 그냥 y좌표로만 정렬하면 서로 다른 열의
 // 줄이 뒤섞여 읽힌다(예: A열 3번째 줄 다음에 B열 1번째 줄이 오는 식). x좌표로 다시 열을
@@ -152,9 +201,11 @@ export function isVerticalByLineShape(lines: Rect[]): boolean {
 // 줄들은 폭이 비슷하고, 다른 열로 넘어가면 그보다 확연히(1.5배 이상) 떨어진 x에 나타난다.
 // 정상적인 단일 열(DocLayout 이 이미 열을 나눠준 경우 등)에서는 이 클러스터링이 그냥
 // 열 1개로 수렴하므로 무해하다 — recognizeVerticalColumnWithPaddle 에서 항상 적용한다.
+// (후리가나를 미리 걸러내지 않으면 그 좁은 잡음 줄들이 중앙값 폭 자체를 왜곡시켜서
+// 열 간격 판정이 흔들린다 — 실측 확인.)
 const COLUMN_GAP_RATIO = 1.5
 
-function clusterVerticalLinesIntoColumns(lines: Rect[]): Rect[] {
+export function clusterVerticalLinesIntoColumns(lines: Rect[]): Rect[] {
   if (lines.length <= 1) return lines
   const widths = [...lines].map((l) => l.width).sort((a, b) => a - b)
   const medianWidth = widths[Math.floor(widths.length / 2)]!
@@ -184,10 +235,29 @@ function clusterVerticalLinesIntoColumns(lines: Rect[]): Rect[] {
   return columns.flat()
 }
 
+// 검출된 줄 bbox 를 여백 없이 그대로 크롭하면 글자 획이 경계에 살짝 걸려 잘리는 경우가
+// 있다(실측 확인: 실제 페이지에서 폭 22~27px 짜리 좁은 줄 중 하나가 완전히 다른 글자로
+// 오인식됐고, 특히 아주 짧은 줄 "だが。"(높이 56px, 글자 2개)는 "なっ"로 잘못 읽혔다).
+// 가로 여백은 0으로 둔다 — 실측해보니 3px만 줘도 세로쓰기 열끼리 간격이 좁은 곳(몇 px
+// 밖에 안 되는 경우도 있음)에서 옆 열 글자 일부가 크롭에 섞여 들어와 오히려 다른 오류를
+// 만들었다(레이피아→레레이피아처럼 옆 글자 중복/탈락, 문장 앞부분 잘림). 세로는 그 위험이
+// 적어서(열 위/아래는 보통 여백이 있음) 여백을 유지한다.
+const LINE_PADDING_X = 0
+const LINE_PADDING_Y = 6
+
+function padLine(line: Rect): Rect {
+  return {
+    x: line.x - LINE_PADDING_X,
+    y: line.y - LINE_PADDING_Y,
+    width: line.width + LINE_PADDING_X * 2,
+    height: line.height + LINE_PADDING_Y * 2,
+  }
+}
+
 /** 줄 목록을 정해진 순서 그대로 병렬 인식해 이어붙인다 — 실패한 줄이 하나라도 있으면
  * 전체를 null 로 반환해 호출부가 Tesseract 로 통째 폴백하게 한다. */
 async function recognizeOrderedLines(image: Buffer, language: Language, orderedLines: Rect[]): Promise<Word[] | null> {
-  const perLine = await Promise.all(orderedLines.map((line) => recognizeWithPaddle(image, language, line)))
+  const perLine = await Promise.all(orderedLines.map((line) => recognizeWithPaddle(image, language, padLine(line))))
   if (perLine.some((words) => !words)) return null
   return perLine.flatMap((words) => words!)
 }
@@ -220,7 +290,11 @@ export async function recognizeVerticalColumnWithPaddle(
   // 전체 크롭일 땐 38초까지도 걸림) 호출부가 넘겨주면 그대로 재사용한다.
   const lines = precomputedLines ?? (await detectLinesWithPaddle(image, columnBbox))
   if (!lines || lines.length === 0) return []
-  const ordered = clusterVerticalLinesIntoColumns(lines)
+  // 열 병합보다 먼저 후리가나를 걸러낸다 — excludeFurigana 주석 참고(후리가나 잡음 줄이
+  // 남아있으면 열 폭 중앙값이 왜곡돼 clusterVerticalLinesIntoColumns 의 간격 판정이
+  // 흔들린다, 실측 확인: 순서 뒤섞임/내용 누락).
+  const bodyLines = excludeFurigana(lines)
+  const ordered = clusterVerticalLinesIntoColumns(bodyLines)
   return recognizeOrderedLines(image, language, ordered)
 }
 
