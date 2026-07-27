@@ -214,12 +214,18 @@ interface ExtractedSelection {
 interface SelectionContext {
   selectedText: string;                 // 팝업에서 사용자가 최종 확정한 선택 범위
   language: 'en' | 'ja' | 'zh';
-  precedingText: string;                // 앞 문맥(설정 범위만큼, 문장 경계까지 확장)
-  followingText: string;                // 뒤 문맥
+  fullText: string;                     // 원문 전체(트리밍 없음, ExtractedSelection.text 그대로)
+  selStart: number;                     // selectedText 의 fullText 내 시작 오프셋
+  selEnd: number;                       // selectedText 의 fullText 내 끝(exclusive) 오프셋
   words: { text: string; bbox?: Rect }[]; // 단어 분해(+화면 좌표)
   source: SelectionSource;
   extraction: 'direct' | 'ocr';
 }
+// 앞/뒤 문맥(precedingText/followingText)은 더 이상 SelectionContext 가 미리 잘라서
+// 들고 있지 않는다 — 팝업 표시 범위(256바이트 창)가 LLM 문맥 범위(설정의
+// contextBytesBefore/After)까지 제한해버리는 버그가 있었어서, fullText+selStart/selEnd
+// 원문 좌표를 그대로 넘기고 LLM 어댑터(buildContextBlock)가 그때그때 설정값만큼
+// 별도로 잘라 쓰도록 바꿨다(`fix: 1b7f0a1`).
 
 // B가 반환해 UI로 (스트리밍 가능)
 type QuestionRequest =
