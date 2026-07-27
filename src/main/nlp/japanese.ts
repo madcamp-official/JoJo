@@ -1,6 +1,7 @@
 import kuromoji, { type IpadicFeatures, type Tokenizer } from 'kuromoji'
 import path from 'path'
 import type { JaToken } from '@shared/types'
+import { mergeJaTokens } from '@shared/nlp/ja'
 
 // 담당 A/B 공용 — 일본어 형태소 분석(kuromoji, IPADIC 사전). 두 곳에서 쓴다:
 //  - OCR 단어 분리(main/selection/ocr.ts): 의미 단위 단어로 Word[] 를 만든다.
@@ -39,18 +40,24 @@ export async function tokenizeJapanese(text: string): Promise<JaToken[]> {
   return tokenizer.tokenize(text).map((t) => ({
     surface: t.surface_form,
     pos: t.pos,
+    posDetail1: t.pos_detail_1,
     start: t.word_position - 1,
   }))
 }
 
 const HAS_JA_CHAR_RE = /[一-鿿㐀-䶿぀-ヿ]/
 
-/** OCR 단어 분리용 — 문장부호·기호(記号) 뿐인 토큰은 제외하고 의미 있는 단어만 반환한다. */
+/**
+ * OCR 단어 분리용 — 형태소 그대로가 아니라 mergeJaTokens(@shared/nlp/ja) 로 문절 단위까지
+ * 묶은 뒤 문장부호·기호(記号) 뿐인 토큰은 제외하고 의미 있는 단어만 반환한다. 팝업 원문
+ * 문맥 atom 병합(renderer popup/selection.ts)도 같은 mergeJaTokens 를 쓰므로 여기서
+ * 병합 규칙을 바꾸면 두 화면 모두에 반영된다.
+ */
 export async function segmentJapaneseWords(
   text: string,
 ): Promise<{ text: string; start: number; end: number }[]> {
   const tokens = await tokenizeJapanese(text)
-  return tokens
+  return mergeJaTokens(tokens)
     .filter((t) => HAS_JA_CHAR_RE.test(t.surface))
     .map((t) => ({ text: t.surface, start: t.start, end: t.start + t.surface.length }))
 }
