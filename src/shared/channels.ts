@@ -39,6 +39,7 @@ export const IPC = {
   OPEN_POPUP: 'popup:open',
   POPUP_GET_CONTEXT: 'popup:getContext',
   OPEN_GOOGLE: 'popup:openGoogle',
+  OPEN_NAVER_DICT: 'popup:openNaverDict',
   // 팝업 원문 문맥의 가나 atom 병합용 — kuromoji 형태소 분석(main/nlp/japanese.ts)
   TOKENIZE_JA: 'popup:tokenizeJa',
 

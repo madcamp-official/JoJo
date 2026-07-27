@@ -18,12 +18,29 @@ export interface LanguageInfo {
   googleSearchSuffix: string
   /** 발음 프롬프트에서 LLM에게 요구할 표기 체계(한국어 설명) */
   pronunciationNotation: string
+  /** 네이버 사전 서브도메인(en/ja/zh.dict.naver.com) */
+  naverDictSubdomain: string
 }
 
 export const LANGUAGES: Record<Language, LanguageInfo> = {
-  en: { name: '영어', googleSearchSuffix: 'pronunciation', pronunciationNotation: '국제음성기호(IPA)' },
-  ja: { name: '일본어', googleSearchSuffix: '読み方', pronunciationNotation: '히라가나' },
-  zh: { name: '중국어', googleSearchSuffix: '拼音', pronunciationNotation: '한어병음(성조 표시 포함)' },
+  en: {
+    name: '영어',
+    googleSearchSuffix: 'pronunciation',
+    pronunciationNotation: '국제음성기호(IPA)',
+    naverDictSubdomain: 'en',
+  },
+  ja: {
+    name: '일본어',
+    googleSearchSuffix: '読み方',
+    pronunciationNotation: '히라가나',
+    naverDictSubdomain: 'ja',
+  },
+  zh: {
+    name: '중국어',
+    googleSearchSuffix: '拼音',
+    pronunciationNotation: '한어병음(성조 표시 포함)',
+    naverDictSubdomain: 'zh',
+  },
 }
 
 export const LANGUAGE_ORDER: Language[] = ['en', 'ja', 'zh']

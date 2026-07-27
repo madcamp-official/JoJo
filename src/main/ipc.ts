@@ -35,7 +35,9 @@ import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { validateProvider } from './question/llm/validate'
-import { googleImageUrl, googlePronunciationUrl, openGoogleSearchInNewWindow } from './question/google'
+import { googleImageUrl, googlePronunciationUrl } from './question/google'
+import { naverDictionaryUrl } from './question/naver'
+import { openUrlInNewWindow } from './question/browser'
 import { tokenizeJapanese } from './nlp/japanese'
 
 // IPC 허브 (공동) — A→B 연결점.
@@ -174,7 +176,16 @@ export function registerIpc(): void {
         payload.mode === 'pron'
           ? googlePronunciationUrl(payload.text, payload.lang)
           : googleImageUrl(payload.text)
-      await openGoogleSearchInNewWindow(url, getPopupBounds() ?? undefined)
+      await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
+    },
+  )
+
+  // 담당 B: 네이버 사전 — 언어별 서브도메인 사전을 기본 브라우저의 새 창으로 연다(naver.ts)
+  ipcMain.handle(
+    IPC.OPEN_NAVER_DICT,
+    async (_e, payload: { text: string; lang: Language }) => {
+      const url = naverDictionaryUrl(payload.text, payload.lang)
+      await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
     },
   )
 

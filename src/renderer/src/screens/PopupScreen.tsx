@@ -173,6 +173,10 @@ export function PopupScreen() {
     window.nuance.openGoogle(mode, currentCtx.selectedText, currentCtx.language)
   }
 
+  function naverDict() {
+    window.nuance.openNaverDict(currentCtx.selectedText, currentCtx.language)
+  }
+
   // ---- 자주 쓰는 질문 (main 프로세스 userData/frequent.json 에 영속) --------
   const [frequent, setFrequent] = useState<string[]>([])
   useEffect(() => {
@@ -218,6 +222,7 @@ export function PopupScreen() {
           onPron={askPronunciation}
           onDict={askDictionary}
           onGoogle={google}
+          onNaverDict={naverDict}
           disabled={busy}
         />
 

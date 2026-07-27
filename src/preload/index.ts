@@ -136,6 +136,9 @@ const api = {
   openGoogle: (mode: 'pron' | 'image', text: string, lang: Language): Promise<void> =>
     ipcRenderer.invoke(IPC.OPEN_GOOGLE, { mode, text, lang }),
 
+  openNaverDict: (text: string, lang: Language): Promise<void> =>
+    ipcRenderer.invoke(IPC.OPEN_NAVER_DICT, { text, lang }),
+
   // 팝업 원문 문맥의 가나 atom 병합용 kuromoji 형태소 분석 요청
   tokenizeJapanese: (text: string): Promise<JaToken[]> =>
     ipcRenderer.invoke(IPC.TOKENIZE_JA, text),
