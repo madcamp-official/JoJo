@@ -281,6 +281,22 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
 
   if (!readings.length) return {}
 
+  // 실측 확인(2026-07-28, "banked"/"bank" 직접 호출): MW 는 같은 headword 의 hom 중
+  // **가장 먼저 오는 hom(대개 hom=1)에만 hwi.prs 를 채우고 나머지 hom 은 전부 생략**한다
+  // — 활용형(예: "banked")으로 직접 조회하면 그 활용형에 대응하는 hom(예: hom=2/4 동사)만
+  // 응답에 오는데, 정작 발음을 가진 hom=1은 이 응답에 아예 없어서 위 entry 간 상속으로도
+  // 못 채운다. 이 경우에만 원래 headword로 한 번 더 조회해 발음을 가져와 채운다(비용은
+  // 발음이 진짜 하나도 없을 때만 발생 — 대부분의 직접 조회는 이 분기를 안 탄다).
+  if (!lastPronunciations && headwordSet.size) {
+    const baseHeadword = [...headwordSet][0]
+    if (baseHeadword.toLowerCase() !== word.toLowerCase()) {
+      const basePronunciations = await fetchHeadwordPronunciation(baseHeadword, apiKey)
+      if (basePronunciations) {
+        for (const r of readings) if (!r.pronunciations?.length) r.pronunciations = basePronunciations
+      }
+    }
+  }
+
   return {
     entries: [
       {
@@ -291,4 +307,26 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
       },
     ],
   }
+}
+
+/** 위 hom 발음 생략 문제의 폴백 — headword 자체를 다시 조회해 hwi.prs 가 있는 첫
+ *  entry의 발음을 가져온다. 실패해도(네트워크 오류 등) 조용히 undefined 반환 —
+ *  발음은 부가 정보라 이것 때문에 전체 조회를 실패시키지 않는다. */
+async function fetchHeadwordPronunciation(
+  headword: string,
+  apiKey: string,
+): Promise<DictionaryReading['pronunciations']> {
+  try {
+    const res = await fetch(`${MW_ENDPOINT}/${encodeURIComponent(headword)}?key=${apiKey}`)
+    if (!res.ok) return undefined
+    const raw = (await res.json()) as MwRaw[]
+    for (const entry of raw) {
+      if (typeof entry === 'string') continue
+      const values = entry.hwi.prs?.map((p) => p.mw).filter((v): v is string => !!v)
+      if (values?.length) return values.map((value) => ({ value }))
+    }
+  } catch {
+    /* 발음 폴백 실패는 무시 — 나머지 사전 정보는 이미 확보돼 있음 */
+  }
+  return undefined
 }
