@@ -141,7 +141,7 @@
 - [x] ~~배포 패키징(electron-builder) — `electron-builder.yml`(appId `com.nuance`·productName `Nuance` 고정 → userData 경로 안정, 재설치/버전 업 후에도 설정·API 키·자주쓰는질문 유지). scripts: `pack:dir`(스모크) / `dist:mac`·`dist:win`·`dist:linux`. mac `--dir` 패키징 성공 확인(코드서명 없음: `identity: null`). 산출물은 `dist/`(gitignore)~~
   - [ ] 정식 배포 시 코드서명/공증 — mac: hardenedRuntime+notarize(Apple Developer 인증서), win: 서명 인증서. 현재는 사설 배포(미서명)라 Gatekeeper/SmartScreen 경고가 뜸
   - [ ] 앱 아이콘 교체 — 현재 `build/icon.png` 는 기존 256px 을 1024 로 업스케일한 임시본(정식 아이콘으로 교체 필요)
-- [ ] `npm install` + `electron-vite dev` 빌드 정상화
+- [x] ~~`npm install` + `electron-vite dev` 빌드 정상화~~
   - [x] ~~koffi를 optionalDependencies로 이동 — 맥에서 네이티브 빌드 실패해도 install 유지 (`fix: 969d08f`)~~
 - [ ] 크로스플랫폼(Win / Mac) 동작 점검
   - [x] ~~맥(arm64) 부팅 확인 — win32Capture(koffi)를 동적 import로 격리해 맥에선 미로드, `npm run dev` 정상 기동 (`fix: 969d08f`). 맥은 desktopCapturer 경로 사용(창 목록 실사용엔 화면 기록 권한 필요)~~
