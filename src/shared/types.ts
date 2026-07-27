@@ -160,9 +160,9 @@ export interface DictionarySense {
   /** 활용 분류(ja 전용) — 언어별로 canonical pos 하나로는 못 담는 문법 정보를 사람이
    *  읽을 수 있게 디코딩해 보존한다(이 필드는 LLM에도 전달). 예: 동사 "一段"/"五段(う)"/
    *  "サ変", 형용사 "い형용사"/"な형용사". 활용형(て形·과거형 등) 설명에 실제로 필요한
-   *  정보라 posRaw 와 달리 버리지 않는다. (zh 이합사(离合词)는 실측 결과 汉典·萌典·
-   *  CC-CEDICT 어디에도 태깅 안 되어 있어 스키마에 별도 자리를 안 만들기로 함 — 필요하면
-   *  LLM 자체 지식으로 설명.) */
+   *  정보라 posRaw 와 달리 버리지 않는다. (zh 이합사(离合词)는 실측 확인 결과(2026-07-28,
+   *  汉典 `结婚`/萌典 `見面` 페이지 직접 확인 포함) 汉典·萌典·CC-CEDICT 어디에도 태깅
+   *  안 되어 있어 스키마에 별도 자리를 안 만들기로 함 — 필요하면 LLM 자체 지식으로 설명.) */
   conjugationClass?: string
   /** 불규칙 활용형(en 전용) — MW 의 `ins`(inflections) 필드 실측 확인(예: run → "ran").
    *  **OEWN도 실측 확인**(GitHub 공식 JSON 릴리스 직접 다운로드해 확인) — entry의 `form`
@@ -174,18 +174,14 @@ export interface DictionarySense {
   transitive?: boolean
   /** 중국어 양사(CC-CEDICT의 "CL:") — 다른 언어는 항상 undefined */
   classifiers?: string[]
-  /** OEWN 전용 — sense 안에서 "흔한 정도"를 나타내는 신호. OEWN 원본 필드명은 `tagcount`
-   *  (SemCor 코퍼스 실사용 빈도수, 구분자 없는 한 단어)지만 코드베이스 컨벤션(`isCommon`/
-   *  `posRaw`/`irregularForms` 전부 카멜케이스)에 맞춰 `tagCount`로 표기 — 원본 필드명은
-   *  이 주석에 남겨두는 것으로 충분하다 판단. 실측 확인: run(v) "달리다" 뜻 tagcount=106,
-   *  뒤쪽 rare sense 들은 이 필드 자체가 없음(undefined). **JMdict `is_common`은 여기
-   *  안 둔다** — jisho.org API 실측 결과(上手 검색) `is_common`이 sense 배열 안이 아니라
-   *  entry(reading 그룹) 최상위에만 있고 그 안의 sense 들은 전부 같은 값을 공유함(원본
-   *  JMdict XML 자체가 `ke_pri`/`re_pri`(우선도 태그)를 한자/읽기 요소에만 붙이고 sense
-   *  요소엔 안 붙이는 구조라 sense 단위로 갈릴 수가 없음) — 그래서 `DictionaryReading.
-   *  isCommon`으로 분리해서 뒀다(중복 채움 불필요, 실제 데이터가 있는 레벨 그대로 반영).
-   *  LLM 프롬프트엔 절대 넣지 않고, 어댑터가 senses 배열을 안정 정렬(값 클수록 앞, 값
-   *  없으면 최하위 취급)할 때만 쓴다. */
+  /** @deprecated 폐기 대상(2026-07-28) — OEWN 공식 GitHub Releases JSON(`english-wordnet-
+   *  2025-json.zip`)을 실제로 받아 압축 해제 후 전수 검사한 결과 `tagcount` 필드 자체가
+   *  존재하지 않음을 확인함(`grep -r "tagcount"` 0건, sense 객체의 실제 키 26종에도 빈도
+   *  관련 필드 없음). Princeton WordNet WNDB 배포판의 `index.sense`(`tag_cnt`)에 있던
+   *  개념으로 추정되나 이 JSON 릴리스로는 채울 수 없다 — 이전 기록("run(v) tagcount=106
+   *  실측")은 검증 없이 옮겨 적힌 오기였다. 현재 이 필드를 채울 수 있는 실제 데이터 소스가
+   *  없으므로, 어댑터 구현 전 필드를 제거하거나 WNDB 원본 파일을 별도로 받는 방안을
+   *  재검토해야 한다(자세한 경위는 DICTIONARY_SOURCES.md#oewn-open-english-wordnet 참고). */
   tagCount?: number
   /** 뜻풀이 원문(번역하지 않음, 원어 그대로) — 배열인 이유: 대부분 소스는 sense 하나에
    *  정의가 1개뿐이지만, **OEWN은 한 synset 에 패러프레이즈 대안 정의가 여러 개 붙는
