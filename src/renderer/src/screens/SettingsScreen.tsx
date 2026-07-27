@@ -509,8 +509,9 @@ export function SettingsScreen() {
         <p className="desc">
           영어 사전 검색에 Merriam-Webster를 사용하려면 API 키를 입력하세요. 반드시{' '}
           <b>Collegiate(Dictionary) 사전</b>으로 발급받은 키여야 합니다(Learner&apos;s 등 다른
-          사전 키는 동작하지 않습니다). 입력하지 않아도 다른 사전(WordNet 등)으로 자동
-          대체되어 사전 기능은 계속 사용할 수 있습니다.
+          사전 키는 동작하지 않습니다). 무료 키는 <b>키 1개당 하루 1,000회</b>까지 조회할 수
+          있습니다. 입력하지 않아도 다른 사전(WordNet 등)으로 자동 대체되어 사전 기능은
+          계속 사용할 수 있습니다.
         </p>
 
         <div className="apikey-row">
