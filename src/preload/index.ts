@@ -47,6 +47,16 @@ const api = {
   setOverlayInteractive: (interactive: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC.OVERLAY_SET_INTERACTIVE, interactive),
 
+  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR/manga-ocr 예열
+  // 완료 여부(MainScreen 이 창 선택 버튼을 막을지 판단).
+  getWarmupStatus: (): Promise<boolean> => ipcRenderer.invoke(IPC.WARMUP_GET),
+
+  onWarmupReady: (cb: () => void): (() => void) => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.WARMUP_READY, listener)
+    return () => ipcRenderer.removeListener(IPC.WARMUP_READY, listener)
+  },
+
   getMode: (): Promise<AppMode> => ipcRenderer.invoke(IPC.GET_MODE),
 
   onModeChanged: (cb: (mode: AppMode) => void): (() => void) => {

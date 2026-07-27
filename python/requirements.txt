@@ -1,0 +1,6 @@
+doclayout_yolo
+huggingface_hub
+pillow
+paddleocr
+paddlepaddle
+manga-ocr
