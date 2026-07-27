@@ -4,7 +4,7 @@ import type { QuestionErrorCode } from '@shared/types'
 // provider 마다 실제 에러 응답 형태가 다르므로 상태 코드를 우선 기준으로 삼고,
 // 크레딧 소진처럼 provider 마다 다른 상태코드로 오는 경우는 본문 키워드로 재분류한다.
 // 실측(2026-07-25):
-//  - OpenAI  크레딧 소진 → 429 + "quota"
+//  - GPT     크레딧 소진 → 429 + "quota"
 //  - Gemini  크레딧 소진 → 429 + "quota"/"billing" (RESOURCE_EXHAUSTED)
 //  - Claude  크레딧 소진 → 400(!) invalid_request_error + "credit balance is too low"
 //            (402 를 쓰지 않으므로 402 단독 판별에 기대면 안 됨)

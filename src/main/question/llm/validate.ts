@@ -17,7 +17,7 @@ async function listOpenAiModels(key: string): Promise<string[]> {
   const res = await fetch('https://api.openai.com/v1/models', {
     headers: { Authorization: `Bearer ${key}` },
   })
-  await ensureOk(res, 'OpenAI')
+  await ensureOk(res, 'GPT')
   const json = (await res.json()) as { data?: Array<{ id: string }> }
   const NON_CHAT =
     /(realtime|audio|image|transcribe|tts|search|embedding|moderation|whisper|dall|instruct)/

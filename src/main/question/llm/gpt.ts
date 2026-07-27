@@ -25,7 +25,7 @@ export function createGptClient(config: LlmConfig): LlmClient {
           messages: [{ role: 'system', content: system }, ...req.messages],
         }),
       })
-      await ensureOk(res, 'OpenAI')
+      await ensureOk(res, 'GPT')
 
       let full = ''
       for await (const data of readSse(res)) {
