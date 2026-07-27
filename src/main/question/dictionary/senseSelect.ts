@@ -143,21 +143,17 @@ export function formatDictionaryAnswer(
         : sense.pronunciation
     const pronSuffix = pronunciation ? ` [${pronunciation}]` : ''
     lines.push(`**${headword}**${pronSuffix}${posSuffix}`)
-    // 활용형은 예문이 아니라 단어 자체에 딸린 정보라 표제어 줄 바로 아래(예문과는 분리된
-    // 자리)에 둔다.
-    if (sense.irregularForms?.length) {
-      lines.push(`활용형: ${sense.irregularForms.join(', ')}`)
-      lines.push('') // 뜻풀이 파트와는 빈 줄로 띄워 구분
-    }
-    // 원문·번역은 같은 뜻을 언어만 달리 적은 동격 정보라 서로 다른 스타일은 안 주지만
-    // (한쪽만 강조하면 마치 부가 정보처럼 보임), 뜻풀이 파트 전체는 볼드로 강조해 예문·
-    // 활용형 등 다른 파트와 구분되게 한다.
-    lines.push(`**${sense.gloss.join('; ')}**`)
-    lines.push(`**${translatedGloss}**`)
-    lines.push('')
+    // 원문·번역은 같은 뜻을 언어만 달리 적은 동격 정보라 스타일을 다르게 주지 않는다.
+    lines.push(sense.gloss.join('; '))
+    lines.push(translatedGloss)
     if (sense.examples?.[0]) {
       lines.push(`> ${sense.examples[0]}`)
       if (translatedExample) lines.push(`> ${translatedExample}`)
+    }
+    // 활용형은 예문 다음, 다른 파트와는 빈 줄로 띄워 구분한다.
+    if (sense.irregularForms?.length) {
+      lines.push('')
+      lines.push(`활용형: ${sense.irregularForms.join(', ')}`)
     }
     if (sense.usageTags?.length) lines.push(`_${sense.usageTags.join(', ')}_`)
     if (sense.usageNote) lines.push(sense.usageNote)
