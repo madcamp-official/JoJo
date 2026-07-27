@@ -51,8 +51,10 @@ const DISPLAY_CONTEXT_BYTES_AFTER = 256
 // 동일한 1칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
 // 없을 때만 넣어서 "있으면 그대로, 없으면 있는 것처럼 보이게" 만든다.
 // 일반 스페이스(U+0020)는 .ctx-text 의 white-space: pre-line 렌더링에서 줄바꿈 직후
-// 공백으로 축약(제거)되어 화면에 안 보인다 — 축약 대상이 아닌 non-breaking space 를 쓴다.
-const PARAGRAPH_INDENT = ' '
+// 공백으로 축약(제거)되어 화면에 안 보인다 — 축약 대상이 아닌 전각 스페이스(U+3000,
+// ideographic space)를 쓴다. 일/중 문단 들여쓰기 관례와 같은 폭이라 시각적으로도
+// 자연스럽고, 반각 NBSP보다 커서 문단 구분이 잘 보인다.
+const PARAGRAPH_INDENT = '　'
 
 /**
  * displayText 의 각 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를 삽입된 만큼 보정해
