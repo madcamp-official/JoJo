@@ -94,14 +94,14 @@ button:disabled { cursor: not-allowed; }
   padding: 20px; display: flex; flex-direction: column;
 }
 .picker-header {
-  display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 12px; margin: 0 0 12px; flex-shrink: 0;
   -webkit-app-region: drag; /* 프레임 없는 창 — 헤더를 드래그해서 이동 가능 */
 }
 .picker-header h2 { margin: 0; font-size: 16px; }
 .picker-header .hint { margin: 0; font-size: 12px; }
 .picker-header .icon-btn.back {
   background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;
-  padding: 4px 8px; border-radius: 6px; align-self: flex-start;
+  padding: 4px 8px; border-radius: 6px;
   -webkit-app-region: no-drag;
 }
 .picker-header .icon-btn.back:hover { background: #2a2a33; color: #fff; }
