@@ -348,7 +348,7 @@ JoJo/
 │               ├── icons.tsx                # 🤝 lucide-react 아이콘 재노출
 │               └── popup/                   # [B] 팝업 화면 하위 컴포넌트·로직
 │                   ├── ContextView.tsx      #   원문 문맥 표시 + 클릭/드래그 선택
-│                   ├── Toolbar.tsx          #   구글/발음/사전 버튼 툴바
+│                   ├── Toolbar.tsx          #   구글/네이버 사전/발음/사전 버튼 툴바
 │                   ├── Chat.tsx             #   채팅 말풍선 + 에러 배너 + 스트리밍 커서
 │                   ├── FrequentQuestions.tsx#   자주 쓰는 질문 등록/수정/삭제/드래그 정렬
 │                   ├── selection.ts         #   atom 분해(영/일/중) + SelectionContext 구성
