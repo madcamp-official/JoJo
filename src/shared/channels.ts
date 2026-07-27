@@ -52,6 +52,7 @@ export const IPC = {
   APIKEY_SET: 'apikey:set',
   APIKEY_DELETE: 'apikey:delete',
   PROVIDER_VALIDATE: 'provider:validate',
+  MW_KEY_VALIDATE: 'mw:validateKey',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppSettings, ProviderValidation, QuestionErrorCode } from '@shared/types'
+import type {
+  AppSettings,
+  DictionaryKeyValidation,
+  ProviderValidation,
+  QuestionErrorCode,
+} from '@shared/types'
 import { PROVIDERS, PROVIDER_ORDER, DEFAULT_MODELS } from '@shared/providers'
 import { MW_DICTIONARY_SIGNUP_URL } from '@shared/dictionaries'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
@@ -155,6 +160,19 @@ function validationMessage(code?: QuestionErrorCode): string {
   }
 }
 
+/** MW 키 검증 실패 사유 — Collegiate 전용 엔드포인트로 확인하므로 무효 사유에 그 안내를 곁들인다. */
+function mwValidationMessage(code?: QuestionErrorCode): string {
+  switch (code) {
+    case 'invalid_api_key':
+    case 'no_api_key':
+      return '유효하지 않거나 Collegiate 사전으로 등록되지 않은 키입니다.'
+    case 'network_error':
+      return '네트워크 오류로 확인하지 못했습니다.'
+    default:
+      return '키를 확인하지 못했습니다.'
+  }
+}
+
 const NON_KEY_MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
 
 /** F1~F12 처럼 수식키 없이 단독으로도 전역 단축키로 적절한 키 */
@@ -226,10 +244,35 @@ export function SettingsScreen() {
   const [mwApiKey, setMwApiKeyState] = useState('')
   const [mwKeyEditing, setMwKeyEditing] = useState(false)
   const [mwKeyVisible, setMwKeyVisible] = useState(false)
+  const [mwValidation, setMwValidation] = useState<DictionaryKeyValidation | null>(null)
+  const [mwValidating, setMwValidating] = useState(false)
 
   useEffect(() => {
     window.nuance.getApiKey('mw').then((k) => setMwApiKeyState(k ?? ''))
   }, [])
+
+  // 키 입력/수정 시 → 디바운스 후 검증(MW 는 무과금 엔드포인트가 없어 실 조회 1건 소비).
+  useEffect(() => {
+    const key = mwApiKey.trim()
+    if (!key) {
+      setMwValidation(null)
+      setMwValidating(false)
+      return
+    }
+    let active = true
+    setMwValidating(true)
+    const t = setTimeout(() => {
+      void window.nuance.validateMwKey(key).then((v) => {
+        if (!active) return
+        setMwValidation(v)
+        setMwValidating(false)
+      })
+    }, 500)
+    return () => {
+      active = false
+      clearTimeout(t)
+    }
+  }, [mwApiKey])
 
   const previewRef = useRef<HTMLDivElement>(null)
   const selRef = useRef<HTMLSpanElement>(null)
@@ -553,6 +596,23 @@ export function SettingsScreen() {
         >
           아직 Merriam-Webster 키가 없으신가요? 발급받으러 가기 →
         </a>
+
+        {/* 키 검증 상태 — MW 는 무과금 전용 엔드포인트가 없어 실 조회 1건으로 확인(일일 한도 중 1회 소비) */}
+        {mwApiKey.trim() && (
+          <div className="provider-status">
+            {mwValidating ? (
+              <span className="muted">API 키 확인 중…</span>
+            ) : mwValidation?.ok ? (
+              <span className="ok">
+                <CheckIcon /> 유효한 키
+              </span>
+            ) : mwValidation ? (
+              <span className="err">
+                <WarnIcon /> {mwValidationMessage(mwValidation.error)}
+              </span>
+            ) : null}
+          </div>
+        )}
 
         <div className="settings-note">
           <LockIcon /> API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
