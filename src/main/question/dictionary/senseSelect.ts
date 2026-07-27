@@ -140,9 +140,10 @@ export function formatDictionaryAnswer(
     // 자리)에 둔다.
     if (sense.irregularForms?.length) lines.push(`활용형: ${sense.irregularForms.join(', ')}`)
     // 원문·번역을 둘 다, 각각 다른 줄에 보여준다 — 원문만으론 영어 학습에 안 맞고,
-    // 번역만으론 사전 원문 표현을 확인할 수가 없다.
-    lines.push(sense.gloss.join('; '))
-    lines.push(translatedGloss)
+    // 번역만으론 사전 원문 표현을 확인할 수가 없다. "원문:"/"뜻:" 라벨을 붙여 예문·품사
+    // 등 다른 파트와 뜻풀이 파트가 한눈에 구분되게 한다.
+    lines.push(`원문: ${sense.gloss.join('; ')}`)
+    lines.push(`**뜻**: ${translatedGloss}`)
     if (sense.examples?.[0]) {
       lines.push(`> ${sense.examples[0]}`)
       if (translatedExample) lines.push(`> ${translatedExample}`)
