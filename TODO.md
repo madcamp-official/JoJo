@@ -143,7 +143,6 @@
   - [ ] 앱 아이콘 교체 — 현재 `build/icon.png` 는 기존 256px 을 1024 로 업스케일한 임시본(정식 아이콘으로 교체 필요)
 - [ ] `npm install` + `electron-vite dev` 빌드 정상화
   - [x] ~~koffi를 optionalDependencies로 이동 — 맥에서 네이티브 빌드 실패해도 install 유지 (`fix: 969d08f`)~~
-  - [ ] npm optional-deps 버그(npm/cli#4828)로 `@rollup/rollup-darwin-arm64` 누락 시: `node_modules`+`package-lock.json` 삭제 후 재설치 (온보딩 메모 필요)
 - [ ] 크로스플랫폼(Win / Mac) 동작 점검
   - [x] ~~맥(arm64) 부팅 확인 — win32Capture(koffi)를 동적 import로 격리해 맥에선 미로드, `npm run dev` 정상 기동 (`fix: 969d08f`). 맥은 desktopCapturer 경로 사용(창 목록 실사용엔 화면 기록 권한 필요)~~
   - [ ] Windows 재확인 — win32Capture가 static→동적 import로 바뀌어 Windows 창 목록/캡처 정상 동작 재점검 필요
