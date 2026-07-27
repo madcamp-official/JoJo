@@ -9,6 +9,7 @@ import { loadSettings } from './settingsStore'
 import { getApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { registerContextMenu } from './contextMenu'
+import { warmJapaneseTokenizer } from './nlp/japanese'
 import { startWarmUp } from './selection/warmup'
 
 // 앱 진입점 — 윈도우 생성, IPC 등록, 전역 단축키 등록
@@ -25,6 +26,7 @@ app.whenReady().then(() => {
   createTray()
   registerIpc()
   registerModeShortcut(settings.modeShortcut)
+  warmJapaneseTokenizer() // kuromoji 사전 로드(~1초)를 미리 시작 — 첫 사용 시 지연 없게
 
   // 담당 A — 실험용 브랜치(experiment/doclayout-yolo). DocLayout-YOLO/PaddleOCR/
   // manga-ocr 은 Python 서브프로세스라 첫 호출에 모델 로딩만 8~20초씩 걸린다(실측

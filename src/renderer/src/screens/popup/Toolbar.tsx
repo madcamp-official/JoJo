@@ -6,6 +6,7 @@ interface Props {
   onPron: () => void
   onDict: () => void
   onGoogle: (mode: 'pron' | 'image') => void
+  onNaverDict: () => void
   disabled?: boolean
 }
 
@@ -32,7 +33,16 @@ function GoogleIcon() {
   )
 }
 
-export function Toolbar({ onPron, onDict, onGoogle, disabled }: Props) {
+function NaverIcon() {
+  return (
+    <svg className="naver-icon" viewBox="0 0 48 48" width="14" height="14" aria-hidden="true">
+      <rect width="48" height="48" rx="8" fill="#03C75A" />
+      <path fill="#fff" d="M28.5 26.5 19.6 13H13v22h6.9V21.5L28.4 35H35V13h-6.5z" />
+    </svg>
+  )
+}
+
+export function Toolbar({ onPron, onDict, onGoogle, onNaverDict, disabled }: Props) {
   return (
     <div className="toolbar">
       <span className="llm-badge">
@@ -43,6 +53,13 @@ export function Toolbar({ onPron, onDict, onGoogle, disabled }: Props) {
       </button>
       <button className="tb-btn" title="구글 이미지 검색" onClick={() => onGoogle('image')}>
         이미지
+      </button>
+
+      <span className="llm-badge">
+        <NaverIcon />
+      </span>
+      <button className="tb-btn" title="네이버 사전 검색" onClick={onNaverDict}>
+        사전
       </button>
 
       <span className="tb-spacer" />

@@ -22,9 +22,12 @@ import sys
 
 from paddleocr import PaddleOCR
 
-# 우리 Language 타입(en/ja/zh) → PaddleOCR lang 코드. 일본어는 'japan'(ja 아님),
-# 중국어는 'ch'(zh 아님) — PaddleOCR 고유 코드라 헷갈리기 쉬워서 주석으로 명시.
-LANG_MAP = {"en": "en", "ja": "japan", "zh": "ch"}
+# 우리 Language 타입(en/ja/zh-Hans/zh-Hant) → PaddleOCR lang 코드. 일본어는 'japan'
+# (ja 아님) — PaddleOCR 고유 코드라 헷갈리기 쉬워서 주석으로 명시. 중국어는 PaddleOCR
+# 이 간체/번체를 별도 인식 모델로 두므로('ch' vs 'chinese_cht') 우리 쪽 스크립트 판별
+# (langDetect.ts)과 그대로 맞춰 각각 다른 모델을 쓴다 — 번체를 간체 모델로 인식하면
+# (또는 그 반대) 글자 형태 자체가 학습 분포 밖이라 인식률이 떨어진다.
+LANG_MAP = {"en": "en", "ja": "japan", "zh-Hans": "ch", "zh-Hant": "chinese_cht"}
 
 _engines: dict[str, PaddleOCR] = {}
 

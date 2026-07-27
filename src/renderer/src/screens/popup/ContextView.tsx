@@ -31,12 +31,37 @@ function toSegments(model: PopupSelectionModel): Segment[] {
   return segs
 }
 
+// 점(x, y)에서 가장 가까운 atom 을 찾는다 — "박스 안 텍스트 옆 여백에서 드래그 시작"·
+// "드래그 중 커서가 박스 밖으로 나가도 계속 이어짐"을 모두 이 하나의 함수로 처리한다.
+// 각 atom 의 bounding rect 까지의 최단 거리(rect 안이면 0)를 계산해 가장 가까운 것을
+// 고른다 — 커서가 박스 밖 어디에 있든(위/아래/옆) 항상 정의되는 값이라 별도의 예외
+// 처리(위로 나가면 첫 atom, 등) 없이 자연스럽게 동작한다.
+function nearestAtomIndex(atomEls: Map<number, HTMLSpanElement>, x: number, y: number): number | null {
+  let best: number | null = null
+  let bestDist = Infinity
+  for (const [idx, el] of atomEls) {
+    const r = el.getBoundingClientRect()
+    const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0
+    const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0
+    const dist = dx * dx + dy * dy
+    if (dist < bestDist) {
+      bestDist = dist
+      best = idx
+    }
+  }
+  return best
+}
+
 export function ContextView({ model, from, to, onChange }: Props) {
   const lo = Math.min(from, to)
   const hi = Math.max(from, to)
   const [dragging, setDragging] = useState(false)
   const anchorRef = useRef(from)
   const atomElsRef = useRef(new Map<number, HTMLSpanElement>())
+  // onChange 는 매 렌더마다 새로 만들어질 수 있어 ref 로 최신 값만 참조 —
+  // 아래 mousemove 구독 effect 를 dragging 변화에만 반응하도록 유지하기 위함.
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
 
   // 드래그 중 창 어디서 손을 떼도 종료되도록 전역 mouseup 구독
   useEffect(() => {
@@ -44,6 +69,20 @@ export function ContextView({ model, from, to, onChange }: Props) {
     const up = () => setDragging(false)
     window.addEventListener('mouseup', up)
     return () => window.removeEventListener('mouseup', up)
+  }, [dragging])
+
+  // 드래그 중엔 커서 위치를 전역으로 추적해 가장 가까운 atom 까지 선택을 확장한다.
+  // 개별 세그먼트의 onMouseEnter 대신 이 방식을 쓰는 이유: 커서가 박스 경계를 벗어나도
+  // (위/아래/옆 어디든) window 기준 mousemove 는 계속 들어오고, nearestAtomIndex 가
+  // 항상 "가장 가까운 atom"을 돌려주므로 드래그가 끊기지 않고 자연스럽게 이어진다.
+  useEffect(() => {
+    if (!dragging) return
+    const move = (e: MouseEvent) => {
+      const idx = nearestAtomIndex(atomElsRef.current, e.clientX, e.clientY)
+      if (idx != null) onChangeRef.current(anchorRef.current, idx)
+    }
+    window.addEventListener('mousemove', move)
+    return () => window.removeEventListener('mousemove', move)
   }, [dragging])
 
   // 클릭/드래그로 고른 범위(atom 단위, AI 문맥용 커스텀 선택)를 실제 브라우저 텍스트
@@ -70,7 +109,21 @@ export function ContextView({ model, from, to, onChange }: Props) {
   const segments = toSegments(model)
 
   return (
-    <div className="ctx-text" onMouseLeave={() => setDragging(false)}>
+    <div
+      className={dragging ? 'ctx-text dragging' : 'ctx-text'}
+      onMouseDown={(e) => {
+        // 세그먼트(atom/gap) 바깥, 박스 자체의 여백(padding)을 직접 눌렀을 때만 처리 —
+        // 세그먼트 위에서 눌렀으면 그쪽 onMouseDown 이 이미 처리했고(버블링으로 여기까지
+        // 올라옴), e.target !== e.currentTarget 로 걸러 중복 처리를 막는다.
+        if (e.button === 2 || e.target !== e.currentTarget) return
+        e.preventDefault()
+        const idx = nearestAtomIndex(atomElsRef.current, e.clientX, e.clientY)
+        if (idx == null) return
+        anchorRef.current = idx
+        setDragging(true)
+        onChange(idx, idx)
+      }}
+    >
       {segments.map((seg, i) => {
         if (seg.atomIndex === null) {
           // gap: 양옆 atom 이 모두 선택 범위 안이면 연결부(하이픈 등)도 하이라이트
@@ -86,7 +139,15 @@ export function ContextView({ model, from, to, onChange }: Props) {
                 // 좌클릭으로 공백/문장부호에서 드래그가 시작되는 것만 막는다(atom 과 동일
                 // 이유). CSS user-select: none 은 안 쓴다 — 우클릭 메뉴용 선택 텍스트에서
                 // 이 부분이 통째로 빠져 단어들이 붙어버리는 부작용이 있었다.
-                if (e.button !== 2) e.preventDefault()
+                if (e.button === 2) return
+                e.preventDefault()
+                // 단어 사이(공백·문장부호)에서 시작한 드래그도 단어 위 드래그와 동일하게
+                // 동작하도록, 이 gap 뒤쪽 단어(없으면 앞쪽 단어)를 기준(anchor)으로 잡는다.
+                const idx = next ?? prev
+                if (idx == null) return
+                anchorRef.current = idx
+                setDragging(true)
+                onChange(idx, idx)
               }}
             >
               {seg.text}
@@ -121,9 +182,6 @@ export function ContextView({ model, from, to, onChange }: Props) {
               anchorRef.current = idx
               setDragging(true)
               onChange(idx, idx)
-            }}
-            onMouseEnter={() => {
-              if (dragging) onChange(anchorRef.current, idx)
             }}
           >
             {seg.text}

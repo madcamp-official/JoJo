@@ -18,7 +18,9 @@ export default defineConfig({
         // 계산한다(worker/node/defaultOptions.js). 번들에 인라인되면 __dirname 이
         // out/main 이 되어 그 경로 계산이 깨진다(node_modules/tesseract.js 를 못 찾음)
         // — external 로 빼서 런타임에 node_modules 에서 그대로 require 되게 한다.
-        external: ['tesseract.js'],
+        // kuromoji 도 같은 이유(사전 .dat.gz 파일을 자기 패키지 폴더 기준 상대경로로
+        // 읽음, nlp/japanese.ts 의 dicPath())로 external 처리한다.
+        external: ['tesseract.js', 'kuromoji', 'segmentit'],
       },
     },
   },

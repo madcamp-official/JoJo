@@ -1,4 +1,4 @@
-// 공동 소유 — IPC 채널 상수 (PLAN.md §7 통합 지점)
+// 공동 소유 — IPC 채널 상수 (PLAN.md §8 통합 지점)
 // A→B: selection:extracted / B: question:request, question:stream
 
 export const IPC = {
@@ -46,6 +46,9 @@ export const IPC = {
   OPEN_POPUP: 'popup:open',
   POPUP_GET_CONTEXT: 'popup:getContext',
   OPEN_GOOGLE: 'popup:openGoogle',
+  OPEN_NAVER_DICT: 'popup:openNaverDict',
+  // 팝업 원문 문맥의 가나 atom 병합용 — kuromoji 형태소 분석(main/nlp/japanese.ts)
+  TOKENIZE_JA: 'popup:tokenizeJa',
 
   // 설정 / API 키 (담당 B)
   SETTINGS_GET: 'settings:get',

@@ -48,6 +48,16 @@ const SendMessageGetTextLength = user32.func(
 const SendMessageGetText = user32.func(
   'intptr_t __stdcall SendMessageW(void *hwnd, uint32_t msg, uintptr_t wParam, _Out_ str16 lParam)',
 )
+const GetWindowThreadProcessId = user32.func(
+  'uint32_t __stdcall GetWindowThreadProcessId(void *hwnd, _Out_ uint32_t *lpdwProcessId)',
+)
+const OpenProcess = kernel32.func(
+  'void * __stdcall OpenProcess(uint32_t dwDesiredAccess, int bInheritHandle, uint32_t dwProcessId)',
+)
+const CloseHandle = kernel32.func('int __stdcall CloseHandle(void *hObject)')
+const QueryFullProcessImageNameW = kernel32.func(
+  'int __stdcall QueryFullProcessImageNameW(void *hProcess, uint32_t dwFlags, _Out_ str16 lpExeName, _Inout_ uint32_t *lpdwSize)',
+)
 const GetDC = user32.func('void * __stdcall GetDC(void *hwnd)')
 const ReleaseDC = user32.func('int __stdcall ReleaseDC(void *hwnd, void *hdc)')
 const PrintWindow = user32.func('int __stdcall PrintWindow(void *hwnd, void *hdc, uint32_t flags)')
@@ -186,6 +196,32 @@ export interface Win32Window {
   height: number
   /** 최소화 상태 — PrintWindow 로는 캡처 불가, captureMinimizedWin32Window 사용 필요. */
   minimized: boolean
+  /** 소유 프로세스의 실행파일 이름(확장자 제외) — 못 구하면 null. 창 목록에 "앱 - 제목" 표시용. */
+  ownerName: string | null
+}
+
+const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+/** hwnd 를 소유한 프로세스의 exe 파일명(확장자 제외)을 반환한다 — 못 구하면 null. */
+function getOwnerExeBaseName(hwnd: bigint): string | null {
+  const pidOut = [0]
+  GetWindowThreadProcessId(hwnd, pidOut)
+  const pid = pidOut[0]
+  if (!pid) return null
+
+  const proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
+  if (!proc) return null
+  try {
+    const sizeInOut = [260]
+    const buf = Buffer.alloc(260 * 2)
+    if (!QueryFullProcessImageNameW(proc, 0, buf, sizeInOut)) return null
+    const path = buf.toString('utf16le').replace(/\0.*$/, '')
+    const base = path.split(/[\\/]/).pop()
+    if (!base) return null
+    return base.replace(/\.exe$/i, '')
+  } finally {
+    CloseHandle(proc)
+  }
 }
 
 /** 화면상 최상위 창 목록 — 가려짐/최소화와 무관하게 항상 보인다. */
@@ -220,7 +256,7 @@ export function listWin32Windows(): Win32Window[] {
     // 최소화된 창은 크기를 여기서 알 수 없다 (GetClientRect 는 복원 아이콘 placeholder를
     // 반환) — captureMinimizedWin32Window 가 DWM 에서 실제 크기를 다시 조회한다.
 
-    results.push({ hwnd, title, width, height, minimized })
+    results.push({ hwnd, title, width, height, minimized, ownerName: getOwnerExeBaseName(hwnd) })
     return 1
   }, koffi.pointer('WNDENUMPROC'))
 

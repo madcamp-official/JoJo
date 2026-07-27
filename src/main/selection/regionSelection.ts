@@ -35,30 +35,63 @@ export function clearRegion(): void {
 /**
  * 오버레이(DIP, 오버레이 로컬 좌표)에서 드래그로 그린 영역을 캡처 좌표계(물리 픽셀)로
  * 변환해 저장한다 — extractionCache.ts 의 bbox 정렬(alignWordsToOverlay)과 정반대 방향의
- * 변환. Windows 전용(비-win32 에선 변환 없이 그대로 저장 — 실제로 이 흐름 자체가 아직
- * win32 에서만 시작됨, macOS 미구현).
+ * 변환.
  */
 export async function submitRegionFromOverlay(dipRect: Rect): Promise<void> {
-  if (process.platform !== 'win32') {
-    setRegion(dipRect)
+  if (process.platform === 'win32') {
+    const id = getSelectedWindowId()
+    if (!id) return
+
+    const hwnd = BigInt(id)
+    const { getCaptureOriginOffset, getWindowScreenRect } = await import('./win32Capture')
+    const rect = getWindowScreenRect(hwnd)
+    if (!rect) return
+
+    const offset = getCaptureOriginOffset(hwnd)
+    const scale = getPhysicalToDipScale(rect)
+    setRegion({
+      x: dipRect.x * scale + offset.x,
+      y: dipRect.y * scale + offset.y,
+      width: dipRect.width * scale,
+      height: dipRect.height * scale,
+    })
     return
   }
-  const id = getSelectedWindowId()
-  if (!id) return
 
-  const hwnd = BigInt(id)
-  const { getCaptureOriginOffset, getWindowScreenRect } = await import('./win32Capture')
-  const rect = getWindowScreenRect(hwnd)
-  if (!rect) return
+  if (process.platform === 'darwin') {
+    const id = getSelectedWindowId()
+    const wid = Number(/^window:(\d+)/.exec(id ?? '')?.[1])
+    if (!Number.isFinite(wid)) {
+      setRegion(dipRect)
+      return
+    }
+    const { getMacWindowBounds } = await import('./macWindow')
+    const bounds = getMacWindowBounds(wid)
+    if (!bounds) {
+      setRegion(dipRect)
+      return
+    }
+    const { screen } = await import('electron')
+    // alignWordsToOverlay(extractionCache.ts)와 반대 방향: DIP → 물리 픽셀이므로 scale을
+    // 곱한다. macOS는 캡처(screencapture)와 오버레이 원점이 창 좌상단으로 동일해 offset은
+    // 필요 없다(win32와 달리 GetWindowRect/DWM 프레임 어긋남이 없음).
+    const scale =
+      screen.getDisplayMatching({
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
+        width: Math.round(bounds.width),
+        height: Math.round(bounds.height),
+      }).scaleFactor || 1
+    setRegion({
+      x: dipRect.x * scale,
+      y: dipRect.y * scale,
+      width: dipRect.width * scale,
+      height: dipRect.height * scale,
+    })
+    return
+  }
 
-  const offset = getCaptureOriginOffset(hwnd)
-  const scale = getPhysicalToDipScale(rect)
-  setRegion({
-    x: dipRect.x * scale + offset.x,
-    y: dipRect.y * scale + offset.y,
-    width: dipRect.width * scale,
-    height: dipRect.height * scale,
-  })
+  setRegion(dipRect)
 }
 
 // 본문으로 볼 레이아웃 라벨 — DocLayout-YOLO(DocStructBench 체크포인트)의 10개 클래스 중

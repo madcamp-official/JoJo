@@ -36,7 +36,10 @@ import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { validateProvider } from './question/llm/validate'
-import { googleImageUrl, googlePronunciationUrl, openGoogleSearchInNewWindow } from './question/google'
+import { googleImageUrl, googlePronunciationUrl } from './question/google'
+import { naverDictionaryUrl } from './question/naver'
+import { openUrlInNewWindow } from './question/browser'
+import { tokenizeJapanese } from './nlp/japanese'
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
@@ -164,8 +167,8 @@ export function registerIpc(): void {
 
   // 담당 B: 팝업 열기 (데모용 — ctx 없이 열면 렌더러가 목업으로 fallback)
   // 담당 A 통합 시엔 선택 파이프라인이 createPopupWindow(ctx) 를 직접 호출한다.
-  ipcMain.handle(IPC.OPEN_POPUP, async () => {
-    createPopupWindow(null)
+  ipcMain.handle(IPC.OPEN_POPUP, async (_e, demo?: string) => {
+    createPopupWindow(null, demo)
   })
 
   // 담당 B: 팝업 렌더러가 마운트 시 현재 ExtractedSelection 을 조회
@@ -181,7 +184,21 @@ export function registerIpc(): void {
         payload.mode === 'pron'
           ? googlePronunciationUrl(payload.text, payload.lang)
           : googleImageUrl(payload.text)
-      await openGoogleSearchInNewWindow(url, getPopupBounds() ?? undefined)
+      await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
     },
   )
+
+  // 담당 B: 네이버 사전 — 언어별 서브도메인 사전을 기본 브라우저의 새 창으로 연다(naver.ts)
+  ipcMain.handle(
+    IPC.OPEN_NAVER_DICT,
+    async (_e, payload: { text: string; lang: Language }) => {
+      const url = naverDictionaryUrl(payload.text, payload.lang)
+      await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
+    },
+  )
+
+  // 담당 B: 팝업 원문 문맥의 가나 조각 병합용 kuromoji 형태소 분석 (nlp/japanese.ts)
+  ipcMain.handle(IPC.TOKENIZE_JA, async (_e, text: string) => {
+    return tokenizeJapanese(text)
+  })
 }

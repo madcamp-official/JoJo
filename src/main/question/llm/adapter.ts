@@ -13,7 +13,7 @@ import { buildErrorResult } from '../errors'
 import { classifyLlmError } from './errors'
 
 // ============================================================================
-// 담당 B — LLM 공통 어댑터 (PLAN.md §4.2 / §7)
+// 담당 B — LLM 공통 어댑터 (PLAN.md §4.2 / §8)
 // GPT / Gemini / Claude 를 동일 인터페이스로 추상화한다.
 //  - 이 파일: provider 추상화 + 문맥 프롬프트 구성 + 스트리밍 오케스트레이션
 //  - 각 provider 의 실제 API 호출/스트리밍은 ./gpt|gemini|claude 가 담당(다음 항목)
@@ -90,12 +90,9 @@ export function buildContextBlock(
   byteBefore: number,
   byteAfter: number,
 ): string {
-  const full = `${ctx.precedingText}${ctx.selectedText}${ctx.followingText}`
-  const selStart = ctx.precedingText.length
-  const selEnd = selStart + ctx.selectedText.length
-  const r = computeContextRange(full, selStart, selEnd, byteBefore, byteAfter)
-  const before = full.slice(r.extStart, selStart)
-  const after = full.slice(selEnd, r.extEnd)
+  const r = computeContextRange(ctx.fullText, ctx.selStart, ctx.selEnd, byteBefore, byteAfter)
+  const before = ctx.fullText.slice(r.extStart, ctx.selStart)
+  const after = ctx.fullText.slice(ctx.selEnd, r.extEnd)
   return `[앞 문맥]\n${before}\n\n[선택된 표현]\n${ctx.selectedText}\n\n[뒤 문맥]\n${after}`
 }
 
@@ -134,7 +131,10 @@ export async function streamLlm(
     system,
     cacheableContext: buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter),
     messages: [...history, { role: 'user', content: prompt }],
-    model: settings.models[provider] ?? DEFAULT_MODELS[provider],
+    // "Default" 옵션 선택 시 설정 화면이 빈 문자열을 저장하는데(SettingsScreen.tsx),
+    // ??(nullish) 는 빈 문자열을 값 있음으로 취급해 API에 model:"" 로 요청이 나가버린다
+    // — || 로 falsy(빈 문자열 포함)일 때도 기본 모델로 대체한다.
+    model: settings.models[provider] || DEFAULT_MODELS[provider],
     maxTokens: DEFAULT_MAX_TOKENS,
     temperature,
   }

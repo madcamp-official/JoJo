@@ -3,7 +3,7 @@ import { readWindowText } from './accessibility'
 import { getSelectedWindowId } from './capture'
 import { detectLanguage } from './langDetect'
 
-// 담당 A — OCR 사용 여부 판정 (PLAN.md §4.1 / §6)
+// 담당 A — OCR 사용 여부 판정 (PLAN.md §4.1 / §7)
 // 원칙: 직접 추출 먼저 시도, 텍스트가 부족할 때만 OCR fallback.
 // 판정 시점: 선택 모드 진입 시 1회 + URL 변화 시 재판정 (URL 을 캐시 키로).
 

@@ -2,6 +2,8 @@ import { nativeImage } from 'electron'
 import { createWorker, type Worker } from 'tesseract.js'
 import type { Language, Rect, Word } from '@shared/types'
 import type { Extracted } from './extractDirect'
+import { segmentChineseWords } from '../nlp/chinese'
+import { segmentJapaneseWords } from '../nlp/japanese'
 import { detectLayoutBlocks, type LayoutBlock, mergeIntoColumns, padRect } from './layoutDetect'
 import { detectLinesWithPaddle, isVerticalByLineShape, recognizeVerticalColumnWithPaddle, recognizeWithPaddle } from './ocrPaddle'
 
@@ -11,11 +13,20 @@ import { detectLinesWithPaddle, isVerticalByLineShape, recognizeVerticalColumnWi
 const BLOCK_PADDING_X = 50
 const BLOCK_PADDING_Y = 12
 
-// 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §6 / §8)
+// 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §7 / §9)
 // 범용 엔진: Tesseract.js 채택 확정(오프라인, 언어팩 교체로 다국어 대응). 언어별 특화
 // 엔진(예: 중국어 PaddleOCR)은 나중에 벤치마킹 후 라우팅 추가 — 지금은 Tesseract 단일 경로.
 
-const TESS_LANG: Record<Language, string> = { en: 'eng', ja: 'jpn', zh: 'chi_sim' }
+// zh-Hans/zh-Hant: langDetect.ts 가 OCR 이전에 스크립트까지 판정해 넘겨주므로, 여기서는
+// 판정된 스크립트에 맞는 언어팩 하나만 로드한다(간체/번체 결합 로드는 스크립트를 미리
+// 모를 때의 임시방편이었는데, 사전 판별 단계가 생기면서 더 이상 필요 없어짐 — 결합 로드
+// 대비 다운로드/메모리도 줄고, Tesseract 가 두 사전 사이에서 헷갈릴 여지도 없어짐).
+const TESS_LANG: Record<Language, string> = {
+  en: 'eng',
+  ja: 'jpn',
+  'zh-Hans': 'chi_sim',
+  'zh-Hant': 'chi_tra',
+}
 
 // 언어별 워커를 재사용한다 — 언어팩 로드 비용이 커서(수 MB 다운로드/초기화) 매 호출마다
 // 새로 만들지 않는다. 언어가 바뀌면 이전 워커를 정리하고 새로 만든다.
@@ -56,7 +67,7 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
   // 가로쓰기면 recognizeWithPaddle) — 일본어 스캔 파일에서 Tesseract 인식률이 낮았던
   // 문제(실사용 확인)로 도입. 실패하면(Python 환경 없음 등) null 이 와서 그대로 아래
   // Tesseract 경로로 흘러간다.
-  if (language === 'zh' || language === 'ja') {
+  if (language === 'zh-Hans' || language === 'zh-Hant' || language === 'ja') {
     // DocLayout 이 블록을 하나도 못 찾으면(blocks=0) `vertical` 판정 자체가 근거가
     // 없어 기본값 false 로 떨어지는데, 그러면 전체 영역이 통째로 "블록 1개" 취급돼
     // 열/줄 분리 없이 페이지 전체를 PaddleOCR 한 번에 통으로 넘기게 된다(실측: 200자대
@@ -104,14 +115,14 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
     const words: Word[] = []
     for (const column of columns) {
       const paddedBbox = padRect(column.bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
-      const result = await recognizeRegion(w, image, paddedBbox)
+      const result = await recognizeRegion(w, image, language, paddedBbox)
       if (result.text) texts.push(result.text)
       words.push(...result.words)
     }
     return { text: texts.join('\n\n'), language, words }
   }
 
-  const result = await recognizeRegion(w, image, region)
+  const result = await recognizeRegion(w, image, language, region)
   return { text: result.text, language, words: result.words }
 }
 
@@ -123,7 +134,7 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
  */
 async function runNonTesseractOcr(
   image: Buffer,
-  language: 'zh' | 'ja',
+  language: 'zh-Hans' | 'zh-Hant' | 'ja',
   region: Rect | undefined,
   columns: LayoutBlock[] | null,
   vertical: boolean,
@@ -179,6 +190,7 @@ async function runNonTesseractOcr(
 async function recognizeRegion(
   w: Worker,
   image: Buffer,
+  language: Language,
   region?: Rect,
 ): Promise<{ text: string; words: Word[] }> {
   // blocks 출력은 기본 꺼져 있음 — 단어별 bbox 를 얻으려면 명시적으로 켜야 한다.
@@ -200,6 +212,12 @@ async function recognizeRegion(
   const words: Word[] = []
   for (const line of lines) {
     if (clippedLines.has(line)) continue
+    if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
+      // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
+      // 맞는다 — 줄 전체를 형태소 분석기(일: kuromoji, 중: segmentit)로 다시 분리한다.
+      words.push(...(await buildCjkLineWords(line, language, region)))
+      continue
+    }
     for (const word of line.words) {
       // 잘린 단어는 통째로 제외한다 — 두 가지 다른 원인을 각각 다른 방법으로 잡는다.
       //  1) 우리가 지정한 영역 경계 자체가 단어 중간을 가로지르는 경우: Tesseract 는
@@ -221,6 +239,55 @@ async function recognizeRegion(
   }
 
   return { text: normalizeOcrText(data.text), words }
+}
+
+/**
+ * 한 줄(line) 안의 Tesseract 단어들을 글자(symbol) 단위로 이어붙인 뒤, 형태소 분석기로
+ * 의미 단위 단어 경계를 다시 잡아 Word[] 를 만든다. 잘린 단어(isWordClippedByRegion/
+ * looksTruncated)는 기존과 동일하게 제외하되, 제외된 자리는 분석기가 단어를 이어붙이지
+ * 못하게 끊어준다(연속 구간=run 단위로 분석기를 돌린다).
+ */
+async function buildCjkLineWords(
+  line: { words: { text: string; bbox: OcrBbox; symbols?: OcrSymbol[]; confidence: number }[]; bbox: OcrBbox },
+  language: 'ja' | 'zh-Hans' | 'zh-Hant',
+  region: Rect | undefined,
+): Promise<Word[]> {
+  const runs: OcrSymbol[][] = []
+  let current: OcrSymbol[] = []
+  for (const word of line.words) {
+    if (region && (isWordClippedByRegion(word.bbox, region) || looksTruncated(word))) {
+      if (current.length > 0) {
+        runs.push(current)
+        current = []
+      }
+      continue
+    }
+    current.push(...(word.symbols ?? []))
+  }
+  if (current.length > 0) runs.push(current)
+
+  const words: Word[] = []
+  for (const run of runs) {
+    const text = run.map((s) => s.text).join('')
+    const boundaries =
+      language === 'ja' ? await segmentJapaneseWords(text) : segmentChineseWords(text)
+    for (const b of boundaries) {
+      const syms = run.slice(b.start, b.end)
+      if (syms.length === 0) continue
+      const x0 = Math.min(...syms.map((s) => s.bbox.x0))
+      const x1 = Math.max(...syms.map((s) => s.bbox.x1))
+      words.push({
+        text: b.text,
+        bbox: {
+          x: x0,
+          y: line.bbox.y0,
+          width: Math.max(0, x1 - x0),
+          height: line.bbox.y1 - line.bbox.y0,
+        },
+      })
+    }
+  }
+  return words
 }
 
 // 맨 위/아래 줄의 높이가 다른 줄들의 중앙값보다 이 비율 미만이면 "세로로 잘린 줄"로 본다.

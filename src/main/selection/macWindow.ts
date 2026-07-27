@@ -38,8 +38,11 @@ let CFArrayGetValueAtIndex: KFn | null = null
 let CFDictionaryGetValue: KFn | null = null
 let CFNumberGetValue: KFn | null = null
 let CFRelease: KFn | null = null
+let CFStringGetLength: KFn | null = null
+let CFStringGetCString: KFn | null = null
 let boundsKey: unknown = null // CFString "kCGWindowBounds" (재사용 위해 캐시)
 let ownerPidKey: unknown = null // CFString "kCGWindowOwnerPID"
+let ownerNameKey: unknown = null // CFString "kCGWindowOwnerName"
 let numberKey: unknown = null // CFString "kCGWindowNumber"
 let layerKey: unknown = null // CFString "kCGWindowLayer"
 
@@ -64,11 +67,16 @@ function ensureCoreGraphics(): boolean {
     CFDictionaryGetValue = cf.func('void* CFDictionaryGetValue(void* dict, void* key)')
     CFNumberGetValue = cf.func('bool CFNumberGetValue(void* number, long theType, void* value)')
     CFRelease = cf.func('void CFRelease(void* cf)')
+    CFStringGetLength = cf.func('long CFStringGetLength(void* str)')
+    CFStringGetCString = cf.func(
+      'bool CFStringGetCString(void* str, _Out_ char* buffer, long bufferSize, uint32_t encoding)',
+    )
     const CFStringCreateWithCString = cf.func(
       'void* CFStringCreateWithCString(void* alloc, const char* cstr, uint32_t encoding)',
     )
     boundsKey = CFStringCreateWithCString(null, 'kCGWindowBounds', kCFStringEncodingUTF8)
     ownerPidKey = CFStringCreateWithCString(null, 'kCGWindowOwnerPID', kCFStringEncodingUTF8)
+    ownerNameKey = CFStringCreateWithCString(null, 'kCGWindowOwnerName', kCFStringEncodingUTF8)
     numberKey = CFStringCreateWithCString(null, 'kCGWindowNumber', kCFStringEncodingUTF8)
     layerKey = CFStringCreateWithCString(null, 'kCGWindowLayer', kCFStringEncodingUTF8)
     return true
@@ -172,6 +180,51 @@ function getOnScreenLayer0Windows(): OnScreenWindow[] {
     return out
   } catch {
     return []
+  } finally {
+    if (arr) {
+      try {
+        CFRelease!(arr)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+/** CFStringRef를 JS 문자열로 변환한다(실패 시 null). */
+function cfStringToJs(str: unknown): string | null {
+  if (!str) return null
+  const len = Number(CFStringGetLength!(str))
+  const bufSize = len * 4 + 1 // UTF-8 최악의 경우(문자당 4바이트) + null 종단
+  const buf = Buffer.alloc(bufSize)
+  if (!CFStringGetCString!(str, buf, bufSize, kCFStringEncodingUTF8)) return null
+  return buf.toString('utf8').replace(/\0.*$/, '')
+}
+
+/**
+ * 화면에 보이는 창들의 windowId → owner 앱 이름 맵을 한 번에 조회한다(창 목록에
+ * "앱 이름 - 창 제목" 표시용). `desktopCapturer`(창 목록)와 마찬가지로 on-screen 창만
+ * 대상으로 하므로 목록 항목과 1:1로 맞는다.
+ */
+export function listMacWindowOwnerNames(): Map<number, string> {
+  const map = new Map<number, string>()
+  if (!ensureCoreGraphics()) return map
+  let arr: unknown = null
+  try {
+    arr = CGWindowListCopyWindowInfo!(kCGWindowListOptionOnScreenOnly, 0)
+    if (!arr) return map
+    const count = Number(CFArrayGetCount!(arr))
+    for (let i = 0; i < count; i++) {
+      const dict = CFArrayGetValueAtIndex!(arr, i)
+      if (!dict) continue
+      const wid = readInt(dict, numberKey)
+      if (wid == null) continue
+      const owner = cfStringToJs(CFDictionaryGetValue!(dict, ownerNameKey))
+      if (owner) map.set(wid, owner)
+    }
+    return map
+  } catch {
+    return map
   } finally {
     if (arr) {
       try {

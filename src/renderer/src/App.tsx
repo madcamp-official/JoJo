@@ -6,8 +6,9 @@ import { PopupScreen } from './screens/PopupScreen'
 import { Overlay } from './screens/Overlay'
 import { WindowPickerScreen } from './screens/WindowPickerScreen'
 
+// 해시에 쿼리(예: '#/popup?demo=zh')가 붙어도 라우트 매칭은 '?' 앞부분만 본다.
 function getRoute(): string {
-  return window.location.hash.replace(/^#\//, '') || 'main'
+  return window.location.hash.replace(/^#\//, '').split('?')[0] || 'main'
 }
 
 // 해시 라우팅 — 각 BrowserWindow 가 #/route 로 로드된다 (windows.ts).

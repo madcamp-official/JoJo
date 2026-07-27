@@ -21,6 +21,17 @@ const execFileAsync = promisify(execFile)
 // 썸네일 그리드 타일과 동일한 종횡비로 고정 크롭한다(모든 창이 같은 픽셀 크기로 나가도록).
 const THUMBNAIL_SIZE = { width: 320, height: 205 }
 
+/** "앱 이름 - 창 제목" 형태로 합친다 — 앱 이름을 못 구했거나 제목과 중복되면 제목만 반환. */
+function withOwnerName(owner: string | null | undefined, title: string): string {
+  if (!owner || owner === title) return title
+  return `${owner} - ${title}`
+}
+
+/** exe 파일명(확장자 제외, 예: "chrome")을 "Chrome" 처럼 대략적인 표시용 이름으로 만든다. */
+function friendlyExeName(exeBase: string): string {
+  return exeBase.charAt(0).toUpperCase() + exeBase.slice(1)
+}
+
 /** cover 방식으로 리사이즈 후 중앙 크롭 — 원본 창 크기/비율과 무관하게 항상 같은 크기를 반환. */
 function toUniformThumbnail(image: Electron.NativeImage): Electron.NativeImage {
   const size = image.getSize()
@@ -67,21 +78,39 @@ async function listWindowsWin32(): Promise<CaptureSource[]> {
 
     const image = nativeImage.createFromBitmap(shot.buffer, { width: shot.width, height: shot.height })
     const thumbnail = toUniformThumbnail(image).toDataURL()
-    sources.push({ id: String(win.hwnd), name: win.title, thumbnail })
+    const owner = win.ownerName ? friendlyExeName(win.ownerName) : null
+    sources.push({ id: String(win.hwnd), name: withOwnerName(owner, win.title), thumbnail })
   }
   return sources
 }
 
 async function listWindowsElectron(): Promise<CaptureSource[]> {
+  const ownSourceIds = new Set(BrowserWindow.getAllWindows().map((w) => w.getMediaSourceId()))
+
   const sources = await desktopCapturer.getSources({
     types: ['window'],
     thumbnailSize: { width: THUMBNAIL_SIZE.width * 2, height: THUMBNAIL_SIZE.height * 2 },
   })
-  return sources.map((s) => ({
-    id: s.id,
-    name: s.name,
-    thumbnail: toUniformThumbnail(s.thumbnail).toDataURL(),
-  }))
+
+  // macOS: desktopCapturer 는 owner 앱 이름을 안 주므로 CGWindowList 로 windowId → 앱 이름
+  // 맵을 한 번에 조회해 "앱 이름 - 창 제목"으로 합쳐 보여준다.
+  let ownerNames: Map<number, string> | null = null
+  if (process.platform === 'darwin') {
+    const { listMacWindowOwnerNames } = await import('./macWindow')
+    ownerNames = listMacWindowOwnerNames()
+  }
+
+  return sources
+    .filter((s) => !ownSourceIds.has(s.id))
+    .map((s) => {
+      const wid = ownerNames ? Number(/^window:(\d+)/.exec(s.id)?.[1]) : NaN
+      const owner = ownerNames && Number.isFinite(wid) ? ownerNames.get(wid) : undefined
+      return {
+        id: s.id,
+        name: withOwnerName(owner, s.name),
+        thumbnail: toUniformThumbnail(s.thumbnail).toDataURL(),
+      }
+    })
 }
 
 export async function listWindows(): Promise<CaptureSource[]> {
@@ -138,9 +167,13 @@ export async function captureFocusedWindow(): Promise<Buffer> {
 async function captureMacWindow(sourceId: string): Promise<Buffer> {
   const m = /^window:(\d+)/.exec(sourceId)
   if (!m) throw new Error(`captureFocusedWindow: mac window id 파싱 실패 (${sourceId})`)
-  const out = join(tmpdir(), `nuance-capture-${process.pid}-${Date.now()}.png`)
+  return captureMacWindowById(Number(m[1]))
+}
+
+async function captureMacWindowById(windowId: number): Promise<Buffer> {
+  const out = join(tmpdir(), `nuance-capture-${process.pid}-${Date.now()}-${windowId}.png`)
   // -x: 소리 없음, -o: 창 그림자 제외(창 프레임만), -t png: PNG, -l<id>: 해당 CGWindowID 창만
-  await execFileAsync('screencapture', ['-x', '-o', '-t', 'png', `-l${m[1]}`, out])
+  await execFileAsync('screencapture', ['-x', '-o', '-t', 'png', `-l${windowId}`, out])
   try {
     return await readFile(out)
   } finally {

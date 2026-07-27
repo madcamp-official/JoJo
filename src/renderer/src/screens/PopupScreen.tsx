@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatTurn, ExtractedSelection, QuestionRequest, QuestionResult } from '@shared/types'
+import type { ChatTurn, ExtractedSelection, JaToken, QuestionRequest, QuestionResult } from '@shared/types'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
 import { FrequentQuestions } from './popup/FrequentQuestions'
-import { buildSelectionModel, deriveContext } from './popup/selection'
-import { mockHobbitExtraction } from './popup/mockSelection'
+import { buildDisplayText, buildSelectionModel, deriveContext } from './popup/selection'
+import {
+  mockDevotionExtraction,
+  mockHobbitExtraction,
+  mockThreeBodyExtraction,
+} from './popup/mockSelection'
 import { loadFrequent, saveFrequent } from './popup/frequentStore'
 import { newId, type ChatMessage } from './popup/types'
 
@@ -21,11 +25,30 @@ import { newId, type ChatMessage } from './popup/types'
 // 데이터 진입:
 //   - 실제(담당 A 통합): main 이 createPopupWindow(ctx) 로 넘긴 ExtractedSelection 을
 //     getPopupContext()/onPopupContext() 로 받는다.
-//   - 데모(현재): ctx 가 없으면 호빗 "well-to-do" 목업으로 fallback 한다.
+//   - 데모(현재): ctx 가 없으면 목업으로 fallback한다 — 기본은 호빗 "well-to-do",
+//     MainScreen 의 언어별 데모 버튼으로 열었을 때(#/popup?demo=ja 또는 zh)는
+//     각각 《容疑者Xの献身》"新大橋" / 《三体》"天线"(간체).
 // ============================================================================
 
+/** 팝업 창 URL 해시(#/popup?demo=zh)에서 demo 쿼리값을 읽는다. */
+function getDemoParam(): string | null {
+  const query = window.location.hash.split('?')[1] ?? ''
+  return new URLSearchParams(query).get('demo')
+}
+
+function initialMockExtraction(): ExtractedSelection {
+  switch (getDemoParam()) {
+    case 'ja':
+      return mockDevotionExtraction()
+    case 'zh-Hans':
+      return mockThreeBodyExtraction()
+    default:
+      return mockHobbitExtraction()
+  }
+}
+
 export function PopupScreen() {
-  const [baseCtx, setBaseCtx] = useState<ExtractedSelection>(() => mockHobbitExtraction())
+  const [baseCtx, setBaseCtx] = useState<ExtractedSelection>(initialMockExtraction)
 
   // main 에서 실제 컨텍스트를 받으면 교체(초기 조회 + 창 재사용 시 갱신 통지)
   useEffect(() => {
@@ -47,7 +70,24 @@ export function PopupScreen() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const model = useMemo(() => buildSelectionModel(baseCtx), [baseCtx])
+  // 일본어는 가나 조각을 kuromoji(main/nlp/japanese.ts) 품사 기반으로 병합한다 — 사전 로드가
+  // 끝날 때까지의 짧은 순간은 즉석 대체 규칙(selection.ts segmentKanaRunFallback)으로 먼저
+  // 그린다. displayText 는 kuromoji 에 넘길 대상 문자열(atom 과 무관)이라 먼저 따로 계산한다.
+  const displayText = useMemo(() => buildDisplayText(baseCtx).displayText, [baseCtx])
+  const [jaTokens, setJaTokens] = useState<JaToken[] | undefined>(undefined)
+  useEffect(() => {
+    setJaTokens(undefined)
+    if (baseCtx.language !== 'ja') return
+    let active = true
+    window.nuance.tokenizeJapanese(displayText).then((tokens) => {
+      if (active) setJaTokens(tokens)
+    })
+    return () => {
+      active = false
+    }
+  }, [baseCtx.language, displayText])
+
+  const model = useMemo(() => buildSelectionModel(baseCtx, jaTokens), [baseCtx, jaTokens])
   const [range, setRange] = useState({ from: model.initialFrom, to: model.initialTo })
 
   // baseCtx(=model)가 바뀌면 초기 선택으로 리셋
@@ -133,6 +173,10 @@ export function PopupScreen() {
     window.nuance.openGoogle(mode, currentCtx.selectedText, currentCtx.language)
   }
 
+  function naverDict() {
+    window.nuance.openNaverDict(currentCtx.selectedText, currentCtx.language)
+  }
+
   // ---- 자주 쓰는 질문 (main 프로세스 userData/frequent.json 에 영속) --------
   const [frequent, setFrequent] = useState<string[]>([])
   useEffect(() => {
@@ -153,7 +197,7 @@ export function PopupScreen() {
     <div className="screen popup-screen">
       <header className="popup-header">
         <span className="src">
-          {sourceLabel(baseCtx)} · {baseCtx.language.toUpperCase()}
+          {sourceLabel(baseCtx)} · {LANGUAGE_LABEL[baseCtx.language]}
         </span>
         <button className="icon-btn close" title="닫기" onClick={() => window.close()}>
           ✕
@@ -163,7 +207,7 @@ export function PopupScreen() {
       <div className="popup-body">
         <section className="context">
           <div className="ctx-head">
-            <span className="ctx-label">원문 문맥</span>
+            <span className="ctx-label">범위 지정</span>
             <span className="ctx-hint">드래그로 범위를 다시 지정할 수 있어요</span>
           </div>
           <ContextView
@@ -178,6 +222,7 @@ export function PopupScreen() {
           onPron={askPronunciation}
           onDict={askDictionary}
           onGoogle={google}
+          onNaverDict={naverDict}
           disabled={busy}
         />
 
@@ -191,4 +236,11 @@ export function PopupScreen() {
 
 function sourceLabel(ex: ExtractedSelection): string {
   return ex.source.appName ?? ex.source.url ?? ex.source.kind
+}
+
+const LANGUAGE_LABEL: Record<ExtractedSelection['language'], string> = {
+  en: 'English',
+  ja: '日本語',
+  'zh-Hans': '中文(简体)',
+  'zh-Hant': '中文(繁體)',
 }

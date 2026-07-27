@@ -8,7 +8,7 @@ import type { AppMode, ExtractedSelection, Word } from '@shared/types'
 // `import type` 은 컴파일 타임에 완전히 제거되므로 런타임 로드가 없다.
 import type * as Win32Capture from './selection/win32Capture'
 
-// 3종 윈도우 팩토리 (PLAN.md §5)
+// 3종 윈도우 팩토리 (PLAN.md §6)
 //  - 메인: 창 선택 / 설정 진입
 //  - 오버레이: 투명·클릭스루, 단어 하이라이트/커서 피드백 (담당 A)
 //  - 팝업: 발음·사전·통합질문·구글탭 (담당 B)
@@ -21,11 +21,12 @@ export function resolveIconPath(): string {
   return join(__dirname, '../../build/icon.png')
 }
 
-function loadRoute(win: BrowserWindow, route: string) {
+function loadRoute(win: BrowserWindow, route: string, query?: string) {
+  const hash = query ? `${route}?${query}` : route
   if (process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/${route}`)
+    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/${hash}`)
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'), { hash: `/${route}` })
+    win.loadFile(join(__dirname, '../renderer/index.html'), { hash: `/${hash}` })
   }
 }
 
@@ -499,13 +500,16 @@ export function sendOverlayNotice(text: string): void {
 let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
 
-const POPUP_WIDTH = 760
+const POPUP_WIDTH = 900
 const POPUP_HEIGHT = 900
 // 화면이 작을 때 팝업이 화면을 넘어가지 않도록, 세로 길이는 활성 모니터 작업 영역
 // 높이에서 위아래 여백을 뺀 값을 상한으로 삼는다.
 const POPUP_HEIGHT_MARGIN = 40
 
-export function createPopupWindow(ctx: ExtractedSelection | null = null): BrowserWindow {
+export function createPopupWindow(
+  ctx: ExtractedSelection | null = null,
+  demo?: string,
+): BrowserWindow {
   popupContext = ctx
   if (popupWindow) {
     popupWindow.focus()
@@ -535,7 +539,7 @@ export function createPopupWindow(ctx: ExtractedSelection | null = null): Browse
     popupContext = null
   })
   popupWindow = win
-  loadRoute(win, 'popup')
+  loadRoute(win, 'popup', demo ? `demo=${demo}` : undefined)
   return win
 }
 

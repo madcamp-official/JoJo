@@ -38,11 +38,11 @@ export function WindowPickerScreen() {
   return (
     <div className="picker-screen">
       <div className="picker-header">
+        <button className="icon-btn back" onClick={() => goto('main')}>
+          ←
+        </button>
         <h2>창 선택</h2>
         {loading && <span className="hint">창 목록을 불러오는 중...</span>}
-        <button className="icon-btn close" onClick={() => goto('main')}>
-          ✕
-        </button>
       </div>
       {!loading && sources.length === 0 && <p className="hint">캡처 가능한 창이 없습니다.</p>}
       <div className="window-grid">
