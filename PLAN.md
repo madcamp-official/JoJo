@@ -71,12 +71,13 @@
 **단어 감지 & 시각 피드백**
 - 각 단어의 화면 좌표(bounding box)를 확보 → 커서 좌표가 어느 단어에 해당하는지 판정.
 - 선택 가능한 단어 위에 커서가 오면 커서 모양 변경. 브라우저(확장 있음)에서는 단어 주변에 사각형 하이라이트.
-- OCR로 뽑은 일본어·중국어는 Tesseract 자체 단어 경계 대신, 줄 단위로 다시 형태소 분석기(일: kuromoji/Lindera/Sudachi 중 `main/nlp/japanese.ts` `JA_ENGINE` 상수로 택1, 중: segmentit)를 돌려 의미 단위 단어로 재구성한다(`main/nlp/`). 각 단어 bbox는 가로(x)만 구성 글자(symbol)들의 bbox를 합쳐(union) 계산하고, 세로(y)는 기존과 동일하게 줄(line) 전체 bbox를 쓴다(같은 줄 단어들의 높이를 통일하기 위해서 — §4.1 다른 OCR 단어 높이 처리와 동일한 이유).
+- OCR로 뽑은 일본어·중국어는 Tesseract 자체 단어 경계 대신, 줄 단위로 다시 형태소 분석기(일: Lindera/Sudachi 중 `main/nlp/japanese.ts` `JA_ENGINE` 상수로 택1, 중: `main/nlp/chinese.ts` — zh-Hans는 jieba(`@node-rs/jieba`) 고정, zh-Hant는 `ZH_HANT_ENGINE` 상수로 Intl.Segmenter/chinese-tokenizer 중 스위치)를 돌려 의미 단위 단어로 재구성한다(`main/nlp/`). 각 단어 bbox는 가로(x)만 구성 글자(symbol)들의 bbox를 합쳐(union) 계산하고, 세로(y)는 기존과 동일하게 줄(line) 전체 bbox를 쓴다(같은 줄 단어들의 높이를 통일하기 위해서 — §4.1 다른 OCR 단어 높이 처리와 동일한 이유).
+  - **중국어 엔진 선택 근거(2026-07-28 실측)**: segmentit·jieba 계열(nodejieba/@node-rs/jieba/jieba-wasm/@isdk)·Intl.Segmenter·chinese-tokenizer·lindera 8종을 간체/번체 각각 12문장 코퍼스로 F1 채점. zh-Hans는 `@node-rs/jieba`가 전 문장 만점(번체는 F1 .84 수준으로 부적합, zh-Hant엔 안 씀). zh-Hant는 완전한 승자가 없어(Intl.Segmenter=흔한 복합명사·성어 과다분절 및 인명 인식 약함, chinese-tokenizer=가든패스 중의성·영단어 오분할, lindera=바이트 오프셋·공백 삼킴·어미 오합류) 스위치로 남김 — 기본값은 chinese-tokenizer(오프셋이 이 앱과 같은 문자 단위라 통합 비용이 가장 낮음, CC-CEDICT는 사전 조회 기능과 공유해 용량 증가 없음). 원본 비교 스크립트·전체 실측 데이터는 실험 완료 후 폐기됨.
 
 **팝업 내 범위 지정 (최소 단위)**
 - 영어: 단어(공백 구분) 단위.
-- 중국어(한자): 문자 단위 세밀 선택 — 원하는 한 글자만 골라 선택 가능.
-- 일본어: 형태소 분석 결과(엔진은 `main/nlp/japanese.ts` `JA_ENGINE` 상수로 kuromoji/Lindera/Sudachi 중 스위치, 사용자 UI 없음)를 문절 단위 병합해 atom으로 쓴다(`JA_ATOM_STRATEGY='wordMerge'`, `popup/selection.ts`) — 동사·형용사 어간 뒤 조동사와 て/で 활용어미(예: "向かう"→"向かって")만 흡수하고, 그 뒤에 이어지는 補助動詞(ている 의 いる 등)·접미동사(過ぎる/出す 등)·명사 자동 병합은 하지 않는다 — 전부 그 자체로 독립된 사전 표제어라 따로 선택해 조회할 수 있어야 한다는 판단(실사용 피드백 반영, 예: "食べている" → 食べて / いる). 원래 계획이던 한자 글자 단위 선택(`JA_ATOM_STRATEGY='charLevel'`)은 코드에 남겨뒀고 상수만 바꾸면 되돌릴 수 있다. 형태소 분석 결과가 도착하기 전 짧은 순간만 Intl.Segmenter 기반 근사치로 대체.
+- 중국어: OCR 단어 클릭과 동일한 분석 결과(`main/nlp/chinese.ts`)를 그대로 atom으로 써서 단어 단위로 선택된다(`popup/selection.ts`) — 원래 계획이던 한자 글자 단위 선택은 실사용 확인 결과 아쉬워서 단어 단위로 전환.
+- 일본어: 형태소 분석 결과(엔진은 `main/nlp/japanese.ts` `JA_ENGINE` 상수로 Lindera/Sudachi 중 스위치, 사용자 UI 없음)를 문절 단위 병합해 atom으로 쓴다(`JA_ATOM_STRATEGY='wordMerge'`, `popup/selection.ts`) — 동사·형용사 어간 뒤 조동사와 て/で 활용어미(예: "向かう"→"向かって")만 흡수하고, 그 뒤에 이어지는 補助動詞(ている 의 いる 등)·접미동사(過ぎる/出す 등)·명사 자동 병합은 하지 않는다 — 전부 그 자체로 독립된 사전 표제어라 따로 선택해 조회할 수 있어야 한다는 판단(실사용 피드백 반영, 예: "食べている" → 食べて / いる). 원래 계획이던 한자 글자 단위 선택(`JA_ATOM_STRATEGY='charLevel'`)은 코드에 남겨뒀고 상수만 바꾸면 되돌릴 수 있다. 형태소 분석 결과가 도착하기 전 짧은 순간만 Intl.Segmenter 기반 근사치로 대체.
 - 클릭=단어 선택, 드래그=범위 선택 구분 → 클릭 이벤트를 mouseup에서 처리하여 드래그와 분리(세부 구현 미정, 프로토타이핑으로 확정).
 
 **동작 구조(파이프라인)**
@@ -157,7 +158,7 @@
 
 - **앱**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + TypeScript + React(렌더러 UI).
 - **캡처/오버레이**: 창 열거·캡처는 Windows 네이티브 win32(user32/gdi32/dwmapi, `koffi` FFI 바인딩)를 우선 사용(가려진/최소화된 창까지 캡처, `desktopCapturer`는 win32 네이티브 열거가 실패했을 때만 쓰는 최종 폴백). macOS는 창 "목록"엔 `desktopCapturer`(현재 가상 데스크탑/Space에 보이는 창만)를 그대로 쓴다 — 다른 Space의 창까지 열거하는 확장을 시도했으나(`CGWindowListCopyWindowInfo`를 `kCGWindowListExcludeDesktopElements`로 직접 호출) 목록이 지저분해지는 등 UX가 나빠져 원복했다(TODO.md 참고). 테두리 정렬·창 raise는 macOS도 CoreGraphics/AppKit을 `koffi`로 직접 바인딩(`main/selection/macWindow.ts`)해서 하고, 실제 화면 캡처엔 내장 `screencapture -l<windowID>`를 사용. koffi FFI는 Windows 전용이 아니라 두 플랫폼 모두에서 쓰인다. 투명·클릭스루 BrowserWindow, `globalShortcut`.
-- **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정. 중국어는 `chi_sim+chi_tra` 언어팩을 함께 로드해 간체/번체를 자동 판별. 일/중 단어 경계는 OCR 결과를 일본어(kuromoji/Lindera/Sudachi 중 택1)/중국어(segmentit)(`main/nlp/`)로 재분할해 의미 단위로 맞춘다.
+- **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정. 중국어는 `chi_sim+chi_tra` 언어팩을 함께 로드해 간체/번체를 자동 판별. 일/중 단어 경계는 OCR 결과를 일본어(Lindera/Sudachi 중 택1)/중국어(zh-Hans는 jieba 고정, zh-Hant는 Intl.Segmenter/chinese-tokenizer 중 택1)(`main/nlp/`)로 재분할해 의미 단위로 맞춘다.
 - **확장**: 브라우저 확장(Manifest V3) + native messaging.
 - **API**: LLM 3종 어댑터(GPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
 - **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
@@ -313,7 +314,7 @@ JoJo/
 │   │   ├── providers.ts         #   LLM provider 목록·표시명
 │   │   ├── questionText.ts      #   발음/사전 버튼의 고정 질문 라벨
 │   │   ├── wordMapping.ts       #   커서 좌표 ↔ 단어 bbox 매핑(findWordAtPoint)
-│   │   └── nlp/                 #   일본어 형태소 병합 로직(main/renderer 양쪽에서 씀) — ja.ts(IPADIC, kuromoji/lindera 用) / ja-unidic.ts(UniDic, sudachi 用) 완전 분리(엔진 하나 걷어낼 때 해당 파일만 지우면 되게)
+│   │   └── nlp/                 #   일본어 형태소 병합 로직(main/renderer 양쪽에서 씀) — ja.ts(IPADIC, lindera 用) / ja-unidic.ts(UniDic, sudachi 用) 완전 분리(엔진 하나 걷어낼 때 해당 파일만 지우면 되게)
 │   ├── main/                    # Electron 메인 프로세스
 │   │   ├── index.ts             #   진입점(윈도우·IPC·단축키 등록, 일본어 형태소 분석 엔진 예열)
 │   │   ├── windows.ts           #   메인(라우트 전환)/오버레이/팝업 윈도우 팩토리
@@ -339,10 +340,10 @@ JoJo/
 │   │   │   ├── langDetect.ts    #   언어 자동 감지 — 현재 스텁(항상 'en' 반환)
 │   │   │   └── accessibility.ts #   접근성 API(AX/UIA) 브릿지 — 미구현(not implemented)
 │   │   ├── nlp/                 # 🤝 공동 소유 — 언어별 형태소 분석(OCR 단어 분리 + 팝업 atom 병합 공용)
-│   │   │   ├── japanese.ts      #   일본어 엔진 디스패처 — JA_ENGINE 상수로 kuromoji/lindera/sudachi-b/sudachi-c 전환, tokenizeJapanese/segmentJapaneseWords 외부 계약은 엔진 무관 고정
-│   │   │   ├── engines/         #   엔진별 구현 — kuromoji.ts(IPADIC) / lindera.ts(WASM, IPADIC, 유지보수 활발) / sudachi.ts(python/sudachi_tokenize.py 상주 서버 호출, UniDic)
-│   │   │   ├── chinese.ts       #   segmentit(jieba 스타일) 래퍼 — segmentChineseWords
-│   │   │   └── segmentit.d.ts   #   segmentit 최소 타입 선언(공식 타입 없음)
+│   │   │   ├── japanese.ts      #   일본어 엔진 디스패처 — JA_ENGINE 상수로 lindera/sudachi-b/sudachi-c 전환, tokenizeJapanese/segmentJapaneseWords 외부 계약은 엔진 무관 고정
+│   │   │   ├── engines/         #   엔진별 구현 — ja: lindera.ts(WASM, IPADIC) / sudachi.ts(python 상주 서버, UniDic) · zh: jieba.ts(@node-rs/jieba, zh-Hans 고정) / intl-zh.ts(Intl.Segmenter) / chineseTokenizer.ts(CC-CEDICT 그리디)
+│   │   │   ├── chinese.ts       #   중국어 엔진 디스패처 — zh-Hans는 jieba 고정, zh-Hant는 ZH_HANT_ENGINE 상수로 전환
+│   │   │   └── chinese-tokenizer.d.ts # chinese-tokenizer 최소 타입 선언(공식 타입 없음)
 │   │   └── question/           # 🅱️ 질문/AI (담당 B)
 │   │       ├── index.ts         #   질문 라우터(발음/사전/통합질문)
 │   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음) — 구현 완료
