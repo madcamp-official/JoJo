@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Rect, Word } from '@shared/types'
 import { detectLinesWithPaddle } from './ocrPaddle'
-import { createPythonServerPool, TINY_PNG } from './pythonServer'
+import { createPythonServerPool, defaultPoolSize, TINY_PNG } from './pythonServer'
 
 // 담당 A — 실험용 브랜치(experiment/doclayout-yolo). manga-ocr(python/ocr_manga.py)
 // 로 세로쓰기 일본어(망가 등)를 인식한다. 일반 PaddleOCR 로 가로쓰기 문서를 인식하는
@@ -24,8 +24,9 @@ import { createPythonServerPool, TINY_PNG } from './pythonServer'
 // 워커를 여러 개 띄운다 — 세로쓰기 열 하나에 줄이 10~15개면 manga-ocr 을 그만큼
 // 순차 호출해야 했는데(실사용 중 "세로쓰기 페이지 인식이 오래 걸림"으로 확인, 열이
 // 여러 개면 더 심해짐), 여러 워커에 나눠 동시에 처리하게 한다(아래 recognizeVerticalColumn
-// 의 Promise.all 참고). ocrPaddle.ts 와 같은 개수로 맞춤(POOL_SIZE 주석 참고).
-const POOL_SIZE = 3
+// 의 Promise.all 참고). ocrPaddle.ts 와 같은 방식(defaultPoolSize, 실행 중인 기기의
+// 코어 수 기반)으로 맞춘다.
+const POOL_SIZE = defaultPoolSize()
 const server = createPythonServerPool('ocr_manga.py', POOL_SIZE)
 
 async function writeCrop(image: Buffer, bbox: Rect): Promise<string> {

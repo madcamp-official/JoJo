@@ -3,7 +3,9 @@ import { writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Language, Rect, Word } from '@shared/types'
-import { createPythonServerPool, TINY_PNG } from './pythonServer'
+import { segmentChineseWords } from '../nlp/chinese'
+import { segmentJapaneseWords } from '../nlp/japanese'
+import { createPythonServerPool, defaultPoolSize, TINY_PNG } from './pythonServer'
 
 // 담당 A — 실험용 브랜치(experiment/doclayout-yolo). PaddleOCR(python/ocr_paddle.py)
 // 로 en/zh/ja(가로쓰기) 텍스트를 검출+인식한다 — 일본어 스캔 파일에서 Tesseract
@@ -11,15 +13,16 @@ import { createPythonServerPool, TINY_PNG } from './pythonServer'
 // 가 PaddleOCR 엔 없어서, 여기서 직접 크롭한 이미지를 Python 에 넘긴다 — 그래서
 // 응답 bbox 는 크롭 기준 상대좌표이고, cropBbox 원점을 더해 절대좌표로 되돌린다.
 //
-// 워커를 여러 개 띄운다(POOL_SIZE) — 다단 레이아웃은 열마다(세로쓰기는 줄마다) 따로
-// 인식을 돌려야 해서(ocr.ts) 워커가 적으면 여러 줄/열이 몇 라운드씩 나눠서 순서대로
-// 기다린다(실사용 중 "세로쓰기 페이지 인식이 오래 걸림"으로 확인). 3 → 6 으로 늘림
-// (실측: 세로쓰기 한 페이지에 실제 줄이 14~15개 나오는 경우가 흔해서, 워커 3개면
-// 5라운드, 6개면 3라운드로 줄어듦 — 라운드 수가 곧 병렬 인식 단계의 전체 소요 시간에
-// 비례). 워커마다 모델을 독립적으로 메모리에 올려서(공유 안 됨) 메모리 사용량이 그만큼
-// 늘어나는 트레이드오프가 있다(실측: 워커 하나당 ~700~770MB — 3→6개면 이 스크립트만
-// 추가로 ~2GB 더 씀).
-const POOL_SIZE = 6
+// 워커를 여러 개 띄운다 — 다단 레이아웃은 열마다(세로쓰기는 줄마다) 따로 인식을
+// 돌려야 해서(ocr.ts) 워커가 적으면 여러 줄/열이 몇 라운드씩 나눠서 순서대로 기다린다
+// (실사용 중 "세로쓰기 페이지 인식이 오래 걸림"으로 확인). 예전엔 3 → 6으로 고정값을
+// 올려서 튜닝했는데(세로쓰기 한 페이지 줄이 14~15개인 경우가 흔해서, 3개면 5라운드,
+// 6개면 3라운드로 줄어듦), 그 6이라는 숫자는 이 개발 컴퓨터(물리 4코어)에 맞춘 값이라
+// 다른 사용자 환경(코어 수가 다름)엔 안 맞을 수 있다 — `defaultPoolSize()`(pythonServer.ts)
+// 로 실행 중인 기기의 실제 코어 수에 맞게 동적으로 정한다. 워커마다 모델을 독립적으로
+// 메모리에 올려서(공유 안 됨) 메모리 사용량이 그만큼 늘어나는 트레이드오프가 있다
+// (실측: 워커 하나당 ~700~800MB).
+const POOL_SIZE = defaultPoolSize()
 const server = createPythonServerPool('ocr_paddle.py', POOL_SIZE)
 
 interface RawWord {
@@ -258,12 +261,146 @@ function padLine(line: Rect): Rect {
   }
 }
 
+function median(nums: number[]): number {
+  const sorted = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2
+}
+
+// PaddleOCR 의 `text_word`는 대체로 글자 하나 단위지만 항상 그렇지는 않다 — 실측 확인:
+// 히라가나가 연속되는 구간에서 "まさか、こんな"(7글자)처럼 여러 글자가 원시 단위 하나로
+// 뭉쳐서 오고, 그 bbox 는 그 7글자 전체를 감싸는 사각형 하나뿐이다(개별 글자 위치 정보가
+// 없음). 이 경우 세로쓰기 줄 안에서 위→아래로 읽히므로 "높이"를 나눠 각 글자의 근사
+// 위치를 만들어야 하는데, 글자 수로 그냥 균등 분할하면(마진 높이/글자수) 실측 확인 결과
+// 여전히 박스가 실제 글자와 눈에 띄게 어긋났다 — 실제로는 한자(약 20~25px)와 조사/작은
+// 가나(그보다 훨씬 얇게 검출되는 경우가 흔함, 예: が/を/で 가 3~4px로 검출된 사례 다수)의
+// 실측 높이가 균일하지 않아서, 그냥 나눈 값은 어느 글자에도 잘 안 맞는 절충값이 된다.
+// 대신 실측으로 얻은(다른 곳에서 글자 하나 단위로 잘 떼어진 원시 단위들의 실측 높이
+// 중앙값 — typicalHeight) "전형적인 글자 높이"를 가운데 글자들에 그대로 적용한다.
+//
+// 남은 오차(전형값 합계와 실제 합쳐진 bbox 높이의 차이)를 처음엔 마지막 글자 하나에
+// 전부 몰아줬는데, 실측 확인 결과 그러면 마지막 글자만 유독 심하게 어긋나 보였다(실사용
+// 중 "밑테두리가 마지막 글자 중간에 있음"으로 확인, 반대로 첫 글자는 멀쩡해 보임 —
+// 오차가 한쪽에만 쏠리니 그쪽만 도드라짐). 그래서 오차를 첫 글자와 마지막 글자 양쪽에
+// 절반씩 나눠 흡수시킨다 — 가운데 글자들은 그대로 전형값을 쓰고, 양 끝만 조금씩(전체
+// 오차의 절반씩만) 어긋나서 어느 한쪽만 크게 튀는 일이 줄어든다. 글자가 2개뿐이면
+// "가운데"가 없어 양쪽이 곧 전체이므로 자연히 균등 분할과 같아진다.
+//
+// 전형값을 가운데 글자들에 다 채우면 합쳐진 bbox 범위를 넘어버리는 경우(단독 글자
+// 참고 표본이 없어 전형값을 못 구했거나, 전형값이 이 구간엔 안 맞는 경우)엔 기존처럼
+// 균등 분할로 안전하게 되돌아간다.
+function splitCharBbox(bbox: Rect, charCount: number, typicalHeight: number | null): Rect[] {
+  if (charCount <= 1) return [bbox]
+  const middleCount = charCount - 2
+  const fitsTypical = typicalHeight && typicalHeight * middleCount < bbox.height
+  let heights: number[]
+  if (fitsTypical) {
+    const edgeHeight = (bbox.height - typicalHeight! * middleCount) / 2
+    heights = [edgeHeight, ...Array(middleCount).fill(typicalHeight), edgeHeight]
+  } else {
+    heights = Array(charCount).fill(bbox.height / charCount)
+  }
+  const boxes: Rect[] = []
+  let y = bbox.y
+  for (const h of heights) {
+    boxes.push({ x: bbox.x, y, width: bbox.width, height: h })
+    y += h
+  }
+  return boxes
+}
+
+/**
+ * ocr.ts 의 Tesseract CJK 경로(buildCjkLineWords)는 이미 형태소 분석기(kuromoji/segmentit)
+ * 로 의미 단위 재조합을 하는데, 이 Paddle 경로엔 그 단계가 없어서 최종 Word[] 가 전부
+ * 글자(또는 위 splitCharBbox 이전 기준 원시 단위) 단위로 나가고 있었다(팝업 하이라이트/
+ * 클릭 단위가 "단어"가 아니라 "글자"가 되는 문제). 같은 분석기를 재사용해 줄 하나(=붙어
+ * 있는 글자 시퀀스) 안에서 의미 단위 경계를 다시 잡는다.
+ *
+ * splitCharBbox 로 먼저 모든 원시 단위를 글자 1개=배열 원소 1개로 완전히 풀어두면(아래
+ * flatChars) 문자열 오프셋(segmentJapaneseWords/segmentChineseWords 의 [start,end))과
+ * 배열 인덱스가 항상 1:1이라 그대로 슬라이스할 수 있다 — 이걸 안 하고 원시 단위 배열에
+ * 바로 슬라이스하면(예전 버전) 원시 단위 하나가 글자 2개 이상을 담은 경우부터 배열
+ * 인덱스가 문자열 오프셋보다 앞서가서 그 뒤로 모든 그룹의 경계가 밀리고, 그 원시 단위의
+ * "합쳐진 큰 bbox"를 여러 단어가 그대로 나눠 갖게 돼 서로 겹치는 박스가 생겼다(실사용 중
+ * "클릭한 단어와 팝업에서 선택된 단어가 다름", "박스 테두리가 글자 가운데 있음"으로 확인
+ * — 겹치는 박스끼리 findWordAtPoint 의 최소 면적 우선 규칙이 클릭 위치와 무관하게 뒤섞여
+ * 골랐던 것).
+ *
+ * segmentJapaneseWords/segmentChineseWords 는 문장부호만 있는 조각을 걸러내고 반환하는데,
+ * 그 걸러진 문자를 그냥 버리면 팝업 본문 텍스트에서 문장부호가 통째로 사라진다(실사용
+ * 확인). 그래서 boundaries 가 비운 구간(gap)의 글자는 원래 단위(글자 1개) 그대로 결과에
+ * 끼워 넣어 원문을 그대로 보존한다 — 다만 bbox 는 없앤다: 문장부호는 클릭 가능한
+ * "단어"가 아닌데 bbox 를 그대로 두면 오버레이에 박스가 뜨고 클릭도 돼버린다(실사용 중
+ * "쉼표에 박스가 생기고, 누르면 그 위 단어가 선택됨"으로 확인 — findWordAtPoint 가
+ * bbox 있는 항목만 클릭 대상으로 보므로 bbox 를 없애면 자동으로 클릭 대상에서 빠진다).
+ *
+ * typicalHeight(전형적 글자 높이)는 이 줄만 봐서 계산하지 않고 호출부(recognizeOrderedLines)
+ * 가 같은 컬럼 세트 전체의 실측 단일 글자 높이로 미리 계산해 넘겨준다 — 줄이 짧으면
+ * (특히 "だが" 처럼 글자 2~3개짜리) 참고할 단독 글자 표본이 거의 없어 중앙값이 불안정해질
+ * 수 있어서, 표본이 많은 전체 컬럼 세트 기준이 더 안정적이다(실사용 중 "한 글자짜리
+ * 단어인데 박스가 글자를 다 못 덮음"으로 확인된 사례들이 대부분 이런 표본 부족 케이스).
+ */
+async function groupCjkChars(
+  chars: Word[],
+  language: 'ja' | 'zh-Hans' | 'zh-Hant',
+  typicalHeight: number | null,
+): Promise<Word[]> {
+  if (chars.length === 0) return []
+  const text = chars.map((c) => c.text).join('')
+  const boundaries = [...(language === 'ja' ? await segmentJapaneseWords(text) : segmentChineseWords(text))].sort(
+    (a, b) => a.start - b.start,
+  )
+  const flatChars: Word[] = chars.flatMap((c) => {
+    const codepoints = [...c.text]
+    if (!c.bbox || codepoints.length <= 1) return codepoints.map((ch) => ({ text: ch, bbox: c.bbox }))
+    const boxes = splitCharBbox(c.bbox, codepoints.length, typicalHeight)
+    return codepoints.map((ch, i) => ({ text: ch, bbox: boxes[i] }))
+  })
+
+  const words: Word[] = []
+  let pos = 0
+  const pushGapChars = (end: number) => {
+    for (; pos < end; pos++) {
+      const c = flatChars[pos]
+      if (c) words.push({ text: c.text })
+    }
+  }
+  for (const b of boundaries) {
+    pushGapChars(b.start)
+    const group = flatChars.slice(b.start, b.end).filter((c) => c.bbox)
+    if (group.length > 0) {
+      const x0 = Math.min(...group.map((c) => c.bbox!.x))
+      const y0 = Math.min(...group.map((c) => c.bbox!.y))
+      const x1 = Math.max(...group.map((c) => c.bbox!.x + c.bbox!.width))
+      const y1 = Math.max(...group.map((c) => c.bbox!.y + c.bbox!.height))
+      words.push({ text: b.text, bbox: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } })
+    }
+    pos = b.end
+  }
+  pushGapChars(flatChars.length)
+  return words
+}
+
 /** 줄 목록을 정해진 순서 그대로 병렬 인식해 이어붙인다 — 실패한 줄이 하나라도 있으면
- * 전체를 null 로 반환해 호출부가 Tesseract 로 통째 폴백하게 한다. */
+ * 전체를 null 로 반환해 호출부가 Tesseract 로 통째 폴백하게 한다. zh/ja 는 줄 하나
+ * 단위로 groupCjkChars 를 거쳐 글자 단위 결과를 의미 단위 단어로 재조합한다(위 주석
+ * 참고) — 이 함수의 호출부(recognizeVerticalColumnWithPaddle/recognizeLinesWithPaddle)
+ * 는 전부 zh/ja 전용이라 language 는 항상 이 셋 중 하나다. */
 async function recognizeOrderedLines(image: Buffer, language: Language, orderedLines: Rect[]): Promise<Word[] | null> {
   const perLine = await Promise.all(orderedLines.map((line) => recognizeWithPaddle(image, language, padLine(line))))
   if (perLine.some((words) => !words)) return null
-  return perLine.flatMap((words) => words!)
+  if (language !== 'ja' && language !== 'zh-Hans' && language !== 'zh-Hant') {
+    return perLine.flatMap((words) => words!)
+  }
+  // typicalHeight(전형적 글자 높이)는 이 컬럼 세트의 모든 줄에 걸쳐 실측으로 단일 글자
+  // 단위로 잘 떼어진 원시 단위들의 높이 중앙값이다 — groupCjkChars 주석 참고(줄 하나만
+  // 보면 표본이 부족할 수 있어 전체 세트 기준으로 계산).
+  const allSingleCharHeights = perLine.flatMap((words) =>
+    words!.filter((w) => w.bbox && [...w.text].length === 1).map((w) => w.bbox!.height),
+  )
+  const typicalHeight = allSingleCharHeights.length > 0 ? median(allSingleCharHeights) : null
+  const grouped = await Promise.all(perLine.map((words) => groupCjkChars(words!, language, typicalHeight)))
+  return grouped.flat()
 }
 
 /**
