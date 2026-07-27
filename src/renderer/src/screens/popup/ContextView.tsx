@@ -36,6 +36,12 @@ function toSegments(model: PopupSelectionModel): Segment[] {
 // 각 atom 의 bounding rect 까지의 최단 거리(rect 안이면 0)를 계산해 가장 가까운 것을
 // 고른다 — 커서가 박스 밖 어디에 있든(위/아래/옆) 항상 정의되는 값이라 별도의 예외
 // 처리(위로 나가면 첫 atom, 등) 없이 자연스럽게 동작한다.
+//
+// 다만 이 거리 기반 방식은 "글의 흐름(읽는 순서)"을 전혀 모른다 — 마지막 줄 아래(더 이상
+// 글자가 없는 빈 공간)로 드래그하면, 다음 문장이 없으니 "가장 가까운" atom이 오히려 같은
+// 줄의 앞쪽(이미 지나온) 단어로 잡히는 경우가 실측으로 확인됐다(예: 마지막 줄 오른쪽 끝
+// 단어에서 시작해 곧장 아래로 드래그하면 그 자리에서 못 벗어나거나 뒤로 튐). atomIndexAtPoint
+// 가 이 함수보다 항상 먼저 시도되고, 이 함수는 그게 실패했을 때만 쓰는 fallback 이다.
 function nearestAtomIndex(atomEls: Map<number, HTMLSpanElement>, x: number, y: number): number | null {
   let best: number | null = null
   let bestDist = Infinity
@@ -50,6 +56,44 @@ function nearestAtomIndex(atomEls: Map<number, HTMLSpanElement>, x: number, y: n
     }
   }
   return best
+}
+
+/** gapEl(공백·문장부호 span) 기준으로 가장 가까운 atom(다음 우선, 없으면 이전)을 찾는다. */
+function adjacentAtomIndex(gapEl: Element): number | null {
+  for (let sib = gapEl.nextElementSibling; sib; sib = sib.nextElementSibling) {
+    const attr = sib.getAttribute('data-atom-index')
+    if (attr != null) return Number(attr)
+  }
+  for (let sib = gapEl.previousElementSibling; sib; sib = sib.previousElementSibling) {
+    const attr = sib.getAttribute('data-atom-index')
+    if (attr != null) return Number(attr)
+  }
+  return null
+}
+
+/**
+ * 점(x, y)에 해당하는 atom 을 "글의 흐름" 기준으로 찾는다 — Chromium 의
+ * document.caretRangeFromPoint 는 화면 좌표를 실제 텍스트 상의 가장 가까운 문자 위치로
+ * 변환해준다(줄바꿈·문단 끝을 이미 인지함: 마지막 줄 아래를 가리키면 그 줄의 끝으로,
+ * 줄 사이 여백을 가리키면 그 줄의 알맞은 위치로 자연스럽게 clamp됨) — 그래서 nearestAtomIndex
+ * 의 "거리만 보고 뒤로 튀는" 문제가 없다. 이 API 가 없거나 실패하면(이론상 대비) 기존
+ * 거리 기반 로직으로 폴백한다.
+ */
+function atomIndexAtPoint(atomEls: Map<number, HTMLSpanElement>, x: number, y: number): number | null {
+  if (typeof document.caretRangeFromPoint === 'function') {
+    const range = document.caretRangeFromPoint(x, y)
+    let el: Element | null =
+      range?.startContainer.nodeType === Node.TEXT_NODE
+        ? range.startContainer.parentElement
+        : (range?.startContainer as Element | null)
+    while (el) {
+      if (el.classList?.contains('gap')) return adjacentAtomIndex(el)
+      const attr = el.getAttribute?.('data-atom-index')
+      if (attr != null) return Number(attr)
+      el = el.parentElement
+    }
+  }
+  return nearestAtomIndex(atomEls, x, y)
 }
 
 export function ContextView({ model, from, to, onChange }: Props) {
@@ -78,7 +122,7 @@ export function ContextView({ model, from, to, onChange }: Props) {
   useEffect(() => {
     if (!dragging) return
     const move = (e: MouseEvent) => {
-      const idx = nearestAtomIndex(atomElsRef.current, e.clientX, e.clientY)
+      const idx = atomIndexAtPoint(atomElsRef.current, e.clientX, e.clientY)
       if (idx != null) onChangeRef.current(anchorRef.current, idx)
     }
     window.addEventListener('mousemove', move)
@@ -117,7 +161,7 @@ export function ContextView({ model, from, to, onChange }: Props) {
         // 올라옴), e.target !== e.currentTarget 로 걸러 중복 처리를 막는다.
         if (e.button === 2 || e.target !== e.currentTarget) return
         e.preventDefault()
-        const idx = nearestAtomIndex(atomElsRef.current, e.clientX, e.clientY)
+        const idx = atomIndexAtPoint(atomElsRef.current, e.clientX, e.clientY)
         if (idx == null) return
         anchorRef.current = idx
         setDragging(true)
@@ -163,6 +207,7 @@ export function ContextView({ model, from, to, onChange }: Props) {
               if (el) atomElsRef.current.set(idx, el)
               else atomElsRef.current.delete(idx)
             }}
+            data-atom-index={idx}
             className={selected ? 'atom sel' : 'atom'}
             onMouseDown={(e) => {
               if (e.button === 2) {
