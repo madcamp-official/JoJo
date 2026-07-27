@@ -3,6 +3,7 @@ import type { Rect } from '@shared/types'
 import { getPhysicalToDipScale } from '../windows'
 import { captureFocusedWindow, getSelectedWindowId } from './capture'
 import { detectLayoutBlocks, padRect } from './layoutDetect'
+import { detectLinesWithPaddle } from './ocrPaddle'
 
 // 본문 블록들을 감싼 사각형에 더하는 여유(px) — 딱 맞게 감싸면 맨 끝 줄/글자가 이
 // 사각형 경계에 걸려서 이후 Tesseract 인식(rectangle 크롭) 때 잘릴 수 있다
@@ -65,6 +66,18 @@ export async function submitRegionFromOverlay(dipRect: Rect): Promise<void> {
 // 별도 라벨로 나오므로 자연히 제외된다(python/layout_detect.py 참고).
 const BODY_LABELS = new Set(['title', 'plain text'])
 
+// 확실히 텍스트가 아닌 라벨 — title/plain text 가 하나도 없을 때의 폴백(아래
+// FALLBACK_LABELS 주석 참고)에서도 이것들만은 계속 제외한다.
+const NON_TEXT_LABELS = new Set([
+  'figure',
+  'figure_caption',
+  'table',
+  'table_caption',
+  'table_footnote',
+  'isolate_formula',
+  'formula_caption',
+])
+
 /**
  * 담당 A — 실험용 브랜치(experiment/doclayout-yolo). 드래그 없이 DocLayout-YOLO 로 창
  * 전체를 훑어 본문(제목+일반 텍스트) 블록을 찾고, 그 블록들을 모두 감싸는 사각형을
@@ -83,10 +96,55 @@ export async function autoDetectRegion(): Promise<Rect | null> {
     return null
   }
 
-  const blocks = await detectLayoutBlocks(image)
-  if (!blocks) return null
-  const body = blocks.filter((b) => BODY_LABELS.has(b.label))
-  if (body.length === 0) return null
+  const detected = await detectLayoutBlocks(image)
+  if (!detected) return null
+  let body = detected.blocks.filter((b) => BODY_LABELS.has(b.label))
+  // 검증용 로그 — 본문 자동 감지가 실패했을 때 "블록을 아예 못 찾음"인지 "블록은
+  // 찾았는데 본문 라벨이 아니라서 걸러짐"인지 원인을 바로 구분할 수 있게 라벨/신뢰도를
+  // 전부 남긴다(실사용 중 "세로쓰기 PDF에서 자동 감지 실패"로 확인 — 이 로그로 원인 추적).
+  console.log(
+    '[regionSelection] 검출된 블록:',
+    detected.blocks.map((b) => `${b.label}(${b.confidence.toFixed(2)})`).join(', ') || '(없음)',
+    `→ 본문으로 인정된 것: ${body.length}개`,
+  )
+  if (body.length === 0) {
+    // title/plain text 로 잡힌 게 하나도 없으면 — 실사용 중 세로쓰기 일본어 PDF에서
+    // 확인된 것처럼, DocStructBench 가 학습 안 해본 레이아웃(세로쓰기 등)을 "abandon"
+    // 으로 잘못 분류하는 경우가 있다. 완전히 포기하고 수동 드래그로 넘기기 전에,
+    // 그림/표/수식처럼 "확실히 텍스트가 아닌" 것만 뺀 나머지를 본문 후보로 한 번 더
+    // 시도한다 — 정상 문서에서 메뉴바(abandon)만 있고 본문이 캡처 밖이라 진짜로 본문이
+    // 없는 경우엔 그 abandon 블록이 메뉴바 위치라서 영역이 이상해질 수 있지만, 그런
+    // 드문 오탐보다 "세로쓰기 콘텐츠에서 항상 드래그로 폴백"되는 쪽이 더 아쉬워서
+    // 이 폴백을 우선한다.
+    const fallback = detected.blocks.filter((b) => !NON_TEXT_LABELS.has(b.label))
+    console.log(`[regionSelection] 폴백 1단계 — 비텍스트 라벨 제외한 나머지: ${fallback.length}개`)
+    body = fallback
+  }
+
+  const { width: imageWidth, height: imageHeight } = nativeImage.createFromBuffer(image).getSize()
+  const fullImage: Rect = { x: 0, y: 0, width: imageWidth, height: imageHeight }
+
+  if (body.length === 0) {
+    // 2단계 폴백: DocLayout 이 아예 블록을 하나도 못 찾은 경우(실사용 중 세로쓰기
+    // 일본어 PDF에서 blocks=0 으로 확인) — DocLayout 은 "이게 제목/본문/표 중 뭔지"
+    // 판단하는 레이아웃 분류 모델이라 학습 안 해본 배치엔 아예 실패할 수 있다. 대신
+    // PaddleOCR 의 텍스트 검출(det) 모델은 문서 구조를 몰라도 되고 "여기 글자 모양의
+    // 잉크가 있다"만 보는 훨씬 범용적인 모델이라(스크립트에 덜 민감) 이걸로 창 전체를
+    // 훑어 텍스트 줄 위치를 직접 찾는다(ocr.ts 가 세로쓰기 열을 manga-ocr 로 넘길 때
+    // 줄 위치를 찾는 데 쓰는 것과 같은 함수). 언어를 아직 모르는 시점이라(본문 영역이
+    // 정해진 뒤에 언어를 감지하는 순서라서) 'en' det 모델로 시도한다 — PaddleOCR 검출
+    // 모델은 recognition 모델과 달리 스크립트 특정적이지 않아 이 정도로도 충분하다.
+    const lines = await detectLinesWithPaddle(image, fullImage)
+    console.log(`[regionSelection] 폴백 2단계 — PaddleOCR 텍스트 줄 검출: ${lines?.length ?? 'null(실패)'}개`)
+    if (lines && lines.length > 0) {
+      const x0 = Math.min(...lines.map((l) => l.x))
+      const y0 = Math.min(...lines.map((l) => l.y))
+      const x1 = Math.max(...lines.map((l) => l.x + l.width))
+      const y1 = Math.max(...lines.map((l) => l.y + l.height))
+      return padRect({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, AUTO_REGION_PADDING_X, AUTO_REGION_PADDING_Y, fullImage)
+    }
+    return null
+  }
 
   const x0 = Math.min(...body.map((b) => b.bbox.x))
   const y0 = Math.min(...body.map((b) => b.bbox.y))
@@ -94,11 +152,5 @@ export async function autoDetectRegion(): Promise<Rect | null> {
   const y1 = Math.max(...body.map((b) => b.bbox.y + b.bbox.height))
   const union: Rect = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
 
-  const { width: imageWidth, height: imageHeight } = nativeImage.createFromBuffer(image).getSize()
-  return padRect(union, AUTO_REGION_PADDING_X, AUTO_REGION_PADDING_Y, {
-    x: 0,
-    y: 0,
-    width: imageWidth,
-    height: imageHeight,
-  })
+  return padRect(union, AUTO_REGION_PADDING_X, AUTO_REGION_PADDING_Y, fullImage)
 }

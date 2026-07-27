@@ -2,7 +2,8 @@ import { nativeImage } from 'electron'
 import { createWorker, type Worker } from 'tesseract.js'
 import type { Language, Rect, Word } from '@shared/types'
 import type { Extracted } from './extractDirect'
-import { detectLayoutBlocks, mergeIntoColumns, padRect } from './layoutDetect'
+import { detectLayoutBlocks, type LayoutBlock, mergeIntoColumns, padRect } from './layoutDetect'
+import { detectLinesWithPaddle, isVerticalByLineShape, recognizeVerticalColumnWithPaddle, recognizeWithPaddle } from './ocrPaddle'
 
 // YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
 // 실측 결과 가로는 줄 끝 단어가 통째로 깨지지 않으려면 50px은 필요했고(10~30px 는
@@ -44,10 +45,55 @@ async function getWorker(language: Language): Promise<Worker> {
  * 미설치 등) 기존 단일 패스로 폴백한다.
  */
 export async function runOcr(image: Buffer, language: Language, region?: Rect): Promise<Extracted> {
-  const w = await getWorker(language)
-  const layoutBlocks = await detectLayoutBlocks(image, region)
-  const columns = layoutBlocks ? mergeIntoColumns(layoutBlocks) : null
+  const layoutStart = Date.now()
+  const detected = await detectLayoutBlocks(image, region)
+  console.log(
+    `[timing] layout detect: ${Date.now() - layoutStart}ms (blocks=${detected?.blocks.length ?? 'null'}, vertical=${detected?.vertical ?? 'n/a'})`,
+  )
+  const columns = detected ? mergeIntoColumns(detected.blocks) : null
 
+  // 중국어/일본어는 PaddleOCR을 먼저 시도한다(세로쓰기면 recognizeVerticalColumnWithPaddle,
+  // 가로쓰기면 recognizeWithPaddle) — 일본어 스캔 파일에서 Tesseract 인식률이 낮았던
+  // 문제(실사용 확인)로 도입. 실패하면(Python 환경 없음 등) null 이 와서 그대로 아래
+  // Tesseract 경로로 흘러간다.
+  if (language === 'zh' || language === 'ja') {
+    // DocLayout 이 블록을 하나도 못 찾으면(blocks=0) `vertical` 판정 자체가 근거가
+    // 없어 기본값 false 로 떨어지는데, 그러면 전체 영역이 통째로 "블록 1개" 취급돼
+    // 열/줄 분리 없이 페이지 전체를 PaddleOCR 한 번에 통으로 넘기게 된다(실측: 200자대
+    // 세로쓰기 페이지에서 38초) — 이러면 열/줄 병렬화 이득이 전혀 없는 최악의 경로다.
+    // 예전엔 "언어가 ja/zh 면 무조건 세로쓰기로 가정"하는 블라인드 폴백을 썼는데, 대신
+    // PaddleOCR 로 줄을 직접 찾아(어차피 다음 단계에서도 필요한 호출) 그 모양(h/w 비율)
+    // 으로 실측 판별한다(isVerticalByLineShape) — 진짜로 보고 판단하는 쪽이 더 정확하다.
+    const blocksFound = (detected?.blocks.length ?? 0) > 0
+    let vertical: boolean
+    // blocksFound 가 false 일 때만 채워진다 — 판별용으로 이미 찾은 줄을, 뒤이은 인식
+    // 단계(runNonTesseractOcr → recognizeVerticalColumnWithPaddle)가 같은 크롭을 또
+    // detectLinesWithPaddle 로 재검출하지 않도록 그대로 넘겨준다(중복 호출 제거).
+    let precomputedLines: Rect[] | undefined
+    if (blocksFound) {
+      vertical = detected?.vertical ?? false
+    } else {
+      const fullImage: Rect =
+        region ?? (() => {
+          const { width, height } = nativeImage.createFromBuffer(image).getSize()
+          return { x: 0, y: 0, width, height }
+        })()
+      const lines = await detectLinesWithPaddle(image, fullImage)
+      vertical = lines ? isVerticalByLineShape(lines) : false
+      precomputedLines = lines ?? undefined
+      console.log(
+        `[timing] layout detect 실패 — PaddleOCR 줄 검출로 실측 판별: vertical=${vertical} (lines=${lines?.length ?? 'null'})`,
+      )
+    }
+    const nonTessStart = Date.now()
+    const result = await runNonTesseractOcr(image, language, region, columns, vertical, precomputedLines)
+    console.log(
+      `[timing] non-tesseract ocr (columns=${columns?.length ?? 1}): ${Date.now() - nonTessStart}ms (${result ? 'success' : 'failed, falling back to tesseract'})`,
+    )
+    if (result) return result
+  }
+
+  const w = await getWorker(language)
   if (columns && columns.length > 1) {
     const clampBounds: Rect =
       region ?? (() => {
@@ -67,6 +113,66 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
 
   const result = await recognizeRegion(w, image, region)
   return { text: result.text, language, words: result.words }
+}
+
+/**
+ * PaddleOCR(+세로쓰기 일본어면 manga-ocr)로 열 단위 인식을 시도한다. 열이 없으면
+ * (다단 아님/레이아웃 검출 실패) region(또는 이미지 전체) 하나를 통째로 한 열처럼
+ * 처리한다. 열 하나라도 실패하면 전체를 null 로 반환해 호출부가 통째로 Tesseract
+ * 로 폴백하게 한다 — 열마다 다른 엔진이 섞이는 것보다 일관된 폴백이 안전하다.
+ */
+async function runNonTesseractOcr(
+  image: Buffer,
+  language: 'zh' | 'ja',
+  region: Rect | undefined,
+  columns: LayoutBlock[] | null,
+  vertical: boolean,
+  precomputedLines?: Rect[],
+): Promise<Extracted | null> {
+  const clampBounds: Rect =
+    region ?? (() => {
+      const { width, height } = nativeImage.createFromBuffer(image).getSize()
+      return { x: 0, y: 0, width, height }
+    })()
+  const targets = columns && columns.length > 0 ? columns.map((c) => c.bbox) : [region ?? clampBounds]
+  // precomputedLines 는 "블록 0개 → 대상 전체를 통짜 크롭 1개로 처리" 케이스에서만
+  // 채워져 오고, 그 크롭은 항상 이 targets 배열의 유일한 원소(위 fallback 대입)와 같은
+  // region/clampBounds 기준이라 targets.length===1 일 때만 안전하게 재사용할 수 있다.
+
+  // 열마다 순차로(for...await) 호출하면 ocrPaddle.ts/ocrManga.ts 에 만들어둔 워커
+  // 풀(POOL_SIZE=3)을 쓰는 의미가 없다 — 한 열이 끝나야 다음 열을 보내니 워커 하나만
+  // 쓰는 것과 같다(실사용 중 "다단/세로쓰기 페이지 인식이 오래 걸림"으로 확인). 전부
+  // 한꺼번에 보내야 여러 워커에 나뉘어 실제로 동시에 처리된다 — Promise.all 은 입력
+  // 순서(=열 순서)를 그대로 보존해서 반환하므로 완료 순서와 무관하게 결과가 올바르게
+  // 이어붙는다.
+  const perColumn = await Promise.all(
+    targets.map(async (bbox, i) => {
+      const padded = padRect(bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
+      const start = Date.now()
+      // 세로쓰기는 PaddleOCR 로 처리한다(recognizeVerticalColumnWithPaddle 주석 참고 —
+      // manga-ocr 대비 실측 4.6배 빠르고 정확도도 동일). 이전엔 일본어만 세로쓰기
+      // 전용 경로(manga-ocr, ja 전용 모델)가 있어서 중국어 세로쓰기는 사실상 가로쓰기와
+      // 동일하게 처리됐는데, PaddleOCR 기반으로 바뀌면서 zh/ja 둘 다 같은 방식으로
+      // 세로쓰기를 지원하게 됐다.
+      const words =
+        vertical
+          ? await recognizeVerticalColumnWithPaddle(
+              image,
+              language,
+              padded,
+              targets.length === 1 ? precomputedLines : undefined,
+            )
+          : await recognizeWithPaddle(image, language, padded)
+      console.log(`[timing]   column ${i}: ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
+      return words
+    }),
+  )
+  if (perColumn.some((columnWords) => !columnWords)) return null // 열 하나라도 실패하면 통째로 Tesseract 폴백
+  const words = perColumn.flatMap((columnWords) => columnWords!)
+  // 이 함수는 zh/ja 전용이라(en 은 항상 Tesseract) 원래 띄어쓰기 없는 문자 체계다 —
+  // 단어 사이를 공백 없이 그냥 이어붙인다.
+  const text = words.map((w) => w.text).join('')
+  return { text, language, words }
 }
 
 /** 이미지 한 장(전체 또는 region 으로 제한된 한 블록)을 인식해 텍스트+단어 bbox 를 뽑는다. */

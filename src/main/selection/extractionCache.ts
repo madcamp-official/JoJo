@@ -28,16 +28,29 @@ export interface CachedExtraction {
 let cached: CachedExtraction | null = null
 let inFlight: Promise<CachedExtraction> | null = null
 
+// 단계별 소요 시간 확인용(임시 계측) — 어느 단계가 병목인지 실사용 로그로 바로 보려고
+// 붙였다. 콘솔에 [timing] 접두어로 남는다.
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now()
+  try {
+    return await fn()
+  } finally {
+    console.log(`[timing] ${label}: ${Date.now() - start}ms`)
+  }
+}
+
 async function runExtraction(): Promise<CachedExtraction> {
-  const image = await captureFocusedWindow()
+  const overallStart = Date.now()
+  const image = await timed('capture', () => captureFocusedWindow())
   // getRegion() 은 이미 캡처 좌표계(물리 픽셀)로 저장돼 있어(regionSelection.ts:
   // submitRegionFromOverlay 가 변환) 추가 변환 없이 그대로 runOcr 에 넘길 수 있다.
   const region = getRegion() ?? undefined
   // 본문 영역이 정해진 뒤에 그 영역만으로 언어를 감지한다(langDetect.ts) — 영역 밖의
   // 메뉴바 등 다른 언어 UI 텍스트에 안 흔들리도록, 캡처 → 영역 확정 → 언어 감지 →
   // OCR 순서로 실행한다.
-  const language = await detectLanguage(image, region)
-  const extracted = await runOcr(image, language, region)
+  const language = await timed('language detect', () => detectLanguage(image, region))
+  const extracted = await timed(`ocr(${language})`, () => runOcr(image, language, region))
+  console.log(`[timing] total: ${Date.now() - overallStart}ms`)
 
   return {
     text: extracted.text,

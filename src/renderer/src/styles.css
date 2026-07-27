@@ -30,6 +30,7 @@ button:disabled { cursor: not-allowed; }
   padding: 18px 40px; font-size: 18px; color: var(--theme-text);
   background: var(--theme); border: none; border-radius: 12px; cursor: pointer;
 }
+.main-screen .primary:disabled { opacity: 0.5; }
 .main-screen .hint { color: #94a3b8; }
 
 .overlay-root {

@@ -1,9 +1,8 @@
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
-import { createInterface } from 'node:readline'
 import { writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Rect } from '@shared/types'
+import { createPythonServer, TINY_PNG } from './pythonServer'
 
 // 담당 A — 실험용 브랜치(experiment/doclayout-yolo) 전용.
 // DocLayout-YOLO(python/layout_detect.py, opendatalab 모델)를 서브프로세스로 불러
@@ -30,12 +29,6 @@ export interface LayoutBlock {
   column: number
 }
 
-const PYTHON_BIN = join(
-  __dirname,
-  process.platform === 'win32' ? '../../python/.venv/Scripts/python.exe' : '../../python/.venv/bin/python',
-)
-const SCRIPT_PATH = join(__dirname, '../../python/layout_detect.py')
-
 interface RawBlock {
   x: number
   y: number
@@ -47,87 +40,38 @@ interface RawBlock {
   column: number
 }
 
-let server: ChildProcessWithoutNullStreams | null = null
-let stdoutLines: ReturnType<typeof createInterface> | null = null
-// Node 쪽에서 요청을 한 번에 하나씩만 서버에 보내도록 직렬화한다 — 서버는 표준입출력
-// 한 줄이 요청 하나·응답 하나라 상관관계 ID 없이 순서로만 매칭되므로, 동시에 여러
-// 요청을 보내면 응답이 뒤섞인다(예: autoDetectRegion 과 ocr.ts 의 호출이 겹치는 경우).
-let queue: Promise<unknown> = Promise.resolve()
-
-function getServer(): ChildProcessWithoutNullStreams {
-  if (server && !server.killed) return server
-  const proc = spawn(PYTHON_BIN, [SCRIPT_PATH, '--serve'])
-  const reset = () => {
-    if (server === proc) {
-      server = null
-      stdoutLines = null
-    }
-  }
-  proc.on('error', reset) // python 실행 파일 자체가 없는 경우(venv 미설치) 등 — ENOENT
-  proc.on('exit', reset)
-  proc.stderr.on('data', (d) => console.error('[layoutDetect] python stderr:', d.toString()))
-  server = proc
-  stdoutLines = createInterface({ input: proc.stdout })
-  return proc
+interface RawResponse {
+  blocks: RawBlock[]
+  vertical: boolean
 }
 
-/**
- * 서버에 요청 한 줄을 보내고 응답 한 줄을 기다린다. 프로세스가 아예 못 뜨거나
- * (spawn ENOENT) 응답을 기다리는 도중 죽으면(모델 로딩 실패 등) 그 자리에서 reject
- * 시켜야 한다 — 안 그러면 'line' 이벤트가 영원히 안 와서 요청이 무한 대기하게 된다.
- */
-function requestDetection(imagePath: string, region?: Rect): Promise<RawBlock[]> {
-  const proc = getServer()
-  const rl = stdoutLines!
-  const req = {
-    image_path: imagePath,
-    region: region ? [region.x, region.y, region.width, region.height] : null,
-  }
-  return new Promise<RawBlock[]>((resolve, reject) => {
-    const cleanup = () => {
-      rl.off('line', onLine)
-      proc.off('error', onError)
-      proc.off('exit', onExit)
-    }
-    const onLine = (line: string) => {
-      cleanup()
-      try {
-        const parsed = JSON.parse(line) as { blocks: RawBlock[] } | { error: string }
-        if ('error' in parsed) reject(new Error(parsed.error))
-        else resolve(parsed.blocks)
-      } catch (err) {
-        reject(err)
-      }
-    }
-    const onError = (err: Error) => {
-      cleanup()
-      reject(err)
-    }
-    const onExit = (code: number | null) => {
-      cleanup()
-      reject(new Error(`layout_detect.py --serve exited (${code}) while waiting for response`))
-    }
-    rl.once('line', onLine)
-    proc.once('error', onError)
-    proc.once('exit', onExit)
-    proc.stdin.write(JSON.stringify(req) + '\n', (err) => {
-      if (err) {
-        cleanup()
-        reject(err)
-      }
-    })
-  })
+export interface DetectedLayout {
+  blocks: LayoutBlock[]
+  /**
+   * 세로쓰기(일본어 세로쓰기·망가 등) 페이지로 판단됐는지 — `layout_detect.py:
+   * is_vertical_layout`(본문/제목 블록 대부분이 폭보다 높이가 뚜렷이 큰 좁고 긴
+   * 모양인지로 판정). 열 순서 자체는 이미 서버에서 방향에 맞게(세로쓰기면 오른쪽→
+   * 왼쪽) 정렬돼서 오므로 별도 처리가 필요 없고, 이 플래그는 나중에 인식 엔진을
+   * 고를 때(가로쓰기는 PaddleOCR, 세로쓰기는 manga-ocr 등) 쓰기 위해 노출해둔다.
+   */
+  vertical: boolean
 }
 
-export async function detectLayoutBlocks(image: Buffer, region?: Rect): Promise<LayoutBlock[] | null> {
+const server = createPythonServer('layout_detect.py', ['--serve'])
+
+export async function detectLayoutBlocks(image: Buffer, region?: Rect): Promise<DetectedLayout | null> {
   const tmpPath = join(tmpdir(), `nuance-layout-${process.pid}-${Date.now()}.png`)
   await writeFile(tmpPath, image)
-  // 큐에 이어붙여서 이전 요청이 끝난 뒤에만 이번 요청을 보낸다(직렬화).
-  const task = queue.then(() => requestDetection(tmpPath, region))
-  queue = task.catch(() => undefined) // 이번 요청이 실패해도 큐 자체는 안 끊기게
+  const req = {
+    image_path: tmpPath,
+    region: region ? [region.x, region.y, region.width, region.height] : null,
+  }
+  const task = server.request<typeof req, RawResponse>(req)
   try {
-    const blocks = await task
-    return blocks
+    const { blocks: rawBlocks, vertical } = await task
+    // 검증용 로그 — 세로쓰기 판정이 실제 콘텐츠(망가 등)에서 잘 잡히는지 눈으로 확인.
+    console.log(`[layoutDetect] vertical=${vertical}, blocks=${rawBlocks.length}`)
+    const blocks = rawBlocks
       .sort((a, b) => a.order - b.order)
       .map((b) => ({
         bbox: { x: b.x, y: b.y, width: b.width, height: b.height },
@@ -135,12 +79,25 @@ export async function detectLayoutBlocks(image: Buffer, region?: Rect): Promise<
         confidence: b.confidence,
         column: b.column,
       }))
+    return { blocks, vertical }
   } catch (err) {
     console.error('[layoutDetect] 레이아웃 검출 실패 — 단일 패스 OCR 로 폴백:', err)
     return null
   } finally {
     void unlink(tmpPath).catch(() => {})
   }
+}
+
+/**
+ * 앱 시작 시(warmup.ts) 미리 한 번 불러서 Python 서버를 띄우고 모델을 로드해둔다
+ * — 실제 선택 모드에 들어갔을 때 첫 호출이 8초+ 걸리던 걸(torch import + 모델 로딩)
+ * 사용자가 창을 고르는 동안 백그라운드에서 미리 끝내두기 위함이다. 반환된 promise 는
+ * warmup.ts 가 "다 예열됐는지" 판단하는 데만 쓰고 결과값 자체는 버린다 — 실패해도
+ * (Python 환경 없음 등) detectLayoutBlocks 가 이미 내부에서 잡아 null 을 반환하므로
+ * 여기서도 절대 reject 하지 않는다(그래야 Promise.all 이 다른 엔진 예열까지 막지 않음).
+ */
+export async function warmUp(): Promise<void> {
+  await detectLayoutBlocks(TINY_PNG)
 }
 
 /**
