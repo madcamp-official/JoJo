@@ -207,6 +207,13 @@ export interface DictionaryReading {
 
 export interface DictionaryEntry {
   headword: string
+  /** 이 표제어가 단일 단어가 아니라 여러 단어로 굳어진 관용구/구(句)인지 — MW 는 이런
+   *  항목에 `fl`(functional label) 값으로 "phrase"를 줌(실측: "kick the bucket" 등). `fl`
+   *  자체는 posRaw 성격의 원본 라벨이라 LLM에 안 넘기지만, "이 후보가 통째로 굳어진
+   *  관용구라 부분 조합 해석이 아니라 그대로 뜻을 취해야 한다"는 건 다중 단어 선택 시
+   *  LLM 판정에 실제로 필요한 정보라 conjugationClass/irregularForms 와 같은 이유로
+   *  별도 필드로 승격(LLM에 전달). */
+  isIdiom?: boolean
   readings: DictionaryReading[]
   source: DictionarySourceId
 }
