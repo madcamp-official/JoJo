@@ -2,7 +2,7 @@ import { nativeImage } from 'electron'
 import { sendExtractionStarted, sendOverlayWords } from '../windows'
 import { captureFocusedWindow } from './capture'
 import { refreshExtractionCache } from './extractionCache'
-import { getRegion } from './regionSelection'
+import { getRegion, invalidateCachedDetection } from './regionSelection'
 
 // 담당 A — 선택 모드에서 OCR 대상 영역의 화면 내용 변화를 감지해 조용히 재추출한다.
 // 창 크기 변경은 shortcut.ts(onWindowResized)가 별도로 처리하므로 여기서는 다루지
@@ -66,6 +66,13 @@ async function poll(): Promise<void> {
       if (settleTimer) clearTimeout(settleTimer)
       settleTimer = setTimeout(() => {
         settleTimer = null
+        // 영역(위치/크기)은 그대로지만 그 안 내용은 실제로 바뀌었으니, 모드 진입 때
+        // 캐시해둔 블록/줄 위치(ocr.ts: resolveLayout 이 재사용하는 것)는 이제 예전
+        // 화면 기준이라 못 믿는다 — 안 비우면 바뀐 화면에서 옛 좌표를 그대로 크롭해
+        // 인식하게 된다(실사용 중 발견: 캐시 재사용 자체는 잘 되는데 그게 "내용이 같은
+        // 화면"이라는 전제가 스크롤 등으로 깨질 수 있음). 영역 자체는 다시 잡을 필요
+        // 없어서(위치/크기는 안 바뀜) region 은 그대로 두고 캐시만 비운다.
+        invalidateCachedDetection()
         // refreshExtractionCache 는 자체적으로 inFlight promise 를 최신 호출로 덮어써서,
         // 이 시점에 이전 추출이 진행 중이었더라도 그 결과는 캐시에 반영되지 않고
         // 이번 호출 결과만 반영된다("진행 중인 추출을 취소하고 새로 시작"과 동일한 효과).

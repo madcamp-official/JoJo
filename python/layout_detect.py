@@ -1,9 +1,10 @@
 """담당 A — 실험용 브랜치(experiment/doclayout-yolo) 전용.
 
-DocLayout-YOLO(opendatalab, HF: juliozhao/DocLayout-YOLO-DocStructBench)로 캡처
-이미지의 레이아웃 블록(텍스트/제목/표/그림 등)을 검출하고, 다단(2단 등) 배치를
-가로쓰기면 "왼쪽 열 위→아래, 그다음 오른쪽 열 위→아래", 세로쓰기(일본어 세로쓰기·
-망가 등)로 판단되면 반대로 "오른쪽 열 위→아래, 그다음 왼쪽 열" 순서로 정렬해 반환한다.
+레이아웃 검출 모델(기본: PP-DocLayout_plus-L, 아래 MODEL_BACKEND 참고 — DocLayout-YOLO/
+DocStructBench 경로도 남겨뒀다)로 캡처 이미지의 레이아웃 블록(텍스트/제목/표/그림 등)을
+검출하고, 다단(2단 등) 배치를 가로쓰기면 "왼쪽 열 위→아래, 그다음 오른쪽 열 위→아래",
+세로쓰기(일본어 세로쓰기·망가 등)로 판단되면 반대로 "오른쪽 열 위→아래, 그다음 왼쪽 열"
+순서로 정렬해 반환한다.
 
 Node(layoutDetect.ts)가 이 스크립트를 두 가지 방식으로 호출한다:
   1) 1회성: python layout_detect.py <image_path> [--region x,y,w,h]
@@ -46,19 +47,51 @@ import sys
 
 from doclayout_yolo import YOLOv10
 from huggingface_hub import hf_hub_download
+from paddleocr import LayoutDetection
 
-MODEL_REPO = "juliozhao/DocLayout-YOLO-DocStructBench"
-MODEL_FILE = "doclayout_yolo_docstructbench_imgsz1024.pt"
+# 담당 A — 레이아웃 검출 백엔드 선택. DocStructBench(YOLO)가 세로쓰기 일본어 문서에서
+# 블록을 아예 못 찾는 문제(실사용 확인: blocks=0)가 있어 PP-DocLayout_plus-L(PaddleX)로
+# 완전 교체했다 — 실측(합성 8열 세로쓰기 페이지): YOLO는 0개, PP-DocLayout_plus-L은
+# 신뢰도 0.78로 전체 열을 감싼 텍스트 블록을 찾아냈고 추론도 3초대로 더 빨랐다(YOLO
+# 실패 시 폴백으로 쓰던 PaddleOCR 전체 페이지 줄 검출은 30~40초).
+#
+# YOLO 경로는 지우지 않고 그대로 남겨뒀다 — 나중에 다시 필요해지면 이 값만 "yolo"로
+# 바꾸면 된다(아래 두 백엔드 함수 모두 계속 유지). 단, 백엔드를 바꾸면 라벨 체계가
+# 완전히 다르므로(TEXT_LABELS_BY_BACKEND 참고) Node 쪽 regionSelection.ts 의
+# BODY_LABELS/NON_TEXT_LABELS 도 그 백엔드에 맞는 라벨로 같이 바꿔야 한다.
+MODEL_BACKEND = "paddle"  # "paddle" | "yolo"
 
-_model = None
+# 세로쓰기 판정(is_vertical_layout)에서 "본문 텍스트"로 볼 라벨 — 백엔드마다 분류
+# 체계가 달라서 따로 둔다. YOLO(DocStructBench)는 title/plain text 2종, PP-DocLayout
+# (PaddleX, num_classes=11+)은 라벨명이 전혀 다르다(doc_title/paragraph_title/text 등).
+TEXT_LABELS_BY_BACKEND = {
+    "yolo": {"plain text", "title"},
+    "paddle": {"text", "paragraph_title", "doc_title"},
+}
+
+YOLO_MODEL_REPO = "juliozhao/DocLayout-YOLO-DocStructBench"
+YOLO_MODEL_FILE = "doclayout_yolo_docstructbench_imgsz1024.pt"
+PADDLE_MODEL_NAME = "PP-DocLayout_plus-L"
+
+_yolo_model = None
+_paddle_model = None
 
 
-def get_model():
-    global _model
-    if _model is None:
-        weights_path = hf_hub_download(repo_id=MODEL_REPO, filename=MODEL_FILE)
-        _model = YOLOv10(weights_path)
-    return _model
+def get_yolo_model():
+    global _yolo_model
+    if _yolo_model is None:
+        weights_path = hf_hub_download(repo_id=YOLO_MODEL_REPO, filename=YOLO_MODEL_FILE)
+        _yolo_model = YOLOv10(weights_path)
+    return _yolo_model
+
+
+def get_paddle_model():
+    global _paddle_model
+    if _paddle_model is None:
+        # enable_mkldnn=False 필수 — ocr_paddle.py 와 같은 이유(oneDNN 실행기가 이 환경에서
+        # "ConvertPirAttribute2RuntimeAttribute not support" 로 죽음, 실측 확인).
+        _paddle_model = LayoutDetection(model_name=PADDLE_MODEL_NAME, enable_mkldnn=False)
+    return _paddle_model
 
 
 def cluster_columns(blocks, gap_ratio=0.6):
@@ -78,20 +111,21 @@ def cluster_columns(blocks, gap_ratio=0.6):
     return columns
 
 
-def is_vertical_layout(blocks, ratio_threshold=1.4, min_fraction=0.5):
+def is_vertical_layout(blocks, text_labels, ratio_threshold=1.4, min_fraction=0.5):
     """본문/제목 블록 대부분이 폭보다 높이가 `ratio_threshold` 배 이상 크면(좁고
     길쭉하면) 세로쓰기 페이지로 본다. 그림/표 같은 비텍스트 블록은 텍스트 방향과
-    무관해서 판정에서 제외한다. 표본이 아예 없으면(본문 블록 미검출) 판단 근거가
-    없으므로 False(가로쓰기 취급 — 기존 동작 유지)."""
-    text_blocks = [b for b in blocks if b["label"] in ("plain text", "title") and b["width"] > 0]
+    무관해서 판정에서 제외한다(어떤 라벨이 "본문 텍스트"인지는 백엔드마다 달라서
+    text_labels 로 받는다 — TEXT_LABELS_BY_BACKEND 참고). 표본이 아예 없으면(본문
+    블록 미검출) 판단 근거가 없으므로 False(가로쓰기 취급 — 기존 동작 유지)."""
+    text_blocks = [b for b in blocks if b["label"] in text_labels and b["width"] > 0]
     if not text_blocks:
         return False
     vertical_count = sum(1 for b in text_blocks if b["height"] / b["width"] >= ratio_threshold)
     return (vertical_count / len(text_blocks)) >= min_fraction
 
 
-def order_blocks(blocks):
-    vertical = is_vertical_layout(blocks)
+def order_blocks(blocks, text_labels):
+    vertical = is_vertical_layout(blocks, text_labels)
     columns = cluster_columns(blocks)
     # 가로쓰기: 왼쪽 → 오른쪽. 세로쓰기(일본어 세로쓰기·망가 등): 오른쪽 → 왼쪽
     # (전통적인 세로쓰기 읽기 순서 — 첫 줄이 페이지 오른쪽 끝에 옴).
@@ -107,8 +141,16 @@ def order_blocks(blocks):
     return ordered, vertical
 
 
-def detect(image_path: str, region: tuple[int, int, int, int] | None):
-    model = get_model()
+def _region_excludes(x0, y0, x1, y1, region):
+    if not region:
+        return False
+    rx, ry, rw, rh = region
+    # 지정 영역과 안 겹치는 블록은 버린다(선택 영역 밖 레이아웃 무시).
+    return x1 < rx or y1 < ry or x0 > rx + rw or y0 > ry + rh
+
+
+def detect_with_yolo(image_path: str, region: tuple[int, int, int, int] | None):
+    model = get_yolo_model()
     # verbose=False: 기본값으로 두면 predict() 가 "image 1/1 ... Speed: ..." 같은 로그를
     # stdout 에 찍는데, 서버 모드에서는 stdout 한 줄 = 응답 한 줄이어야 하므로 이 노이즈가
     # 섞이면 프로토콜이 깨진다.
@@ -118,17 +160,38 @@ def detect(image_path: str, region: tuple[int, int, int, int] | None):
         names = result.names
         for box in result.boxes:
             x0, y0, x1, y1 = [float(v) for v in box.xyxy[0].tolist()]
-            if region:
-                rx, ry, rw, rh = region
-                # 지정 영역과 안 겹치는 블록은 버린다(선택 영역 밖 레이아웃 무시).
-                if x1 < rx or y1 < ry or x0 > rx + rw or y0 > ry + rh:
-                    continue
+            if _region_excludes(x0, y0, x1, y1, region):
+                continue
             label = names[int(box.cls[0])]
             blocks.append({
                 "x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0,
                 "label": label, "confidence": float(box.conf[0]),
             })
-    return order_blocks(blocks)  # (ordered_blocks, vertical)
+    return blocks
+
+
+def detect_with_paddle(image_path: str, region: tuple[int, int, int, int] | None):
+    model = get_paddle_model()
+    results = model.predict(image_path, threshold=0.3)
+    blocks = []
+    for result in results:
+        for box in result["boxes"]:
+            x0, y0, x1, y1 = [float(v) for v in box["coordinate"]]
+            if _region_excludes(x0, y0, x1, y1, region):
+                continue
+            blocks.append({
+                "x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0,
+                "label": box["label"], "confidence": float(box["score"]),
+            })
+    return blocks
+
+
+def detect(image_path: str, region: tuple[int, int, int, int] | None):
+    if MODEL_BACKEND == "paddle":
+        blocks = detect_with_paddle(image_path, region)
+    else:
+        blocks = detect_with_yolo(image_path, region)
+    return order_blocks(blocks, TEXT_LABELS_BY_BACKEND[MODEL_BACKEND])  # (ordered_blocks, vertical)
 
 
 def serve():

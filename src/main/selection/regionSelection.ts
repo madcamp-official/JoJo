@@ -51,6 +51,17 @@ export function getCachedDetection(): CachedDetection | null {
   return cachedDetection
 }
 
+/**
+ * 영역(region)은 그대로 두고 캐시만 비운다 — changeWatcher.ts 가 영역 "안" 내용이
+ * 바뀐 걸 감지했을 때 쓴다(스크롤 등, 영역 자체의 위치/크기는 안 바뀜). 이때 영역까지
+ * 다시 잡을 필요는 없지만, 캐시된 블록/줄 위치는 예전 화면 기준이라 그대로 재사용하면
+ * 바뀐 화면에서 엉뚱한 좌표를 인식하게 된다 — 반드시 비워서 ocr.ts 가 새로 검출하게
+ * 해야 한다.
+ */
+export function invalidateCachedDetection(): void {
+  cachedDetection = null
+}
+
 export function setRegion(rect: Rect): void {
   region = rect
 }
@@ -126,21 +137,33 @@ export async function submitRegionFromOverlay(dipRect: Rect): Promise<void> {
   setRegion(dipRect)
 }
 
-// 본문으로 볼 레이아웃 라벨 — DocLayout-YOLO(DocStructBench 체크포인트)의 10개 클래스 중
-// 제목/일반 텍스트만 포함한다. 메뉴바·사이드바·워터마크 등은 "abandon"으로, 그림/표/수식은
-// 별도 라벨로 나오므로 자연히 제외된다(python/layout_detect.py 참고).
-const BODY_LABELS = new Set(['title', 'plain text'])
+// 본문으로 볼 레이아웃 라벨 — PP-DocLayout_plus-L(PaddleX, python/layout_detect.py 의
+// 기본 백엔드)의 라벨 체계 기준. 세로쓰기 일본어 문서에서 DocLayout-YOLO/DocStructBench가
+// 블록을 아예 못 찾는 문제(실사용 확인: blocks=0)가 있어 이 모델로 교체했다(실측: 신뢰도
+// 0.78로 세로쓰기 텍스트 영역을 정확히 찾아냄, 추론도 더 빠름 — python/layout_detect.py
+// 상단 주석 참고). doc_title/paragraph_title/text 가 본문에 해당한다.
+//
+// python/layout_detect.py 의 MODEL_BACKEND 를 "yolo"로 되돌리면 라벨 체계가 완전히
+// 달라지므로(title/plain text 2종) 이 두 상수도 그에 맞게 같이 바꿔야 한다 — DocStructBench
+// 로 되돌릴 땐 BODY_LABELS = new Set(['title', 'plain text']), NON_TEXT_LABELS = new Set(
+// ['figure','figure_caption','table','table_caption','table_footnote','isolate_formula',
+// 'formula_caption']) 였다.
+const BODY_LABELS = new Set(['doc_title', 'paragraph_title', 'text'])
 
-// 확실히 텍스트가 아닌 라벨 — title/plain text 가 하나도 없을 때의 폴백(아래
-// FALLBACK_LABELS 주석 참고)에서도 이것들만은 계속 제외한다.
+// 확실히 텍스트가 아닌 라벨 — 본문 라벨이 하나도 없을 때의 폴백(아래 참고)에서도 이것들만은
+// 계속 제외한다. PP-DocLayout_plus-L 의 20개 라벨 중 그림/표/수식/도장처럼 명백히 시각
+// 요소인 것만 고른다 — header/footer/footnote/aside_text/number/reference 등은 본문은
+// 아니지만 텍스트이긴 해서(완전히 틀린 라벨 판정이었을 가능성) 이 폴백에서까진 제외하지
+// 않는다(기존 YOLO 폴백 설계와 같은 방침).
 const NON_TEXT_LABELS = new Set([
-  'figure',
-  'figure_caption',
+  'image',
+  'figure_title',
+  'formula',
+  'formula_number',
   'table',
-  'table_caption',
-  'table_footnote',
-  'isolate_formula',
-  'formula_caption',
+  'chart',
+  'seal',
+  'algorithm',
 ])
 
 /**
