@@ -64,8 +64,15 @@ export interface ExtractedSelection {
 export interface SelectionContext {
   selectedText: string
   language: Language
-  precedingText: string
-  followingText: string
+  /**
+   * 원문 전체(트리밍 없음, ExtractedSelection.text 그대로) — LLM 문맥 구성 시
+   * settings.contextBytesBefore/After 만큼 여기서 직접 잘라 쓴다. 팝업이 화면에 보여주는
+   * 범위(256바이트 창)와는 별개다 — 표시용 트리밍이 LLM 문맥 범위를 제한하지 않도록 함.
+   */
+  fullText: string
+  /** selectedText 의 fullText 내 [selStart, selEnd) 오프셋 */
+  selStart: number
+  selEnd: number
   words: Word[]
   source: SelectionSource
   extraction: 'direct' | 'ocr'

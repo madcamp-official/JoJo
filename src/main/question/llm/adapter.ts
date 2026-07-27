@@ -90,12 +90,9 @@ export function buildContextBlock(
   byteBefore: number,
   byteAfter: number,
 ): string {
-  const full = `${ctx.precedingText}${ctx.selectedText}${ctx.followingText}`
-  const selStart = ctx.precedingText.length
-  const selEnd = selStart + ctx.selectedText.length
-  const r = computeContextRange(full, selStart, selEnd, byteBefore, byteAfter)
-  const before = full.slice(r.extStart, selStart)
-  const after = full.slice(selEnd, r.extEnd)
+  const r = computeContextRange(ctx.fullText, ctx.selStart, ctx.selEnd, byteBefore, byteAfter)
+  const before = ctx.fullText.slice(r.extStart, ctx.selStart)
+  const after = ctx.fullText.slice(ctx.selEnd, r.extEnd)
   return `[앞 문맥]\n${before}\n\n[선택된 표현]\n${ctx.selectedText}\n\n[뒤 문맥]\n${after}`
 }
 

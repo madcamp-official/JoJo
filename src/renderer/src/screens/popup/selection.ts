@@ -27,6 +27,9 @@ export interface PopupSelectionModel {
   /** 초기 선택에 해당하는 atom 인덱스 범위 [from, to] (양끝 포함) */
   initialFrom: number
   initialTo: number
+  /** displayText 오프셋 → extracted.text 오프셋 역산에 쓰는 값(buildDisplayText 참고) */
+  windowStart: number
+  insertions: number[]
 }
 
 // 팝업 원문 문맥 표시 범위 — 선택 앞뒤 각 256 바이트.
@@ -45,27 +48,51 @@ const PARAGRAPH_INDENT = ' '
  * 반환한다. 창은 문장 경계로만 확장되므로(computeContextRange) 첫 줄이 항상 문단 시작인
  * 건 아니다 — 문단 중간에서 창이 시작하면 그 첫 줄은 이어지는 텍스트일 뿐이므로
  * firstIsParagraphStart 가 false 일 때만 첫 줄 들여쓰기를 건너뛴다.
+ *
+ * insertions(출력 문자열 상 들여쓰기가 삽입된 위치, 오름차순)도 함께 반환한다 — LLM 문맥
+ * 구성 시 displayText 오프셋을 들여쓰기 이전(windowedText) 오프셋으로 되돌리는 데 쓰인다
+ * (toWindowedOffset 참고).
  */
 function indentParagraphs(
   text: string,
   selStart: number,
   selEnd: number,
   firstIsParagraphStart: boolean,
-): { text: string; selStart: number; selEnd: number } {
+): { text: string; selStart: number; selEnd: number; insertions: number[] } {
   const paragraphs = text.split('\n')
   let newSelStart = selStart
   let newSelEnd = selEnd
   let offset = 0
+  let outOffset = 0
+  const insertions: number[] = []
   const out = paragraphs.map((p, i) => {
     const paraStart = offset
     offset += p.length + 1 // +1 = 소비되는 '\n'
-    if (i === 0 && !firstIsParagraphStart) return p
-    if (/^[ \t]/.test(p)) return p
+    if (i === 0 && !firstIsParagraphStart) {
+      outOffset += p.length + 1
+      return p
+    }
+    if (/^[ \t]/.test(p)) {
+      outOffset += p.length + 1
+      return p
+    }
     if (paraStart <= selStart) newSelStart += PARAGRAPH_INDENT.length
     if (paraStart <= selEnd) newSelEnd += PARAGRAPH_INDENT.length
+    insertions.push(outOffset)
+    outOffset += PARAGRAPH_INDENT.length + p.length + 1
     return PARAGRAPH_INDENT + p
   })
-  return { text: out.join('\n'), selStart: newSelStart, selEnd: newSelEnd }
+  return { text: out.join('\n'), selStart: newSelStart, selEnd: newSelEnd, insertions }
+}
+
+/** displayText(들여쓰기 포함) 오프셋을 windowedText(들여쓰기 이전) 오프셋으로 되돌린다. */
+function toWindowedOffset(displayPos: number, insertions: number[]): number {
+  let removed = 0
+  for (const insPos of insertions) {
+    if (insPos > displayPos) break
+    removed += PARAGRAPH_INDENT.length
+  }
+  return displayPos - removed
 }
 
 // 영어 atom: 알파벳/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로 취급 →
@@ -191,15 +218,25 @@ interface DisplayText {
   displayText: string
   selStart: number
   selEnd: number
+  /** extracted.text 안에서 windowedText(=들여쓰기 전 displayText) 가 시작하는 오프셋 */
+  windowStart: number
+  /** indentParagraphs 가 삽입한 위치들(오름차순) — toWindowedOffset 에 그대로 전달 */
+  insertions: number[]
 }
 
 /**
  * ExtractedSelection 으로부터 표시 문자열(displayText)과 그 안에서의 선택 오프셋만 계산한다.
  * language 와 무관 — 일본어 kuromoji 토큰(jaTokens)을 요청하려면 이 displayText 가 먼저
  * 필요해서(PopupScreen 이 비동기로 IPC 호출) buildSelectionModel 과 분리해 둔다.
+ *
+ * 이 함수가 만드는 windowedText/displayText 는 어디까지나 화면 표시용이다. LLM 에 넘길
+ * 문맥 범위는 이걸 거치지 않고 extracted.text 원문 + settings.contextBytesBefore/After
+ * 로 별도 계산한다(@main/question/llm/adapter.ts buildContextBlock) — windowStart/
+ * insertions 는 화면에서 재지정한 선택 범위를 extracted.text 오프셋으로 되돌리기 위한
+ * 것일 뿐, 그 자체가 LLM 문맥의 상한이 되지 않는다.
  */
 export function buildDisplayText(extracted: ExtractedSelection): DisplayText {
-  // 원문 전체(extracted.text) 중 선택 앞뒤 256바이트(+문장 경계 확장)만 잘라서 보여준다.
+  // 원문 전체(extracted.text) 중 선택 앞뒤 256바이트(+문장 경계 확장)만 "표시"에 쓴다.
   const range = computeContextRange(
     extracted.text,
     extracted.anchor.start,
@@ -211,13 +248,13 @@ export function buildDisplayText(extracted: ExtractedSelection): DisplayText {
   const windowedSelStart = extracted.anchor.start - range.extStart
   const windowedSelEnd = extracted.anchor.end - range.extStart
   const firstIsParagraphStart = range.extStart === 0 || extracted.text[range.extStart - 1] === '\n'
-  const { text: displayText, selStart, selEnd } = indentParagraphs(
+  const { text: displayText, selStart, selEnd, insertions } = indentParagraphs(
     windowedText,
     windowedSelStart,
     windowedSelEnd,
     firstIsParagraphStart,
   )
-  return { displayText, selStart, selEnd }
+  return { displayText, selStart, selEnd, windowStart: range.extStart, insertions }
 }
 
 /**
@@ -228,7 +265,7 @@ export function buildSelectionModel(
   extracted: ExtractedSelection,
   jaTokens?: JaToken[],
 ): PopupSelectionModel {
-  const { displayText, selStart, selEnd } = buildDisplayText(extracted)
+  const { displayText, selStart, selEnd, windowStart, insertions } = buildDisplayText(extracted)
   const atoms = tokenizeAtoms(displayText, jaTokens)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.
@@ -242,7 +279,7 @@ export function buildSelectionModel(
     initialFrom = 0
     initialTo = atoms.length > 0 ? 0 : -1
   }
-  return { displayText, atoms, initialFrom, initialTo }
+  return { displayText, atoms, initialFrom, initialTo, windowStart, insertions }
 }
 
 function splitWords(selectedText: string): Word[] {
@@ -252,18 +289,26 @@ function splitWords(selectedText: string): Word[] {
     .map((t) => ({ text: t }))
 }
 
-/** displayText 의 [start, end) 구간을 최종 SelectionContext 로 조립한다(메타는 base 유지). */
+/**
+ * displayText 의 [start, end) 구간(들여쓰기 포함 오프셋)을 최종 SelectionContext 로
+ * 조립한다(메타는 base 유지). fullText/selStart/selEnd 는 표시용 트리밍·들여쓰기를
+ * 되돌려 base.text(extracted.text 원문) 좌표로 넘긴다 — LLM 문맥은 이 원문 좌표를
+ * 기준으로 settings.contextBytesBefore/After 만큼 별도로 잘라 쓴다(표시 범위와 무관).
+ */
 function contextFromRange(
   base: ExtractedSelection,
   displayText: string,
+  windowStart: number,
+  insertions: number[],
   start: number,
   end: number,
 ): SelectionContext {
   const selectedText = displayText.slice(start, end)
   return {
     selectedText,
-    precedingText: displayText.slice(0, start),
-    followingText: displayText.slice(end),
+    fullText: base.text,
+    selStart: windowStart + toWindowedOffset(start, insertions),
+    selEnd: windowStart + toWindowedOffset(end, insertions),
     words: splitWords(selectedText),
     language: base.language,
     source: base.source,
@@ -274,7 +319,7 @@ function contextFromRange(
 /**
  * 현재 선택된 atom 범위 [from, to] 로부터 최종 SelectionContext 를 파생한다.
  * language/source/extraction 등 메타는 base(ExtractedSelection)를 유지하고,
- * selectedText/precedingText/followingText/words 만 계산한다.
+ * selectedText/fullText/selStart/selEnd/words 만 계산한다.
  */
 export function deriveContext(
   base: ExtractedSelection,
@@ -287,7 +332,20 @@ export function deriveContext(
   const a = model.atoms[lo]
   const b = model.atoms[hi]
   // atom 이 하나도 없거나 범위가 유효하지 않으면(공백·기호만 넘어온 경우 등)
-  // 초기 선택(anchor)으로 fallback 한다.
-  if (!a || !b) return contextFromRange(base, model.displayText, base.anchor.start, base.anchor.end)
-  return contextFromRange(base, model.displayText, a.start, b.end)
+  // 초기 선택(anchor)으로 fallback한다 — anchor 는 이미 base.text(원문) 좌표이므로
+  // display 매핑을 거치지 않고 그대로 쓴다.
+  if (!a || !b) {
+    const selectedText = base.text.slice(base.anchor.start, base.anchor.end)
+    return {
+      selectedText,
+      fullText: base.text,
+      selStart: base.anchor.start,
+      selEnd: base.anchor.end,
+      words: splitWords(selectedText),
+      language: base.language,
+      source: base.source,
+      extraction: base.extraction,
+    }
+  }
+  return contextFromRange(base, model.displayText, model.windowStart, model.insertions, a.start, b.end)
 }
