@@ -104,7 +104,7 @@ export function mockDevotionExtraction(): ExtractedSelection {
 }
 
 // ============================================================================
-// 중국어 데모 목업 — 《三体》(류츠신) 발췌, "天线" 클릭 상황
+// 중국어(간체) 데모 목업 — 《三体》(류츠신) 발췌, "天线" 클릭 상황
 // 원문은 줄바꿈 폭에 맞춰 강제 개행되어 있던 것을 문단 단위로 다시 이어 붙였다
 // (문단 사이만 '\n', Hobbit 목업과 동일한 형식).
 // ============================================================================
@@ -136,7 +136,7 @@ function splitChineseWords(text: string): string[] {
 /** 중국어 데모(팝업 미리보기)가 ctx 없이 열렸을 때 쓰는 목업 추출 결과 */
 export function mockThreeBodyExtraction(): ExtractedSelection {
   return buildExtractedSelection(THREE_BODY_TEXT, THREE_BODY_TARGET, {
-    language: 'zh',
+    language: 'zh-Hans',
     source: { kind: 'pdf', appName: '三体.pdf' },
     splitWords: splitChineseWords,
   })

@@ -27,7 +27,7 @@ import { newId, type ChatMessage } from './popup/types'
 //     getPopupContext()/onPopupContext() 로 받는다.
 //   - 데모(현재): ctx 가 없으면 목업으로 fallback한다 — 기본은 호빗 "well-to-do",
 //     MainScreen 의 언어별 데모 버튼으로 열었을 때(#/popup?demo=ja 또는 zh)는
-//     각각 《容疑者Xの献身》"新大橋" / 《三体》"天线".
+//     각각 《容疑者Xの献身》"新大橋" / 《三体》"天线"(간체).
 // ============================================================================
 
 /** 팝업 창 URL 해시(#/popup?demo=zh)에서 demo 쿼리값을 읽는다. */
@@ -40,7 +40,7 @@ function initialMockExtraction(): ExtractedSelection {
   switch (getDemoParam()) {
     case 'ja':
       return mockDevotionExtraction()
-    case 'zh':
+    case 'zh-Hans':
       return mockThreeBodyExtraction()
     default:
       return mockHobbitExtraction()
@@ -241,5 +241,6 @@ function sourceLabel(ex: ExtractedSelection): string {
 const LANGUAGE_LABEL: Record<ExtractedSelection['language'], string> = {
   en: 'English',
   ja: '日本語',
-  zh: '中文'
+  'zh-Hans': '中文(简体)',
+  'zh-Hant': '中文(繁體)',
 }
