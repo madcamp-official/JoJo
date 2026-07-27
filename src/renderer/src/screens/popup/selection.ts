@@ -1,5 +1,6 @@
 import type { ExtractedSelection, JaToken, SelectionContext, Word } from '@shared/types'
 import { computeContextRange } from '@shared/context'
+import { mergeJaTokens } from '@shared/nlp/ja'
 
 // ============================================================================
 // 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §4.1 "팝업 내 범위 지정")
@@ -184,7 +185,34 @@ function buildTokenLookup(jaTokens: JaToken[]): (pos: number) => JaToken | undef
   return (pos: number) => jaTokens.find((t) => pos >= t.start && pos < t.start + t.surface.length)
 }
 
+// 팝업 내 일본어 선택 단위 전략.
+//  - 'wordMerge'(현재 기본): OCR 단어 클릭(main/nlp/japanese.ts segmentJapaneseWords)과
+//    동일하게 mergeJaTokens(@shared/nlp/ja) 결과를 그대로 atom 으로 쓴다 — 한자+가나가
+//    붙어 하나의 문절 단위로 선택된다. 병합 결과를 화면에서 바로 확인하기 위한 임시 기본값.
+//  - 'charLevel': 원래 계획대로 한자는 한 글자씩 별도 atom 으로 유지하고, 가나 조각만
+//    kuromoji 품사로 병합한다(아래 tokenizeAtoms 의 KANJI_CHAR_RE/segmentKanaRunWithTokens
+//    분기, jaTokens 가 없을 때의 기존 폴백과 동일한 코드 경로). 나중에 되돌릴 때는 이 값만
+//    바꾸면 된다.
+const JA_ATOM_STRATEGY: 'wordMerge' | 'charLevel' = 'wordMerge'
+
+// mergeJaTokens 가 만든 순수 기호·공백뿐인 토큰(문장부호 등)은 atom 으로 만들지 않는다 —
+// tokenizeAtoms 의 기존 LATIN/KANA/KANJI 루프가 그런 문자를 건너뛰던 것과 동일한 기준.
+const SELECTABLE_CONTENT_RE = /[A-Za-z0-9一-鿿㐀-䶿぀-ヿ]/
+
+/** JA_ATOM_STRATEGY==='wordMerge' 일 때 — 병합된 토큰 하나를 atom 하나로 그대로 쓴다. */
+function atomsFromMergedTokens(jaTokens: JaToken[]): Atom[] {
+  const atoms: Atom[] = []
+  for (const t of mergeJaTokens(jaTokens)) {
+    if (!SELECTABLE_CONTENT_RE.test(t.surface)) continue
+    atoms.push({ start: t.start, end: t.start + t.surface.length })
+  }
+  return atoms
+}
+
 function tokenizeAtoms(text: string, jaTokens?: JaToken[]): Atom[] {
+  if (jaTokens && jaTokens.length > 0 && JA_ATOM_STRATEGY === 'wordMerge') {
+    return atomsFromMergedTokens(jaTokens)
+  }
   const tokenAt = jaTokens ? buildTokenLookup(jaTokens) : null
   const atoms: Atom[] = []
   let i = 0
