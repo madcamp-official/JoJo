@@ -97,14 +97,19 @@ function stripMwTokens(raw: string): string {
   let s = raw
   // 내용은 유지하고 태그만 제거하는 페어 토큰(이탤릭/볼드/위첨자 등)
   s = s.replace(/\{\/?(?:it|b|sup|inf|phrase|wi|dx|dx_def|dx_ety|ma|parahw)\}/g, '')
-  // {bc} = definition-start colon, 문장부호가 아니라 구분자라 공백으로만 치환
-  s = s.replace(/\{bc\}/g, '')
+  // {bc}(definition-start colon)는 맨 앞 하나만 오는 게 아니라, 한 dt 안에 짧은 뜻
+  // 여러 개를 이어붙일 때 그 사이 구분자로도 쓰인다(실측: "sunlight" → "{bc}the light
+  // of the sun {bc}{sx|sunshine||}", MW 자체 shortdef 는 이걸 " : "로 렌더링함
+  // — {bc} 를 그냥 지워버리면 "the light of the sun sunshine"처럼 단어가 붙어버린다).
+  // 일단 전부 " : "로 바꾸고, 맨 앞에 남는 건(문두라 구분할 대상이 없음) 다음 trim 단계에서 제거한다.
+  s = s.replace(/\{bc\}/g, ' : ')
   s = s.replace(/\{ldquo\}/g, '“').replace(/\{rdquo\}/g, '”')
   // 파이프 구분 교차참조 토큰: 첫 필드(표시 텍스트)만 남기고 나머지(링크 대상 등) 버림
   s = s.replace(/\{(?:sx|dxt|a_link|d_link|i_link|et_link|mat)\|([^|}]*)(?:\|[^}]*)?\}/g, '$1')
   // 위에서 못 거른 나머지 토큰은 전부 제거(알 수 없는 태그가 평문에 새는 것을 방지)
   s = s.replace(/\{[^}]*\}/g, '')
-  return s.trim().replace(/\s+/g, ' ')
+  // {bc}→" : " 치환으로 문두에 남는 ": "(구분할 대상이 없는 첫 {bc})는 제거한다.
+  return s.replace(/\s+/g, ' ').trim().replace(/^:\s*/, '')
 }
 
 // ---- sseq 평탄화 -----------------------------------------------------------
@@ -157,7 +162,28 @@ function mergeUsageTags(sls: string[] | undefined, lbs: string[] | undefined): s
 }
 
 function normalizeForMatch(s: string): string {
-  return s.replace(/[·]/g, '').toLowerCase()
+  // uros[].ure 실측 확인(2026-07-28, "photosynthesizing" 실API 호출): 음절 경계가
+  // '·'(중점)가 아니라 headword/ins[].if 와 동일하게 '*'였다 — 문서에 남아있던 '·' 가정은
+  // 오기였고, 이 함수가 '·'만 지워 실제 데이터에선 매칭이 전혀 안 되고 있었다.
+  return s.replace(/[·*]/g, '').toLowerCase()
+}
+
+/** MW 는 조회어 자체와 무관한 entry 까지 응답에 같이 섞어 보낸다 — 실측 확인(2026-07-28,
+ *  "catching" 조회): 정작 관련 있는 entry(`catching`/`catch:1`) 외에도 `catching` 이
+ *  구성 성분으로 들어간 관용구(`catch fire`/`catch it`/`catch one's breath`/`(one's)
+ *  age is catching up to one`)와, 심지어 **완전히 다른 단어("break:2", stems 에
+ *  "catching a break"가 있다는 이유만으로)** 까지 같이 온다. 이걸 다 entry.fl==='phrase'
+ *  일 때만 걸러내면 관용구는 잡아도 "break" 같은 완전 무관 단어는 못 거른다. 실제로
+ *  구분이 되는 축은 `meta.stems` — 진짜 연관 entry 는 조회어가 **다른 단어와 결합되지
+ *  않은 단독 형태**로 stems 에 그대로 들어있고(`catch:1` stems 에 'catching' 단독 원소
+ *  있음), 무관한 entry 는 조회어가 항상 다른 단어와 묶인 여러 단어짜리 문자열로만
+ *  등장한다(`catching a break`처럼). 그래서 "조회어가 stems 안에 단독 원소로 있는가"로
+ *  거른다 — 조회어 자체가 여러 단어 관용구(예: "kick the bucket")인 경우는 그 표현 자체가
+ *  stems 에 단독으로 들어있어 정상적으로 살아남는다. */
+function isRelevantEntry(entry: MwEntry, word: string): boolean {
+  const target = word.toLowerCase()
+  if (entry.meta.stems?.some((s) => s.toLowerCase() === target)) return true
+  return entry.hwi.hw.replace(/[·*]/g, '').toLowerCase() === target
 }
 
 /** uros(파생어) 처리 — 조회한 표면형이 파생 접사가 붙은 형태면 최상위 응답이 항상 원
@@ -261,7 +287,9 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
   let lastPronunciations: DictionaryReading['pronunciations']
 
   for (const entry of entries) {
-    headwordSet.add(entry.hwi.hw.replace(/[·*]/g, '')) // MW hw 는 음절 경계를 '·'(중점)로 표시(uros.ure 와 동일 표기 체계)
+    if (!isRelevantEntry(entry, word)) continue // 조회어와 무관한 entry(관용구 구성 성분 등) 제외
+
+    headwordSet.add(entry.hwi.hw.replace(/[·*]/g, '')) // MW hw 는 음절 경계를 '·'/'*'로 표시
     if (entry.fl === 'phrase') isIdiom = true
 
     if (entry.cxs) {
