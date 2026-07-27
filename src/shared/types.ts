@@ -207,13 +207,6 @@ export interface DictionaryReading {
 
 export interface DictionaryEntry {
   headword: string
-  /** 이 표제어가 단일 단어가 아니라 여러 단어로 굳어진 관용구/구(句)인지 — MW 는 이런
-   *  항목에 `fl`(functional label) 값으로 "phrase"를 줌(실측: "kick the bucket" 등). `fl`
-   *  자체는 posRaw 성격의 원본 라벨이라 LLM에 안 넘기지만, "이 후보가 통째로 굳어진
-   *  관용구라 부분 조합 해석이 아니라 그대로 뜻을 취해야 한다"는 건 다중 단어 선택 시
-   *  LLM 판정에 실제로 필요한 정보라 conjugationClass/irregularForms 와 같은 이유로
-   *  별도 필드로 승격(LLM에 전달). */
-  isIdiom?: boolean
   readings: DictionaryReading[]
   source: DictionarySourceId
 }
@@ -249,11 +242,17 @@ export interface ProviderValidation {
   error?: QuestionErrorCode
 }
 
-/** kuromoji 형태소 분석 결과 토큰 하나 (팝업 원문 문맥의 가나 atom 병합용, main/nlp/japanese.ts) */
+/**
+ * kuromoji 형태소 분석 결과 토큰 하나 — OCR 단어 분리(main/nlp/japanese.ts)와 팝업 원문
+ * 문맥 atom 병합(renderer popup/selection.ts) 양쪽에서 공용으로 쓴다(@shared/nlp/ja.ts
+ * mergeJaTokens 참고).
+ */
 export interface JaToken {
   surface: string
-  /** 品詞(품사) — 예: 助詞, 助動詞, 動詞, 名詞, 記号 */
+  /** 品詞(품사) 대분류 — 예: 助詞, 助動詞, 動詞, 名詞, 記号 */
   pos: string
+  /** 品詞細分類1(품사 세분류 1) — 예: 自立, 非自立, 接尾, 接続助詞. 미분류는 kuromoji 관례대로 "*" */
+  posDetail1: string
   /** 분석 대상 문자열 상 0-based 문자 오프셋 */
   start: number
 }
