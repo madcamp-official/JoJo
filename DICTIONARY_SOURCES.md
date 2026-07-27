@@ -32,11 +32,11 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - `prs.mw` 필드가 발음이지만 **IPA가 아니다** — 매크론(ā/ē/ī/ō/ū 등)을 쓰는 MW 자체 표기법. IPA 필드 자체가 응답에 없고, variety(지역) 구분도 없음(단일 값).
 - `fl`(functional label)이 품사; `"phrase"`면 관용구 표제어(예: "kick the bucket").
 - `sls`(status label sequence) — 격식/사용역 라벨(예: "ain't" → `["informal"]`).
-- 화용론적 사용법 설명(예: "ain't hay"→"많은 금액을 강조할 때 쓴다") — 기존 노트는 이 필드를 `uns`로 불렀는데, **공식 스키마 문서엔 entry 최상위 `usages`(usage discussion 객체 배열)만 나오고 `uns`라는 이름은 안 보임** `[2026-07-28 재실측 — 불일치 발견, 확정 못 함]`. 실제 응답에서 sense 단위로 오는 필드명이 `uns`인지, 아니면 `usages`가 sense 안에도 중첩되는지는 API 키로 실제 호출해봐야 확정 가능 — 어댑터 구현 착수 시 최우선 확인 필요.
+- ~~화용론적 사용법 설명 필드명이 `uns`인지 `usages`인지 API 키 없이는 확정 불가~~ → **확정(2026-07-28, `.env`의 실제 API 키로 "ain't hay" 직접 호출)**: sense 레벨 필드명은 **`uns`가 맞다** — `dt` 배열(태그된 튜플 시퀀스, `["text", ...]`/`["vis", [...]]`와 같은 자리) 안에 `["uns", [[["text", "used to say that an amount (of money) is a lot "], ["vis", [...]]]]]` 형태로 옴(예문 실측: "ain't hay" → "used to say that an amount (of money) is a lot"). `usages`(entry 최상위 usage discussion)는 별개의 상위 레벨 필드로 공존 가능 — sense 단위 자유 서술은 `uns`, 어댑터는 이걸 `usageNote`로 매핑.
 - `ins`(inflections) — 불규칙 활용형(예: run → "ran"). 반쯤 자유 텍스트.
 - `uros`(Undefined Run-Ons, 파생어 목록) — 조회한 표면형이 파생 접사가 붙은 형태(예: "photosynthesizing")면 **최상위 응답이 항상 원 표제어(예: "photosynthesis")로 돌아온다**(실측 확인). 질의어를 원형으로 미리 바꿔("photosynthesize") 검색해도 동일하게 원 표제어로 돌아옴 — 질의 단계 원형화로는 안 풀림. `uros[]`의 `ure`(파생어 표기, 중점 제거 후 비교)가 조회 표면형과 일치하는 항목을 찾아 그 `fl`/발음으로 보정해야 하고, 뜻풀이는 `uros`에 없으므로 원 표제어의 `def`를 그대로 쓴다.
 - `cxs`(cross-reference) — 변형 철자를 가리키는 포인터 전용 엔트리. 실측: "colour" 조회 시 `def`/`shortdef`가 전부 비어있고 `cxs: [{ "cxl": "chiefly British spelling of", "cxtis": [{ "cxt": "color" }] }]`만 옴. `DictionarySense.gloss`가 필수 필드라 안 거르면 어댑터가 막힌다 — 처리안은 (1) `cxl`+`cxt` 합성해 gloss로 대체(추가 호출 없음) 또는 (2) `cxt`로 재조회해 실제 정의 병합(호출 1회 추가, 더 정확) 둘 중 택1, 스키마 필드 추가는 불필요.
-- 전문분야 라벨 — 공식 스키마에 `lbs`(label 배열) 필드가 있는 것은 확인됨(2026-07-28) `[재실측으로 일부 해소]`, 다만 이게 `sls`(사용역)와 별도로 전문분야(컴퓨터/의학 등)를 담는 자리인지, 실제 값이 어떻게 나오는지는 API 키로 실호출 전까진 확정 불가 — en 어댑터 구현 시 재검토.
+- ~~전문분야 라벨 — `lbs`가 `sls`와 별도로 전문분야(컴퓨터/의학 등)를 담는 자리인지 확정 불가~~ → **정정(2026-07-28, `.env` API 키로 "deco" 직접 호출)**: `lbs`는 전문분야 라벨이 **아니다** — 공식 문서·실측 둘 다 "General Labels"로, 실제 값은 `["often attributive"]`(예: "deco")처럼 **표기 관례**(자주 대문자화됨/자주 관형적으로 쓰임 등) 라벨이다. entry 최상위(`fl` 옆)에 `lbs: string[]`로 오는 것도 실측 확인. 전문분야(컴퓨터/의학 등) 구분용 필드는 MW 스키마에 별도로 없음 — `lbs`는 성격상 `sls`(사용역)에 가까워 `usageTags`로 흡수하는 게 맞고, `domain`은 MW 소스에서 항상 undefined로 취급.
 
 **스키마 매핑**:
 
@@ -47,7 +47,8 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 | `fl` (`"phrase"`) | `DictionaryEntry.isIdiom` |
 | `prs.mw` | `DictionaryReading.pronunciations[].value` (variety 없음) |
 | `sls` | `DictionarySense.usageTags` |
-| `uns`/`usages`(필드명 미확정) | `DictionarySense.usageNote` |
+| `uns` | `DictionarySense.usageNote` |
+| `lbs`(entry 최상위, 실측: "deco" → `["often attributive"]`) | `DictionarySense.usageTags` — **레벨이 다름**(entry 전체 vs sense 단위)이라, 어댑터가 entry의 senses 전부에 복제해 `sls`와 합쳐 넣는다(값 자체가 드물고 가벼운 표기 관례라 이 정도 단순화로 결정, 2026-07-28). 전문분야(컴퓨터/의학 등) 라벨이 아니므로 `domain`엔 매핑 안 함. |
 | `ins` | `DictionarySense.irregularForms` |
 | `cxs`/`uros` | (파싱 로직에서만 처리, 전용 스키마 필드 없음) |
 
@@ -103,7 +104,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - `synonyms` 키 자체가 응답에 없음(재확인). 대신 `見よ:` 형태의 `see_also` — `synonyms`가 아니라 `seeAlso`로 분리.
 - `antonyms` 필드는 있음(재확인: "高い"→"低い", sense1에만).
 - **`tags` 필드가 misc(사용역)와 field(전문분야)를 한 배열에 뭉쳐 노출하는 것을 재확인**: レジスター의 3번째 sense(컴퓨팅 register 뜻)에서 `tags: ["Computing"]`(sense1/2는 tags 빈 배열). しどい는 `tags: ["Slang"]`. 薔薇 sense1은 `tags: ["Usually written using kana alone"]` — 격식이 아니라 표기 관례라 `usageTags`로 개명한 기존 판단이 정확했음을 재확인.
-- `info`(パン sense1 → `"originally written 麺麭 or 麪包"`)가 MW `uns`와 같은 "gloss/examples 어디에도 안 들어가는 자유 서술" 역할이라는 것도 재확인 → `usageNote`.
+- `info`(パン sense1 → `"originally written 麺麭 or 麪包"`)가 MW `uns`(sense 레벨 확정, "ain't hay" 실측 확인)와 같은 "gloss/examples 어디에도 안 들어가는 자유 서술" 역할이라는 것도 재확인 → `usageNote`.
 
 **스키마 매핑**:
 
@@ -222,8 +223,8 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 **아직 미확인 항목** (실측 필요, 확인되는 대로 위 해당 섹션에 반영):
 - ~~汉典 近反义词(lazy 섹션)를 채우는 실제 AJAX 엔드포인트~~ → **해소(2026-07-28)**: 애초에 AJAX가 필요 없었다 — `data-lazy` 속성과 무관하게 정적 HTML에 이미 내용이 채워져 있음을 재확인(위 汉典 섹션 참고). 찾을 엔드포인트 자체가 없다.
-- **MW sense 단위 "usage note" 필드의 정확한 이름**(`uns`인지 `usages`가 sense에도 나오는지) — API 키 없이는 확정 불가.
+- ~~MW sense 단위 "usage note" 필드의 정확한 이름~~ → **확정(2026-07-28)**: `uns`. 위 MW 섹션 참고.
 - ~~**OEWN JSON 릴리스 내부 스키마**~~ → **확인 완료(2026-07-28)**: GitHub Releases 에셋을 실제로 받아 압축 해제 후 확인 — `pronunciation[].variety`/`form`/synset 다중 `definition[]`은 기존 기록대로 실재하나, `tagcount`는 존재하지 않음(위 OEWN 섹션 참고, `DictionarySense.tagCount` 폐기 필요).
 - en 불규칙 동사 활용(MW `ins` 필드)을 `irregular?: boolean` 플래그로 별도 승격할지 여부.
 - ~~zh 이합사(离合词, 结婚/见面처럼 중간에 성분 삽입 가능한 특이 문법)~~ → **확인 완료(2026-07-28)**: CC-CEDICT는 태깅 없음(기존 확인). 汉典 `结婚`, 萌典 `見面` 페이지를 직접 실측한 결과 둘 다 离合词/구조(动宾式 등) 관련 태그나 필드가 전혀 없음을 확인 — 汉典·萌典·CC-CEDICT 세 소스 모두 이 문법 범주를 태깅하지 않는다. 스키마에 별도 필드 안 만드는 결정 확정, 필요시 LLM 자체 지식으로 설명.
-- MW의 전문분야 라벨(`lbs` 필드가 존재하는 것은 확인됨) — 실제 값·의미론은 API 실호출 필요.
+- ~~MW의 전문분야 라벨(`lbs`) 실제 값·의미론~~ → **확정(2026-07-28)**: 전문분야 라벨이 아니라 표기 관례("often attributive" 등) 라벨. 위 MW 섹션 참고.

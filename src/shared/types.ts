@@ -174,15 +174,6 @@ export interface DictionarySense {
   transitive?: boolean
   /** 중국어 양사(CC-CEDICT의 "CL:") — 다른 언어는 항상 undefined */
   classifiers?: string[]
-  /** @deprecated 폐기 대상(2026-07-28) — OEWN 공식 GitHub Releases JSON(`english-wordnet-
-   *  2025-json.zip`)을 실제로 받아 압축 해제 후 전수 검사한 결과 `tagcount` 필드 자체가
-   *  존재하지 않음을 확인함(`grep -r "tagcount"` 0건, sense 객체의 실제 키 26종에도 빈도
-   *  관련 필드 없음). Princeton WordNet WNDB 배포판의 `index.sense`(`tag_cnt`)에 있던
-   *  개념으로 추정되나 이 JSON 릴리스로는 채울 수 없다 — 이전 기록("run(v) tagcount=106
-   *  실측")은 검증 없이 옮겨 적힌 오기였다. 현재 이 필드를 채울 수 있는 실제 데이터 소스가
-   *  없으므로, 어댑터 구현 전 필드를 제거하거나 WNDB 원본 파일을 별도로 받는 방안을
-   *  재검토해야 한다(자세한 경위는 DICTIONARY_SOURCES.md#oewn-open-english-wordnet 참고). */
-  tagCount?: number
   /** 뜻풀이 원문(번역하지 않음, 원어 그대로) — 배열인 이유: 대부분 소스는 sense 하나에
    *  정의가 1개뿐이지만, **OEWN은 한 synset 에 패러프레이즈 대안 정의가 여러 개 붙는
    *  경우가 실측 확인됨**(예: `81484980-r` synset → ["quickly and without warning",
@@ -211,7 +202,11 @@ export interface DictionarySense {
    *  (실측: "しどい"→["Slang"], "薔薇"→["Usually written using kana alone"])가 격식뿐
    *  아니라 표기 관례 같은 이질적 태그까지 섞여 있어 `register`란 이름이 좁아서
    *  `usageTags`로 개명(2026-07-28) — 격식 라벨(MW `sls`, CC-CEDICT `(coll.)`/`(slang)` 등)과
-   *  JMdict `misc` 둘 다 이 필드 하나로 수용한다. */
+   *  JMdict `misc` 둘 다 이 필드 하나로 수용한다. **MW `lbs`도 여기 합류**(실측 확인,
+   *  "deco" → entry 최상위 `lbs: ["often attributive"]`) — 전문분야 라벨이 아니라 `sls`와
+   *  같은 성격의 일반 표기 관례 라벨이라 domain이 아니라 이 필드로 매핑한다. 단 `lbs`는
+   *  entry 최상위 필드라 sense 레벨인 이 필드와 위치가 다르므로, 어댑터가 그 entry의 모든
+   *  sense 에 복제해 넣어야 한다. */
   usageTags?: string[]
   /** 전문분야/도메인 라벨 — JMdict `field`(jmdict-simplified 원본, 컴퓨터·의학·법률 등)
    *  실측 확인. jisho.org 라이브 API는 이 축을 `misc`(usageTags 대응)와 뭉쳐 `tags`
@@ -280,9 +275,10 @@ export interface DictionaryReading {
    *  API로 "上手" 검색 시 `is_common` 이 sense 배열 안이 아니라 각 entry(result) 최상위에만
    *  있고, 그 밑 senses(예: じょうず 그룹의 "능숙한"/"아첨" 두 sense)는 전부 같은 값을
    *  공유함 — 원본 JMdict XML 이 우선도 태그(`ke_pri`/`re_pri`)를 한자/읽기 요소에만 붙이고
-   *  sense 요소엔 안 붙이는 구조라 애초에 sense 단위로 갈릴 수 없다. DictionarySense.tagCount
-   *  (OEWN 전용, 실제로 sense마다 다름)와 반대되는 케이스라 레벨을 분리해뒀다. LLM 프롬프트엔
-   *  넣지 않고, 어댑터가 같은 표기의 여러 reading(DictionaryReading[]) 을 안정 정렬할 때만 씀. */
+   *  sense 요소엔 안 붙이는 구조라 애초에 sense 단위로 갈릴 수 없다. LLM 프롬프트엔
+   *  넣지 않고, 어댑터가 같은 표기의 여러 reading(DictionaryReading[]) 을 안정 정렬할 때만 씀.
+   *  (당초 함께 뒀던 `DictionarySense.tagCount`(OEWN 전용)는 실제 OEWN JSON 릴리스에 그런
+   *  필드가 없어 폐기함 — 2026-07-28.) */
   isCommon?: boolean
   /** 이 reading 이 headword 배열 중 일부 표기에만 적용될 때만 채움(undefined = 전체 적용) —
    *  jmdict-simplified `Kana.appliesToKanji` 실측 확인(인덱스가 아니라 한자 표기 문자열
