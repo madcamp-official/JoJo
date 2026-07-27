@@ -4,9 +4,16 @@ DocLayout-YOLO(opendatalab, HF: juliozhao/DocLayout-YOLO-DocStructBench)로 캡�
 이미지의 레이아웃 블록(텍스트/제목/표/그림 등)을 검출하고, 다단(2단 등) 배치를
 "왼쪽 열 위→아래, 그다음 오른쪽 열 위→아래" 순서로 정렬해 반환한다.
 
-Node(layoutDetect.ts)가 이 스크립트를 서브프로세스로 호출한다:
-  python layout_detect.py <image_path> [--region x,y,w,h]
-표준출력으로 JSON 한 줄을 찍는다: { blocks: [{x,y,width,height,label,confidence,order,column}, ...] }
+Node(layoutDetect.ts)가 이 스크립트를 두 가지 방식으로 호출한다:
+  1) 1회성: python layout_detect.py <image_path> [--region x,y,w,h]
+     표준출력에 JSON 한 줄: { blocks: [{x,y,width,height,label,confidence,order,column}, ...] }
+  2) 서버 모드(실제로 앱이 쓰는 방식): python layout_detect.py --serve
+     표준입력에서 한 줄씩 요청을 읽는다: {"image_path": "...", "region": [x,y,w,h] | null}
+     처리할 때마다 표준출력에 응답 한 줄: {"blocks": [...]} 또는 {"error": "..."}
+     — Python/torch 시작 비용(수 초)과 모델 로딩을 딱 한 번만 치르고 프로세스를 계속
+     살려둔 채 재사용하기 위함이다. 1회성 호출은 매번 이 비용을 전부 다시 내야 해서
+     실사용 중 "창 리사이즈 후 재추출까지 너무 오래 걸림"(실측: 추론 자체는 1초인데
+     전체는 8초+, 대부분 torch import + 모델 로딩)으로 확인돼 서버 모드로 바꿨다.
 
 읽기 순서 정렬은 모델이 주는 것을 쓰지 않고(DocStructBench 체크포인트는 클래스만
 주고 순서는 안 줌) 아래 규칙으로 직접 계산한다:
@@ -82,7 +89,10 @@ def order_blocks(blocks):
 
 def detect(image_path: str, region: tuple[int, int, int, int] | None):
     model = get_model()
-    results = model.predict(image_path, imgsz=1024, conf=0.25, device="cpu")
+    # verbose=False: 기본값으로 두면 predict() 가 "image 1/1 ... Speed: ..." 같은 로그를
+    # stdout 에 찍는데, 서버 모드에서는 stdout 한 줄 = 응답 한 줄이어야 하므로 이 노이즈가
+    # 섞이면 프로토콜이 깨진다.
+    results = model.predict(image_path, imgsz=1024, conf=0.25, device="cpu", verbose=False)
     blocks = []
     for result in results:
         names = result.names
@@ -101,11 +111,33 @@ def detect(image_path: str, region: tuple[int, int, int, int] | None):
     return order_blocks(blocks)
 
 
+def serve():
+    """표준입력에서 요청을 한 줄씩 읽어 처리하는 상주 모드 — 모델은 첫 요청 때 한 번만
+    로드하고 계속 재사용한다. 한 줄이 요청 하나, 한 줄이 응답 하나(순서 보장, Node
+    쪽도 요청을 한 번에 하나씩만 보낸다 — layoutDetect.ts 의 큐 참고)."""
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+            region = tuple(req["region"]) if req.get("region") else None
+            blocks = detect(req["image_path"], region)
+            print(json.dumps({"blocks": blocks}), flush=True)
+        except Exception as e:  # 요청 하나가 실패해도 서버 프로세스 자체는 계속 살아있어야 함
+            print(json.dumps({"error": str(e)}), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("image_path")
+    parser.add_argument("image_path", nargs="?")
     parser.add_argument("--region", type=str, default=None, help="x,y,w,h")
+    parser.add_argument("--serve", action="store_true", help="상주 서버 모드(표준입출력)")
     args = parser.parse_args()
+
+    if args.serve:
+        serve()
+        return
 
     region = None
     if args.region:

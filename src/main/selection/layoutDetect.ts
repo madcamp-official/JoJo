@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { createInterface } from 'node:readline'
 import { writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +14,14 @@ import type { Rect } from '@shared/types'
 // Python 환경(python/.venv, 모델 가중치)이 없거나 실패하면 null 을 반환해서 항상
 // 기존 단일 패스 OCR 로 자연스럽게 폴백하게 한다 — 이 실험 기능이 안 갖춰진 개발
 // 환경에서도 앱이 정상 동작해야 하기 때문(README 에 별도 설치 안내 필요).
+//
+// **상주 서버 프로세스로 통신한다(1회성 spawn 아님)** — 실측 결과 `python
+// layout_detect.py <img>`를 매번 새로 띄우면 실제 추론(~1초)보다 torch import +
+// 모델 로딩이 훨씬 커서(총 8초+) 리사이즈 한 번마다 이 호출이 최대 두 번(영역 자동
+// 감지 1회 + ocr.ts 의 열 병합 판단 1회) 일어나 재추출이 심하게 느렸다(실사용 중
+// "재추출까지 너무 오래 걸림"으로 확인). Python 을 `--serve` 모드로 한 번만 띄워
+// 계속 살려두고(모델도 첫 요청 때 한 번만 로드) 표준입출력으로 줄 단위 JSON 요청/
+// 응답을 주고받는다 — 이후 호출은 순수 추론 시간(~1초)만 든다.
 
 export interface LayoutBlock {
   bbox: Rect
@@ -38,19 +47,87 @@ interface RawBlock {
   column: number
 }
 
+let server: ChildProcessWithoutNullStreams | null = null
+let stdoutLines: ReturnType<typeof createInterface> | null = null
+// Node 쪽에서 요청을 한 번에 하나씩만 서버에 보내도록 직렬화한다 — 서버는 표준입출력
+// 한 줄이 요청 하나·응답 하나라 상관관계 ID 없이 순서로만 매칭되므로, 동시에 여러
+// 요청을 보내면 응답이 뒤섞인다(예: autoDetectRegion 과 ocr.ts 의 호출이 겹치는 경우).
+let queue: Promise<unknown> = Promise.resolve()
+
+function getServer(): ChildProcessWithoutNullStreams {
+  if (server && !server.killed) return server
+  const proc = spawn(PYTHON_BIN, [SCRIPT_PATH, '--serve'])
+  const reset = () => {
+    if (server === proc) {
+      server = null
+      stdoutLines = null
+    }
+  }
+  proc.on('error', reset) // python 실행 파일 자체가 없는 경우(venv 미설치) 등 — ENOENT
+  proc.on('exit', reset)
+  proc.stderr.on('data', (d) => console.error('[layoutDetect] python stderr:', d.toString()))
+  server = proc
+  stdoutLines = createInterface({ input: proc.stdout })
+  return proc
+}
+
+/**
+ * 서버에 요청 한 줄을 보내고 응답 한 줄을 기다린다. 프로세스가 아예 못 뜨거나
+ * (spawn ENOENT) 응답을 기다리는 도중 죽으면(모델 로딩 실패 등) 그 자리에서 reject
+ * 시켜야 한다 — 안 그러면 'line' 이벤트가 영원히 안 와서 요청이 무한 대기하게 된다.
+ */
+function requestDetection(imagePath: string, region?: Rect): Promise<RawBlock[]> {
+  const proc = getServer()
+  const rl = stdoutLines!
+  const req = {
+    image_path: imagePath,
+    region: region ? [region.x, region.y, region.width, region.height] : null,
+  }
+  return new Promise<RawBlock[]>((resolve, reject) => {
+    const cleanup = () => {
+      rl.off('line', onLine)
+      proc.off('error', onError)
+      proc.off('exit', onExit)
+    }
+    const onLine = (line: string) => {
+      cleanup()
+      try {
+        const parsed = JSON.parse(line) as { blocks: RawBlock[] } | { error: string }
+        if ('error' in parsed) reject(new Error(parsed.error))
+        else resolve(parsed.blocks)
+      } catch (err) {
+        reject(err)
+      }
+    }
+    const onError = (err: Error) => {
+      cleanup()
+      reject(err)
+    }
+    const onExit = (code: number | null) => {
+      cleanup()
+      reject(new Error(`layout_detect.py --serve exited (${code}) while waiting for response`))
+    }
+    rl.once('line', onLine)
+    proc.once('error', onError)
+    proc.once('exit', onExit)
+    proc.stdin.write(JSON.stringify(req) + '\n', (err) => {
+      if (err) {
+        cleanup()
+        reject(err)
+      }
+    })
+  })
+}
+
 export async function detectLayoutBlocks(image: Buffer, region?: Rect): Promise<LayoutBlock[] | null> {
   const tmpPath = join(tmpdir(), `nuance-layout-${process.pid}-${Date.now()}.png`)
   await writeFile(tmpPath, image)
+  // 큐에 이어붙여서 이전 요청이 끝난 뒤에만 이번 요청을 보낸다(직렬화).
+  const task = queue.then(() => requestDetection(tmpPath, region))
+  queue = task.catch(() => undefined) // 이번 요청이 실패해도 큐 자체는 안 끊기게
   try {
-    const args = [SCRIPT_PATH, tmpPath]
-    if (region) args.push('--region', `${region.x},${region.y},${region.width},${region.height}`)
-    const stdout = await runPython(args)
-    // 모델 로딩 중 huggingface_hub 등이 stdout/stderr 에 경고를 섞어 찍을 수 있어서,
-    // 스크립트가 마지막 줄에만 JSON 을 찍기로 한 약속(layout_detect.py: print(json...))
-    // 에 맞춰 마지막 줄만 파싱한다.
-    const lastLine = stdout.trim().split('\n').pop() ?? ''
-    const parsed = JSON.parse(lastLine) as { blocks: RawBlock[] }
-    return parsed.blocks
+    const blocks = await task
+    return blocks
       .sort((a, b) => a.order - b.order)
       .map((b) => ({
         bbox: { x: b.x, y: b.y, width: b.width, height: b.height },
@@ -125,19 +202,4 @@ export function padRect(rect: Rect, paddingX: number, paddingY: number, bounds: 
   const x1 = Math.min(boundsRight, rect.x + rect.width + paddingX)
   const y1 = Math.min(boundsBottom, rect.y + rect.height + paddingY)
   return { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) }
-}
-
-function runPython(args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(PYTHON_BIN, args)
-    let stdout = ''
-    let stderr = ''
-    proc.stdout.on('data', (d) => (stdout += d.toString()))
-    proc.stderr.on('data', (d) => (stderr += d.toString()))
-    proc.on('error', reject) // python 실행 파일 자체가 없는 경우(venv 미설치) 등
-    proc.on('close', (code) => {
-      if (code === 0) resolve(stdout)
-      else reject(new Error(`layout_detect.py exited with ${code}: ${stderr}`))
-    })
-  })
 }

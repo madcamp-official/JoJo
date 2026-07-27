@@ -10,6 +10,14 @@ import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSel
 let mode: AppMode = 'normal'
 let currentAccelerators: string[] = []
 
+// 실제 마우스 드래그(이동이든 리사이즈든)는 WinEventHook 이 한 번에 끝나지 않고 위치가
+// 바뀔 때마다(픽셀 단위로) 연달아 이벤트를 쏟아낸다 — resizeJitter 허용치(windows.ts)를
+// 넘는 "진짜" 크기 변화라도, 드래그 도중에는 여러 번 연속으로 잡힐 수 있다. 매번 즉시
+// 처리하면 자동 영역 감지(무거운 Python 서브프로세스 호출)가 겹쳐 돌면서 심한 렉을
+// 유발했다(실사용 중 확인) — 드래그가 끝나고 크기가 안정된 뒤 한 번만 처리한다.
+const RESIZE_SETTLE_DELAY_MS = 400
+let resizeSettleTimer: NodeJS.Timeout | null = null
+
 // 창 크기가 바뀌면 이전에 지정한 OCR 영역(regionSelection.ts)의 좌표가 더 이상 유효하지
 // 않다 — 선택 모드는 그대로 유지하되(모드를 강제로 바꾸지 않음), 영역과 캐시된 단어를
 // 비워서 더 이상 아무 박스도 선택되지 않게 하고, 안내 배너와 함께 바로 영역 재선택
@@ -20,7 +28,11 @@ onWindowResized(() => {
   invalidateExtractionCache() // 이전 영역 기준 캐시/단어를 비움(오버레이에도 빈 배열 통지돼 박스가 사라짐)
   stopChangeWatcher() // 영역이 무효화됐으니 그 영역 기준 변화 감지도 멈춘다(재선택 후 다시 시작)
   sendOverlayNotice('창 크기가 바뀌었어요. 본문 영역을 다시 찾는 중이에요…')
-  void acquireRegionAutomaticallyOrAskDrag()
+  if (resizeSettleTimer) clearTimeout(resizeSettleTimer)
+  resizeSettleTimer = setTimeout(() => {
+    resizeSettleTimer = null
+    void acquireRegionAutomaticallyOrAskDrag()
+  }, RESIZE_SETTLE_DELAY_MS)
 })
 
 function toggleMode(): void {
@@ -41,6 +53,13 @@ function toggleMode(): void {
   }
 }
 
+// autoDetectRegion() 은 Python(DocLayout-YOLO) 서브프로세스를 스폰하는 무거운 호출이라,
+// 이미 하나가 진행 중인데 또 시작하면(예: 디바운스를 뚫고 연달아 들어온 요청) CPU를
+// 서로 잡아먹어 렉이 심해진다(실사용 중 확인) — 한 번에 하나만 돌리고, 그사이 또
+// 요청이 들어오면 지금 것이 끝난 뒤 딱 한 번만 더 돈다(여러 번 쌓아두지 않음).
+let detecting = false
+let pendingRedetect = false
+
 /**
  * 담당 A — 실험용 브랜치(experiment/doclayout-yolo). 영역이 없을 때(처음 선택한 창,
  * 리사이즈로 무효화된 뒤) 먼저 DocLayout-YOLO 로 본문 영역 자동 감지를 시도한다
@@ -51,16 +70,29 @@ function toggleMode(): void {
  * 으로 완전히 폴백하므로 항상 안전하다.
  */
 async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
-  const detected = await autoDetectRegion()
-  if (mode !== 'select') return // 그 사이 모드가 바뀌었으면(빠른 토글 등) 무시
-  if (detected) {
-    setRegion(detected)
-    refreshExtractionCache()
-    startChangeWatcher()
-  } else {
-    // 영역이 없으면(처음 선택하는 창이거나, 리사이즈로 무효화된 뒤) 오버레이에 드래그
-    // 선택을 요청한다 — 사용자가 영역을 그리면 ipc.ts(SUBMIT_REGION)가 저장 후 추출을 시작한다.
-    sendRegionSelectionNeeded()
+  if (detecting) {
+    pendingRedetect = true
+    return
+  }
+  detecting = true
+  try {
+    const detected = await autoDetectRegion()
+    if (mode !== 'select') return // 그 사이 모드가 바뀌었으면(빠른 토글 등) 무시
+    if (detected) {
+      setRegion(detected)
+      refreshExtractionCache()
+      startChangeWatcher()
+    } else {
+      // 영역이 없으면(처음 선택하는 창이거나, 리사이즈로 무효화된 뒤) 오버레이에 드래그
+      // 선택을 요청한다 — 사용자가 영역을 그리면 ipc.ts(SUBMIT_REGION)가 저장 후 추출을 시작한다.
+      sendRegionSelectionNeeded()
+    }
+  } finally {
+    detecting = false
+    if (pendingRedetect) {
+      pendingRedetect = false
+      void acquireRegionAutomaticallyOrAskDrag()
+    }
   }
 }
 

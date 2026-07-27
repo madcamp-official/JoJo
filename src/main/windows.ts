@@ -170,44 +170,47 @@ function sameBounds(a: Electron.Rectangle, b: Electron.Rectangle): boolean {
   return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 }
 
-// 창 경계가 모니터 "진짜" 경계에서 이 정도(px) 이내면 "이 모니터를 꽉 채운
-// 진짜 전체화면"으로 보고 그 경계에 딱 붙인다(작업표시줄 유무와 무관하게).
+// 모니터의 물리적 진짜 경계에서 이 정도(px) 이내면 "이 모니터를 꽉 채운 진짜
+// 전체화면"(F11 등, OS 최대화가 아니라 앱이 직접 모니터 크기로 맞춘 테두리 없는 창)
+// 으로 보고 그 경계에 딱 붙인다. 작업표시줄까지 덮으므로 작업영역이 아니라 모니터
+// 진짜 경계 기준.
 const DISPLAY_EDGE_SNAP_PX = 4
 
 /**
- * 한 변의 스냅 좌표를 정한다.
- *  1) 모니터의 물리적 진짜 경계(boundsEdge)에 거의 닿아있으면 — 작업표시줄을 덮는
- *     진짜 전체화면(F11 등, 작업표시줄까지 밀어내는 창 스타일)이라는 뜻이므로 그
- *     경계에 딱 맞춘다.
- *  2) 작업영역 경계(workAreaEdge, 작업표시줄이 있으면 그만큼 안쪽)에 거의 닿아있으면
- *     — 정상적으로 작업표시줄을 피해 최대화된 창이라는 뜻이므로 그 경계에 맞춘다
- *     (반올림 오차 보정).
- *  3) 둘 중 어디에도 안 닿아있으면 — 창을 최대화할 때 Windows 가 DWM 확장 프레임
- *     경계(DWMWA_EXTENDED_FRAME_BOUNDS)를 작업영역보다도 바깥쪽(심하면 모니터 진짜
- *     경계 너머)으로 보고하는 경우가 있다(Windows 자체의 알려진 동작) — 이 경우
- *     작업영역보다 더 안 나가게 클램프한다. 그렇지 않으면 테두리가 작업표시줄
- *     뒤로(더 나아가 모니터 밖으로) 밀려 들어가 그 부분이 안 보이게 된다.
+ * 오버레이 경계를 모니터 경계에 맞출지 결정한다. 예전엔 "작업영역 경계에 거리가
+ * 가까우면 정상 최대화로 보고 스냅"하는 식으로 추측했는데, 실측해보니 최대화된 창의
+ * 실제 DWM 경계가 작업영역과 몇 px 차이나는지가 환경마다(모니터 배율 등) 달라서
+ * 어떤 허용치를 잡아도 안 맞는 경우가 있었다 — 어떤 땐 테두리가 작업표시줄 뒤로
+ * 숨고(허용치보다 더 벗어남), 어떤 땐 사용자가 창을 작업표시줄과 일부러 겹치게
+ * 드래그했을 뿐인데도 오탐으로 스냅돼 테두리가 줄어들고 리사이즈로 오인됐다.
+ *
+ * 그래서 추측 대신 `IsZoomed`(win32Capture.ts: isWindowMaximized)로 "진짜 OS
+ * 최대화 상태인지" 자체를 직접 물어본다 — 최대화는 정의상 작업영역에 정확히
+ * 맞춰지므로 이 경우엔 무조건 작업영역에 스냅해도 항상 정확하다.
+ *
+ * 최대화가 아닌 경우(F11 커스텀 전체화면 포함, 그냥 드래그로 옮긴 일반 창 포함)엔
+ * "이 창이 모니터 전체를 덮고 있는지"를 네 변을 다 같이 봐서 판단한다 — 변 하나씩
+ * 따로 판정하면(예: 아래쪽 변만 모니터 진짜 하단에 가까움) 작업표시줄이 화면 맨
+ * 아래에 붙어있어서 "창을 작업표시줄에 가리게 아래로 내리는" 흔한 동작만으로도
+ * 아래쪽 변이 그 근접 판정에 걸려 오탐 스냅이 났다(실사용 중 "메모장을 내려서
+ * 작업표시줄에 가리면 알림이 뜸"으로 재현) — 네 변이 전부 모니터 경계에 가까울
+ * 때만(=정말로 모니터 전체를 덮는 진짜 전체화면일 때만) 스냅하고, 그 외엔 절대
+ * 손대지 않는다.
  */
-function snapEdge(
-  value: number,
-  boundsEdge: number,
-  workAreaEdge: number,
-  clamp: (a: number, b: number) => number,
-): number {
-  if (Math.abs(value - boundsEdge) <= DISPLAY_EDGE_SNAP_PX) return boundsEdge
-  if (Math.abs(value - workAreaEdge) <= DISPLAY_EDGE_SNAP_PX) return workAreaEdge
-  return clamp(value, workAreaEdge)
-}
-
-function snapToDisplayEdges(rect: Electron.Rectangle): Electron.Rectangle {
+function snapToDisplayEdges(rect: Electron.Rectangle, isMaximized: boolean): Electron.Rectangle {
   const display = screen.getDisplayMatching(rect)
+  if (isMaximized) {
+    const wa = display.workArea
+    return { x: wa.x, y: wa.y, width: wa.width, height: wa.height }
+  }
   const b = display.bounds
-  const wa = display.workArea
-  const x = snapEdge(rect.x, b.x, wa.x, Math.max)
-  const y = snapEdge(rect.y, b.y, wa.y, Math.max)
-  const right = snapEdge(rect.x + rect.width, b.x + b.width, wa.x + wa.width, Math.min)
-  const bottom = snapEdge(rect.y + rect.height, b.y + b.height, wa.y + wa.height, Math.min)
-  return { x, y, width: right - x, height: bottom - y }
+  const near = (a: number, v: number) => Math.abs(a - v) <= DISPLAY_EDGE_SNAP_PX
+  const coversWholeDisplay =
+    near(rect.x, b.x) &&
+    near(rect.y, b.y) &&
+    near(rect.x + rect.width, b.x + b.width) &&
+    near(rect.y + rect.height, b.y + b.height)
+  return coversWholeDisplay ? { x: b.x, y: b.y, width: b.width, height: b.height } : rect
 }
 
 const resizeListeners = new Set<() => void>()
@@ -217,9 +220,19 @@ export function onWindowResized(cb: () => void): void {
   resizeListeners.add(cb)
 }
 
+// 물리→DIP 변환(physicalToDipRect)은 좌상단/우하단 두 점을 각각 반올림해서 폭을 구하므로,
+// 창 크기는 그대로인데 위치만 바뀌어도 반올림 나머지가 달라져 계산된 DIP 폭/높이가 ±1px
+// 흔들릴 수 있다 — 실사용 중 "창을 옮기기만 했는데 리사이즈로 인식됨"으로 확인됨. 진짜
+// 리사이즈만 잡아내도록 이 정도 흔들림은 무시한다.
+const RESIZE_JITTER_TOLERANCE_PX = 2
+
 /** applyOverlayBounds/showMacOverlayAt 이 lastBounds 를 갱신하기 직전에 호출 — 크기 변화만 감지. */
 function notifyIfResized(newBounds: Electron.Rectangle): void {
-  if (lastBounds && (lastBounds.width !== newBounds.width || lastBounds.height !== newBounds.height)) {
+  if (
+    lastBounds &&
+    (Math.abs(lastBounds.width - newBounds.width) > RESIZE_JITTER_TOLERANCE_PX ||
+      Math.abs(lastBounds.height - newBounds.height) > RESIZE_JITTER_TOLERANCE_PX)
+  ) {
     for (const cb of resizeListeners) cb()
   }
 }
@@ -268,7 +281,7 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   return win
 }
 
-function applyOverlayBounds(targetRect: Electron.Rectangle | null): void {
+function applyOverlayBounds(targetRect: Electron.Rectangle | null, isMaximized = false): void {
   if (!targetRect) {
     if (overlayWindow && overlayVisible) {
       overlayWindow.hide()
@@ -278,7 +291,7 @@ function applyOverlayBounds(targetRect: Electron.Rectangle | null): void {
     return
   }
 
-  const bounds = snapToDisplayEdges(physicalToDipRect(targetRect))
+  const bounds = snapToDisplayEdges(physicalToDipRect(targetRect), isMaximized)
   const win = ensureOverlayWindow(bounds)
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
     notifyIfResized(bounds)
@@ -315,16 +328,16 @@ function syncOverlayZOrder(mod: typeof Win32Capture, hwnd: bigint): void {
  */
 export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
   const mod = win32CaptureMod ?? (win32CaptureMod = await import('./selection/win32Capture'))
-  const { getWindowScreenRect, onWindowForegroundChanged, onWindowLocationChanged } = mod
+  const { getWindowScreenRect, isWindowMaximized, onWindowForegroundChanged, onWindowLocationChanged } = mod
 
   trackedHwnd = hwnd
-  applyOverlayBounds(getWindowScreenRect(hwnd))
+  applyOverlayBounds(getWindowScreenRect(hwnd), isWindowMaximized(hwnd))
   syncOverlayZOrder(mod, hwnd)
 
   if (!hooksWired) {
     onWindowLocationChanged((changedHwnd) => {
       if (trackedHwnd !== null && changedHwnd === trackedHwnd) {
-        applyOverlayBounds(getWindowScreenRect(trackedHwnd))
+        applyOverlayBounds(getWindowScreenRect(trackedHwnd), isWindowMaximized(trackedHwnd))
       }
     })
     // 대상 창이 다시 포그라운드로 올라올 때(예: 다른 창에 가려졌다가 클릭해서 복귀)
@@ -351,7 +364,7 @@ export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
   if (trackTimer) clearInterval(trackTimer)
   trackTimer = setInterval(() => {
     if (trackedHwnd === null) return
-    applyOverlayBounds(getWindowScreenRect(trackedHwnd))
+    applyOverlayBounds(getWindowScreenRect(trackedHwnd), isWindowMaximized(trackedHwnd))
     // 탭 전환처럼 같은 창(hwnd) 안에서 내부적으로 다시 그려지는 경우는 포그라운드
     // 전환 이벤트가 안 떠서(창 자체는 안 바뀌니까) syncOverlayZOrder 가 그 순간에
     // 안 불린다 — 그 사이 오버레이가 뒤로 밀려도 다음 포그라운드 이벤트가 오기 전까지
@@ -379,7 +392,10 @@ const MAC_TRACK_INTERVAL_MS = 16
 const MAC_OCCLUSION_EVERY = 6
 
 function showMacOverlayAt(rawBounds: { x: number; y: number; width: number; height: number }): void {
-  const bounds = snapToDisplayEdges(rawBounds)
+  // macOS 는 "진짜 OS 최대화" 개념이 win32 의 IsZoomed 처럼 명확하지 않아(Zoom 버튼은
+  // 단순 토글이라 최대화 여부를 안정적으로 구분하기 어려움) 항상 false — 모니터 진짜
+  // 경계에 거의 닿아있을 때만(F11 류 전체화면) 스냅하는 기본 동작만 적용된다.
+  const bounds = snapToDisplayEdges(rawBounds, false)
   const win = ensureOverlayWindow(bounds) // darwin 설정(미션컨트롤 숨김·floating)은 생성 시 1회
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
     notifyIfResized(bounds)

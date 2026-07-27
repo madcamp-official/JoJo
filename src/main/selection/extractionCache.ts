@@ -29,10 +29,15 @@ let cached: CachedExtraction | null = null
 let inFlight: Promise<CachedExtraction> | null = null
 
 async function runExtraction(): Promise<CachedExtraction> {
-  const language = await detectLanguage()
+  const image = await captureFocusedWindow()
   // getRegion() 은 이미 캡처 좌표계(물리 픽셀)로 저장돼 있어(regionSelection.ts:
   // submitRegionFromOverlay 가 변환) 추가 변환 없이 그대로 runOcr 에 넘길 수 있다.
-  const extracted = await runOcr(await captureFocusedWindow(), language, getRegion() ?? undefined)
+  const region = getRegion() ?? undefined
+  // 본문 영역이 정해진 뒤에 그 영역만으로 언어를 감지한다(langDetect.ts) — 영역 밖의
+  // 메뉴바 등 다른 언어 UI 텍스트에 안 흔들리도록, 캡처 → 영역 확정 → 언어 감지 →
+  // OCR 순서로 실행한다.
+  const language = await detectLanguage(image, region)
+  const extracted = await runOcr(image, language, region)
 
   return {
     text: extracted.text,
