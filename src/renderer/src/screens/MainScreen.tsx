@@ -33,6 +33,9 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
         <button className="link-btn demo" onClick={() => window.nuance.openPopup()}>
           🔍 팝업 미리보기 (영어: well-to-do)
         </button>
+        <button className="link-btn demo" onClick={() => window.nuance.openPopup('en-bank')}>
+          🔍 팝업 미리보기 (영어 동음이의어: bank)
+        </button>
         <button className="link-btn demo" onClick={() => window.nuance.openPopup('ja')}>
           🔍 팝업 미리보기 (일본어: 新大橋)
         </button>

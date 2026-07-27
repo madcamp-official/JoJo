@@ -14,6 +14,7 @@ import { Chat } from './popup/Chat'
 import { FrequentQuestions } from './popup/FrequentQuestions'
 import { buildDisplayText, buildSelectionModel, deriveContext } from './popup/selection'
 import {
+  mockBankExtraction,
   mockDevotionExtraction,
   mockHobbitExtraction,
   mockThreeBodyExtraction,
@@ -49,6 +50,8 @@ function initialMockExtraction(): ExtractedSelection {
       return mockDevotionExtraction()
     case 'zh-Hans':
       return mockThreeBodyExtraction()
+    case 'en-bank':
+      return mockBankExtraction()
     default:
       return mockHobbitExtraction()
   }

@@ -66,6 +66,34 @@ export function mockHobbitExtraction(): ExtractedSelection {
 }
 
 // ============================================================================
+// 영어 동음이의어(homograph) 데모 목업 — MW 사전 뜻 판정(en/MW 어댑터) 테스트용.
+// 같은 표기 "bank" 가 한 지문 안에 세 번, 서로 다른 뜻(MW 상 별개 hom)으로 등장한다:
+//   1) "muddy bank of the river" — 강둑(지형)
+//   2) "the bank closed" / "deposit" — 은행(금융, 통계적으로 훨씬 흔한 뜻)
+//   3) "banked sharply" — (비행기가) 선회하며 기울다(동사)
+// 팝업에서 세 지점 중 어디를 선택하느냐에 따라 LLM 이 고르는 뜻 번호가 달라지는지
+// 비교해볼 수 있다 — 흔한 뜻(2번)에 안 낚이고 매번 그 자리 문맥에 맞는 뜻을 고르는지가
+// 핵심 테스트 포인트.
+// ============================================================================
+
+const BANK_TEXT = [
+  'After finishing her morning run along the muddy bank of the river, Mara checked her watch and hurried into town.',
+  "She had exactly twenty minutes before the bank closed, and she still needed to deposit last week's paycheck.",
+  'On her way, a small plane banked sharply overhead, catching the sunlight as it turned toward the airfield.',
+].join('\n')
+
+const BANK_TARGET = 'bank'
+
+/** 영어 동음이의어 데모(팝업 미리보기)가 ctx 없이 열렸을 때 쓰는 목업 추출 결과.
+ *  초기 선택(anchor)은 첫 번째 등장(강둑)이지만, 팝업 안에서 다른 두 "bank"/"banked"를
+ *  직접 드래그로 다시 선택해가며 결과를 비교해보는 것이 이 데모의 목적이다. */
+export function mockBankExtraction(): ExtractedSelection {
+  return buildExtractedSelection(BANK_TEXT, BANK_TARGET, {
+    source: { kind: 'txt', appName: 'nature-notes.txt' },
+  })
+}
+
+// ============================================================================
 // 일본어 데모 목업 — 《容疑者Xの献身》(히가시노 게이고) 발췌, "眺めながら" 클릭 상황
 // 세로쓰기 지면(사진)에서 옮긴 것 — 문단 단위로 이어 붙였다.
 // ============================================================================
