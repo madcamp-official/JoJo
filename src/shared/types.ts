@@ -120,6 +120,72 @@ export interface QuestionResult {
   meta?: Record<string, unknown>
 }
 
+// ---- 사전(Dictionary) 통일 스키마 --------------------------------------------
+// PLAN.md §5 — en(MW/WordNet/Wiktionary)·ja(Kotobank/JMdict)·zh(汉典/萌典/CC-CEDICT)
+// 8개 소스가 전부 다른 응답 형식(JMdict의 'v1'/'vt' 같은 약어 코드, MW의 sseq/dt/vis
+// 중첩 구조, CC-CEDICT의 슬래시 구분 평문 등)을 가지므로, 각 어댑터가 원본을 파싱해
+// 이 공통 타입으로 변환한 뒤에만 LLM 프롬프트에 들어가게 한다(llm/adapter.ts 가
+// GPT/Gemini/Claude 를 QuestionResult 하나로 통일하는 것과 동일한 패턴).
+
+/** 언어 간 품사 분류를 최대한 겹치게 정리한 것 — 언어마다 없는 품사도 있다(일/중엔
+ *  관사가 없고, 영어엔 조사가 없는 등). ja 助詞/zh 助词는 이름은 같지만 실제 기능이
+ *  다르다(전자는 격조사 중심, 후자는 상 표지·구조조사 중심) — 세부 차이는 posRaw 로 보존. */
+export type CanonicalPos =
+  | 'noun'
+  | 'verb'
+  | 'adjective'
+  | 'adverb'
+  | 'pronoun'
+  | 'preposition' // en 전치사 / zh 介词(개사)
+  | 'conjunction' // en 접속사 / ja 接続詞 / zh 连词
+  | 'article' // en 전용(a/an/the) — ja/zh 엔 없음
+  | 'particle' // ja 助詞 / zh 助词 — 사전 조회 실패가 잦은 기능어 묶음(LLM이 문법 설명 전담)
+  | 'interjection'
+  | 'classifier' // zh 量词 — 다른 언어엔 대응 품사 없음
+  | 'other'
+
+export interface DictionarySense {
+  /** 표준화된 품사 — 萌典/CC-CEDICT처럼 품사 필드 자체가 없는 소스는 undefined */
+  pos?: CanonicalPos
+  /** 원본 품사 표기 보존(JMdict 'v1' 등) — 디버깅/검수용, LLM 프롬프트에는 넣지 않음.
+   *  CanonicalPos 로 뭉뚱그리며 사라지는 세부 정보 자체는 이 필드에 남아있지만, LLM에
+   *  전달 안 하기로 했으므로 "문법 설명에 실제로 쓸 정보"는 반드시 conjugationClass 처럼
+   *  별도 필드로 승격해야 한다 — 그러지 않으면 이 필드에 있어도 없는 것과 같다. */
+  posRaw?: string
+  /** 활용 분류 — 언어별로 canonical pos 하나로는 못 담는 문법 정보를 사람이 읽을 수 있게
+   *  디코딩해 보존한다(이 필드는 LLM에도 전달). 예: ja 동사 "一段"/"五段(う)"/"サ変",
+   *  ja 형용사 "い형용사"/"な형용사". 활용형(て形·과거형 등) 설명에 실제로 필요한 정보라
+   *  posRaw 와 달리 버리지 않는다. zh 이합사(离合词) 등 다른 언어의 특이 문법도 필요해지면
+   *  같은 방식으로 여기에 추가. */
+  conjugationClass?: string
+  /** 타동사/자동사 — JMdict 의 vt/vi 는 품사가 아니라 별도 축이라 분리 */
+  transitive?: boolean
+  /** 중국어 양사(CC-CEDICT의 "CL:") — 다른 언어는 항상 undefined */
+  classifiers?: string[]
+  /** 뜻풀이 원문(번역하지 않음, 원어 그대로) */
+  gloss: string
+  /** 있는 소스만(JMdict/萌典/CC-CEDICT 는 예문 자체가 없는 포맷) */
+  example?: string
+}
+
+export type DictionarySourceId =
+  | 'merriam-webster'
+  | 'wordnet'
+  | 'wiktionary'
+  | 'kotobank'
+  | 'jmdict'
+  | 'hanyu-dict' // 汉典
+  | 'moedict' // 萌典
+  | 'cc-cedict'
+
+export interface DictionaryEntry {
+  headword: string
+  /** 병음/가나/IPA 등 발음 표기 — 있으면 */
+  reading?: string
+  senses: DictionarySense[]
+  source: DictionarySourceId
+}
+
 // ---- 앱 모드/설정 -----------------------------------------------------------
 
 export type AppMode = 'normal' | 'select'
