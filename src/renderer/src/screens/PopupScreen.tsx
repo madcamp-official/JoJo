@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChatTurn,
   ExtractedSelection,
-  JaToken,
+  JaTokenizeResult,
   QuestionRequest,
   QuestionResult,
   ZhWord,
@@ -77,17 +77,19 @@ export function PopupScreen() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // 일본어는 가나 조각을 kuromoji(main/nlp/japanese.ts) 품사 기반으로 병합한다 — 사전 로드가
-  // 끝날 때까지의 짧은 순간은 즉석 대체 규칙(selection.ts segmentKanaRunFallback)으로 먼저
-  // 그린다. displayText 는 kuromoji 에 넘길 대상 문자열(atom 과 무관)이라 먼저 따로 계산한다.
+  // 일본어는 가나 조각을 main/nlp/japanese.ts 의 활성 엔진(JA_ENGINE) 품사 기반으로
+  // 병합한다 — 사전/모델 로드가 끝날 때까지의 짧은 순간은 즉석 대체 규칙(selection.ts
+  // segmentKanaRunFallback)으로 먼저 그린다. displayText 는 형태소 분석에 넘길 대상
+  // 문자열(atom 과 무관)이라 먼저 따로 계산한다. engine 태그를 같이 받아야 selection.ts
+  // 가 IPADIC/UniDic 중 맞는 병합 함수를 고를 수 있다.
   const displayText = useMemo(() => buildDisplayText(baseCtx).displayText, [baseCtx])
-  const [jaTokens, setJaTokens] = useState<JaToken[] | undefined>(undefined)
+  const [jaResult, setJaResult] = useState<JaTokenizeResult | undefined>(undefined)
   useEffect(() => {
-    setJaTokens(undefined)
+    setJaResult(undefined)
     if (baseCtx.language !== 'ja') return
     let active = true
-    window.nuance.tokenizeJapanese(displayText).then((tokens) => {
-      if (active) setJaTokens(tokens)
+    window.nuance.tokenizeJapanese(displayText).then((result) => {
+      if (active) setJaResult(result)
     })
     return () => {
       active = false
@@ -110,8 +112,8 @@ export function PopupScreen() {
   }, [baseCtx.language, displayText])
 
   const model = useMemo(
-    () => buildSelectionModel(baseCtx, jaTokens, zhWords),
-    [baseCtx, jaTokens, zhWords],
+    () => buildSelectionModel(baseCtx, jaResult, zhWords),
+    [baseCtx, jaResult, zhWords],
   )
   const [range, setRange] = useState({ from: model.initialFrom, to: model.initialTo })
 

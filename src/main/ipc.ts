@@ -40,7 +40,7 @@ import { validateProvider } from './question/llm/validate'
 import { googleImageUrl, googlePronunciationUrl } from './question/google'
 import { naverDictionaryUrl } from './question/naver'
 import { openUrlInNewWindow } from './question/browser'
-import { tokenizeJapanese } from './nlp/japanese'
+import { JA_ENGINE, tokenizeJapanese } from './nlp/japanese'
 import { segmentChineseWords } from './nlp/chinese'
 
 // IPC 허브 (공동) — A→B 연결점.
@@ -199,9 +199,10 @@ export function registerIpc(): void {
     },
   )
 
-  // 담당 B: 팝업 원문 문맥의 가나 조각 병합용 kuromoji 형태소 분석 (nlp/japanese.ts)
+  // 담당 B: 팝업 원문 문맥의 가나 조각 병합용 일본어 형태소 분석 (nlp/japanese.ts).
+  // 렌더러가 병합 함수를 고를 수 있도록 engine 태그를 같이 내려준다.
   ipcMain.handle(IPC.TOKENIZE_JA, async (_e, text: string) => {
-    return tokenizeJapanese(text)
+    return { engine: JA_ENGINE, tokens: await tokenizeJapanese(text) }
   })
 
   // 담당 B: 팝업 원문 문맥의 중국어 단어 atom 구성용 segmentit 형태소 분석 (nlp/chinese.ts)

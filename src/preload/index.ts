@@ -6,7 +6,7 @@ import type {
   AppSettings,
   CaptureSource,
   ExtractedSelection,
-  JaToken,
+  JaTokenizeResult,
   Language,
   LlmProvider,
   ProviderValidation,
@@ -150,7 +150,7 @@ const api = {
     ipcRenderer.invoke(IPC.OPEN_NAVER_DICT, { text, lang }),
 
   // 팝업 원문 문맥의 가나 atom 병합용 kuromoji 형태소 분석 요청
-  tokenizeJapanese: (text: string): Promise<JaToken[]> =>
+  tokenizeJapanese: (text: string): Promise<JaTokenizeResult> =>
     ipcRenderer.invoke(IPC.TOKENIZE_JA, text),
 
   // 팝업 원문 문맥의 중국어 단어 atom 구성용 segmentit 형태소 분석 요청
