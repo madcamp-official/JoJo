@@ -23,14 +23,25 @@ import sys
 from paddleocr import PaddleOCR, TextDetection
 
 # 우리 Language 타입(en/ja/zh-Hans/zh-Hant) → PaddleOCR lang 코드. 일본어는 'japan'
-# (ja 아님) — PaddleOCR 고유 코드라 헷갈리기 쉬워서 주석으로 명시. 중국어는 PaddleOCR
-# 이 간체/번체를 별도 인식 모델로 두므로('ch' vs 'chinese_cht') 우리 쪽 스크립트 판별
-# (langDetect.ts)과 그대로 맞춰 각각 다른 모델을 쓴다 — 번체를 간체 모델로 인식하면
-# (또는 그 반대) 글자 형태 자체가 학습 분포 밖이라 인식률이 떨어진다.
+# (ja 아님) — PaddleOCR 고유 코드라 헷갈리기 쉬워서 주석으로 명시.
+#
+# (정정) 예전엔 중국어 간체/번체가 서로 다른 전용 인식 모델을 쓴다고 판단해서 각각
+# 다른 lang 코드를 매핑했었는데, 직접 확인해보니 이 PaddleOCR 버전에서는 ch/chinese_cht/
+# japan/en 네 개 lang 코드 전부 완전히 동일한 모델 파일(PP-OCRv6_medium_det/_rec)을
+# 쓰고 있었다 — 언어별 전용 모델은 없고 lang 은 사실상 아무 영향이 없다(그래도 매핑은
+# 그대로 두는데, langDetect.ts 가 스크립트 판별해서 넘겨주는 값과 자연스럽게 이어지고
+# 나중에 PaddleOCR 가 다시 언어별 모델을 분리하는 경우를 대비할 수 있어서 — 지금은
+# 그냥 문서화 목적).
 LANG_MAP = {"en": "en", "ja": "japan", "zh-Hans": "ch", "zh-Hant": "chinese_cht"}
 
 _engines: dict[str, PaddleOCR] = {}
 _detector: TextDetection | None = None
+
+# 검출은 그대로 medium 을 쓰고(실측 확인: PP-OCRv6_small_det 로 바꾸면 박스 경계가 덜
+# 타이트해져서 특정 줄이 심하게 잘리는 문제가 있었음 — "力"으로 통째로 잘린 사례),
+# 인식만 small 로 바꾼다 — 실측 확인: medium 대비 속도 약 30% 빠르면서 정확도는
+# 동등하거나 오히려 더 나았다(예: "返っていて" 를 medium 은 틀렸는데 small 은 맞음).
+RECOGNITION_MODEL_NAME = "PP-OCRv6_small_rec"
 
 
 def get_engine(language: str) -> PaddleOCR:
@@ -42,6 +53,7 @@ def get_engine(language: str) -> PaddleOCR:
         # 똑바로 서 있으므로 불필요) 조금이라도 더 빠르게 한다.
         _engines[paddle_lang] = PaddleOCR(
             lang=paddle_lang,
+            text_recognition_model_name=RECOGNITION_MODEL_NAME,
             enable_mkldnn=False,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
