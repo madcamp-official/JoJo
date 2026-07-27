@@ -128,6 +128,16 @@ export function PopupScreen() {
     [baseCtx, model, range],
   )
 
+  // 선택 범위가 바뀔 때마다(초기 선택 포함) 현재 선택된 표현을 클립보드에 자동 복사한다
+  // — 팝업에서 원문 문맥을 재지정해가며 찾아본 단어를 바로 다른 곳에 붙여넣고 싶을 때를
+  // 위함. 빈 문자열까지 복사하면 사용자가 다른 데서 복사해둔 내용을 덮어써버리므로 제외.
+  useEffect(() => {
+    if (!currentCtx.selectedText) return
+    navigator.clipboard.writeText(currentCtx.selectedText).catch(() => {
+      // 클립보드 접근 실패는 조용히 무시 — 핵심 기능(선택/질문)에 영향 없음
+    })
+  }, [currentCtx.selectedText])
+
   // ---- 채팅 상태 -------------------------------------------------------------
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
