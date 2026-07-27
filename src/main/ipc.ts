@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
+  ApiKeyId,
   AppSettings,
   CaptureSource,
   ExtractedSelection,
@@ -136,17 +137,17 @@ export function registerIpc(): void {
     return setFrequent(list)
   })
 
-  // 담당 B: API 키 조회/저장/삭제 (safeStorage 암호화, keyStore.ts)
-  ipcMain.handle(IPC.APIKEY_GET, async (_e, provider: LlmProvider): Promise<string | null> => {
-    return getApiKey(provider)
+  // 담당 B: API 키 조회/저장/삭제 (safeStorage 암호화, keyStore.ts) — LLM 3종 + MW 사전 키
+  ipcMain.handle(IPC.APIKEY_GET, async (_e, id: ApiKeyId): Promise<string | null> => {
+    return getApiKey(id)
   })
 
-  ipcMain.handle(IPC.APIKEY_SET, async (_e, provider: LlmProvider, key: string): Promise<void> => {
-    setApiKey(provider, key)
+  ipcMain.handle(IPC.APIKEY_SET, async (_e, id: ApiKeyId, key: string): Promise<void> => {
+    setApiKey(id, key)
   })
 
-  ipcMain.handle(IPC.APIKEY_DELETE, async (_e, provider: LlmProvider): Promise<void> => {
-    deleteApiKey(provider)
+  ipcMain.handle(IPC.APIKEY_DELETE, async (_e, id: ApiKeyId): Promise<void> => {
+    deleteApiKey(id)
   })
 
   // 담당 B: provider 키 검증 + 사용 가능 모델 조회 (무과금 GET, validate.ts)

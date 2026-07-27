@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
+  ApiKeyId,
   AppMode,
   AppSettings,
   CaptureSource,
@@ -108,14 +109,12 @@ const api = {
 
   setFrequent: (list: string[]): Promise<string[]> => ipcRenderer.invoke(IPC.FREQUENT_SET, list),
 
-  getApiKey: (provider: LlmProvider): Promise<string | null> =>
-    ipcRenderer.invoke(IPC.APIKEY_GET, provider),
+  getApiKey: (id: ApiKeyId): Promise<string | null> => ipcRenderer.invoke(IPC.APIKEY_GET, id),
 
-  setApiKey: (provider: LlmProvider, key: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.APIKEY_SET, provider, key),
+  setApiKey: (id: ApiKeyId, key: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.APIKEY_SET, id, key),
 
-  deleteApiKey: (provider: LlmProvider): Promise<void> =>
-    ipcRenderer.invoke(IPC.APIKEY_DELETE, provider),
+  deleteApiKey: (id: ApiKeyId): Promise<void> => ipcRenderer.invoke(IPC.APIKEY_DELETE, id),
 
   validateProvider: (provider: LlmProvider, apiKey: string): Promise<ProviderValidation> =>
     ipcRenderer.invoke(IPC.PROVIDER_VALIDATE, provider, apiKey),

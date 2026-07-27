@@ -1,13 +1,13 @@
 import { app, safeStorage } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import type { LlmProvider } from '@shared/types'
+import type { ApiKeyId } from '@shared/types'
 
 // 담당 B — API 키 로컬 암호화 저장 (PLAN.md §6 보안).
 // safeStorage 로 암호화한 뒤 base64 문자열로 userData/apikeys.json 에 영속화한다.
 // 평문은 디스크에 남지 않으며, 외부로 전송하지 않는다.
 
-const store = new Map<LlmProvider, Buffer>()
+const store = new Map<ApiKeyId, Buffer>()
 let loaded = false
 
 function filePath(): string {
@@ -20,8 +20,8 @@ function ensureLoaded(): void {
   loaded = true
   try {
     const raw = readFileSync(filePath(), 'utf-8')
-    const json = JSON.parse(raw) as Partial<Record<LlmProvider, string>>
-    for (const [provider, b64] of Object.entries(json) as [LlmProvider, string | undefined][]) {
+    const json = JSON.parse(raw) as Partial<Record<ApiKeyId, string>>
+    for (const [provider, b64] of Object.entries(json) as [ApiKeyId, string | undefined][]) {
       if (b64) store.set(provider, Buffer.from(b64, 'base64'))
     }
   } catch {
@@ -30,27 +30,27 @@ function ensureLoaded(): void {
 }
 
 function persist(): void {
-  const json: Partial<Record<LlmProvider, string>> = {}
+  const json: Partial<Record<ApiKeyId, string>> = {}
   for (const [provider, buf] of store) {
     json[provider] = buf.toString('base64')
   }
   writeFileSync(filePath(), JSON.stringify(json), 'utf-8')
 }
 
-export function setApiKey(provider: LlmProvider, plain: string): void {
+export function setApiKey(provider: ApiKeyId, plain: string): void {
   ensureLoaded()
   if (!safeStorage.isEncryptionAvailable()) throw new Error('암호화 사용 불가')
   store.set(provider, safeStorage.encryptString(plain))
   persist()
 }
 
-export function getApiKey(provider: LlmProvider): string | null {
+export function getApiKey(provider: ApiKeyId): string | null {
   ensureLoaded()
   const enc = store.get(provider)
   return enc ? safeStorage.decryptString(enc) : null
 }
 
-export function deleteApiKey(provider: LlmProvider): void {
+export function deleteApiKey(provider: ApiKeyId): void {
   ensureLoaded()
   store.delete(provider)
   persist()

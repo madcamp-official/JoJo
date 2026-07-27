@@ -126,6 +126,9 @@ export type AppMode = 'normal' | 'select'
 
 export type LlmProvider = 'gpt' | 'gemini' | 'claude'
 
+/** keyStore 가 관리하는 모든 API 키의 식별자 — LLM provider 3종 + 사전 API(MW). */
+export type ApiKeyId = LlmProvider | 'mw'
+
 export interface AppSettings {
   llm: LlmProvider | null // 사용자가 아직 고르지 않았으면 null (기본 provider 를 임의로 정하지 않는다)
   language: Language | 'auto'

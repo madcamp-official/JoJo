@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppSettings, ProviderValidation, QuestionErrorCode } from '@shared/types'
 import { PROVIDERS, PROVIDER_ORDER, DEFAULT_MODELS } from '@shared/providers'
+import { MW_DICTIONARY_SIGNUP_URL } from '@shared/dictionaries'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 import { goto } from '../navigate'
@@ -221,6 +222,15 @@ export function SettingsScreen() {
   const [validation, setValidation] = useState<ProviderValidation | null>(null)
   const [validating, setValidating] = useState(false)
 
+  // Merriam-Webster 사전 API 키 — LLM 과 별개 키(provider 선택 개념이 없어 항상 'mw' 고정).
+  const [mwApiKey, setMwApiKeyState] = useState('')
+  const [mwKeyEditing, setMwKeyEditing] = useState(false)
+  const [mwKeyVisible, setMwKeyVisible] = useState(false)
+
+  useEffect(() => {
+    window.nuance.getApiKey('mw').then((k) => setMwApiKeyState(k ?? ''))
+  }, [])
+
   const previewRef = useRef<HTMLDivElement>(null)
   const selRef = useRef<HTMLSpanElement>(null)
 
@@ -315,6 +325,18 @@ export function SettingsScreen() {
     if (!window.confirm(`${label} API 키를 정말 삭제하시겠습니까?`)) return
     await window.nuance.deleteApiKey(settings!.llm)
     setApiKeyState('')
+  }
+
+  async function saveMwKey() {
+    setMwKeyEditing(false)
+    const trimmed = mwApiKey.trim()
+    if (trimmed) await window.nuance.setApiKey('mw', trimmed)
+  }
+
+  async function deleteMwKey() {
+    if (!window.confirm('Merriam-Webster API 키를 정말 삭제하시겠습니까?')) return
+    await window.nuance.deleteApiKey('mw')
+    setMwApiKeyState('')
   }
 
   function setBytes(side: 'before' | 'after', v: number) {
@@ -419,6 +441,17 @@ export function SettingsScreen() {
           </div>
         )}
 
+        {settings.llm && (
+          <a
+            className="apikey-signup-link"
+            href={PROVIDERS[settings.llm].signupUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            아직 {PROVIDERS[settings.llm].label} 키가 없으신가요? 발급받으러 가기 →
+          </a>
+        )}
+
         {/* 키 검증 상태 + 사용 모델 선택 (무과금 GET 기반) */}
         {settings.llm && apiKey.trim() && (
           <div className="provider-status">
@@ -464,6 +497,62 @@ export function SettingsScreen() {
               : '사용할 LLM을 선택하고 API 키를 입력해야 AI 관련 기능을 사용할 수 있습니다.'}
           </div>
         )}
+
+        <div className="settings-note">
+          <LockIcon /> API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
+        </div>
+      </section>
+
+      {/* 사전 API 키 (Merriam-Webster) — LLM 과 별개 섹션 (PLAN.md §5) */}
+      <section className="settings-section">
+        <h2>사전 API 키 (Merriam-Webster)</h2>
+        <p className="desc">
+          영어 사전 검색에 Merriam-Webster를 사용하려면 API 키를 입력하세요. 반드시{' '}
+          <b>Collegiate(Dictionary) 사전</b>으로 발급받은 키여야 합니다(Learner&apos;s 등 다른
+          사전 키는 동작하지 않습니다). 입력하지 않아도 다른 사전(WordNet 등)으로 자동
+          대체되어 사전 기능은 계속 사용할 수 있습니다.
+        </p>
+
+        <div className="apikey-row">
+          <div className="apikey-main">
+            <div className="apikey-field">
+              <input
+                type={mwKeyVisible ? 'text' : 'password'}
+                value={mwApiKey}
+                disabled={!mwKeyEditing}
+                placeholder="API 키를 입력하세요"
+                onChange={(e) => setMwApiKeyState(e.target.value)}
+                onBlur={() => mwKeyEditing && void saveMwKey()}
+                onKeyDown={(e) => e.key === 'Enter' && void saveMwKey()}
+              />
+              <button
+                type="button"
+                className="toggle-visibility"
+                onClick={() => setMwKeyVisible((v) => !v)}
+                title={mwKeyVisible ? '숨기기' : '보기'}
+              >
+                {mwKeyVisible ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </div>
+          </div>
+          <div className="apikey-actions">
+            <EditDeleteGroup
+              onEdit={() => setMwKeyEditing(true)}
+              onDelete={() => void deleteMwKey()}
+              deleteTitle="API 키 삭제"
+              deleteDisabled={!mwApiKey}
+            />
+          </div>
+        </div>
+
+        <a
+          className="apikey-signup-link"
+          href={MW_DICTIONARY_SIGNUP_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          아직 Merriam-Webster 키가 없으신가요? 발급받으러 가기 →
+        </a>
 
         <div className="settings-note">
           <LockIcon /> API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.

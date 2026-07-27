@@ -9,12 +9,14 @@ export interface ProviderInfo {
   label: string
   /** 카드 UI에 쓰는 아이콘(이모지 placeholder — 추후 실제 로고로 교체 가능) */
   icon: string
+  /** API 키 발급 페이지 URL — 설정 화면의 "발급받기" 링크가 새 창(외부 브라우저)으로 연다. */
+  signupUrl: string
 }
 
 export const PROVIDERS: Record<LlmProvider, ProviderInfo> = {
-  gpt: { label: 'GPT', icon: '💬' },
-  gemini: { label: 'Gemini', icon: '✨' },
-  claude: { label: 'Claude', icon: '🤖' },
+  gpt: { label: 'GPT', icon: '💬', signupUrl: 'https://platform.openai.com/api-keys' },
+  gemini: { label: 'Gemini', icon: '✨', signupUrl: 'https://aistudio.google.com/app/apikey' },
+  claude: { label: 'Claude', icon: '🤖', signupUrl: 'https://console.anthropic.com/settings/keys' },
 }
 
 export const PROVIDER_ORDER: LlmProvider[] = ['gpt', 'gemini', 'claude']
