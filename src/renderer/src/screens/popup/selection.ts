@@ -41,7 +41,9 @@ const DISPLAY_CONTEXT_BYTES_AFTER = 256
 // 문단(줄바꿈) 시작에 넣는 들여쓰기 — 설정 화면 미리보기(SettingsScreen.tsx PREVIEW_TEXT)와
 // 동일한 1칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
 // 없을 때만 넣어서 "있으면 그대로, 없으면 있는 것처럼 보이게" 만든다.
-const PARAGRAPH_INDENT = ' '
+// 일반 스페이스(U+0020)는 .ctx-text 의 white-space: pre-line 렌더링에서 줄바꿈 직후
+// 공백으로 축약(제거)되어 화면에 안 보인다 — 축약 대상이 아닌 non-breaking space 를 쓴다.
+const PARAGRAPH_INDENT = ' '
 
 /**
  * displayText 의 각 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를 삽입된 만큼 보정해
