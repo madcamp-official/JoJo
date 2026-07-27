@@ -15,6 +15,7 @@ import type {
   Rect,
   SelectionContext,
   Word,
+  ZhWord,
 } from '@shared/types'
 
 // preload — 렌더러에 안전한 API 만 노출 (공동)
@@ -141,6 +142,10 @@ const api = {
   // 팝업 원문 문맥의 가나 atom 병합용 kuromoji 형태소 분석 요청
   tokenizeJapanese: (text: string): Promise<JaToken[]> =>
     ipcRenderer.invoke(IPC.TOKENIZE_JA, text),
+
+  // 팝업 원문 문맥의 중국어 단어 atom 구성용 segmentit 형태소 분석 요청
+  tokenizeChinese: (text: string): Promise<ZhWord[]> =>
+    ipcRenderer.invoke(IPC.TOKENIZE_ZH, text),
 }
 
 contextBridge.exposeInMainWorld('nuance', api)

@@ -285,3 +285,15 @@ export interface JaToken {
   /** 분석 대상 문자열 상 0-based 문자 오프셋 */
   start: number
 }
+
+/**
+ * segmentit 중국어 형태소 분석 결과 단어 하나 — OCR 단어 분리(main/nlp/chinese.ts)와 팝업
+ * 원문 문맥 atom 구성(renderer popup/selection.ts) 양쪽에서 공용으로 쓴다. jaTokens 와
+ * 달리 이미 단어 경계까지 확정된 결과라 병합 없이 그대로 atom 으로 쓸 수 있다.
+ */
+export interface ZhWord {
+  text: string
+  /** 분석 대상 문자열 상 0-based 문자 오프셋 */
+  start: number
+  end: number
+}

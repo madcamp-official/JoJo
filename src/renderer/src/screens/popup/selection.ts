@@ -1,4 +1,4 @@
-import type { ExtractedSelection, JaToken, SelectionContext, Word } from '@shared/types'
+import type { ExtractedSelection, JaToken, SelectionContext, Word, ZhWord } from '@shared/types'
 import { computeContextRange } from '@shared/context'
 import { mergeJaTokens } from '@shared/nlp/ja'
 
@@ -185,6 +185,16 @@ function buildTokenLookup(jaTokens: JaToken[]): (pos: number) => JaToken | undef
   return (pos: number) => jaTokens.find((t) => pos >= t.start && pos < t.start + t.surface.length)
 }
 
+/**
+ * zhWords(segmentChineseWords 결과, 이미 단어 경계가 확정됨)로부터 "이 위치에서 단어가
+ * 시작하면 그 끝 오프셋"을 찾는 조회 함수를 만든다 — jaTokens 와 달리 병합 규칙이 필요
+ * 없어 시작 위치만 알면 바로 atom 하나를 만들 수 있다.
+ */
+function buildZhWordLookup(zhWords: ZhWord[]): (pos: number) => number | undefined {
+  const endByStart = new Map(zhWords.map((w) => [w.start, w.end]))
+  return (pos: number) => endByStart.get(pos)
+}
+
 // 팝업 내 일본어 선택 단위 전략.
 //  - 'wordMerge'(현재 기본): OCR 단어 클릭(main/nlp/japanese.ts segmentJapaneseWords)과
 //    동일하게 mergeJaTokens(@shared/nlp/ja) 결과를 그대로 atom 으로 쓴다 — 한자+가나가
@@ -209,11 +219,12 @@ function atomsFromMergedTokens(jaTokens: JaToken[]): Atom[] {
   return atoms
 }
 
-function tokenizeAtoms(text: string, jaTokens?: JaToken[]): Atom[] {
+function tokenizeAtoms(text: string, jaTokens?: JaToken[], zhWords?: ZhWord[]): Atom[] {
   if (jaTokens && jaTokens.length > 0 && JA_ATOM_STRATEGY === 'wordMerge') {
     return atomsFromMergedTokens(jaTokens)
   }
   const tokenAt = jaTokens ? buildTokenLookup(jaTokens) : null
+  const zhWordEndAt = zhWords && zhWords.length > 0 ? buildZhWordLookup(zhWords) : null
   const atoms: Atom[] = []
   let i = 0
   while (i < text.length) {
@@ -222,6 +233,14 @@ function tokenizeAtoms(text: string, jaTokens?: JaToken[]): Atom[] {
     if (latin) {
       atoms.push({ start: i, end: i + latin[0].length })
       i += latin[0].length
+      continue
+    }
+    // OCR 단어 클릭(main/nlp/chinese.ts segmentChineseWords)과 동일하게, 확정된 단어
+    // 경계가 이 위치에서 시작하면 한자 하나가 아니라 단어 전체를 atom 하나로 쓴다.
+    const zhWordEnd = zhWordEndAt?.(i)
+    if (zhWordEnd !== undefined) {
+      atoms.push({ start: i, end: zhWordEnd })
+      i = zhWordEnd
       continue
     }
     KANA_RUN_RE.lastIndex = i
@@ -289,14 +308,16 @@ export function buildDisplayText(extracted: ExtractedSelection): DisplayText {
 
 /**
  * ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. jaTokens 를 주면
- * 일본어 가나 조각을 kuromoji 품사 기반으로 병합한다(없으면 즉석 대체 규칙으로 근사).
+ * 일본어 가나 조각을 kuromoji 품사 기반으로 병합하고(없으면 즉석 대체 규칙으로 근사),
+ * zhWords 를 주면 중국어 한자를 segmentit 단어 경계 기준으로 묶는다(없으면 글자 단위).
  */
 export function buildSelectionModel(
   extracted: ExtractedSelection,
   jaTokens?: JaToken[],
+  zhWords?: ZhWord[],
 ): PopupSelectionModel {
   const { displayText, selStart, selEnd, windowStart, insertions } = buildDisplayText(extracted)
-  const atoms = tokenizeAtoms(displayText, jaTokens)
+  const atoms = tokenizeAtoms(displayText, jaTokens, zhWords)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.
   let initialFrom = atoms.findIndex((a) => a.end > selStart && a.start < selEnd)

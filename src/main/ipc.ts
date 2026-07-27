@@ -40,6 +40,7 @@ import { googleImageUrl, googlePronunciationUrl } from './question/google'
 import { naverDictionaryUrl } from './question/naver'
 import { openUrlInNewWindow } from './question/browser'
 import { tokenizeJapanese } from './nlp/japanese'
+import { segmentChineseWords } from './nlp/chinese'
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
@@ -193,5 +194,10 @@ export function registerIpc(): void {
   // 담당 B: 팝업 원문 문맥의 가나 조각 병합용 kuromoji 형태소 분석 (nlp/japanese.ts)
   ipcMain.handle(IPC.TOKENIZE_JA, async (_e, text: string) => {
     return tokenizeJapanese(text)
+  })
+
+  // 담당 B: 팝업 원문 문맥의 중국어 단어 atom 구성용 segmentit 형태소 분석 (nlp/chinese.ts)
+  ipcMain.handle(IPC.TOKENIZE_ZH, async (_e, text: string) => {
+    return segmentChineseWords(text)
   })
 }

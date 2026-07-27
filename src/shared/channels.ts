@@ -42,6 +42,8 @@ export const IPC = {
   OPEN_NAVER_DICT: 'popup:openNaverDict',
   // 팝업 원문 문맥의 가나 atom 병합용 — kuromoji 형태소 분석(main/nlp/japanese.ts)
   TOKENIZE_JA: 'popup:tokenizeJa',
+  // 팝업 원문 문맥의 중국어 단어 atom 구성용 — segmentit 형태소 분석(main/nlp/chinese.ts)
+  TOKENIZE_ZH: 'popup:tokenizeZh',
 
   // 설정 / API 키 (담당 B)
   SETTINGS_GET: 'settings:get',

@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatTurn, ExtractedSelection, JaToken, QuestionRequest, QuestionResult } from '@shared/types'
+import type {
+  ChatTurn,
+  ExtractedSelection,
+  JaToken,
+  QuestionRequest,
+  QuestionResult,
+  ZhWord,
+} from '@shared/types'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
@@ -87,7 +94,25 @@ export function PopupScreen() {
     }
   }, [baseCtx.language, displayText])
 
-  const model = useMemo(() => buildSelectionModel(baseCtx, jaTokens), [baseCtx, jaTokens])
+  // 중국어는 segmentit(main/nlp/chinese.ts) 단어 경계를 그대로 atom 으로 쓴다 — OCR 단어
+  // 클릭(main/selection/ocr.ts)과 동일한 분석 결과라 병합 규칙 없이 바로 쓸 수 있다.
+  const [zhWords, setZhWords] = useState<ZhWord[] | undefined>(undefined)
+  useEffect(() => {
+    setZhWords(undefined)
+    if (baseCtx.language !== 'zh-Hans' && baseCtx.language !== 'zh-Hant') return
+    let active = true
+    window.nuance.tokenizeChinese(displayText).then((words) => {
+      if (active) setZhWords(words)
+    })
+    return () => {
+      active = false
+    }
+  }, [baseCtx.language, displayText])
+
+  const model = useMemo(
+    () => buildSelectionModel(baseCtx, jaTokens, zhWords),
+    [baseCtx, jaTokens, zhWords],
+  )
   const [range, setRange] = useState({ from: model.initialFrom, to: model.initialTo })
 
   // baseCtx(=model)가 바뀌면 초기 선택으로 리셋
