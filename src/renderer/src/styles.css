@@ -303,9 +303,9 @@ button:disabled { cursor: not-allowed; }
 /* 원문 문맥 + 범위 재지정 */
 .context {
   background: #fff; border: 1px solid #e6e8ec; border-radius: 10px;
-  padding: 10px 12px; flex-shrink: 0;
+  padding: 10px 0 0; flex-shrink: 0;
 }
-.ctx-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.ctx-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; padding: 0 12px; }
 .ctx-label { font-size: 14px; font-weight: 600; color: #374151; }
 .ctx-hint { font-size: 13px; color: #8b93a1; }
 .ctx-text {
@@ -315,6 +315,11 @@ button:disabled { cursor: not-allowed; }
      문단 구분)만 존중하고 그 외 공백은 정리하는 pre-line 을 쓴다. */
   line-height: 1.7; white-space: pre-line; text-align: justify;
   cursor: text; color: #4b5563;
+  /* 좌우·하단 여백을 .context 가 아니라 여기서 갖는다 — 그래야 이 여백도 ctx-text
+     자신의 박스에 포함돼, 박스 경계와 글자 사이 여백을 클릭해도 드래그가 시작되고
+     (ContextView.tsx 의 컨테이너 onMouseDown), 이 위 cursor: text 도 그 여백까지
+     자연히 적용된다(단어 사이에서만 I자 커서가 보이던 문제 해결). */
+  padding: 0 12px 12px;
 }
 /* .ctx-text 어디에도 user-select: none 을 두지 않는다 — Chromium 은 user-select: none
    인 요소의 텍스트를 프로그램상 선택(Selection.addRange, ContextView.tsx
