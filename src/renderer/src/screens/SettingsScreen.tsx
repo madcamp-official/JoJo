@@ -441,7 +441,7 @@ export function SettingsScreen() {
           </div>
         )}
 
-        {settings.llm && (
+        {settings.llm && !apiKey.trim() && (
           <a
             className="apikey-signup-link"
             href={PROVIDERS[settings.llm].signupUrl}
@@ -546,14 +546,16 @@ export function SettingsScreen() {
           </div>
         </div>
 
-        <a
-          className="apikey-signup-link"
-          href={MW_DICTIONARY_SIGNUP_URL}
-          target="_blank"
-          rel="noreferrer"
-        >
-          아직 Merriam-Webster 키가 없으신가요? 발급받으러 가기 →
-        </a>
+        {!mwApiKey.trim() && (
+          <a
+            className="apikey-signup-link"
+            href={MW_DICTIONARY_SIGNUP_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            아직 Merriam-Webster 키가 없으신가요? 발급받으러 가기 →
+          </a>
+        )}
 
         <div className="settings-note">
           <LockIcon /> API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
