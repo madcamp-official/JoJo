@@ -19,8 +19,9 @@ export default defineConfig({
         // out/main 이 되어 그 경로 계산이 깨진다(node_modules/tesseract.js 를 못 찾음)
         // — external 로 빼서 런타임에 node_modules 에서 그대로 require 되게 한다.
         // kuromoji 도 같은 이유(사전 .dat.gz 파일을 자기 패키지 폴더 기준 상대경로로
-        // 읽음, nlp/japanese.ts 의 dicPath())로 external 처리한다.
-        external: ['tesseract.js', 'kuromoji', 'segmentit'],
+        // 읽음, nlp/japanese.ts 의 dicPath())로 external 처리한다. lindera-wasm-nodejs-ipadic
+        // 도 마찬가지(.wasm 바이너리를 패키지 폴더 기준 상대경로로 로드, nlp/engines/lindera.ts).
+        external: ['tesseract.js', 'kuromoji', 'segmentit', 'lindera-wasm-nodejs-ipadic'],
       },
     },
   },
