@@ -90,6 +90,9 @@
 - [x] ~~팝업 원문 문맥 표시 범위를 선택 앞뒤 각 512바이트로 제한 — `buildSelectionModel`(`popup/selection.ts`)이 A가 넘긴 추출 텍스트 전체를 그대로 보여주던 것을, `@shared/context.ts` `computeContextRange` 로 앞뒤 512바이트(+문장 경계까지 확장, 부족하면 있는 만큼만) 잘라 표시하도록 변경. 데모 목업(`popup/mockSelection.ts`)도 문장 수 기반 사전 트리밍을 없애고 원문 전체를 넘기도록 정리해 동일 로직을 그대로 시연~~
 - [x] ~~문장 경계 판정이 영어 약어·이니셜·소수점·줄임표(`Mr.`/`e.g.`/`i.e.`/`U.S.`/`3.14`/`J. K.`/`...`)의 `.`을 문장 끝으로 오인해 LLM 문맥·팝업 표시 범위가 조기에 잘리던 문제 수정 — `@shared/context.ts` `isAbbreviationDot`. CJK 종결부호(`。！？…`)는 영향 없음~~
 - [x] ~~새 문단 시작에 들여쓰기(`PARAGRAPH_INDENT`, `popup/selection.ts` `indentParagraphs`)로 넣은 공백이 화면에 안 보이던 버그 수정 — `.ctx-text`가 `white-space: pre-line`이라 줄바꿈(`\n`) 직후의 일반 스페이스(U+0020)는 CSS 공백 축약 규칙상 렌더링 시 제거된다. `PARAGRAPH_INDENT`를 축약 대상이 아닌 non-breaking space(U+00A0)로 변경~~
+- [x] ~~일본어 형태소 분석 엔진을 kuromoji/Lindera/Sudachi(mode B/C) 중 스위치 가능한 구조로 리팩터링 — `main/nlp/japanese.ts` `JA_ENGINE` 상수 하나로 전환(개발자 전용, 사용자 UI 없음). 엔진별 구현은 `main/nlp/engines/`(kuromoji.ts/lindera.ts/sudachi.ts) 아래 독립 파일로 분리해 나중에 하나를 깔끔하게 걷어낼 수 있게 함. kuromoji는 유지보수가 2022-06 이후 중단된 반면 Lindera(kuromoji-rs 포크, WASM, IPADIC 동일)는 유지보수가 활발해 무손실 대체 후보로 확인(26개 텍스트 비교 결과 kuromoji와 완전 동일)했고, Sudachi(UniDic, `python/sudachi_tokenize.py` 상주 서버, 담당 A의 Python 인프라 재사용)는 一日/ご都合 같은 일부 어휘에서 더 정확하지만 おじいさん/清水寺 같은 고빈도 어휘에서 오히려 밀리는 경우도 있어 승패가 갈림(상세 근거는 사내 비교 보고서 참고). IPADIC 병합 로직(`@shared/nlp/ja.ts`)과 UniDic 병합 로직(`@shared/nlp/ja-unidic.ts`)은 품사 체계가 달라(UniDic 은 "지금 이 자리에서 독립동사로 쓰였는지" 구분이 없음, 渡る 도 いる 도 動詞,非自立可能 로 동일 태깅됨 실측 확인) 완전히 분리된 파일로 관리. 병합 정책은 활용어미(て/で)+조동사 직접결합까지만 하고, 補助動詞(ている 의 いる 등)·접미동사(過ぎる/出す 등)·명사 자동 병합은 전부 하지 않음 — 다 그 자체로 독립된 사전 표제어라 따로 선택해 조회할 수 있어야 한다는 판단(실사용 피드백으로 확정, 예: "食べている" → 食べて / いる, "御飯を食べ過ぎる" → 食べ / 過ぎる).~~
+- [x] ~~팝업에서 선택한 표현을 클립보드에 자동 복사 — 선택 범위(atom 재지정 포함)가 바뀔 때마다 `currentCtx.selectedText` 를 클립보드에 씀(`PopupScreen.tsx`). 빈 문자열은 기존 클립보드 내용을 덮어쓰지 않도록 제외.~~
+- [x] ~~팝업 마지막 줄에서 아래로 드래그하면 선택이 거꾸로(앞쪽으로) 튀는 버그 수정(`popup/ContextView.tsx`) — 기존 `nearestAtomIndex` 가 커서~atom 간 순수 2D 거리만 보고 글의 흐름(읽는 순서)을 몰라서, 문단 마지막 줄 아래(글자 없는 빈 공간)로 드래그하면 다음 단어가 없으니 오히려 같은 줄의 지나온 단어가 더 가깝다고 판정되던 문제(Electron 앱을 Playwright `_electron` 드라이버로 직접 띄워 재현·검증). `document.caretRangeFromPoint`(글의 흐름을 아는 브라우저 API) 기반의 `atomIndexAtPoint` 를 우선 시도하도록 변경, 거리 기반 로직은 그 API 를 못 쓸 때만 fallback.~~
 
 <a id="b-llm"></a>
 
@@ -117,10 +120,10 @@
     - 남은 확인 필요 항목(아직 미반영): en 불규칙 동사 활용(MW의 `ins` 필드) — 별도 `irregular?: boolean` 플래그 후보. zh 이합사(离合词, 结婚/见面 등 중간에 성분 삽입 가능한 특이 문법) — 汉典/萌典/CC-CEDICT가 이를 태깅하는지 실제 소스 조사 후 필요하면 `conjugationClass`와 같은 패턴으로 추가.~~
   - [ ] **활용형(활용된 동사/형용사) 대응 — 언어별 사전 소스가 활용형을 원형으로 자동 변환해주는지 실측한 결과, 특히 일본어 쪽이 반드시 선행 처리가 필요함:**
     - en: Merriam-Webster·Wiktionary는 활용형(ran/went/ate 등)을 원형과 교차 연결해둬서 그대로 조회해도 정상 동작(실측 확인). OEWN(아래 참고, WNDB 배포판 기준)도 원시 synset 데이터 자체엔 활용형이 없지만, WNDB 포맷에 포함된 **Morphy**(형태소 처리기, 불규칙은 예외 목록/규칙 활용은 어미 제거 규칙으로 원형 탐색)가 이를 해결 — 사용할 라이브러리가 Morphy를 감싸고 있는지 확인 필요.
-    - **ja: Kotobank·JMdict 둘 다 활용형(食べた/美しかった 등)을 원형(食べる/美しい)으로 자동 변환해주지 않음(실측 확인, 둘 다 검색 결과 없음).** 사전 API 호출 전에 **kuromoji(이미 팝업 atom 병합에 사용 중, `main/nlp/japanese.ts`)로 선택 텍스트를 토큰화해 動詞·形容詞 토큰은 表層形 대신 基本形(기본형)을 사전 조회 쿼리로 사용**하는 전처리 단계를 반드시 추가해야 함 — 없으면 활용된 동사/형용사 대부분이 사전 조회 자체가 실패함.
+    - **ja: Kotobank·JMdict 둘 다 활용형(食べた/美しかった 등)을 원형(食べる/美しい)으로 자동 변환해주지 않음(실측 확인, 둘 다 검색 결과 없음).** 사전 API 호출 전에 **일본어 형태소 분석 엔진(이미 팝업 atom 병합에 사용 중, `main/nlp/japanese.ts` — kuromoji/Lindera/Sudachi 중 `JA_ENGINE` 설정값)으로 선택 텍스트를 토큰화해 動詞·形容詞 토큰은 表層形 대신 基本形(기본형)을 사전 조회 쿼리로 사용**하는 전처리 단계를 반드시 추가해야 함 — 없으면 활용된 동사/형용사 대부분이 사전 조회 자체가 실패함.
     - zh: 활용(어미 변화) 자체가 없는 언어라 해당 없음.
   - [ ] en 어댑터: Merriam-Webster(키 등록, 무료 개인용 티어) → **OEWN(Open English WordNet, 로컬 JSON 릴리스 번들, Morphy 포함 라이브러리 사용)** → Wiktionary(en.wiktionary.org 또는 kaikki.org 추출 데이터, 신조어 전용 최종 폴백) 순차 폴백 구현. 원본 Princeton WordNet(정체·발음 정보 없음) 대신 커뮤니티가 계속 갱신하는 후속판(Global WordNet Association, CC-BY 4.0)으로 교체 확정 — 라이브 API(en-word.net)는 실측 결과 불안정(503)이라 API 대신 데이터 파일을 받아 번들.
-  - [ ] ja 어댑터: (위 kuromoji 기본형 전처리 선행) Kotobank(스크래핑) → JMdict(로컬 데이터셋 번들, jmdict-simplified 등) → Wiktionary(en.wiktionary.org의 ja 항목) 순차 폴백 구현
+  - [ ] ja 어댑터: (위 기본형 전처리 선행) Kotobank(스크래핑) → JMdict(로컬 데이터셋 번들, jmdict-simplified 등) → Wiktionary(en.wiktionary.org의 ja 항목) 순차 폴백 구현
   - [ ] zh 어댑터: zh-Hans는 汉典(`/hans/`, 스크래핑) → CC-CEDICT(로컬 데이터셋), zh-Hant는 萌典(스크래핑) → 汉典(`/hant/`) → CC-CEDICT, 공통 최종 폴백으로 Wiktionary(en.wiktionary.org의 zh 항목)
   - [ ] 다중 단어 선택 처리 — 사용자가 팝업에서 여러 단어(atom)를 한 번에 드래그 선택하고 사전 검색을 요청하는 경우:
     1. 선택된 텍스트 전체를 먼저 표제어로 조회(관용구·복합명사 등은 통째로 사전에 있을 수 있음 — 예: "kick the bucket", "一石二鳥")
