@@ -222,6 +222,15 @@ export interface DictionaryReading {
 
 export interface DictionaryEntry {
   headword: string
+  /** 이 표제어가 단일 단어가 아니라 여러 단어로 굳어진 관용구/구(句)인지 — 다중 단어
+   *  선택 시 "부분 조합 해석이 아니라 통째로 뜻을 취해야 한다"는 판단에 실제로 쓰임.
+   *  boolean 하나라 크기 부담은 없음(앞서 raw 필드를 크기 문제로 뺀 것과는 별개 사안).
+   *  실측 확인 — MW: `fl`(functional label)이 "phrase"(예: "kick the bucket"). JMdict:
+   *  `partOfSpeech`가 "exp"(Expressions, 예: "一石二鳥"), 세부적으로 "Yojijukugo"(사자성어)
+   *  같은 태그까지 있음. **Wiktionary(dictionaryapi.dev)는 이 표시가 없음** — "kick the
+   *  bucket"도 그냥 `partOfSpeech: "verb"`로만 나와 관용구 여부를 알 길이 없음. 이 소스는
+   *  이 필드가 항상 undefined. */
+  isIdiom?: boolean
   readings: DictionaryReading[]
   source: DictionarySourceId
 }
