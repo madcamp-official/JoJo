@@ -1,6 +1,6 @@
 # Nuance 구현 TODO
 
-담당별 구현 체크리스트(작업의 단일 소스). **분업 경계 = 팝업창**: A는 팝업이 뜨기 전까지의 로직(창 선택·캡처·오버레이·모드·텍스트 추출·단어 좌표·클릭 감지), B는 팝업이 뜬 이후의 모든 로직(팝업 내 범위 확정·문맥 구성·발음/사전/질문·결과 렌더·설정 화면)을 담당한다. 설계·인터페이스 계약은 [PLAN.md](PLAN.md) 참고 — §7(2인 분업 / 인터페이스 계약), §9(프로젝트 구조).
+담당별 구현 체크리스트(작업의 단일 소스). **분업 경계 = 팝업창**: A는 팝업이 뜨기 전까지의 로직(창 선택·캡처·오버레이·모드·텍스트 추출·단어 좌표·클릭 감지), B는 팝업이 뜬 이후의 모든 로직(팝업 내 범위 확정·문맥 구성·발음/사전/질문·결과 렌더·설정 화면)을 담당한다. 설계·인터페이스 계약은 [PLAN.md](PLAN.md) 참고 — §8(2인 분업 / 인터페이스 계약), §10(프로젝트 구조).
 
 권장 순서: **뼈대 → 한 경로 end-to-end 관통 → 소스별 확장**. 첫 관통 경로는 가장 확실한 **PDF/텍스트 직접 추출 → 통합 질문**으로 잡고, 이후 OCR·자막·발음·사전을 붙인다.
 
@@ -106,8 +106,15 @@
 
 **질문 기능**
 - [x] ~~발음: IPA / 히라가나 / 병음 + 맥락 의존 발음 판정 — `question/pronunciation.ts` 가 전용 시스템 프롬프트(`prompts/pronunciation.txt`)로 `llm/adapter.ts` `streamLlm`(구 `askLlm` 오케스트레이션을 'ask'/'pronunciation' 공용으로 일반화)을 호출해 문맥 기반 발음을 스트리밍 반환. 언어별 표기 체계는 `shared/languages.ts` `pronunciationNotation`에 등록. 지역별 발음이 여러 개일 땐 `[미국]`/`[영국]`(영어), `[대륙]`/`[대만]`(중국어) 순으로 대괄호 라벨을 발음 앞에 붙이고, 근거(`근거:`)는 의미 중의성(품사·뜻 차이)을 판정해 발음을 좁힌 경우에만 작성 — 단순 지역/격식 변이거나 발음이 하나뿐이면 생략. `llm/adapter.ts` `LlmRequest.temperature` 를 추가해 GPT/Gemini/Claude 클라이언트 모두 전달하도록 배선하고, 발음 질문은 형식이 고정된 판정 작업이라 `temperature=0.2`로 낮춰 응답 이탈(문맥과 무관한 토큰 삽입 등)을 줄임(`pronunciation.ts` `PRONUNCIATION_TEMPERATURE`). `ask`(자유 질문)는 다양성을 위해 기본값 유지~~
-- [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑 — **스텁만 존재**(`question/dictionary.ts` 가 빈 문자열 반환)
-  - [ ] 언어별 사전 API 소스 확정 필요 — 예: 영어(Free Dictionary API / Merriam-Webster / WordsAPI), 일본어(Jisho API 등 JMdict 기반), 중국어(CC-CEDICT 기반 API 등). 무료/과금 여부·rate limit·라이선스 확인 후 선택. 영한/일한/중한 뜻이 필요한데 공식 무료 이중언어 API가 마땅치 않아, 원어 사전 API로 뜻 순서(sense)만 확정하고 한국어 번역은 LLM이 담당하는 방향으로 검토 중
+- [ ] 사전: 언어별 사전 API + 단어 분해 + LLM 뜻 번호 매핑 — **스텁만 존재**(`question/dictionary.ts` 가 빈 문자열 반환). 소스 구성은 확정 완료(PLAN.md §5), 아래는 구현 세부 작업 목록(아직 착수 전).
+  - [ ] `shared/types.ts`의 `Language` 타입 확장 — `'zh'` 단일값을 `'zh-Hans' | 'zh-Hant'`로 분리(또는 `zh` + 별도 script 필드). `SelectionContext`/`ExtractedSelection` 등 이 타입을 쓰는 모든 곳에 영향.
+  - [ ] `selection/langDetect.ts` 구현 — 현재 항상 `'en'` 반환하는 스텁. 유니코드 블록 기반 언어 판별 + 중국어는 스크립트(간체/번체) 판별까지 포함(변환이 아니라 판별이라 상대적으로 신뢰도 높게 가능 — 스크립트별 고유 한자 존재).
+  - [ ] en 어댑터: Merriam-Webster(키 등록, 무료 개인용 티어) → WordNet(로컬 데이터셋 번들) → Wiktionary(en.wiktionary.org 또는 kaikki.org 추출 데이터, 신조어 전용 최종 폴백) 순차 폴백 구현
+  - [ ] ja 어댑터: Kotobank(스크래핑) → JMdict(로컬 데이터셋 번들, jmdict-simplified 등) → Wiktionary(en.wiktionary.org의 ja 항목) 순차 폴백 구현
+  - [ ] zh 어댑터: zh-Hans는 汉典(`/hans/`, 스크래핑) → CC-CEDICT(로컬 데이터셋), zh-Hant는 萌典(스크래핑) → 汉典(`/hant/`) → CC-CEDICT, 공통 최종 폴백으로 Wiktionary(en.wiktionary.org의 zh 항목)
+  - [ ] 한국어 설명 처리 — 사전 API는 원어 sense 목록만 제공, LLM이 문맥 판정 + 한국어 설명을 함께 생성하도록 프롬프트 구성
+  - [ ] (선택) 스크래핑 소스(Kotobank/汉典/萌典)의 안정성 대비 — 페이지 구조 변경/일시 차단 시 다음 폴백 단계로 자연스럽게 넘어가도록 에러 처리
+  - [ ] 상업화 시 재검토(별도 트리거 필요, 지금은 미착수) — en: MW 제외하고 WordNet+Wiktionary만 / ja: Kotobank 제외하고 JMdict+日本語WordNet(NICT) 조합으로 교체 / zh: 汉典·萌典 제외하고 CC-CEDICT 중심 + 有道詞典 API(유료) 검토. 상세 근거는 PLAN.md §5 참고
 - [x] ~~네이버 사전 바로가기 — 위 LLM 뜻 번호 판정과는 별개로, 툴바에 네이버 로고 + [사전] 버튼을 추가해 언어별(en/ja/zh) 네이버 사전 페이지를 외부 브라우저 새 창으로 연다(`question/naver.ts` `naverDictionaryUrl`, 언어별 서브도메인은 `shared/languages.ts` `naverDictSubdomain`). 새 창 열기 로직은 기존 `google.ts`에 있던 것을 `question/browser.ts`(`openUrlInNewWindow`)로 분리해 구글/네이버가 공유. 네이버는 공식 API가 없고 스크래핑은 ToS 위반 소지가 있어, LLM 뜻 번호 판정과 달리 "사용자가 직접 찾아보는" 바로가기 용도로만 제공~~
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
 - [x] ~~자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화 — `popup/FrequentQuestions.tsx`. main 프로세스 `userData/frequent.json` 에 파일 저장(`main/frequentStore.ts` + IPC `FREQUENT_GET`/`SET`, 렌더러는 `popup/frequentStore.ts` 얇은 래퍼). localStorage 임시 저장에서 이전 완료 → 재시작·재설치 후 유지~~
