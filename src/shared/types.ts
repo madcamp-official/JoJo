@@ -267,11 +267,24 @@ export interface DictionaryReading {
    *  (OEWN 전용, 실제로 sense마다 다름)와 반대되는 케이스라 레벨을 분리해뒀다. LLM 프롬프트엔
    *  넣지 않고, 어댑터가 같은 표기의 여러 reading(DictionaryReading[]) 을 안정 정렬할 때만 씀. */
   isCommon?: boolean
+  /** 이 reading 이 headword 배열 중 일부 표기에만 적용될 때만 채움(undefined = 전체 적용) —
+   *  jmdict-simplified `Kana.appliesToKanji` 실측 확인(인덱스가 아니라 한자 표기 문자열
+   *  자체로 매칭, 예: "一人" 엔트리에서 いちにん reading 의 appliesToKanji 는 ["一人","１人"]
+   *  뿐이고 "独り"는 빠짐 — 独り는 ひとり로만 읽힘). headword 를 `{text,...}[]` 객체 배열
+   *  대신 `string[]`로 단순화했기 때문에 이 필드도 인덱스가 아니라 headword 배열의 문자열
+   *  값 그대로를 담아 매칭한다. */
+  appliesToHeadwords?: string[]
   senses: DictionarySense[]
 }
 
 export interface DictionaryEntry {
-  headword: string
+  /** 이표기(異表記) 전부 — 대부분의 소스는 길이 1인 배열이면 충분하지만, ja(JMdict)는
+   *  한 표제어가 여러 한자로 쓰이는 경우가 실측 확인됨(예: "さびしい/さみしい"→["寂しい",
+   *  "淋しい"]). 순서는 어댑터가 원본 우선도(JMdict `ke_pri`/`Kanji.common` 등)로 정렬해
+   *  `headword[0]`이 대표 표기가 되게 한다. 이표기별 개별 우선도·주석(ateji/구자체 등,
+   *  jmdict-simplified `Kanji.tags`)은 스코프에서 제외 — 이 앱에 표기별 우선순위 UI가
+   *  없어 당장 필요성이 낮음(dialect 필드를 뺀 것과 동일 판단). */
+  headword: string[]
   /** 이 표제어가 단일 단어가 아니라 여러 단어로 굳어진 관용구/구(句)인지 — 다중 단어
    *  선택 시 "부분 조합 해석이 아니라 통째로 뜻을 취해야 한다"는 판단에 실제로 쓰임.
    *  boolean 하나라 크기 부담은 없음(앞서 raw 필드를 크기 문제로 뺀 것과는 별개 사안).
