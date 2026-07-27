@@ -152,12 +152,17 @@ export interface DictionarySense {
    *  전달 안 하기로 했으므로 "문법 설명에 실제로 쓸 정보"는 반드시 conjugationClass 처럼
    *  별도 필드로 승격해야 한다 — 그러지 않으면 이 필드에 있어도 없는 것과 같다. */
   posRaw?: string
-  /** 활용 분류 — 언어별로 canonical pos 하나로는 못 담는 문법 정보를 사람이 읽을 수 있게
-   *  디코딩해 보존한다(이 필드는 LLM에도 전달). 예: ja 동사 "一段"/"五段(う)"/"サ変",
-   *  ja 형용사 "い형용사"/"な형용사". 활용형(て形·과거형 등) 설명에 실제로 필요한 정보라
-   *  posRaw 와 달리 버리지 않는다. zh 이합사(离合词) 등 다른 언어의 특이 문법도 필요해지면
-   *  같은 방식으로 여기에 추가. */
+  /** 활용 분류(ja 전용) — 언어별로 canonical pos 하나로는 못 담는 문법 정보를 사람이
+   *  읽을 수 있게 디코딩해 보존한다(이 필드는 LLM에도 전달). 예: 동사 "一段"/"五段(う)"/
+   *  "サ変", 형용사 "い형용사"/"な형용사". 활용형(て形·과거형 등) 설명에 실제로 필요한
+   *  정보라 posRaw 와 달리 버리지 않는다. (zh 이합사(离合词)는 실측 결과 汉典·萌典·
+   *  CC-CEDICT 어디에도 태깅 안 되어 있어 스키마에 별도 자리를 안 만들기로 함 — 필요하면
+   *  LLM 자체 지식으로 설명.) */
   conjugationClass?: string
+  /** 불규칙 활용형(en 전용) — MW 의 `ins`(inflections) 필드 실측 확인(예: run → "ran").
+   *  ja 의 conjugationClass 와 마찬가지로 문법 설명에 실제로 쓰이는 정보라 LLM에도 전달.
+   *  WordNet/Wiktionary 등 다른 en 소스는 이 필드가 비어있을 수 있음. */
+  irregularForms?: string[]
   /** 타동사/자동사 — JMdict 의 vt/vi 는 품사가 아니라 별도 축이라 분리 */
   transitive?: boolean
   /** 중국어 양사(CC-CEDICT의 "CL:") — 다른 언어는 항상 undefined */
