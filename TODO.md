@@ -119,6 +119,14 @@
     - ~~필드가 옵셔널이라 en/zh 항목엔 `conjugationClass` 값 자체가 안 들어가 실행 시점엔 안전(JSON 직렬화 시 undefined 키는 자동 생략) — 다만 타입 수준에서 "이 필드는 이 언어 전용"이라는 걸 컴파일러가 강제하진 않음(판별 유니온 대신 공통 베이스+옵셔널 확장 필드 방식을 의도적으로 택함, 필드 2-3개 규모에선 유니온이 과한 복잡도로 판단).~~
     - ~~남은 확인 필요 항목(아직 미반영): en 불규칙 동사 활용(MW의 `ins` 필드) — 별도 `irregular?: boolean` 플래그 후보. zh 이합사(离合词, 结婚/见面 등 중간에 성분 삽입 가능한 특이 문법) — 汉典/萌典/CC-CEDICT가 이를 태깅하는지 실제 소스 조사 후 필요하면 `conjugationClass`와 같은 패턴으로 추가.~~
     - [ ] **사전 소스별 실측 노트** — 전체 내용은 [DICTIONARY_SOURCES.md](DICTIONARY_SOURCES.md)로 이전됨(공통 스키마 결정 사항 + MW/OEWN/Kotobank/JMdict/汉典/萌典/CC-CEDICT/Wiktionary 소스별 실측, 날짜별 정정 이력 포함). 여기 있던 중복 사본은 정리했으니 앞으로 실측 내용은 그 문서에 바로 추가한다.
+    - [ ] **공통 스키마 검토(2026-07-28) 중 발견된, 아직 해결 안 된 이슈들** — 어댑터 구현 착수 전 재검토 필요:
+      - [ ] 최상위 "조회 결과" 타입이 스키마에 없음 — `DictionaryEntry`/`Reading`/`Sense`는 있는데 `lookupDictionary()`가 실제로 뭘 반환하는지(엔트리 하나? 배열? 못 찾음은 어떻게 표현?)를 나타내는 타입(예: `DictionaryLookupResult`)이 없음. "다중 단어 선택 처리"(아래 항목)에서 여러 조회 결과를 합쳐 LLM에 넘기려면 이 타입이 먼저 필요.
+      - [ ] `DictionarySense.usageTags`가 성격이 다른 정보(격식 MW `sls`/CC-CEDICT `(slang)`, 표기 관례 JMdict "가나로만 씀"·MW `lbs`, 방언 CC-CEDICT `(dialect)`)를 전부 문자열 배열 하나에 섞어 담음 — PLAN §3 "격식/객관 표현 여부" 자주 쓰는 질문 기능이 이 필드로 격식을 판단하려 하면 격식과 무관한 태그까지 LLM에 같이 들어가 판단을 오염시킬 수 있음. `{ text, kind?: 'register'|'convention'|'dialect' }[]` 같은 최소 구조화 여부 결정 필요.
+      - [ ] `DictionarySense.classifiers`가 사실상 CC-CEDICT 1개 소스 전용 필드 — "언어 전용 필드 2-3개까진 공통 베이스+옵셔널이 낫다"던 기존 판단(위 119번 항목)의 전제가 흔들리기 시작하는 지점. zh 전용 필드가 계속 늘면 판별 유니온 재검토 트리거로 삼을 것.
+      - [ ] MW `sdsense`(하위 한정 정의, 예: "photosynthesis"의 "especially" 하위 정의)와 Kotobank 精選版日本国語大辞典의 3단 번호매김(`[一]`→`①②③`→`(イ)(ロ)`)이 둘 다 "병렬 대안 뜻"이 아니라 "상위 뜻의 더 좁은 하위 구분"이라는 계층 구조인데, `DictionarySense.gloss: string[]`는 OEWN의 병렬 대안 정의용으로 설계돼 있어 이 부모-자식 관계가 평면화되며 사라짐. en/ja 두 무관한 소스에서 독립적으로 같은 패턴이 나온 거라 zh(汉典 인용문 포함 뜻풀이)까지 결국 3개 언어 전부에서 마주칠 문제 — 계층을 감수하고 버릴지, 별도 필드(예: 상위 sense 인덱스)로 살릴지 결정 안 됨.
+      - [ ] CC-CEDICT 어댑터가 8개 소스 중 가장 깨지기 쉬울 것으로 예상 — 슬래시 구분 평문 하나에 gloss/usageTags/domain/seeAlso/classifiers/pronunciation variety가 다 섞여 있어 세그먼트 분류가 100% 정규식 휴리스틱(다른 7개 소스는 최소한 필드가 구조적으로 분리돼 있음). 패턴에 안 걸리는 새 라벨이 계속 나올 걸 감안하고 파서를 짤 것.
+      - [ ] MW 조회 응답 배열에 관련 없는 파생/복합어 엔트리가 섞여 옴(실측: "hit" 조회 시 `hit:1`/`hit:2` 외에 `hit-and-run`/`hit list`/`hit man` 등도 같이 옴) — 정확히 조회한 표제어와 일치하는 엔트리만 골라내는 필터링 로직이 스키마 밖(어댑터 파싱 단계)에서 별도로 필요, 아직 문서화된 적 없음.
+      - [ ] 어댑터 내부에서 소스별 원본 응답을 위한 raw 중간 타입(예: `MwRawEntry`, `KotobankRawArticle`)을 따로 두고 마지막에만 공통 스키마로 축약하는 2단계 구조를 도입할지 — 계층 손실(위 항목) 자체를 해결하진 않지만, 어떤 정보를 어디서 버리는지가 명시적인 변환 단계가 되어 나중에 결정을 뒤집기 쉬워짐(다시 파싱할 필요 없이 매핑 코드만 추가). 지금 결정할지, 소스별 어댑터 구현 시작할 때 각자 판단할지 미정.
   - [ ] **활용형(활용된 동사/형용사) 대응 — 위 소스별 실측 노트의 en/ja/zh 요약**: en(MW·Wiktionary는 원형과 교차 연결돼 있어 그대로 조회 가능, OEWN은 Morphy로 해결) / **ja(Kotobank·JMdict 둘 다 자동 변환 안 해줘서 조회 전 형태소 분석 엔진으로 基本形 전처리 필수, `main/nlp/japanese.ts` `JA_ENGINE` 설정값)** / zh(활용·어미 변화 자체가 없는 언어라 해당 없음).
   - [ ] en 어댑터 — **Merriam-Webster**(1순위): 키 등록, 무료 개인용 티어(세부 실측 근거는 [DICTIONARY_SOURCES.md](DICTIONARY_SOURCES.md)의 MW 노트 — `uros`/`cxs`/`uns`/`lbs` 처리 포함).
   - [ ] en 어댑터 — **OEWN**(Open English WordNet, 2순위, MW 실패 시 폴백): 공식 GitHub Releases 에셋(`english-wordnet-2025-json.zip`)을 로컬 번들(Morphy 포함 라이브러리 사용). 원본 Princeton WordNet(정체·발음 정보 없음) 대신 커뮤니티가 계속 갱신하는 후속판(Global WordNet Association, CC-BY 4.0)으로 교체 확정 — 라이브 API·정적 링크(en-word.net)는 실측 결과 불안정(503)이라 GitHub Releases 직접 다운로드로 대체(세부 근거는 [DICTIONARY_SOURCES.md](DICTIONARY_SOURCES.md#oewn-open-english-wordnet) 참고).
@@ -136,7 +144,7 @@
     3. ja는 단어별 조회 전에 위 활용형 전처리(基本形 치환)를 각각 적용
     4. 선택 범위가 과도하게 길 때(문장 전체 드래그 등) 개별 조회 호출 수 상한 여부 검토
   - [ ] 한국어 설명 처리 — 사전 API는 원어 sense 목록만 제공, LLM이 문맥 판정 + 한국어 설명을 함께 생성하도록 프롬프트 구성
-  - [ ] (선택) 스크래핑 소스(Kotobank/汉典/萌典)의 안정성 대비 — 페이지 구조 변경/일시 차단 시 다음 폴백 단계로 자연스럽게 넘어가도록 에러 처리
+  - [ ] (2026-07-28 재검토: 우선순위 상향 검토 필요) 스크래핑 소스(Kotobank/汉典/萌典)의 안정성 대비 — 페이지 구조 변경/일시 차단 시 다음 폴백 단계로 자연스럽게 넘어가도록 에러 처리. 이 셋이 ja/zh 폴백 체인의 1순위(Kotobank/萌典) 또는 1-2순위(汉典)라 "선택 사항"이 아니라 실제로는 ja/zh 사전 기능 전체의 가용성을 좌우함 — 최소한 "파싱 실패 감지 → 다음 폴백 자동 전환"만이라도 다른 구현보다 먼저 하는 게 안전.
   - [ ] 상업화 시 재검토(별도 트리거 필요, 지금은 미착수) — en: MW 제외하고 OEWN+Wiktionary만 / ja: Kotobank 제외하고 JMdict+日本語WordNet(NICT) 조합으로 교체 / zh: 汉典·萌典 제외하고 CC-CEDICT 중심 + 有道詞典 API(유료) 검토. 상세 근거는 PLAN.md §5 참고
 - [x] ~~네이버 사전 바로가기 — 위 LLM 뜻 번호 판정과는 별개로, 툴바에 네이버 로고 + [사전] 버튼을 추가해 언어별(en/ja/zh) 네이버 사전 페이지를 외부 브라우저 새 창으로 연다(`question/naver.ts` `naverDictionaryUrl`, 언어별 서브도메인은 `shared/languages.ts` `naverDictSubdomain`). 새 창 열기 로직은 기존 `google.ts`에 있던 것을 `question/browser.ts`(`openUrlInNewWindow`)로 분리해 구글/네이버가 공유. 네이버는 공식 API가 없고 스크래핑은 ToS 위반 소지가 있어, LLM 뜻 번호 판정과 달리 "사용자가 직접 찾아보는" 바로가기 용도로만 제공~~
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
