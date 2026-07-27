@@ -432,6 +432,8 @@ button:disabled { cursor: not-allowed; }
 }
 .freq-item.dragging { opacity: 0.5; }
 .freq-item.drag-over { border-top-color: var(--theme); }
+/* 맨 뒤로 드래그 중일 때 마지막 항목 아래에 표시 — 뒤에 표시할 li 가 따로 없어서 border-bottom 사용. */
+.freq-item.drag-over-end { border-bottom-color: var(--theme); }
 .drag-handle {
   flex-shrink: 0; color: #c3c8d1; font-size: 13px; cursor: grab; padding: 2px 2px;
   line-height: 1;
