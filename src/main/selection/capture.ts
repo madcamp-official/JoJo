@@ -73,15 +73,19 @@ async function listWindowsWin32(): Promise<CaptureSource[]> {
 }
 
 async function listWindowsElectron(): Promise<CaptureSource[]> {
+  const ownSourceIds = new Set(BrowserWindow.getAllWindows().map((w) => w.getMediaSourceId()))
+
   const sources = await desktopCapturer.getSources({
     types: ['window'],
     thumbnailSize: { width: THUMBNAIL_SIZE.width * 2, height: THUMBNAIL_SIZE.height * 2 },
   })
-  return sources.map((s) => ({
-    id: s.id,
-    name: s.name,
-    thumbnail: toUniformThumbnail(s.thumbnail).toDataURL(),
-  }))
+  return sources
+    .filter((s) => !ownSourceIds.has(s.id))
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      thumbnail: toUniformThumbnail(s.thumbnail).toDataURL(),
+    }))
 }
 
 export async function listWindows(): Promise<CaptureSource[]> {
