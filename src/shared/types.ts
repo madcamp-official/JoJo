@@ -234,7 +234,7 @@ export interface DictionaryEntry {
   /** 흔히 쓰이는 단어/표기인지 — JMdict(jisho.org) 의 `is_common` 필드 실측 확인. 여러
    *  후보 표제어(동음이의 등) 중 실제로 자주 쓰이는 쪽이 어느 것인지 LLM 판정에 참고
    *  신호가 됨. boolean이라 비용 부담 없음. MW 등 다른 소스는 이런 필드 자체가 없어
-   *  undefined. (jlpt 레벨은 비용 대비 이 앱 기능과의 관련성이 낮아 보류) */
+   *  undefined. */
   isCommon?: boolean
   readings: DictionaryReading[]
   source: DictionarySourceId
