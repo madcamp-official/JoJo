@@ -208,11 +208,28 @@ export interface DictionarySense {
   synonyms?: string[]
   /** 반의어 — 위 synonyms 와 동일 근거(실측: JMdict "高い"→"低い"). */
   antonyms?: string[]
-  /** 격식/사용역 라벨(복수 가능) — MW 의 `sls`(status label sequence) 필드 실측 확인
-   *  (예: "ain't"→["informal"]). PLAN.md §3 "자주 쓰는 질문"에 이미 "격식·객관 표현
-   *  여부"가 있어 이 앱 기능과 직결되는 정보라 추가 — 사전 API가 이미 판정해주는 걸
-   *  LLM이 처음부터 다시 추측하지 않아도 됨. */
-  register?: string[]
+  /** 격식/사용역 + 표기 관례 라벨(복수 가능) — MW 의 `sls`(status label sequence) 필드
+   *  실측 확인(예: "ain't"→["informal"]). PLAN.md §3 "자주 쓰는 질문"에 이미 "격식·객관
+   *  표현 여부"가 있어 이 앱 기능과 직결되는 정보라 추가 — 사전 API가 이미 판정해주는 걸
+   *  LLM이 처음부터 다시 추측하지 않아도 됨. 원래 필드명은 `register`였으나 JMdict `misc`
+   *  (실측: "しどい"→["Slang"], "薔薇"→["Usually written using kana alone"])가 격식뿐
+   *  아니라 표기 관례 같은 이질적 태그까지 섞여 있어 `register`란 이름이 좁아서
+   *  `usageTags`로 개명(2026-07-28) — 격식 라벨(MW `sls`, CC-CEDICT `(coll.)`/`(slang)` 등)과
+   *  JMdict `misc` 둘 다 이 필드 하나로 수용한다. */
+  usageTags?: string[]
+  /** 전문분야/도메인 라벨 — JMdict `field`(jmdict-simplified 원본, 컴퓨터·의학·법률 등)
+   *  실측 확인. jisho.org 라이브 API는 이 축을 `misc`(usageTags 대응)와 뭉쳐 `tags`
+   *  하나로 노출하지만, 로컬 데이터셋을 직접 번들하는 어댑터는 원본 구분을 살려 이
+   *  필드로 분리해 받는다(2026-07-28 신설). CC-CEDICT 전문분야 라벨(`(math.)`/
+   *  `(computing)` 등)도 이 필드로 매핑 가능 — 파싱 시 usageTags 와 구분해서 라우팅. */
+  domain?: string[]
+  /** 동의어 보장이 없는 "관련어 참조" — JMdict `see_also`/`related`(jisho.org 실측:
+   *  "一人"의 "being alone" 뜻 → 見よ: 一人で), CC-CEDICT 교차참조 포인터(`variant of`/
+   *  `abbr. for`/`see also` 등, 실측: "一族" → "see also 族[zu2]"), 萌典 `link` 필드
+   *  (실측: "蟑螂" → "也稱為「蜚蠊」", 완결된 용어가 아니라 문장형이면 usageNote 로 대체
+   *  처리) 실측 확인(2026-07-28 신설). synonyms 와 달리 "같은 뜻"이 보장되지 않는
+   *  포인터라 별도 필드로 분리. */
+  seeAlso?: string[]
   /** 화용론적 사용법 설명 — MW 의 `uns`(usage note) 실측 확인(예: "ain't hay"→"많은 금액을
    *  강조할 때 쓴다"는 설명). gloss(뜻풀이)·examples(예문) 어디에도 안 들어가는 제3의
    *  콘텐츠 타입이라 별도 필드로 분리. */
