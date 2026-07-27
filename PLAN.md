@@ -124,7 +124,7 @@
 **전 구간 TypeScript 단일 언어**로 두 사람의 코드 이동 비용을 낮춘다. 구성 요소별 스택:
 
 - **앱**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + TypeScript + React(렌더러 UI).
-- **캡처/오버레이**: 창 열거·캡처는 Windows 네이티브 win32(user32/gdi32/dwmapi, `koffi` FFI 바인딩)를 우선 사용(가려진/최소화된 창까지 캡처, `desktopCapturer`는 win32 네이티브 열거가 실패했을 때만 쓰는 최종 폴백). macOS는 창 목록을 `desktopCapturer`로 1차 배치 조회(현재 Space, 썸네일 포함, 빠름)하고, 거기 없는 창(다른 가상 데스크탑/Space)만 CoreGraphics/AppKit을 `koffi`로 직접 바인딩한 `listAllMacWindows`(`main/selection/macWindow.ts`: `CGWindowListCopyWindowInfo`를 `kCGWindowListExcludeDesktopElements`로 호출)로 보충 — 즉 macOS는 `desktopCapturer`가 주, 네이티브 열거가 보조로 win32와 정반대 관계다. 테두리 정렬·창 raise는 macOS도 CoreGraphics/AppKit `koffi` 바인딩을 쓰고, 실제 화면 캡처엔 내장 `screencapture -l<windowID>`를 사용. koffi FFI는 Windows 전용이 아니라 두 플랫폼 모두에서 쓰인다. 투명·클릭스루 BrowserWindow, `globalShortcut`.
+- **캡처/오버레이**: 창 열거·캡처는 Windows 네이티브 win32(user32/gdi32/dwmapi, `koffi` FFI 바인딩)를 우선 사용(가려진/최소화된 창까지 캡처, `desktopCapturer`는 win32 네이티브 열거가 실패했을 때만 쓰는 최종 폴백). macOS는 창 "목록"엔 `desktopCapturer`(현재 가상 데스크탑/Space에 보이는 창만)를 그대로 쓴다 — 다른 Space의 창까지 열거하는 확장을 시도했으나(`CGWindowListCopyWindowInfo`를 `kCGWindowListExcludeDesktopElements`로 직접 호출) 목록이 지저분해지는 등 UX가 나빠져 원복했다(TODO.md 참고). 테두리 정렬·창 raise는 macOS도 CoreGraphics/AppKit을 `koffi`로 직접 바인딩(`main/selection/macWindow.ts`)해서 하고, 실제 화면 캡처엔 내장 `screencapture -l<windowID>`를 사용. koffi FFI는 Windows 전용이 아니라 두 플랫폼 모두에서 쓰인다. 투명·클릭스루 BrowserWindow, `globalShortcut`.
 - **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정. 중국어는 `chi_sim+chi_tra` 언어팩을 함께 로드해 간체/번체를 자동 판별. 일/중 단어 경계는 OCR 결과를 kuromoji/segmentit(`main/nlp/`)로 재분할해 의미 단위로 맞춘다.
 - **확장**: 브라우저 확장(Manifest V3) + native messaging.
 - **API**: LLM 3종 어댑터(GPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
@@ -137,7 +137,7 @@ flowchart TB
 
     subgraph APP["🖥️ Electron App · TypeScript"]
         direction TB
-        MAIN["<b>Main Process</b><br/>창 선택·캡처(win32 네이티브 우선/desktopCapturer 폴백, macOS는 desktopCapturer 우선/네이티브 보충) · 전역 단축키(globalShortcut)<br/>접근성 API 브릿지(탭/URL 감지) · API 키 보관(safeStorage) · IPC 허브"]
+        MAIN["<b>Main Process</b><br/>창 선택·캡처(win32 네이티브 우선/desktopCapturer 폴백, macOS는 desktopCapturer) · 전역 단축키(globalShortcut)<br/>접근성 API 브릿지(탭/URL 감지) · API 키 보관(safeStorage) · IPC 허브"]
 
         subgraph PIPE[" "]
             direction LR
@@ -176,7 +176,7 @@ flowchart TB
 두 사람을 **팝업창 기준**으로 나눈다. A는 팝업이 뜨기 전까지(창 선택·캡처·오버레이·모드·추출·좌표·클릭 감지), B는 팝업이 뜬 이후 전부(범위 확정·문맥 구성·질문·결과·설정)를 맡는다. **경계 = `ExtractedSelection`(A→B, 팝업 직전 추출 결과)와 `QuestionResult`(B→UI)**. 이 인터페이스를 가장 먼저 못박아 각자 목(mock)으로 병렬 개발한다.
 
 ### 담당 A — 선택 준비 & 추출 (팝업 전)
-- 창 선택/화면 캡처(win32는 네이티브 우선·desktopCapturer 폴백, macOS는 반대로 desktopCapturer로 현재 Space를 빠르게 채우고 다른 Space 창만 네이티브 열거로 보충), 오버레이 윈도우, 전역 단축키, 모드 전환.
+- 창 선택/화면 캡처(win32는 네이티브 우선·desktopCapturer 폴백, macOS는 창 목록에 desktopCapturer 그대로 사용), 오버레이 윈도우, 전역 단축키, 모드 전환.
 - OCR 파이프라인(캡처→언어 감지→언어 특화 OCR→좌표 매핑) + 노이즈 제거.
 - 소스별 직접 추출(txt/epub/PDF) + 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출, OCR 여부 판정 로직·판정 시점 캐싱.
 - 브라우저 확장(DOM 텍스트, 유튜브/넷플릭스 자막, 단어 하이라이트) + 앱과 native messaging.
@@ -288,7 +288,7 @@ JoJo/
 │   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
 │   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Alt+Q, macOS Cmd/Ctrl 이중 등록)
-│   │   │   ├── capture.ts       #   창 목록/캡처 — win32는 네이티브 우선(desktopCapturer 폴백), macOS는 desktopCapturer로 현재 Space 일괄 조회 + macWindow.ts(listAllMacWindows)로 다른 Space만 보충, 캡처는 screencapture -l + 선택 창 id 보관
+│   │   │   ├── capture.ts       #   창 목록/캡처 — win32는 네이티브 우선(desktopCapturer 폴백), macOS는 목록에 desktopCapturer·캡처는 screencapture -l + 선택 창 id 보관
 │   │   │   ├── win32Capture.ts  #   Windows 네이티브 창 열거·캡처(koffi FFI, 가려짐/최소화 대응)
 │   │   │   ├── macWindow.ts     #   macOS CoreGraphics/AppKit 바인딩(koffi) — bounds 조회·창 raise
 │   │   │   ├── decideOcr.ts     #   OCR 사용 여부 판정(현재 파이프라인에선 미사용, 아래 참고)

@@ -84,67 +84,12 @@ async function listWindowsElectron(): Promise<CaptureSource[]> {
   }))
 }
 
-// 1x1 투명 PNG — 캡처 실패(다른 Space 창 등) 시 목록에서 빠지지 않도록 두는 자리표시자.
-const BLANK_THUMBNAIL = nativeImage
-  .createFromBuffer(
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-      'base64',
-    ),
-  )
-  .toDataURL()
-
-/**
- * macOS 창 목록 — 현재 Space(=on-screen)는 기존처럼 `desktopCapturer`로 빠르게 일괄
- * 조회(썸네일 포함)하고, 거기 없는 창(다른 가상 데스크탑/Space에 있는 창)만
- * `listAllMacWindows`(`macWindow.ts`, `kCGWindowListExcludeDesktopElements`)로 추가
- * 열거해 자리표시자 썸네일과 함께 목록에 얹는다.
- *
- * 처음엔 전체를 `listAllMacWindows`로만 열거하고 각 창을 `screencapture -l<id>`로
- * 순차 캡처했는데, 창이 많으면(실기 130개+) 창 하나당 프로세스 스폰 비용 때문에
- * 전체 목록이 뜨기까지 수십 초씩 걸려 "창 목록을 불러오는 중…"에서 멈춘 것처럼
- * 보이는 문제가 있었다 — `desktopCapturer` 한 번 호출로 대부분(=현재 Space)을 빠르게
- * 채우고, 다른 Space 처럼 desktopCapturer 에 안 잡히는 나머지만 추가하는 방식으로 변경.
- * 다른 Space 창의 실제 썸네일은 만들지 않는다(선택 시 캡처되는 원본 화질과 별개로,
- * 목록 단계에서까지 다시 `screencapture` 를 여러 번 돌리는 비용을 피함).
- */
-async function listWindowsMac(): Promise<CaptureSource[]> {
-  const { listAllMacWindows, parseMacWindowId } = await import('./macWindow')
-
-  const onScreen = await desktopCapturer.getSources({
-    types: ['window'],
-    thumbnailSize: { width: THUMBNAIL_SIZE.width * 2, height: THUMBNAIL_SIZE.height * 2 },
-  })
-  const onScreenIds = new Set(
-    onScreen.map((s) => parseMacWindowId(s.id)).filter((id): id is number => id != null),
-  )
-  const onScreenSources: CaptureSource[] = onScreen.map((s) => ({
-    id: s.id,
-    name: s.name,
-    thumbnail: toUniformThumbnail(s.thumbnail).toDataURL(),
-  }))
-
-  const ownPid = process.pid
-  const extraSources: CaptureSource[] = listAllMacWindows()
-    .filter((w) => w.pid !== ownPid && w.title.trim().length > 0 && !onScreenIds.has(w.windowId))
-    .map((w) => ({ id: `window:${w.windowId}:0`, name: w.title, thumbnail: BLANK_THUMBNAIL }))
-
-  return [...onScreenSources, ...extraSources]
-}
-
 export async function listWindows(): Promise<CaptureSource[]> {
   if (process.platform === 'win32') {
     try {
       return await listWindowsWin32()
     } catch (err) {
       console.error('[capture] win32 window enumeration failed, falling back:', err)
-    }
-  }
-  if (process.platform === 'darwin') {
-    try {
-      return await listWindowsMac()
-    } catch (err) {
-      console.error('[capture] mac window enumeration failed, falling back:', err)
     }
   }
   return listWindowsElectron()
