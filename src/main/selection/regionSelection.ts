@@ -2,7 +2,7 @@ import { nativeImage } from 'electron'
 import type { Rect } from '@shared/types'
 import { getPhysicalToDipScale } from '../windows'
 import { captureFocusedWindow, getSelectedWindowId } from './capture'
-import { detectLayoutBlocks, padRect } from './layoutDetect'
+import { detectLayoutBlocks, type LayoutBlock, padRect } from './layoutDetect'
 import { detectLinesWithPaddle } from './ocrPaddle'
 
 // 본문 블록들을 감싼 사각형에 더하는 여유(px) — 딱 맞게 감싸면 맨 끝 줄/글자가 이
@@ -20,8 +20,35 @@ const AUTO_REGION_PADDING_Y = 12
 
 let region: Rect | null = null
 
+/**
+ * 담당 A — 자동 영역 감지(autoDetectRegion) 때 이미 계산해둔 DocLayout/PaddleOCR 결과를
+ * 캐시해서 OCR 단계(ocr.ts: runOcr)가 재사용하게 한다. `region`과 생명주기를 같이한다
+ * (재계산/무효화 시점이 같아서 — 리사이즈로 region 이 무효화되면 이 캐시도 더 이상
+ * 유효하지 않고, region 이 재사용되는 동안은 이 캐시도 그대로 유효함).
+ *
+ * 이걸 두는 이유: DocLayout 검출(및 그게 실패했을 때의 PaddleOCR 텍스트 줄 검출)은
+ * "본문 영역을 찾을 때"(모드 진입 시)와 "실제로 인식할 때"(클릭 시) 둘 다 필요한데,
+ * 캐시가 없으면 사실상 같은 캡처 내용에 대해 이 무거운 Python 호출을 두 번씩(경우에
+ * 따라 세 번) 반복하게 된다(실측: 세로쓰기 페이지에서 페이지 전체를 훑는 PaddleOCR
+ * 호출이 회당 30~40초 — 실사용 중 "선택 모드 진입부터 텍스트 추출까지 125초"로 확인,
+ * 그중 상당 부분이 이 중복 호출들이었음).
+ */
+export interface CachedDetection {
+  blocks: LayoutBlock[]
+  vertical: boolean
+  /** DocLayout 이 블록을 하나도 못 찾아서(blocks=0) PaddleOCR 로 대신 찾은 줄 — 그 경우가
+   * 아니면 null(재사용할 게 없다는 뜻, ocr.ts 가 필요하면 새로 찾는다). */
+  fallbackLines: Rect[] | null
+}
+
+let cachedDetection: CachedDetection | null = null
+
 export function getRegion(): Rect | null {
   return region
+}
+
+export function getCachedDetection(): CachedDetection | null {
+  return cachedDetection
 }
 
 export function setRegion(rect: Rect): void {
@@ -30,6 +57,7 @@ export function setRegion(rect: Rect): void {
 
 export function clearRegion(): void {
   region = null
+  cachedDetection = null
 }
 
 /**
@@ -38,6 +66,10 @@ export function clearRegion(): void {
  * 변환.
  */
 export async function submitRegionFromOverlay(dipRect: Rect): Promise<void> {
+  // 수동 드래그로 지정한 영역이라 DocLayout 을 아예 안 거쳤다 — 혹시 이전 자동 감지
+  // 시도에서 남아있는 캐시가 있으면(예: 실패해서 드래그로 폴백한 경우) 지금 지정하는
+  // 이 영역과 무관하니 반드시 비운다(안 그러면 ocr.ts 가 엉뚱한 캐시를 재사용함).
+  cachedDetection = null
   if (process.platform === 'win32') {
     const id = getSelectedWindowId()
     if (!id) return
@@ -130,7 +162,13 @@ export async function autoDetectRegion(): Promise<Rect | null> {
   }
 
   const detected = await detectLayoutBlocks(image)
-  if (!detected) return null
+  if (!detected) {
+    cachedDetection = null
+    return null
+  }
+  // 일단 캐시부터 채워둔다(폴백 2단계까지 가면 fallbackLines 로 갱신) — 이 함수가 어느
+  // 경로로 끝나든(성공/실패) ocr.ts 가 재사용할 블록/세로쓰기 판정은 이미 다 나와있다.
+  cachedDetection = { blocks: detected.blocks, vertical: detected.vertical, fallbackLines: null }
   let body = detected.blocks.filter((b) => BODY_LABELS.has(b.label))
   // 검증용 로그 — 본문 자동 감지가 실패했을 때 "블록을 아예 못 찾음"인지 "블록은
   // 찾았는데 본문 라벨이 아니라서 걸러짐"인지 원인을 바로 구분할 수 있게 라벨/신뢰도를
@@ -170,12 +208,17 @@ export async function autoDetectRegion(): Promise<Rect | null> {
     const lines = await detectLinesWithPaddle(image, fullImage)
     console.log(`[regionSelection] 폴백 2단계 — PaddleOCR 텍스트 줄 검출: ${lines?.length ?? 'null(실패)'}개`)
     if (lines && lines.length > 0) {
+      // ocr.ts 가 세로/가로 판별·인식에 그대로 재사용하도록 캐시를 갱신한다 — 여기서
+      // 찾은 줄은 region(아래 padRect 결과) 기준과 사실상 같은 크롭이라(둘 다 이 줄들을
+      // 감싼 뒤 같은 여백을 더한 값) 재검출 없이 안전하게 재사용할 수 있다.
+      cachedDetection = { blocks: detected.blocks, vertical: detected.vertical, fallbackLines: lines }
       const x0 = Math.min(...lines.map((l) => l.x))
       const y0 = Math.min(...lines.map((l) => l.y))
       const x1 = Math.max(...lines.map((l) => l.x + l.width))
       const y1 = Math.max(...lines.map((l) => l.y + l.height))
       return padRect({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, AUTO_REGION_PADDING_X, AUTO_REGION_PADDING_Y, fullImage)
     }
+    cachedDetection = null // 영역을 못 찾아 드래그로 폴백하니, 이 시도의 캐시는 의미 없음.
     return null
   }
 

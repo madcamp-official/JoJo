@@ -136,6 +136,23 @@ export function mergeIntoColumns(blocks: LayoutBlock[]): LayoutBlock[] {
 }
 
 /**
+ * 모드 진입 시(영역 자동 감지, region 없이 이미지 전체로 검출) 캐시해둔 블록 목록을
+ * 추출 시점(region 이 확정된 뒤)에 재사용할 때 쓴다 — Python 쪽 detect() 가 `region`을
+ * 받으면 서버에서 이 필터를 직접 적용하는데, 캐시를 재사용할 땐 그 호출 자체를 생략
+ * 하므로 같은 필터를 JS 쪽에서 동일하게 적용해줘야 한다(안 그러면 선택 영역 밖의
+ * 블록까지 열 병합/세로쓰기 판정에 섞여 들어갈 수 있음).
+ */
+export function filterBlocksByRegion(blocks: LayoutBlock[], region: Rect): LayoutBlock[] {
+  const regionRight = region.x + region.width
+  const regionBottom = region.y + region.height
+  return blocks.filter((b) => {
+    const blockRight = b.bbox.x + b.bbox.width
+    const blockBottom = b.bbox.y + b.bbox.height
+    return !(blockRight < region.x || blockBottom < region.y || b.bbox.x > regionRight || b.bbox.y > regionBottom)
+  })
+}
+
+/**
  * YOLO 가 잡는 블록 bbox 는 "글자 잉크가 있는 딱 그 범위"에 맞춰져서, 문장 끝
  * 마침표처럼 작고 획이 옅은 문장부호나 줄 맨 끝 글자의 삐침이 bbox 밖으로 살짝
  * 빠지는 경우가 있다 — 이 블록 bbox 를 그대로 Tesseract 의 crop 사각형(rectangle)

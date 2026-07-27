@@ -4,8 +4,15 @@ import type { Language, Rect, Word } from '@shared/types'
 import type { Extracted } from './extractDirect'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
-import { detectLayoutBlocks, type LayoutBlock, mergeIntoColumns, padRect } from './layoutDetect'
-import { detectLinesWithPaddle, isVerticalByLineShape, recognizeVerticalColumnWithPaddle, recognizeWithPaddle } from './ocrPaddle'
+import { detectLayoutBlocks, filterBlocksByRegion, type LayoutBlock, mergeIntoColumns, padRect } from './layoutDetect'
+import {
+  detectLinesWithPaddle,
+  isVerticalByLineShape,
+  recognizeLinesWithPaddle,
+  recognizeVerticalColumnWithPaddle,
+  recognizeWithPaddle,
+} from './ocrPaddle'
+import { getCachedDetection } from './regionSelection'
 
 // YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
 // 실측 결과 가로는 줄 끝 단어가 통째로 깨지지 않으려면 50px은 필요했고(10~30px 는
@@ -41,6 +48,44 @@ async function getWorker(language: Language): Promise<Worker> {
   return worker
 }
 
+// region 이 없을 때(전체 창을 대상으로 함) "이미지 전체"를 나타내는 Rect 가 여러
+// 군데에서 필요해서(clampBounds, 판별용 폴백 등) 헬퍼로 뽑았다.
+function fullImageRect(image: Buffer): Rect {
+  const { width, height } = nativeImage.createFromBuffer(image).getSize()
+  return { x: 0, y: 0, width, height }
+}
+
+interface LayoutInfo {
+  blocks: LayoutBlock[]
+  vertical: boolean
+  /** DocLayout 이 블록을 못 찾아서(blocks=0) 대신 찾아둔 PaddleOCR 줄 — 캐시에서 왔을
+   * 수도, 여기 없을 수도 있다(캐시 자체가 없으면 항상 null). */
+  fallbackLines: Rect[] | null
+}
+
+/**
+ * DocLayout 검출 결과를 얻는다 — 모드 진입 시 영역 자동 감지(regionSelection.ts:
+ * autoDetectRegion)가 이미 이 캡처 내용으로 DocLayout(+실패 시 PaddleOCR 줄 검출)을
+ * 한 번 돌려놨으므로, 그 결과가 캐시돼 있으면 재사용하고 없을 때만(수동 드래그로 영역을
+ * 지정한 경우 등) 새로 검출한다. 캐시 재사용 시 blocks 는 이미지 전체 기준으로 검출된
+ * 것이라 region 이 있으면 그 안에 겹치는 것만 걸러낸다(layoutDetect.ts: filterBlocksByRegion
+ * — Python 쪽 detect() 가 region 인자로 하던 필터링을 캐시 재사용 시엔 JS 에서 대신함).
+ */
+async function resolveLayout(image: Buffer, region: Rect | undefined): Promise<LayoutInfo> {
+  const cached = getCachedDetection()
+  if (cached) {
+    const blocks = region ? filterBlocksByRegion(cached.blocks, region) : cached.blocks
+    console.log(`[timing] layout detect: 캐시 재사용 (blocks=${blocks.length}, vertical=${cached.vertical})`)
+    return { blocks, vertical: cached.vertical, fallbackLines: cached.fallbackLines }
+  }
+  const layoutStart = Date.now()
+  const detected = await detectLayoutBlocks(image, region)
+  console.log(
+    `[timing] layout detect: ${Date.now() - layoutStart}ms (blocks=${detected?.blocks.length ?? 'null'}, vertical=${detected?.vertical ?? 'n/a'})`,
+  )
+  return { blocks: detected?.blocks ?? [], vertical: detected?.vertical ?? false, fallbackLines: null }
+}
+
 /**
  * 담당 A — 실험용 브랜치(experiment/doclayout-yolo). Tesseract 는 다단(2단 등)
  * 레이아웃을 한 번에 인식시키면 열을 뒤섞어 읽는 경우가 있다(왼쪽 열 중간까지
@@ -56,17 +101,13 @@ async function getWorker(language: Language): Promise<Worker> {
  * 미설치 등) 기존 단일 패스로 폴백한다.
  */
 export async function runOcr(image: Buffer, language: Language, region?: Rect): Promise<Extracted> {
-  const layoutStart = Date.now()
-  const detected = await detectLayoutBlocks(image, region)
-  console.log(
-    `[timing] layout detect: ${Date.now() - layoutStart}ms (blocks=${detected?.blocks.length ?? 'null'}, vertical=${detected?.vertical ?? 'n/a'})`,
-  )
-  const columns = detected ? mergeIntoColumns(detected.blocks) : null
+  const { blocks, vertical: shapeVertical, fallbackLines } = await resolveLayout(image, region)
+  const columns = mergeIntoColumns(blocks)
 
   // 중국어/일본어는 PaddleOCR을 먼저 시도한다(세로쓰기면 recognizeVerticalColumnWithPaddle,
-  // 가로쓰기면 recognizeWithPaddle) — 일본어 스캔 파일에서 Tesseract 인식률이 낮았던
-  // 문제(실사용 확인)로 도입. 실패하면(Python 환경 없음 등) null 이 와서 그대로 아래
-  // Tesseract 경로로 흘러간다.
+  // 가로쓰기면 recognizeWithPaddle/recognizeLinesWithPaddle) — 일본어 스캔 파일에서
+  // Tesseract 인식률이 낮았던 문제(실사용 확인)로 도입. 실패하면(Python 환경 없음 등)
+  // null 이 와서 그대로 아래 Tesseract 경로로 흘러간다.
   if (language === 'zh-Hans' || language === 'zh-Hant' || language === 'ja') {
     // DocLayout 이 블록을 하나도 못 찾으면(blocks=0) `vertical` 판정 자체가 근거가
     // 없어 기본값 false 로 떨어지는데, 그러면 전체 영역이 통째로 "블록 1개" 취급돼
@@ -75,42 +116,30 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
     // 예전엔 "언어가 ja/zh 면 무조건 세로쓰기로 가정"하는 블라인드 폴백을 썼는데, 대신
     // PaddleOCR 로 줄을 직접 찾아(어차피 다음 단계에서도 필요한 호출) 그 모양(h/w 비율)
     // 으로 실측 판별한다(isVerticalByLineShape) — 진짜로 보고 판단하는 쪽이 더 정확하다.
-    const blocksFound = (detected?.blocks.length ?? 0) > 0
-    let vertical: boolean
-    // blocksFound 가 false 일 때만 채워진다 — 판별용으로 이미 찾은 줄을, 뒤이은 인식
-    // 단계(runNonTesseractOcr → recognizeVerticalColumnWithPaddle)가 같은 크롭을 또
-    // detectLinesWithPaddle 로 재검출하지 않도록 그대로 넘겨준다(중복 호출 제거).
+    const blocksFound = blocks.length > 0
+    let vertical = shapeVertical
     let precomputedLines: Rect[] | undefined
-    if (blocksFound) {
-      vertical = detected?.vertical ?? false
-    } else {
-      const fullImage: Rect =
-        region ?? (() => {
-          const { width, height } = nativeImage.createFromBuffer(image).getSize()
-          return { x: 0, y: 0, width, height }
-        })()
-      const lines = await detectLinesWithPaddle(image, fullImage)
+    if (!blocksFound) {
+      // fallbackLines 가 이미 있으면(캐시에서 왔음) 재검출 안 하고 그대로 쓴다 — 없으면
+      // (캐시 자체가 없는 경우, 예: 수동 드래그 영역) 지금 새로 찾는다.
+      const lines = fallbackLines ?? (await detectLinesWithPaddle(image, region ?? fullImageRect(image)))
       vertical = lines ? isVerticalByLineShape(lines) : false
       precomputedLines = lines ?? undefined
       console.log(
-        `[timing] layout detect 실패 — PaddleOCR 줄 검출로 실측 판별: vertical=${vertical} (lines=${lines?.length ?? 'null'})`,
+        `[timing] 세로/가로 실측 판별${fallbackLines ? '(캐시 재사용)' : '(새로 검출)'}: vertical=${vertical} (lines=${lines?.length ?? 'null'})`,
       )
     }
     const nonTessStart = Date.now()
     const result = await runNonTesseractOcr(image, language, region, columns, vertical, precomputedLines)
     console.log(
-      `[timing] non-tesseract ocr (columns=${columns?.length ?? 1}): ${Date.now() - nonTessStart}ms (${result ? 'success' : 'failed, falling back to tesseract'})`,
+      `[timing] non-tesseract ocr (columns=${columns.length || 1}): ${Date.now() - nonTessStart}ms (${result ? 'success' : 'failed, falling back to tesseract'})`,
     )
     if (result) return result
   }
 
   const w = await getWorker(language)
-  if (columns && columns.length > 1) {
-    const clampBounds: Rect =
-      region ?? (() => {
-        const { width, height } = nativeImage.createFromBuffer(image).getSize()
-        return { x: 0, y: 0, width, height }
-      })()
+  if (columns.length > 1) {
+    const clampBounds = region ?? fullImageRect(image)
     const texts: string[] = []
     const words: Word[] = []
     for (const column of columns) {
@@ -136,43 +165,41 @@ async function runNonTesseractOcr(
   image: Buffer,
   language: 'zh-Hans' | 'zh-Hant' | 'ja',
   region: Rect | undefined,
-  columns: LayoutBlock[] | null,
+  columns: LayoutBlock[],
   vertical: boolean,
   precomputedLines?: Rect[],
 ): Promise<Extracted | null> {
-  const clampBounds: Rect =
-    region ?? (() => {
-      const { width, height } = nativeImage.createFromBuffer(image).getSize()
-      return { x: 0, y: 0, width, height }
-    })()
-  const targets = columns && columns.length > 0 ? columns.map((c) => c.bbox) : [region ?? clampBounds]
+  const clampBounds = region ?? fullImageRect(image)
+  const targets = columns.length > 0 ? columns.map((c) => c.bbox) : [region ?? clampBounds]
   // precomputedLines 는 "블록 0개 → 대상 전체를 통짜 크롭 1개로 처리" 케이스에서만
   // 채워져 오고, 그 크롭은 항상 이 targets 배열의 유일한 원소(위 fallback 대입)와 같은
   // region/clampBounds 기준이라 targets.length===1 일 때만 안전하게 재사용할 수 있다.
 
-  // 열마다 순차로(for...await) 호출하면 ocrPaddle.ts/ocrManga.ts 에 만들어둔 워커
-  // 풀(POOL_SIZE=3)을 쓰는 의미가 없다 — 한 열이 끝나야 다음 열을 보내니 워커 하나만
-  // 쓰는 것과 같다(실사용 중 "다단/세로쓰기 페이지 인식이 오래 걸림"으로 확인). 전부
-  // 한꺼번에 보내야 여러 워커에 나뉘어 실제로 동시에 처리된다 — Promise.all 은 입력
-  // 순서(=열 순서)를 그대로 보존해서 반환하므로 완료 순서와 무관하게 결과가 올바르게
-  // 이어붙는다.
+  // 열마다 순차로(for...await) 호출하면 ocrPaddle.ts 에 만들어둔 워커 풀(POOL_SIZE=3)을
+  // 쓰는 의미가 없다 — 한 열이 끝나야 다음 열을 보내니 워커 하나만 쓰는 것과 같다
+  // (실사용 중 "다단/세로쓰기 페이지 인식이 오래 걸림"으로 확인). 전부 한꺼번에 보내야
+  // 여러 워커에 나뉘어 실제로 동시에 처리된다 — Promise.all 은 입력 순서(=열 순서)를
+  // 그대로 보존해서 반환하므로 완료 순서와 무관하게 결과가 올바르게 이어붙는다.
   const perColumn = await Promise.all(
     targets.map(async (bbox, i) => {
       const padded = padRect(bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
       const start = Date.now()
+      const lines = targets.length === 1 ? precomputedLines : undefined
       // 세로쓰기는 PaddleOCR 로 처리한다(recognizeVerticalColumnWithPaddle 주석 참고 —
       // manga-ocr 대비 실측 4.6배 빠르고 정확도도 동일). 이전엔 일본어만 세로쓰기
       // 전용 경로(manga-ocr, ja 전용 모델)가 있어서 중국어 세로쓰기는 사실상 가로쓰기와
       // 동일하게 처리됐는데, PaddleOCR 기반으로 바뀌면서 zh/ja 둘 다 같은 방식으로
       // 세로쓰기를 지원하게 됐다.
-      const words =
-        vertical
-          ? await recognizeVerticalColumnWithPaddle(
-              image,
-              language,
-              padded,
-              targets.length === 1 ? precomputedLines : undefined,
-            )
+      //
+      // 가로쓰기는 열이 여러 개(DocLayout 성공, targets.length>1)면 열 하나하나가 이미
+      // 적당히 작은 크롭이라 기존처럼 recognizeWithPaddle 한 번으로 충분하지만(PaddleOCR
+      // 자체 검출기가 그 안에서 알아서 줄을 찾아 인식), 열 구분이 없는 통짜 크롭
+      // (targets.length===1, blocks=0 폴백)일 땐 그 크롭이 페이지 전체 크기라 한 번에
+      // 넘기면 느리다(실측 38초) — recognizeLinesWithPaddle 로 줄 단위 병렬 인식한다.
+      const words = vertical
+        ? await recognizeVerticalColumnWithPaddle(image, language, padded, lines)
+        : targets.length === 1
+          ? await recognizeLinesWithPaddle(image, language, padded, lines)
           : await recognizeWithPaddle(image, language, padded)
       console.log(`[timing]   column ${i}: ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
       return words
