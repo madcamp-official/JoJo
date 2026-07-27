@@ -48,23 +48,23 @@ export function Toolbar({ onPron, onDict, onGoogle, onNaverDict, disabled }: Pro
       <span className="llm-badge">
         <GoogleIcon />
       </span>
-      <button className="tb-btn" title="구글 발음 검색" onClick={() => onGoogle('pron')}>
+      <button className="tb-btn" onClick={() => onGoogle('pron')}>
         발음
       </button>
-      <button className="tb-btn" title="구글 이미지 검색" onClick={() => onGoogle('image')}>
+      <button className="tb-btn" onClick={() => onGoogle('image')}>
         이미지
       </button>
 
       <span className="llm-badge">
         <NaverIcon />
       </span>
-      <button className="tb-btn" title="네이버 사전 검색" onClick={onNaverDict}>
+      <button className="tb-btn" onClick={onNaverDict}>
         사전
       </button>
 
       <span className="tb-spacer" />
 
-      <span className="llm-badge" title="사용 중인 AI 모델은 설정에서 선택합니다">
+      <span className="llm-badge">
         AI
       </span>
 
