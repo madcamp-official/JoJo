@@ -192,11 +192,15 @@ export type DictionarySourceId =
  *  반영해뒀을 정도. reading 을 DictionaryEntry 최상위에 하나만 두면 이 경우를 표현 못 해서
  *  발음 그룹 단위로 내렸다. */
 export interface DictionaryReading {
-  /** 병음/가나 등 소스 자체의 발음 표기 — 있으면. **IPA 아님**: MW 는 `prs.mw` 필드에
-   *  자체 표기법(매크론 ā/ē/ī/ō/ū 등, 인쇄사전 시절부터 쓰던 방식)을 주고 IPA 필드
-   *  자체가 없음(실측 확인) — 이 앱의 발음 기능(IPA 등)은 이 필드가 아니라
-   *  question/pronunciation.ts 가 LLM에 직접 요청하는 별도 파이프라인이라 무관함.
-   *  소스가 발음별로 안 나누면(단일 발음) 1개만 옴. */
+  /** 병음/가나 등 소스 자체의 발음 표기 — 있으면. 소스가 발음별로 안 나누면(단일 발음)
+   *  1개만 옴. 표기 체계는 소스마다 제각각이라 정규화하지 않고 원문 그대로 둔다(실측):
+   *  - MW: `prs.mw` 필드, **IPA 아님** — 자체 표기법(매크론 ā/ē/ī/ō/ū 등, 인쇄사전
+   *    시절부터 쓰던 방식). IPA 필드 자체가 응답에 없음.
+   *  - WordNet: 발음 필드 자체가 없음(원본 Princeton 데이터 포맷 `data.noun`/`data.verb`
+   *    등에 발음 정보가 아예 없음) — 이 소스 항목은 이 필드가 항상 undefined.
+   *  - Wiktionary(dictionaryapi.dev 등): `phonetic` 필드, **실제 IPA**(예: "/beɪs/").
+   *  이 앱의 발음 기능(IPA 등)은 이 필드가 아니라 question/pronunciation.ts 가 LLM에
+   *  직접 요청하는 별도 파이프라인이라 위 불일치와 무관하게 동작한다. */
   reading?: string
   senses: DictionarySense[]
 }
