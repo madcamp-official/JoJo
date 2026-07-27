@@ -301,10 +301,20 @@ export interface JaTokenizeResult {
   tokens: JaToken[]
 }
 
+/** 중국어 분절 엔진 선택지 — zh-Hant(번체) 전용 스위치. main/nlp/chinese.ts ZH_HANT_ENGINE
+ *  상수로만 전환한다(개발자 전용, 사용자 UI 없음). zh-Hans(간체)는 항상 jieba(@node-rs/jieba)
+ *  고정 — 실측 비교(사내 비교 보고서)로 간체는 jieba 계열이 명확히 앞서 스위치가 불필요했다.
+ *  번체는 완전한 승자가 없어(각자 다른 문장에서 실패) 스위치로 남겨둔다.
+ *  - 'intl': Intl.Segmenter(ICU 내장) — 의존성 0, 흔한 복합명사·고유명사 과다분절 경향
+ *  - 'chinese-tokenizer': CC-CEDICT 그리디 매칭(resources/cedict.u8) — 가든패스 중의성에 약함,
+ *    사람 이름 인식은 더 강함 */
+export type ZhEngine = 'intl' | 'chinese-tokenizer'
+
 /**
- * segmentit 중국어 형태소 분석 결과 단어 하나 — OCR 단어 분리(main/nlp/chinese.ts)와 팝업
- * 원문 문맥 atom 구성(renderer popup/selection.ts) 양쪽에서 공용으로 쓴다. jaTokens 와
- * 달리 이미 단어 경계까지 확정된 결과라 병합 없이 그대로 atom 으로 쓸 수 있다.
+ * 중국어 분절 결과 단어 하나 — OCR 단어 분리(main/nlp/chinese.ts)와 팝업 원문 문맥 atom
+ * 구성(renderer popup/selection.ts) 양쪽에서 공용으로 쓴다. jaTokens 와 달리 이미 단어
+ * 경계까지 확정된 결과라 병합 없이 그대로 atom 으로 쓸 수 있다. 어느 엔진(jieba/intl/
+ * chinese-tokenizer) 결과든 이 shape 로 통일된다.
  */
 export interface ZhWord {
   text: string
