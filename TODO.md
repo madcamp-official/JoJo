@@ -120,7 +120,7 @@
     - 남은 확인 필요 항목(아직 미반영): en 불규칙 동사 활용(MW의 `ins` 필드) — 별도 `irregular?: boolean` 플래그 후보. zh 이합사(离合词, 结婚/见面 등 중간에 성분 삽입 가능한 특이 문법) — 汉典/萌典/CC-CEDICT가 이를 태깅하는지 실제 소스 조사 후 필요하면 `conjugationClass`와 같은 패턴으로 추가.~~
   - [ ] **활용형(활용된 동사/형용사) 대응 — 언어별 사전 소스가 활용형을 원형으로 자동 변환해주는지 실측한 결과, 특히 일본어 쪽이 반드시 선행 처리가 필요함:**
     - en: Merriam-Webster·Wiktionary는 활용형(ran/went/ate 등)을 원형과 교차 연결해둬서 그대로 조회해도 정상 동작(실측 확인). OEWN(아래 참고, WNDB 배포판 기준)도 원시 synset 데이터 자체엔 활용형이 없지만, WNDB 포맷에 포함된 **Morphy**(형태소 처리기, 불규칙은 예외 목록/규칙 활용은 어미 제거 규칙으로 원형 탐색)가 이를 해결 — 사용할 라이브러리가 Morphy를 감싸고 있는지 확인 필요.
-    - **ja: Kotobank·JMdict 둘 다 활용형(食べた/美しかった 등)을 원형(食べる/美しい)으로 자동 변환해주지 않음(실측 확인, 둘 다 검색 결과 없음).** 사전 API 호출 전에 **일본어 형태소 분석 엔진(이미 팝업 atom 병합에 사용 중, `main/nlp/japanese.ts` — kuromoji/Lindera/Sudachi 중 `JA_ENGINE` 설정값)으로 선택 텍스트를 토큰화해 動詞·形容詞 토큰은 表層形 대신 基本形(기본형)을 사전 조회 쿼리로 사용**하는 전처리 단계를 반드시 추가해야 함 — 없으면 활용된 동사/형용사 대부분이 사전 조회 자체가 실패함.
+    - **ja: Kotobank·JMdict 둘 다 활용형(食べた/美しかった 등)을 원형(食べる/美しい)으로 자동 변환해주지 않음(실측 확인, 둘 다 검색 결과 없음).** 사전 API 호출 전에 **일본어 형태소 분석 엔진(이미 팝업 atom 병합에 사용 중, `main/nlp/japanese.ts` — Lindera/Sudachi 중 `JA_ENGINE` 설정값)으로 선택 텍스트를 토큰화해 動詞·形容詞 토큰은 表層形 대신 基本形(기본형)을 사전 조회 쿼리로 사용**하는 전처리 단계를 반드시 추가해야 함 — 없으면 활용된 동사/형용사 대부분이 사전 조회 자체가 실패함.
     - zh: 활용(어미 변화) 자체가 없는 언어라 해당 없음.
   - [ ] en 어댑터: Merriam-Webster(키 등록, 무료 개인용 티어) → **OEWN(Open English WordNet, 로컬 JSON 릴리스 번들, Morphy 포함 라이브러리 사용)** → Wiktionary(en.wiktionary.org 또는 kaikki.org 추출 데이터, 신조어 전용 최종 폴백) 순차 폴백 구현. 원본 Princeton WordNet(정체·발음 정보 없음) 대신 커뮤니티가 계속 갱신하는 후속판(Global WordNet Association, CC-BY 4.0)으로 교체 확정 — 라이브 API(en-word.net)는 실측 결과 불안정(503)이라 API 대신 데이터 파일을 받아 번들.
   - [ ] ja 어댑터: (위 기본형 전처리 선행) Kotobank(스크래핑) → JMdict(로컬 데이터셋 번들, jmdict-simplified 등) → Wiktionary(en.wiktionary.org의 ja 항목) 순차 폴백 구현

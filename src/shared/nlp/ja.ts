@@ -1,6 +1,7 @@
 import type { JaToken } from '../types'
 
-// 공동 소유 — kuromoji 형태소 토큰을 "문절(文節)"에 가까운 의미 단위로 묶는 규칙.
+// 공동 소유 — IPADIC 형태소 토큰(현재 Lindera 엔진, main/nlp/engines/lindera.ts)을
+// "문절(文節)"에 가까운 의미 단위로 묶는 규칙.
 // OCR 단어 분리(main/nlp/japanese.ts segmentJapaneseWords)와 팝업 원문 문맥 atom 병합
 // (renderer popup/selection.ts) 양쪽이 이 함수 하나를 공유한다 — 병합 규칙을 바꾸면
 // 두 곳 모두에 자동 반영된다. 팝업 쪽 선택 "단위"(한자를 붙일지/쪼갤지)는 이 결과를

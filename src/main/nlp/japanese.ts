@@ -1,23 +1,21 @@
 import type { JaEngine, JaToken } from '@shared/types'
 import { mergeJaTokens } from '@shared/nlp/ja'
 import { mergeJaTokensUnidic } from '@shared/nlp/ja-unidic'
-import { tokenizeKuromoji, warmKuromoji } from './engines/kuromoji'
 import { tokenizeLindera, warmLindera } from './engines/lindera'
 import { tokenizeSudachi, warmSudachi } from './engines/sudachi'
 
 // 일본어 형태소 분석 엔진 스위치 — 개발자 전용, 사용자 UI 없음. 여기 값만 바꾸면 OCR
 // 단어 분리·팝업 atom 병합 양쪽에 그대로 반영된다(둘 다 이 파일의 tokenizeJapanese/
 // segmentJapaneseWords 만 거쳐 감). 엔진별 실측 비교 근거는 사내 비교 보고서 참고.
-//  - 'kuromoji': IPADIC, 이미 통합됨, 유지보수 중단(2022-06~)
-//  - 'lindera' : IPADIC, kuromoji 와 결과 동일, 유지보수 활발
+//  - 'lindera' : IPADIC, 유지보수 활발. 예전엔 kuromoji 도 있었는데 26개 텍스트 비교 결과
+//    완전히 동일한 결과(같은 사전)이면서 유지보수만 2022-06 이후 중단이라 걷어냈다 —
+//    IPADIC 엔진이 필요하면 이거 하나만 있으면 됨.
 //  - 'sudachi-b'/'sudachi-c': UniDic, Python 필요, 숫자·최신 속어 등 일부 어휘 강함
 export const JA_ENGINE: JaEngine = 'sudachi-b'
 
 /** JA_ENGINE 이 가리키는 엔진으로 원시(미병합) 토큰을 얻는다. */
 async function tokenizeRaw(text: string): Promise<JaToken[]> {
   switch (JA_ENGINE) {
-    case 'kuromoji':
-      return tokenizeKuromoji(text)
     case 'lindera':
       return tokenizeLindera(text)
     case 'sudachi-b':
@@ -35,9 +33,6 @@ function mergeRaw(tokens: JaToken[]): JaToken[] {
 /** 앱 시작 시 미리 불러 두면(fire-and-forget) 첫 사용 시점의 지연을 없앨 수 있다. */
 export function warmJapaneseTokenizer(): void {
   switch (JA_ENGINE) {
-    case 'kuromoji':
-      warmKuromoji()
-      break
     case 'lindera':
       warmLindera()
       break
