@@ -104,14 +104,14 @@ const DETECTION_ONLY_LANGUAGE: Language = 'en'
  * 아예 실패했을 때 본문 영역을 텍스트 위치로 직접 추정하는 데(regionSelection.ts)
  * 쓴다.
  *
- * Python 쪽(ocr_paddle.py: detect_lines)이 예전엔 `PaddleOCR.predict()`(검출+인식 풀
- * 파이프라인)를 돌리고 인식된 텍스트만 버리는 식이었는데, 그러면 우리가 안 쓰는 인식
- * 단계까지 매번 돌아서 소요 시간이 크롭 면적이 아니라 "검출된 줄 개수"에 비례해
- * 늘어났다(넓은 영역이라 줄이 많이 나올수록 그만큼 느려짐 — 실측: 560×880 크롭에서
- * 22~38초). 검출 전용 API(`TextDetection`)로 바꾸니 같은 크롭이 7초 안팎으로 끝나서
- * (실측 확인) 여기서 굳이 크롭을 조각내어 병렬화할 필요가 없어졌다 — 처음에 조각
- * 분할로 시도했다가(워커 풀에 나눠 돌림) 겹침 폭 설정에 따라 오히려 더 느려지는 등
- * 부작용만 있고 이 근본 수정만큼 효과가 없어서 뺐다.
+ * 넓은 크롭을 조각내 워커 풀에 병렬로 돌리는 방식을 두 번 시도했다 — 처음엔(검출이
+ * `PaddleOCR.predict()` 풀 파이프라인이라 줄 개수에 비례해 느려지던 시절) 아예 효과가
+ * 없었고, 검출 전용 API(`TextDetection`)로 바꿔 정말로 폭에 비례해서 느려지는 걸
+ * 확인한 뒤 다시 시도했을 땐 소요 시간은 줄었지만(13.1초→11.6초) 조각 경계 근처에서
+ * 검출된 줄의 박스 경계가 조각마다 미세하게 달라져서, x좌표 기반 열 재정렬
+ * (clusterVerticalLinesIntoColumns)의 순서가 실제로 뒤바뀌는 문제가 실측 확인됐다
+ * (예: 두 문장의 순서가 통째로 바뀜) — 1~2초 아끼자고 읽기 순서가 틀리는 건 손해가 커서
+ * 다시 뺐다. 크롭 하나를 통째로(워커 하나로) 검출해야 조각 경계로 인한 오차가 없다.
  */
 export async function detectLinesWithPaddle(image: Buffer, cropBbox: Rect): Promise<Rect[] | null> {
   const tmpPath = await writeCrop(image, cropBbox)
