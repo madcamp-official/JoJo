@@ -142,10 +142,15 @@ export type CanonicalPos =
   | 'particle' // ja 助詞 / zh 助词 — 사전 조회 실패가 잦은 기능어 묶음(LLM이 문법 설명 전담)
   | 'interjection'
   | 'classifier' // zh 量词 — 다른 언어엔 대응 품사 없음
+  | 'adnominal' // ja 連体詞(この/あの/いわゆる 등) — 활용 없이 체언 수식만 하는 전용 품사, adjective(い/な형용사)와 달리 서술어로 못 쓰이고 활용형 자체가 없음(실측: JMdict "Pre-noun adjectival (rentaishi)"). 다른 언어엔 대응 품사 없음
   | 'other'
 
 export interface DictionarySense {
-  /** 표준화된 품사 — 萌典/CC-CEDICT처럼 품사 필드 자체가 없는 소스는 undefined */
+  /** 표준화된 품사 — CC-CEDICT처럼 품사 필드 자체가 없는 소스만 undefined. **萌典도 품사
+   *  필드가 있음**(실측 확인: `definitions[].type` — 名/動/形/副/連/介/代/助/歎, 순서대로
+   *  명사/동사/형용사/부사/접속사/전치사/대명사/조사/감탄사에 대응). 단, 양사(量詞)는 별도
+   *  type 값이 없고 `名`(명사) 안에 "量詞：" 라는 평문으로만 표시돼 있어(예: "隻") classifier
+   *  판정은 이 필드만으론 안 되고 gloss 텍스트 파싱이 추가로 필요함. */
   pos?: CanonicalPos
   /** 원본 품사 표기 보존(JMdict 'v1' 등) — 디버깅/검수용, LLM 프롬프트에는 넣지 않음.
    *  CanonicalPos 로 뭉뚱그리며 사라지는 세부 정보 자체는 이 필드에 남아있지만, LLM에
@@ -160,15 +165,35 @@ export interface DictionarySense {
    *  LLM 자체 지식으로 설명.) */
   conjugationClass?: string
   /** 불규칙 활용형(en 전용) — MW 의 `ins`(inflections) 필드 실측 확인(예: run → "ran").
-   *  ja 의 conjugationClass 와 마찬가지로 문법 설명에 실제로 쓰이는 정보라 LLM에도 전달.
-   *  WordNet/Wiktionary 등 다른 en 소스는 이 필드가 비어있을 수 있음. */
+   *  **OEWN도 실측 확인**(GitHub 공식 JSON 릴리스 직접 다운로드해 확인) — entry의 `form`
+   *  필드가 배열로 제공(예: run(v) → `["ran", "running"]`), MW의 반쯤 자유 텍스트인 `ins`보다
+   *  오히려 더 깔끔한 구조. ja 의 conjugationClass 와 마찬가지로 문법 설명에 실제로 쓰이는
+   *  정보라 LLM에도 전달. Wiktionary 등 다른 en 소스는 이 필드가 비어있을 수 있음. */
   irregularForms?: string[]
   /** 타동사/자동사 — JMdict 의 vt/vi 는 품사가 아니라 별도 축이라 분리 */
   transitive?: boolean
   /** 중국어 양사(CC-CEDICT의 "CL:") — 다른 언어는 항상 undefined */
   classifiers?: string[]
-  /** 뜻풀이 원문(번역하지 않음, 원어 그대로) */
-  gloss: string
+  /** OEWN 전용 — sense 안에서 "흔한 정도"를 나타내는 신호. OEWN 원본 필드명은 `tagcount`
+   *  (SemCor 코퍼스 실사용 빈도수, 구분자 없는 한 단어)지만 코드베이스 컨벤션(`isCommon`/
+   *  `posRaw`/`irregularForms` 전부 카멜케이스)에 맞춰 `tagCount`로 표기 — 원본 필드명은
+   *  이 주석에 남겨두는 것으로 충분하다 판단. 실측 확인: run(v) "달리다" 뜻 tagcount=106,
+   *  뒤쪽 rare sense 들은 이 필드 자체가 없음(undefined). **JMdict `is_common`은 여기
+   *  안 둔다** — jisho.org API 실측 결과(上手 검색) `is_common`이 sense 배열 안이 아니라
+   *  entry(reading 그룹) 최상위에만 있고 그 안의 sense 들은 전부 같은 값을 공유함(원본
+   *  JMdict XML 자체가 `ke_pri`/`re_pri`(우선도 태그)를 한자/읽기 요소에만 붙이고 sense
+   *  요소엔 안 붙이는 구조라 sense 단위로 갈릴 수가 없음) — 그래서 `DictionaryReading.
+   *  isCommon`으로 분리해서 뒀다(중복 채움 불필요, 실제 데이터가 있는 레벨 그대로 반영).
+   *  LLM 프롬프트엔 절대 넣지 않고, 어댑터가 senses 배열을 안정 정렬(값 클수록 앞, 값
+   *  없으면 최하위 취급)할 때만 쓴다. */
+  tagCount?: number
+  /** 뜻풀이 원문(번역하지 않음, 원어 그대로) — 배열인 이유: 대부분 소스는 sense 하나에
+   *  정의가 1개뿐이지만, **OEWN은 한 synset 에 패러프레이즈 대안 정의가 여러 개 붙는
+   *  경우가 실측 확인됨**(예: `81484980-r` synset → ["quickly and without warning",
+   *  "happening unexpectedly", "on impulse; without premeditation"] 3개). 단일
+   *  string 이면 이 중 하나만 남기고 나머지를 버려야 해서 배열로 바꿈 — 다른 소스는
+   *  항상 길이 1인 배열을 채우면 됨. */
+  gloss: string[]
   /** 있는 소스만(JMdict/萌典/CC-CEDICT 는 예문 자체가 없는 포맷). 한 뜻에 예문이 여러 개인
    *  경우가 흔해서(MW 실측: "run" 93개 뜻 중 20개가 2개 이상, 최대 4개) 배열로 둔다 —
    *  WordNet 처럼 예문이 gloss 문자열에 세미콜론으로 뭉쳐 오는 소스는 어댑터가 분리해서 채움. */
@@ -206,17 +231,42 @@ export type DictionarySourceId =
  *  전혀 다른 뜻풀이 세트를 가짐 — 萌典은 이 구조를 필드명(heteronyms, 복수)에 그대로
  *  반영해뒀을 정도. reading 을 DictionaryEntry 최상위에 하나만 두면 이 경우를 표현 못 해서
  *  발음 그룹 단위로 내렸다. */
+/** 발음 표기 하나 — 지역/변이별로 여러 개 올 수 있어(아래 DictionaryReading.pronunciations
+ *  참고) value 만으론 안 되고 variety 로 구분해야 하는 경우가 있다. */
+export interface DictionaryPronunciation {
+  value: string
+  /** 지역/변이 태그 — **OEWN 실측 확인**(`pronunciation[].variety`, 미국/영국 등 원본
+   *  코드 그대로 보존, 정규화하지 않음). 소스가 변이를 구분 안 해주면 undefined. */
+  variety?: string
+}
+
 export interface DictionaryReading {
-  /** 병음/가나 등 소스 자체의 발음 표기 — 있으면. 소스가 발음별로 안 나누면(단일 발음)
-   *  1개만 옴. 표기 체계는 소스마다 제각각이라 정규화하지 않고 원문 그대로 둔다(실측):
+  /** 병음/가나 등 소스 자체의 발음 표기 — 배열인 이유가 위 DictionaryReading 레벨 분리
+   *  사유(동음이의/hom)와는 다르다: **OEWN은 같은 sense 집합에 지역별 발음이 여러 개
+   *  붙는 구조**(실측: `pronunciation[]`에 원소가 여러 개, 각각 `variety` 태그 — 예를 들어
+   *  같은 뜻인데 미국식/영국식 발음이 나란히 옴)라서, "발음이 다르면 뜻도 다르다"는
+   *  DictionaryReading 분리 기준과는 별개로 표기 자체의 지역 변이만 담을 자리가 필요했다.
+   *  소스가 발음별로 안 나누면(단일 발음) 1개만 옴. 표기 체계는 소스마다 제각각이라
+   *  정규화하지 않고 원문 그대로 둔다(실측):
    *  - MW: `prs.mw` 필드, **IPA 아님** — 자체 표기법(매크론 ā/ē/ī/ō/ū 등, 인쇄사전
-   *    시절부터 쓰던 방식). IPA 필드 자체가 응답에 없음.
-   *  - WordNet: 발음 필드 자체가 없음(원본 Princeton 데이터 포맷 `data.noun`/`data.verb`
-   *    등에 발음 정보가 아예 없음) — 이 소스 항목은 이 필드가 항상 undefined.
+   *    시절부터 쓰던 방식). IPA 필드 자체가 응답에 없음. variety 구분 없음(단일 값).
+   *  - **OEWN: 발음 필드 있음, IPA**(`pronunciation[].value`, 예: run(v) → "ɹʌn") — GitHub
+   *    공식 JSON 릴리스를 직접 받아 확인(라이브 API en-word.net은 실측 내내 503으로 불안정).
+   *    원본 Princeton WNDB(발음 정보 없음)와 달리 OEWN은 이 필드를 갖고 있음 — WordNet 계열이라고
+   *    무조건 undefined 로 가정하면 안 됨.
    *  - Wiktionary(dictionaryapi.dev 등): `phonetic` 필드, **실제 IPA**(예: "/beɪs/").
    *  이 앱의 발음 기능(IPA 등)은 이 필드가 아니라 question/pronunciation.ts 가 LLM에
    *  직접 요청하는 별도 파이프라인이라 위 불일치와 무관하게 동작한다. */
-  reading?: string
+  pronunciations?: DictionaryPronunciation[]
+  /** JMdict(jisho.org) 전용 — 이 reading 그룹이 흔히 쓰이는지. 필드명을 원본(`is_common`)
+   *  그대로 씀. **sense 가 아니라 reading 레벨에 두는 이유가 실측으로 확인됨**: jisho.org
+   *  API로 "上手" 검색 시 `is_common` 이 sense 배열 안이 아니라 각 entry(result) 최상위에만
+   *  있고, 그 밑 senses(예: じょうず 그룹의 "능숙한"/"아첨" 두 sense)는 전부 같은 값을
+   *  공유함 — 원본 JMdict XML 이 우선도 태그(`ke_pri`/`re_pri`)를 한자/읽기 요소에만 붙이고
+   *  sense 요소엔 안 붙이는 구조라 애초에 sense 단위로 갈릴 수 없다. DictionarySense.tagCount
+   *  (OEWN 전용, 실제로 sense마다 다름)와 반대되는 케이스라 레벨을 분리해뒀다. LLM 프롬프트엔
+   *  넣지 않고, 어댑터가 같은 표기의 여러 reading(DictionaryReading[]) 을 안정 정렬할 때만 씀. */
+  isCommon?: boolean
   senses: DictionarySense[]
 }
 
@@ -231,11 +281,6 @@ export interface DictionaryEntry {
    *  bucket"도 그냥 `partOfSpeech: "verb"`로만 나와 관용구 여부를 알 길이 없음. 이 소스는
    *  이 필드가 항상 undefined. */
   isIdiom?: boolean
-  /** 흔히 쓰이는 단어/표기인지 — JMdict(jisho.org) 의 `is_common` 필드 실측 확인. 여러
-   *  후보 표제어(동음이의 등) 중 실제로 자주 쓰이는 쪽이 어느 것인지 LLM 판정에 참고
-   *  신호가 됨. boolean이라 비용 부담 없음. MW 등 다른 소스는 이런 필드 자체가 없어
-   *  undefined. */
-  isCommon?: boolean
   readings: DictionaryReading[]
   source: DictionarySourceId
 }
