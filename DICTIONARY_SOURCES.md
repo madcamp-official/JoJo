@@ -134,11 +134,12 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 **원본 구조 특징**:
 - 포맷 자체가 `번체 간체 [pinyin] /뜻1/뜻2/.../` — 슬래시 구분 뜻 목록 안에 실제 정의뿐 아니라 사용역 라벨·전문분야 라벨·교차참조·발음 변이가 전부 비정형 평문으로 뒤섞여 있음. **어댑터가 슬래시 세그먼트마다 정규식으로 분류해 올바른 필드로 라우팅**해야 하는 파싱 문제.
-- 사용역/전문분야 라벨 빈도 `[2026-07-28 재실측, 이전 수치 정정]`(전체 124,732개 항목 중, `grep -c` 기준):
+- 사용역/전문분야 라벨 빈도 `[2026-07-28 재실측, 이전 수치 정정]`(전체 124,732개 항목 중, `grep -c` 기준). **정정(2026-07-28): 아래 두 그룹은 성격이 달라 스키마 필드도 나뉘어야 하는데, 기존 기록이 전부 `usageTags` 하나로 뭉뚱그려 놨었다** — `domain`(JMdict `field`용으로 이미 만들어 둔 전문분야 필드, `types.ts` 참고) 설계 의도상 전문분야 라벨은 여기로 가야 정합이 맞음:
+
+  **사용역/표기 관례 라벨(→ `DictionarySense.usageTags`)**:
 
   | 라벨 | 빈도(재실측) | 이전 기록 |
   |---|---|---|
-  | `(idiom)` | 5,703 | 5,733 |
   | `(loanword)` | 842 | 849 |
   | `(literary)` | 1,152 | 1,331 |
   | `(coll.)` | 911 | 950 |
@@ -147,6 +148,11 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
   | `(slang)` | 536 | 545 |
   | `(derog.)` | 93 | 94 |
   | `(archaic)` | 182 | 188 |
+
+  **전문분야 라벨(→ `DictionarySense.domain`, JMdict `field`와 동일 필드로 통합)**:
+
+  | 라벨 | 빈도(재실측) | 이전 기록 |
+  |---|---|---|
   | `(math.)` | 520 | 524 |
   | `(computing)` | 479 | 483 |
   | `(chemistry)` | 359 | 360 |
@@ -155,9 +161,16 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
   | `(Buddhism)` | 155 | 156 |
   | `(law)` | 114 | 115 |
   | `(finance)` | 108 | 110 |
-  | `(bird species of China)` | 1,443 | 1,443 (일치) |
 
-  `(bound form)`은 편차가 커서(536 vs 772) 이전 집계 방식이 달랐을 가능성이 있음 — 위 표의 재실측 수치가 `grep -c "(bound form)" resources/cedict.u8`로 직접 센 값. → `DictionarySense.usageTags`로 흡수(괄호 텍스트를 그대로 넣을지, 소스 간 통일 어휘로 정규화할지는 미정).
+  `(bird species of China)`(1,443회, 재확인 일치)는 위 어느 쪽도 아님 — 아래 별도 항목 참고.
+
+  **`(idiom)`(5,703회)은 정정(2026-07-28): 위 두 표 어디에도 넣지 않는다** — `usageTags`에
+  문자열로 흡수하면 "관용구인지 아닌지"라는 entry 단위 구조적 신호가 그냥 태그 더미에 묻혀버린다.
+  MW(`fl:"phrase"`), JMdict(`exp`/"Yojijukugo")와 동일한 축의 신호이므로 CC-CEDICT의 `(idiom)`도
+  `DictionaryEntry.isIdiom = true`로 매핑해야 한다 — 기존엔 이 라벨을 다른 사용역 라벨과
+  똑같이 취급해 `usageTags`로만 흘려보내고 있었다.
+
+  `(bound form)`은 편차가 커서(536 vs 772) 이전 집계 방식이 달랐을 가능성이 있음 — 위 표의 재실측 수치가 `grep -c "(bound form)" resources/cedict.u8`로 직접 센 값. (괄호 텍스트를 그대로 넣을지, 소스 간 통일 어휘로 정규화할지는 두 그룹 모두 미정.)
 - 교차참조 포인터(`variant of`, `old variant of`, `erhua variant of`, `abbr. for`, `see also`, `used in`, `also written`) → `DictionarySense.seeAlso`. 실측 재확인(`grep -n "^一族 "`): `一族 一族 [yi1 zu2] /social group/subculture/family/clan/see also 族[zu2]/` — **뜻 세그먼트가 4개(social group/subculture/family/clan) + see also 1개** `[정정 — 기존 기록은 "정의 3개+see also 1개"로 오기재돼 있었음]`. `一個勁兒` → `erhua variant of 一個勁|一个劲[yi1 ge4 jin4]`(재확인, 정확). MW의 `cxs`(포인터 전용 엔트리가 정의를 통째로 대체)와 달리 CC-CEDICT는 **같은 슬래시 리스트 안에 실제 정의와 포인터가 섞여** 있어 세그먼트별로 골라내 `gloss`가 아니라 `seeAlso`로 보내는 필터링이 필요.
 - `Taiwan pr. [...]`(재확인: `行`(xing2) → `.../behavior; conduct (Taiwan pr. [xing4])/...`, 그 외 `下頦`→`Taiwan pr. [xia4hai2]`, `中焙`→`Taiwan pr. [zhong1pei4]`, `中用`→`Taiwan pr. [zhong4 yong4]` 등 다수 확인) → `DictionaryPronunciation.variety: "Taiwan"`.
 - 동자이음(異音字, 재확인: `都` → `Du1(surname Du)`/`dou1(all; both...)`/`du1(capital city)` 정확히 3줄, `行` → `hang2`/`heng2`/`xing2` 정확히 3줄) → `DictionaryReading[]` 배열 구조에 자연스럽게 대응.
@@ -165,7 +178,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - 병음 첫 글자 대문자(재실측: 정확히 20,266/124,732줄 = 16.2%, 예: `丁`→"surname Ding", `三`→"surname San")로 고유명사(성씨/지명) 구분 신호가 있음 — **결정(2026-07-28): 전용 `isProperNoun` 필드는 추가하지 않는다.** `surname X`/`place name` gloss 텍스트만으로 충분한 수준으로 남겨두고 신호 존재만 기록.
 - `(bird species of China)` 태그 1,443회(재확인, 일치) — 조류 라틴학명 엔트리가 대량 포함돼 일반 단어 조회 결과에 노이즈가 될 수 있음(어댑터 필터링 검토 대상).
 
-**스키마 매핑**: 슬래시 세그먼트를 분류 후 `gloss[]`/`usageTags`/`seeAlso`/`classifiers`/`pronunciations[].variety`로 라우팅. `pos` 필드 자체가 없어 항상 undefined.
+**스키마 매핑**: 슬래시 세그먼트를 분류 후 `gloss[]`/`usageTags`/`domain`/`seeAlso`/`classifiers`/`pronunciations[].variety`/`isIdiom`(`(idiom)` 라벨 전용)로 라우팅. `pos` 필드 자체가 없어 항상 undefined.
 
 ### 汉典 (zh-Hans)
 

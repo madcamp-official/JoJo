@@ -172,7 +172,13 @@ export interface DictionarySense {
   irregularForms?: string[]
   /** 타동사/자동사 — JMdict 의 vt/vi 는 품사가 아니라 별도 축이라 분리 */
   transitive?: boolean
-  /** 중국어 양사(CC-CEDICT의 "CL:") — 다른 언어는 항상 undefined */
+  /** 중국어 양사 — CC-CEDICT는 명시적 `CL:` 태그로 구조화돼 있어 바로 채운다. **萌典도 양사
+   *  정보 자체는 있음**(실측 확인: `definitions[].type`이 名(명사)인 항목 안에 "量詞："라는
+   *  평문으로 섞여 있음, 별도 구조화 필드는 아님) — 다만 gloss 텍스트 파싱이 추가로 필요해
+   *  아직 미구현이라 萌典은 이 필드가 undefined로 남는다(CC-CEDICT처럼 "이 언어엔 없는
+   *  정보"가 아니라 "있지만 파싱을 안 한 상태"라는 차이가 있음, 어댑터 구현 시 재검토).
+   *  汉典은 양사 표기 여부 자체가 미확인(양사가 필요 없는 표제어로만 실측해 확인 안 됨).
+   *  en/ja는 대응 문법 범주 자체가 없어 항상 undefined. */
   classifiers?: string[]
   /** 뜻풀이 원문(번역하지 않음, 원어 그대로) — 배열인 이유: 대부분 소스는 sense 하나에
    *  정의가 1개뿐이지만, **OEWN은 한 synset 에 패러프레이즈 대안 정의가 여러 개 붙는
@@ -303,9 +309,11 @@ export interface DictionaryEntry {
    *  boolean 하나라 크기 부담은 없음(앞서 raw 필드를 크기 문제로 뺀 것과는 별개 사안).
    *  실측 확인 — MW: `fl`(functional label)이 "phrase"(예: "kick the bucket"). JMdict:
    *  `partOfSpeech`가 "exp"(Expressions, 예: "一石二鳥"), 세부적으로 "Yojijukugo"(사자성어)
-   *  같은 태그까지 있음. **Wiktionary(dictionaryapi.dev)는 이 표시가 없음** — "kick the
-   *  bucket"도 그냥 `partOfSpeech: "verb"`로만 나와 관용구 여부를 알 길이 없음. 이 소스는
-   *  이 필드가 항상 undefined. */
+   *  같은 태그까지 있음. **CC-CEDICT: `(idiom)` 라벨**(실측: 124,732개 항목 중 5,703회) —
+   *  다른 사용역 라벨과 똑같이 `usageTags`로 흘려보내지 않고 이 필드로 승격해야 한다(2026-07-28
+   *  정정, 이전엔 usageTags 로만 매핑되고 있었음). **Wiktionary(dictionaryapi.dev)는 이 표시가
+   *  없음** — "kick the bucket"도 그냥 `partOfSpeech: "verb"`로만 나와 관용구 여부를 알 길이
+   *  없음. 이 소스는 이 필드가 항상 undefined. */
   isIdiom?: boolean
   readings: DictionaryReading[]
   source: DictionarySourceId
