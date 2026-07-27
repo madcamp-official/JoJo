@@ -203,7 +203,7 @@ export function PopupScreen() {
       <div className="popup-body">
         <section className="context">
           <div className="ctx-head">
-            <span className="ctx-label">원문 문맥</span>
+            <span className="ctx-label">범위 지정</span>
             <span className="ctx-hint">드래그로 범위를 다시 지정할 수 있어요</span>
           </div>
           <ContextView
