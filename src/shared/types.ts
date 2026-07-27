@@ -173,6 +173,21 @@ export interface DictionarySense {
    *  경우가 흔해서(MW 실측: "run" 93개 뜻 중 20개가 2개 이상, 최대 4개) 배열로 둔다 —
    *  WordNet 처럼 예문이 gloss 문자열에 세미콜론으로 뭉쳐 오는 소스는 어댑터가 분리해서 채움. */
   examples?: string[]
+  /** 유의어 — 실측 확인: JMdict("高い"의 일부 뜻), Wiktionary(예: "ate"→consume/swallow/
+   *  dine 등), 汉典(近反义词 섹션). 뜻(sense) 단위로 붙는 정보라 여기 둔다 — 같은 표제어의
+   *  다른 뜻엔 없을 수 있음(실측: "高い" 5개 뜻 중 1개만 반의어 있었음). */
+  synonyms?: string[]
+  /** 반의어 — 위 synonyms 와 동일 근거(실측: JMdict "高い"→"低い"). */
+  antonyms?: string[]
+  /** 격식/사용역 라벨(복수 가능) — MW 의 `sls`(status label sequence) 필드 실측 확인
+   *  (예: "ain't"→["informal"]). PLAN.md §3 "자주 쓰는 질문"에 이미 "격식·객관 표현
+   *  여부"가 있어 이 앱 기능과 직결되는 정보라 추가 — 사전 API가 이미 판정해주는 걸
+   *  LLM이 처음부터 다시 추측하지 않아도 됨. */
+  register?: string[]
+  /** 화용론적 사용법 설명 — MW 의 `uns`(usage note) 실측 확인(예: "ain't hay"→"많은 금액을
+   *  강조할 때 쓴다"는 설명). gloss(뜻풀이)·examples(예문) 어디에도 안 들어가는 제3의
+   *  콘텐츠 타입이라 별도 필드로 분리. */
+  usageNote?: string
 }
 
 export type DictionarySourceId =
