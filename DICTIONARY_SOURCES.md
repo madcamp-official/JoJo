@@ -153,7 +153,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - `Taiwan pr. [...]`/`also pr. [...]`(실측: `行`(xing2) → `.../behavior; conduct (Taiwan pr. [xing4])/...`) → `DictionaryPronunciation.variety: "Taiwan"`(원문 sense 텍스트 안에 파묻혀 있어 정규식 추출 필요).
 - 동자이음(異音字, 실측: `都` → Du1(성씨)/dou1(모두)/du1(수도) 3줄, `行` → hang2/heng2/xing2 3줄) → `DictionaryReading[]` 배열 구조에 자연스럽게 대응.
 - `CL:`(양사, 원본: `CL:個|个[ge4],位[wei4]`처럼 번체\|간체 쌍+병음이 콤마로 여러 개 이어지는 복합 문자열) — 콤마로 분리해 세그먼트(`個|个[ge4]`, `位[wei4]`) 그대로 `DictionarySense.classifiers[]` 각 원소에 넣기로 확정(추가 분해 없음).
-- 병음 첫 글자 대문자(실측: `Du1`, `San1` 등, 전체 20,266/124,733줄 = 16%)로 고유명사(성씨/지명) 구분 신호가 있지만, en의 `isIdiom`처럼 대응하는 `isProperNoun` 필드가 스키마에 없음 — `surname X`/`place name` gloss 텍스트 패턴 매칭에 의존할지 새 필드를 만들지는 미정.
+- 병음 첫 글자 대문자(실측: `Du1`, `San1` 등, 전체 20,266/124,733줄 = 16%)로 고유명사(성씨/지명) 구분 신호가 있음 — **결정(2026-07-28): 전용 `isProperNoun` 필드는 추가하지 않는다.** en의 `isIdiom`과 달리 이 신호 하나만으로 어댑터/LLM 활용처가 아직 없어 필드를 신설할 실익이 부족하다고 판단, `surname X`/`place name` gloss 텍스트만으로 충분한 수준으로 남겨두고 이 노트에만 신호 존재를 기록해둔다. 필요해지면 이 항목을 근거로 재검토.
 - `(bird species of China)` 태그가 1443회로 매우 빈번 — 조류 라틴학명 엔트리가 대량 포함돼 일반 단어 조회 결과에 노이즈가 될 수 있음(스키마 문제 아니고 어댑터 필터링 검토 대상).
 
 **스키마 매핑**: 슬래시 세그먼트를 분류 후 `gloss[]`/`usageTags`/`seeAlso`/`classifiers`/`pronunciations[].variety`로 라우팅. `pos` 필드 자체가 없어 항상 undefined.
