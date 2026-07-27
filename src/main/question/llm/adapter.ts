@@ -134,7 +134,10 @@ export async function streamLlm(
     system,
     cacheableContext: buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter),
     messages: [...history, { role: 'user', content: prompt }],
-    model: settings.models[provider] ?? DEFAULT_MODELS[provider],
+    // "Default" 옵션 선택 시 설정 화면이 빈 문자열을 저장하는데(SettingsScreen.tsx),
+    // ??(nullish) 는 빈 문자열을 값 있음으로 취급해 API에 model:"" 로 요청이 나가버린다
+    // — || 로 falsy(빈 문자열 포함)일 때도 기본 모델로 대체한다.
+    model: settings.models[provider] || DEFAULT_MODELS[provider],
     maxTokens: DEFAULT_MAX_TOKENS,
     temperature,
   }
