@@ -2,7 +2,7 @@ import type { Language, SelectionSource, Word } from '@shared/types'
 import { readWindowText } from './accessibility'
 import { getSelectedWindowId } from './capture'
 
-// 담당 A — 소스별 직접 텍스트 추출 (PLAN.md §4.1 / §6)
+// 담당 A — 소스별 직접 텍스트 추출 (PLAN.md §4.1 / §7)
 //  - txt(표준 텍스트 컨트롤) : 접근성(WM_GETTEXT)으로 렌더 텍스트 직접 읽기 — 구현됨
 //  - epub/pdf     : 원본 파일 파싱 → 텍스트-좌표
 //  - web          : DOM 텍스트 (확장 경유), 태그 제외 후 문단 잇기

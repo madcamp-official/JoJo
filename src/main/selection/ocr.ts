@@ -4,7 +4,7 @@ import type { Extracted } from './extractDirect'
 import { segmentJapaneseWords } from '../nlp/japanese'
 import { segmentChineseWords } from '../nlp/chinese'
 
-// 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §6 / §8)
+// 담당 A — OCR 엔진 래퍼 (PLAN.md §4.1 / §7 / §9)
 // 범용 엔진: Tesseract.js 채택 확정(오프라인, 언어팩 교체로 다국어 대응). 언어별 특화
 // 엔진(예: 중국어 PaddleOCR)은 나중에 벤치마킹 후 라우팅 추가 — 지금은 Tesseract 단일 경로.
 

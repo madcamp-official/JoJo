@@ -8,7 +8,7 @@ import type { AppMode, ExtractedSelection, Word } from '@shared/types'
 // `import type` 은 컴파일 타임에 완전히 제거되므로 런타임 로드가 없다.
 import type * as Win32Capture from './selection/win32Capture'
 
-// 3종 윈도우 팩토리 (PLAN.md §5)
+// 3종 윈도우 팩토리 (PLAN.md §6)
 //  - 메인: 창 선택 / 설정 진입
 //  - 오버레이: 투명·클릭스루, 단어 하이라이트/커서 피드백 (담당 A)
 //  - 팝업: 발음·사전·통합질문·구글탭 (담당 B)
