@@ -194,9 +194,13 @@ export interface DictionarySense {
    *  string 이면 이 중 하나만 남기고 나머지를 버려야 해서 배열로 바꿈 — 다른 소스는
    *  항상 길이 1인 배열을 채우면 됨. */
   gloss: string[]
-  /** 있는 소스만(JMdict/萌典/CC-CEDICT 는 예문 자체가 없는 포맷). 한 뜻에 예문이 여러 개인
-   *  경우가 흔해서(MW 실측: "run" 93개 뜻 중 20개가 2개 이상, 최대 4개) 배열로 둔다 —
-   *  WordNet 처럼 예문이 gloss 문자열에 세미콜론으로 뭉쳐 오는 소스는 어댑터가 분리해서 채움. */
+  /** 있는 소스만(JMdict/CC-CEDICT 는 예문 자체가 없는 포맷). **萌典은 있음** — `definitions[].
+   *  example`(현대 용례, "如：「...」" 형태) 실측 확인, `DICTIONARY_SOURCES.md` 참고. 단
+   *  萌典의 `definitions[].quote`(고전 문헌 인용+출처)는 이 필드로 흡수하지 않고 스키마
+   *  자체에서 제외하기로 결정(2026-07-28) — 문어체·비구조화 출처라 학습 실익이 낮음. 한
+   *  뜻에 예문이 여러 개인 경우가 흔해서(MW 실측: "run" 93개 뜻 중 20개가 2개 이상, 최대
+   *  4개) 배열로 둔다 — WordNet 처럼 예문이 gloss 문자열에 세미콜론으로 뭉쳐 오는 소스는
+   *  어댑터가 분리해서 채움. */
   examples?: string[]
   /** 유의어 — 실측 확인: JMdict("高い"의 일부 뜻), Wiktionary(예: "ate"→consume/swallow/
    *  dine 등), 汉典(近反义词 섹션). 뜻(sense) 단위로 붙는 정보라 여기 둔다 — 같은 표제어의
