@@ -1,9 +1,10 @@
-import type { CanonicalPos, DictionaryEntry } from '@shared/types'
+import type { CanonicalPos, DictionaryEntry, DictionarySourceId } from '@shared/types'
 
-// 담당 B — 사전 뜻(sense) 번호 매기기 + LLM 판정 결과 서식화 (PLAN.md §4.2-2)
-// DictionaryEntry[] 를 LLM 프롬프트에 넣을 번호 매긴 평면 목록으로 바꾸고,
-// 사용자가 원한 것도 이 형태다: LLM 은 번호만 고르고, 실제로 채팅창에 보여줄
-// 뜻풀이·예문 등은 여기서 만든 원본 사전 데이터를 그대로 서식화해서 쓴다.
+// 담당 B — 사전 뜻(sense) 번호 매기기 + LLM 판정/번역 결과 서식화 (PLAN.md §4.2-2)
+// DictionaryEntry[] 를 LLM 프롬프트에 넣을 번호 매긴 평면 목록으로 바꾸고, LLM 은 문맥에
+// 맞는 번호를 고른 뒤 그 뜻풀이·예문을 한국어로 번역한다(PLAN.md §5: "사전 API는 원어
+// 뜻 목록만 제공, 한국어 설명·번역은 LLM이 담당"). pos 라벨·출처처럼 번역이 필요 없는
+// 나머지는 여기서 사전 데이터를 그대로 서식화한다.
 
 export interface NumberedSense {
   index: number
@@ -46,7 +47,7 @@ export function numberSenses(entries: DictionaryEntry[]): NumberedSense[] {
   return out
 }
 
-/** LLM 프롬프트의 사용자 메시지에 넣을, 번호 매긴 뜻풀이 후보 목록. */
+/** LLM 프롬프트의 사용자 메시지에 넣을, 번호 매긴 뜻풀이 후보 목록(원어 그대로). */
 export function buildSenseListText(senses: NumberedSense[]): string {
   return senses
     .map((s) => {
@@ -59,36 +60,95 @@ export function buildSenseListText(senses: NumberedSense[]): string {
     .join('\n')
 }
 
-/** LLM 응답 텍스트에서 골라낸 번호를 파싱한다. "2", "1,3", "1, 3", "0"(해당 없음) 등을
- *  허용하고, 목록에 없는 번호나 파싱 실패는 조용히 걸러낸다. */
-export function parseSelectedIndexes(reply: string, senses: NumberedSense[]): number[] {
-  const valid = new Set(senses.map((s) => s.index))
-  const nums = [...reply.matchAll(/\d+/g)].map((m) => Number(m[0]))
-  const selected = nums.filter((n) => n !== 0 && valid.has(n))
-  return [...new Set(selected)]
+export interface SelectedSense {
+  sense: NumberedSense
+  /** LLM 이 문맥에 맞게 자연스러운 한국어로 옮긴 뜻풀이 */
+  translatedGloss: string
+  /** 후보에 예문이 있었을 때만 LLM 이 함께 번역한 예문 */
+  translatedExample?: string
 }
 
-/** 최종적으로 채팅창에 보여줄 마크다운. 선택된 sense 들을 원본 headword 기준 사전 형식으로
- *  묶어서 서식화한다 — LLM 출력이 아니라 사전 데이터를 그대로 가공한 텍스트다. */
-export function formatDictionaryAnswer(headword: string, selected: NumberedSense[]): string {
+/** LLM 응답에서 "번호: N\n번역: ...\n예문번역: ..." 블록(들, "---" 로 구분)을 파싱한다.
+ *  "번호: 0"(해당 없음)이나 파싱 실패 블록, 목록에 없는 번호는 조용히 걸러낸다. */
+export function parseJudgeReply(reply: string, senses: NumberedSense[]): SelectedSense[] {
+  const byIndex = new Map(senses.map((s) => [s.index, s]))
+  const out: SelectedSense[] = []
+  for (const block of reply.split(/\n?-{3,}\n?/)) {
+    const numMatch = block.match(/번호\s*[:：]\s*(\d+)/)
+    const glossMatch = block.match(/번역\s*[:：]\s*(.+)/)
+    if (!numMatch || !glossMatch) continue
+    const index = Number(numMatch[1])
+    if (index === 0) continue
+    const sense = byIndex.get(index)
+    if (!sense) continue
+    const exampleMatch = block.match(/예문\s*번역\s*[:：]\s*(.+)/)
+    out.push({
+      sense,
+      translatedGloss: glossMatch[1].trim(),
+      translatedExample: exampleMatch?.[1]?.trim(),
+    })
+  }
+  return out
+}
+
+const SOURCE_LABELS: Record<DictionarySourceId, string> = {
+  'merriam-webster': 'Merriam-Webster',
+  wordnet: 'OEWN (Open English WordNet)',
+  wiktionary: 'Wiktionary',
+  kotobank: 'Kotobank',
+  jmdict: 'JMdict',
+  'hanyu-dict': '汉典',
+  moedict: '萌典',
+  'cc-cedict': 'CC-CEDICT',
+}
+
+const POS_KO: Partial<Record<CanonicalPos, string>> = {
+  noun: '명사',
+  verb: '동사',
+  adjective: '형용사',
+  adverb: '부사',
+  pronoun: '대명사',
+  preposition: '전치사',
+  conjunction: '접속사',
+  article: '관사',
+  particle: '조사',
+  interjection: '감탄사',
+  classifier: '양사',
+  adnominal: '연체사',
+}
+
+/** 최종적으로 채팅창에 보여줄 마크다운 — 뜻풀이·예문은 LLM 이 번역한 한국어, 나머지
+ *  (표제어·발음·품사·출처 등)는 사전 데이터를 그대로 서식화한다. */
+export function formatDictionaryAnswer(
+  headword: string,
+  source: DictionarySourceId,
+  selected: SelectedSense[],
+): string {
   if (!selected.length) return `**${headword}**\n\n문맥에 맞는 뜻을 찾지 못했습니다.`
 
-  const pronunciation = selected.find((s) => s.pronunciation)?.pronunciation
+  const pronunciation = selected.find((s) => s.sense.pronunciation)?.sense.pronunciation
   const lines: string[] = []
   lines.push(pronunciation ? `**${headword}** [${pronunciation}]` : `**${headword}**`)
   lines.push('')
 
-  for (const s of selected) {
-    const label = s.posRaw ?? s.pos
-    const idiomTag = s.isIdiom ? ' (관용구)' : ''
+  for (const { sense, translatedGloss, translatedExample } of selected) {
+    const label = (sense.pos && POS_KO[sense.pos]) ?? sense.posRaw
+    const idiomTag = sense.isIdiom ? ' (관용구)' : ''
     lines.push(`${label ? `**${label}${idiomTag}**` : ''}`.trim())
-    lines.push(`${s.gloss.join('; ')}`)
-    if (s.examples?.length) lines.push(`> ${s.examples[0]}`)
-    if (s.usageTags?.length) lines.push(`_${s.usageTags.join(', ')}_`)
-    if (s.usageNote) lines.push(s.usageNote)
-    if (s.irregularForms?.length) lines.push(`활용형: ${s.irregularForms.join(', ')}`)
+    // 원문·번역을 둘 다 보여준다 — 원문만으론 영어 학습에 안 맞고, 번역만으론 사전
+    // 원문 표현을 확인할 수가 없다.
+    lines.push(sense.gloss.join('; '))
+    lines.push(translatedGloss)
+    if (sense.examples?.[0]) {
+      lines.push(`> ${sense.examples[0]}`)
+      if (translatedExample) lines.push(`> ${translatedExample}`)
+    }
+    if (sense.usageTags?.length) lines.push(`_${sense.usageTags.join(', ')}_`)
+    if (sense.usageNote) lines.push(sense.usageNote)
+    if (sense.irregularForms?.length) lines.push(`활용형: ${sense.irregularForms.join(', ')}`)
     lines.push('')
   }
 
+  lines.push(`_출처: ${SOURCE_LABELS[source]}_`)
   return lines.join('\n').trim()
 }

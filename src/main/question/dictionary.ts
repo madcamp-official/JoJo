@@ -8,7 +8,7 @@ import {
   buildSenseListText,
   formatDictionaryAnswer,
   numberSenses,
-  parseSelectedIndexes,
+  parseJudgeReply,
 } from './dictionary/senseSelect'
 import { buildContextBlock, createClient, getActiveProvider } from './llm/adapter'
 import { classifyLlmError } from './llm/errors'
@@ -17,14 +17,14 @@ import dictionaryPromptTemplate from './prompts/dictionary.txt?raw'
 import { buildErrorResult } from './errors'
 
 // 담당 B — 사전 검색 (PLAN.md §4.2-2)
-// en 은 MW → (TODO: OEWN → Wiktionary 폴백) 로 원어 뜻(sense) 후보를 모으고,
-// 후보가 여럿이면 LLM 에 "문맥상 몇 번인지"만 판정시킨다. 채팅창에 보여줄 내용은
-// LLM 의 원문 응답이 아니라, 그 판정 번호로 골라낸 사전 데이터를 그대로 서식화한 것
-// — LLM 이 뜻풀이 텍스트를 다시 쓰거나 요약하지 않는다(원문 왜곡 방지).
+// en 은 MW → (TODO: OEWN → Wiktionary 폴백) 로 원어 뜻(sense) 후보를 모으고, LLM 에
+// "문맥상 몇 번인지" 판정과 그 뜻풀이·예문의 한국어 번역을 함께 맡긴다(PLAN.md §5:
+// 사전 API는 원어 뜻만 제공, 한국어 설명·번역은 LLM 담당). 채팅창에 보일 최종 텍스트는
+// 그 번역 결과와 사전 원본 데이터(품사·출처·활용형 등)를 조합해 여기서 직접 구성한다.
 // ja/zh 는 아직 소스 어댑터가 없어 스텁으로 남겨둔다.
 
 const DICTIONARY_JUDGE_TEMPERATURE = 0.2
-const DICTIONARY_JUDGE_MAX_TOKENS = 64
+const DICTIONARY_JUDGE_MAX_TOKENS = 500
 
 export async function lookupDictionary(
   ctx: SelectionContext,
@@ -66,10 +66,10 @@ export async function lookupDictionary(
 
   const senses = numberSenses(lookup.entries)
   const headword = lookup.entries[0].headword[0]
+  const source = lookup.entries[0].source
 
-  // 뜻이 하나뿐이면 문맥 판정이 무의미하므로 LLM 호출 없이 바로 보여준다.
-  if (senses.length <= 1) {
-    return emit(onChunk, { kind: 'dictionary', content: formatDictionaryAnswer(headword, senses) })
+  if (!senses.length) {
+    return emit(onChunk, { kind: 'dictionary', content: `사전에서 "${word}"를 찾지 못했습니다.` })
   }
 
   const provider = getActiveProvider()
@@ -88,8 +88,9 @@ export async function lookupDictionary(
 
   let reply: string
   try {
-    // 판정 전용 호출 — 델타를 onChunk 로 흘리지 않는다. 채팅창에 보일 최종 텍스트는
-    // LLM 출력이 아니라 아래 formatDictionaryAnswer 가 사전 데이터로 직접 구성한다.
+    // 판정+번역 전용 호출 — 델타를 onChunk 로 흘리지 않는다. 채팅창에 보일 최종 텍스트는
+    // LLM 이 쓴 문장을 그대로 쓰는 게 아니라, 아래 formatDictionaryAnswer 가 그 번역
+    // 결과와 사전 원본 데이터(품사·출처·활용형 등)를 조합해 직접 구성한다.
     reply = await client.stream(
       {
         system,
@@ -105,13 +106,12 @@ export async function lookupDictionary(
     return emit(onChunk, buildErrorResult('dictionary', classifyLlmError(err), provider))
   }
 
-  const selectedIndexes = parseSelectedIndexes(reply, senses)
-  const selected = senses.filter((s) => selectedIndexes.includes(s.index))
+  const selected = parseJudgeReply(reply, senses)
 
   return emit(onChunk, {
     kind: 'dictionary',
-    content: formatDictionaryAnswer(headword, selected),
-    meta: { provider, source: 'merriam-webster' },
+    content: formatDictionaryAnswer(headword, source, selected),
+    meta: { provider, source },
   })
 }
 
