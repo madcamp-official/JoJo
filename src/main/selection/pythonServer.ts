@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { cpus } from 'node:os'
 import { createInterface, type Interface } from 'node:readline'
 import { join } from 'node:path'
 
@@ -12,6 +13,29 @@ const PYTHON_BIN = join(
   __dirname,
   process.platform === 'win32' ? '../../python/.venv/Scripts/python.exe' : '../../python/.venv/bin/python',
 )
+
+// 워커 풀 크기(ocrPaddle.ts 의 POOL_SIZE)를 6으로 고정해뒀었는데, 이건 개발 컴퓨터
+// (Intel i7-1165G7, 물리 4코어/논리 8코어) 기준으로 실측 튜닝한 값이라 다른 사용자
+// 환경엔 안 맞을 수 있다 — 코어가 더 많은 컴퓨터에서는 오히려 성능을 다 못 쓰고, 코어가
+// 적은 컴퓨터에서는 지금보다 더 심하게 오버서브스크립션돼서 불안정해진다(실측 확인:
+// 이 컴퓨터도 물리 코어 4개인데 워커 6개라 이미 과다 상태였음). 그래서 실행 중인 기기의
+// 실제 논리 코어 수(`os.cpus().length`, Node 는 물리 코어 수를 직접 못 줌)를 보고 동적
+// 으로 정한다.
+//
+// "코어 수 - 2"로 잡는 이유: 메인 프로세스(Electron)와 OS/다른 프로그램 몫으로 최소
+// 2개는 남겨두기 위함 — 이 컴퓨터(논리 8코어)에서 8-2=6 이 나와서, 그동안 실측으로
+// 튜닝해 검증했던 값(6)과 정확히 일치한다(우연이 아니라, 애초에 그 튜닝이 이 기기의
+// 코어 수에 맞았던 것). 최소 2, 최대 8로 묶어서 극단적으로 적거나(코어 1~2개짜리 저사양
+// 기기에서 풀 자체가 무의미해지는 것 방지) 많은(코어가 아주 많은 서버급 기기에서 워커
+// 수만큼 메모리(워커당 ~700~800MB)가 무한정 늘어나는 것 방지) 기기 모두 안전하게 만든다.
+const MIN_POOL_SIZE = 2
+const MAX_POOL_SIZE = 8
+
+/** 실행 중인 기기의 코어 수 기반으로 적당한 워커 풀 크기를 정한다. */
+export function defaultPoolSize(): number {
+  const logicalCores = cpus().length || 4 // cpus() 가 빈 배열을 줄 수도 있다는 Node 문서상 안내 — 안전한 기본값.
+  return Math.max(MIN_POOL_SIZE, Math.min(MAX_POOL_SIZE, logicalCores - 2))
+}
 
 // 1x1 흰 픽셀 PNG(PIL 로 직접 생성해 바이트를 검증함) — 예열(warmUp) 호출용 최소
 // 이미지. 실제 감지/인식 결과는 안 쓰고(빈 결과가 나와도 상관없음) 그 과정에서 모델이

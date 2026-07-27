@@ -3,7 +3,7 @@ import { writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Language, Rect, Word } from '@shared/types'
-import { createPythonServerPool, TINY_PNG } from './pythonServer'
+import { createPythonServerPool, defaultPoolSize, TINY_PNG } from './pythonServer'
 
 // 담당 A — 실험용 브랜치(experiment/doclayout-yolo). PaddleOCR(python/ocr_paddle.py)
 // 로 en/zh/ja(가로쓰기) 텍스트를 검출+인식한다 — 일본어 스캔 파일에서 Tesseract
@@ -11,15 +11,16 @@ import { createPythonServerPool, TINY_PNG } from './pythonServer'
 // 가 PaddleOCR 엔 없어서, 여기서 직접 크롭한 이미지를 Python 에 넘긴다 — 그래서
 // 응답 bbox 는 크롭 기준 상대좌표이고, cropBbox 원점을 더해 절대좌표로 되돌린다.
 //
-// 워커를 여러 개 띄운다(POOL_SIZE) — 다단 레이아웃은 열마다(세로쓰기는 줄마다) 따로
-// 인식을 돌려야 해서(ocr.ts) 워커가 적으면 여러 줄/열이 몇 라운드씩 나눠서 순서대로
-// 기다린다(실사용 중 "세로쓰기 페이지 인식이 오래 걸림"으로 확인). 3 → 6 으로 늘림
-// (실측: 세로쓰기 한 페이지에 실제 줄이 14~15개 나오는 경우가 흔해서, 워커 3개면
-// 5라운드, 6개면 3라운드로 줄어듦 — 라운드 수가 곧 병렬 인식 단계의 전체 소요 시간에
-// 비례). 워커마다 모델을 독립적으로 메모리에 올려서(공유 안 됨) 메모리 사용량이 그만큼
-// 늘어나는 트레이드오프가 있다(실측: 워커 하나당 ~700~770MB — 3→6개면 이 스크립트만
-// 추가로 ~2GB 더 씀).
-const POOL_SIZE = 6
+// 워커를 여러 개 띄운다 — 다단 레이아웃은 열마다(세로쓰기는 줄마다) 따로 인식을
+// 돌려야 해서(ocr.ts) 워커가 적으면 여러 줄/열이 몇 라운드씩 나눠서 순서대로 기다린다
+// (실사용 중 "세로쓰기 페이지 인식이 오래 걸림"으로 확인). 예전엔 3 → 6으로 고정값을
+// 올려서 튜닝했는데(세로쓰기 한 페이지 줄이 14~15개인 경우가 흔해서, 3개면 5라운드,
+// 6개면 3라운드로 줄어듦), 그 6이라는 숫자는 이 개발 컴퓨터(물리 4코어)에 맞춘 값이라
+// 다른 사용자 환경(코어 수가 다름)엔 안 맞을 수 있다 — `defaultPoolSize()`(pythonServer.ts)
+// 로 실행 중인 기기의 실제 코어 수에 맞게 동적으로 정한다. 워커마다 모델을 독립적으로
+// 메모리에 올려서(공유 안 됨) 메모리 사용량이 그만큼 늘어나는 트레이드오프가 있다
+// (실측: 워커 하나당 ~700~800MB).
+const POOL_SIZE = defaultPoolSize()
 const server = createPythonServerPool('ocr_paddle.py', POOL_SIZE)
 
 interface RawWord {
