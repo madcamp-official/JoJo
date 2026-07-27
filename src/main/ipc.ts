@@ -4,7 +4,6 @@ import type {
   ApiKeyId,
   AppSettings,
   CaptureSource,
-  DictionaryKeyValidation,
   ExtractedSelection,
   Language,
   LlmProvider,
@@ -37,7 +36,6 @@ import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { validateProvider } from './question/llm/validate'
-import { validateMwKey } from './question/dictionaryValidate'
 import { googleImageUrl, googlePronunciationUrl } from './question/google'
 import { naverDictionaryUrl } from './question/naver'
 import { openUrlInNewWindow } from './question/browser'
@@ -157,14 +155,6 @@ export function registerIpc(): void {
     IPC.PROVIDER_VALIDATE,
     async (_e, provider: LlmProvider, apiKey: string): Promise<ProviderValidation> => {
       return validateProvider(provider, apiKey)
-    },
-  )
-
-  // 담당 B: MW 사전 키 검증 (dictionaryValidate.ts) — 무과금 엔드포인트가 없어 실 조회 1건 소비
-  ipcMain.handle(
-    IPC.MW_KEY_VALIDATE,
-    async (_e, apiKey: string): Promise<DictionaryKeyValidation> => {
-      return validateMwKey(apiKey)
     },
   )
 

@@ -5,7 +5,6 @@ import type {
   AppMode,
   AppSettings,
   CaptureSource,
-  DictionaryKeyValidation,
   ExtractedSelection,
   JaToken,
   Language,
@@ -119,9 +118,6 @@ const api = {
 
   validateProvider: (provider: LlmProvider, apiKey: string): Promise<ProviderValidation> =>
     ipcRenderer.invoke(IPC.PROVIDER_VALIDATE, provider, apiKey),
-
-  validateMwKey: (apiKey: string): Promise<DictionaryKeyValidation> =>
-    ipcRenderer.invoke(IPC.MW_KEY_VALIDATE, apiKey),
 
   // 팝업 (담당 B)
   openPopup: (demo?: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_POPUP, demo),

@@ -151,13 +151,6 @@ export interface ProviderValidation {
   error?: QuestionErrorCode
 }
 
-/** Merriam-Webster 키 검증 결과 — LLM과 달리 무과금 전용 엔드포인트가 없어 실제 조회
- *  1건으로 확인한다(일일 한도 중 1회 소비, question/dictionaryValidate.ts 참고). */
-export interface DictionaryKeyValidation {
-  ok: boolean
-  error?: QuestionErrorCode
-}
-
 /** kuromoji 형태소 분석 결과 토큰 하나 (팝업 원문 문맥의 가나 atom 병합용, main/nlp/japanese.ts) */
 export interface JaToken {
   surface: string
