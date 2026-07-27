@@ -11,14 +11,12 @@ import type { JaToken } from '../types'
 //  1. 動詞,自立 / 形容詞,自立 로 시작하는 어간 뒤에 붙는 조동사(助動詞)는 무조건 앞에
 //     흡수한다.
 //  2. 접속조사 て/で 는 동사・형용사의 て형 활용어미 자체이므로(向かう→向かって 등)
-//     뒤에 오는 게 무엇이든 무조건 앞에 흡수하고, **바로 그 뒤에 이어지는** 動詞,非自立
-//     (보조동사, 예: ている 의 いる)만 계속 흡수한다(食べている 도 하나로 묶임) — て/で
-//     없이 어간에 바로 붙는 動詞,非自立(過ぎる, 出す 등 접미동사도 IPADIC 이 이 태그를
-//     씀, 실측 확인)까지 흡수하면 안 되므로 "て/で 를 방금 흡수했을 때만" 으로 제한한다.
+//     뒤에 오는 게 무엇이든 무조건 앞에 흡수한다.
+// 그 뒤에 이어지는 補助動詞(ている 의 いる 등, 動詞,非自立)는 흡수하지 않는다 — 그 자체로
+// 독립된 사전 표제어라 따로 선택해 조회할 수 있어야 한다는 요청으로 뺐다. 그래서
+// 食べている 는 食べて / いる 로 나뉜다(食べて 까지는 활용어미라 하나, て 뒤 いる 는 별개).
 // 명사 자동 병합(연속 名詞 복합명사, 接頭詞+名詞)과 접미동사(動詞,接尾/て 없는 動詞,非自立:
-// 歩き出す, 食べ過ぎる 등) 병합은 의도적으로 넣지 않는다 — 둘 다 그 자체로 독립된 사전
-// 표제어라, 붙여버리면 개별 단어를 따로 선택해 사전 조회하기 어려워지는 문제가 있어 뺐다
-// (ja-unidic.ts 도 동일).
+// 歩き出す, 食べ過ぎる 등) 병합도 같은 이유로 넣지 않는다(ja-unidic.ts 도 동일).
 const TE_DE = new Set(['て', 'で'])
 
 function combine(group: JaToken[]): JaToken {
@@ -41,25 +39,16 @@ export function mergeJaTokens(tokens: JaToken[]): JaToken[] {
     if ((t.pos === '動詞' || t.pos === '形容詞') && t.posDetail1 === '自立') {
       const group = [t]
       i++
-      let afterTeDe = false
       while (i < tokens.length) {
         const next = tokens[i]!
         if (next.pos === '助動詞') {
           group.push(next)
           i++
-          afterTeDe = false
           continue
         }
         if (next.pos === '助詞' && next.posDetail1 === '接続助詞' && TE_DE.has(next.surface)) {
           group.push(next)
           i++
-          afterTeDe = true
-          continue
-        }
-        if (afterTeDe && next.pos === '動詞' && next.posDetail1 === '非自立') {
-          group.push(next)
-          i++
-          afterTeDe = false
           continue
         }
         break
