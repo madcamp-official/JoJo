@@ -58,6 +58,10 @@ interface MwEntry {
   def?: MwDef[]
   cxs?: MwCxs[]
   uros?: MwUro[]
+  /** 실측 확인(2026-07-28, "deco" → `["often attributive"]`) — 전문분야 라벨이 아니라
+   *  sls 와 같은 성격의 일반 표기 관례 라벨. entry 최상위 필드라 sense 레벨인
+   *  usageTags 와 위치가 다르므로, 아래에서 그 entry의 모든 sense 에 복제해 합친다. */
+  lbs?: string[]
 }
 
 /** 표제어를 못 찾으면 MW 는 유사 단어 제안 문자열 배열을 반환한다(엔트리 객체가 아님). */
@@ -144,6 +148,14 @@ function extractDt(dt: MwDtItem[] | undefined): { gloss: string[]; examples: str
   return { gloss, examples, usageNote: usageNotes.length ? usageNotes.join(' ') : undefined }
 }
 
+/** sense 레벨 sls 와 entry 최상위 lbs(둘 다 표기 관례/격식 라벨, DICTIONARY_SOURCES.md
+ *  실측 확인)를 하나의 usageTags 로 합친다. lbs 는 entry 전체에 적용되는 라벨이라
+ *  그 entry의 모든 sense 에 동일하게 복제된다. */
+function mergeUsageTags(sls: string[] | undefined, lbs: string[] | undefined): string[] | undefined {
+  const merged = [...(lbs ?? []), ...(sls ?? [])]
+  return merged.length ? merged : undefined
+}
+
 function normalizeForMatch(s: string): string {
   return s.replace(/[·]/g, '').toLowerCase()
 }
@@ -177,7 +189,7 @@ function entryToReading(entry: MwEntry, queryWord: string): DictionaryReading | 
         irregularForms: irregularForms.length ? irregularForms : undefined,
         gloss,
         examples: examples.length ? examples : undefined,
-        usageTags: node.sls,
+        usageTags: mergeUsageTags(node.sls, entry.lbs),
         usageNote,
       }
     })
