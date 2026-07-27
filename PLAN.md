@@ -126,7 +126,7 @@
 
 ### 영어(en)
 1. **Merriam-Webster**(영영사전=원어사전, 이중언어 아님) — 키 등록 필요, 무료 개인용 티어(일 1,000회/키). sense 번호가 구조화되어 있어 문맥 판정에 최적.
-2. **WordNet**(영영사전=원어사전, 로컬) — MW 미등록 또는 MW에 해당 단어가 없을 때 폴백. synset(동의어 집합) 구조가 sense 판정에 적합.
+2. **OEWN(Open English WordNet, 영영사전=원어사전, 로컬)** — MW 미등록 또는 MW에 해당 단어가 없을 때 폴백. synset(동의어 집합) 구조가 sense 판정에 적합. 원본 Princeton WordNet(2011년 이후 갱신 없음, 발음 정보 없음)의 커뮤니티 후속 프로젝트(Global WordNet Association, CC-BY 4.0)로 교체 — 계속 갱신되고(최근 2년간 18,500건+ 개선) 단어 발음(IPA)도 추가로 제공. 라이브 API(en-word.net)는 실측 결과 불안정(503)이라 API 대신 JSON 릴리스 파일을 받아 로컬 번들.
 3. **Wiktionary**(en.wiktionary.org, 다국어 통합 사전의 영어 항목) — 위 두 소스에 없는 신조어 전용 최종 폴백.
 
 ### 일본어(ja)
@@ -147,7 +147,7 @@
 - 공통 최종 폴백: **Wiktionary**(en.wiktionary.org, zh 항목) — 구어 줄임말·인터넷 유행어(超商·很雷·部落格 등) 전용. 汉典·萌典 둘 다 이 카테고리를 놓치는 것을 실측으로 확인. zh.wiktionary.org(중국어판)는 en.wiktionary.org보다 약해 채택하지 않음(위키미디어 접근 제한 등으로 추정).
 
 ### 상업화 시 재검토 필요(위 구성은 비상업 개인 목적 전제)
-- **en**: Merriam-Webster 무료 티어는 앱 자체가 비상업일 것을 조건으로 함(사용자별 키 발급으로도 회피 불가) → 상업 빌드는 WordNet + Wiktionary만 사용.
+- **en**: Merriam-Webster 무료 티어는 앱 자체가 비상업일 것을 조건으로 함(사용자별 키 발급으로도 회피 불가) → 상업 빌드는 OEWN + Wiktionary만 사용.
 - **ja**: Kotobank 스크래핑은 약관의 "개인적 이용 목적" 조항에 기댄 회색지대 판단 → 상업 빌드는 JMdict + 日本語WordNet(NICT, 라이선스 클린, 일본어 정의문 보유) 조합으로 대체.
 - **zh**: 汉典(CC BY-NC-ND, 비상업 한정)·萌典(대만 교육부 편찬물) 스크래핑 재검토 필요 → 상업 빌드는 CC-CEDICT 중심 구성 + 有道詞典 API(网易有道, 유료 협상형) 검토.
 

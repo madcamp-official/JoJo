@@ -116,10 +116,10 @@
     - 필드가 옵셔널이라 en/zh 항목엔 `conjugationClass` 값 자체가 안 들어가 실행 시점엔 안전(JSON 직렬화 시 undefined 키는 자동 생략) — 다만 타입 수준에서 "이 필드는 이 언어 전용"이라는 걸 컴파일러가 강제하진 않음(판별 유니온 대신 공통 베이스+옵셔널 확장 필드 방식을 의도적으로 택함, 필드 2~3개 규모에선 유니온이 과한 복잡도로 판단).
     - 남은 확인 필요 항목(아직 미반영): en 불규칙 동사 활용(MW의 `ins` 필드) — 별도 `irregular?: boolean` 플래그 후보. zh 이합사(离合词, 结婚/见面 등 중간에 성분 삽입 가능한 특이 문법) — 汉典/萌典/CC-CEDICT가 이를 태깅하는지 실제 소스 조사 후 필요하면 `conjugationClass`와 같은 패턴으로 추가.~~
   - [ ] **활용형(활용된 동사/형용사) 대응 — 언어별 사전 소스가 활용형을 원형으로 자동 변환해주는지 실측한 결과, 특히 일본어 쪽이 반드시 선행 처리가 필요함:**
-    - en: Merriam-Webster·Wiktionary는 활용형(ran/went/ate 등)을 원형과 교차 연결해둬서 그대로 조회해도 정상 동작(실측 확인). WordNet은 원시 synset DB 자체엔 활용형이 없지만, 표준 배포판에 포함된 **Morphy**(형태소 처리기, 불규칙은 예외 목록/규칙 활용은 어미 제거 규칙으로 원형 탐색)가 이를 해결 — 사용할 Node WordNet 라이브러리가 Morphy를 감싸고 있는지 확인 필요.
+    - en: Merriam-Webster·Wiktionary는 활용형(ran/went/ate 등)을 원형과 교차 연결해둬서 그대로 조회해도 정상 동작(실측 확인). OEWN(아래 참고, WNDB 배포판 기준)도 원시 synset 데이터 자체엔 활용형이 없지만, WNDB 포맷에 포함된 **Morphy**(형태소 처리기, 불규칙은 예외 목록/규칙 활용은 어미 제거 규칙으로 원형 탐색)가 이를 해결 — 사용할 라이브러리가 Morphy를 감싸고 있는지 확인 필요.
     - **ja: Kotobank·JMdict 둘 다 활용형(食べた/美しかった 등)을 원형(食べる/美しい)으로 자동 변환해주지 않음(실측 확인, 둘 다 검색 결과 없음).** 사전 API 호출 전에 **kuromoji(이미 팝업 atom 병합에 사용 중, `main/nlp/japanese.ts`)로 선택 텍스트를 토큰화해 動詞·形容詞 토큰은 表層形 대신 基本形(기본형)을 사전 조회 쿼리로 사용**하는 전처리 단계를 반드시 추가해야 함 — 없으면 활용된 동사/형용사 대부분이 사전 조회 자체가 실패함.
     - zh: 활용(어미 변화) 자체가 없는 언어라 해당 없음.
-  - [ ] en 어댑터: Merriam-Webster(키 등록, 무료 개인용 티어) → WordNet(로컬 데이터셋 번들, Morphy 포함 라이브러리 사용) → Wiktionary(en.wiktionary.org 또는 kaikki.org 추출 데이터, 신조어 전용 최종 폴백) 순차 폴백 구현
+  - [ ] en 어댑터: Merriam-Webster(키 등록, 무료 개인용 티어) → **OEWN(Open English WordNet, 로컬 JSON 릴리스 번들, Morphy 포함 라이브러리 사용)** → Wiktionary(en.wiktionary.org 또는 kaikki.org 추출 데이터, 신조어 전용 최종 폴백) 순차 폴백 구현. 원본 Princeton WordNet(정체·발음 정보 없음) 대신 커뮤니티가 계속 갱신하는 후속판(Global WordNet Association, CC-BY 4.0)으로 교체 확정 — 라이브 API(en-word.net)는 실측 결과 불안정(503)이라 API 대신 데이터 파일을 받아 번들.
   - [ ] ja 어댑터: (위 kuromoji 기본형 전처리 선행) Kotobank(스크래핑) → JMdict(로컬 데이터셋 번들, jmdict-simplified 등) → Wiktionary(en.wiktionary.org의 ja 항목) 순차 폴백 구현
   - [ ] zh 어댑터: zh-Hans는 汉典(`/hans/`, 스크래핑) → CC-CEDICT(로컬 데이터셋), zh-Hant는 萌典(스크래핑) → 汉典(`/hant/`) → CC-CEDICT, 공통 최종 폴백으로 Wiktionary(en.wiktionary.org의 zh 항목)
   - [ ] 다중 단어 선택 처리 — 사용자가 팝업에서 여러 단어(atom)를 한 번에 드래그 선택하고 사전 검색을 요청하는 경우:
@@ -129,7 +129,7 @@
     4. 선택 범위가 과도하게 길 때(문장 전체 드래그 등) 개별 조회 호출 수 상한 여부 검토
   - [ ] 한국어 설명 처리 — 사전 API는 원어 sense 목록만 제공, LLM이 문맥 판정 + 한국어 설명을 함께 생성하도록 프롬프트 구성
   - [ ] (선택) 스크래핑 소스(Kotobank/汉典/萌典)의 안정성 대비 — 페이지 구조 변경/일시 차단 시 다음 폴백 단계로 자연스럽게 넘어가도록 에러 처리
-  - [ ] 상업화 시 재검토(별도 트리거 필요, 지금은 미착수) — en: MW 제외하고 WordNet+Wiktionary만 / ja: Kotobank 제외하고 JMdict+日本語WordNet(NICT) 조합으로 교체 / zh: 汉典·萌典 제외하고 CC-CEDICT 중심 + 有道詞典 API(유료) 검토. 상세 근거는 PLAN.md §5 참고
+  - [ ] 상업화 시 재검토(별도 트리거 필요, 지금은 미착수) — en: MW 제외하고 OEWN+Wiktionary만 / ja: Kotobank 제외하고 JMdict+日本語WordNet(NICT) 조합으로 교체 / zh: 汉典·萌典 제외하고 CC-CEDICT 중심 + 有道詞典 API(유료) 검토. 상세 근거는 PLAN.md §5 참고
 - [x] ~~네이버 사전 바로가기 — 위 LLM 뜻 번호 판정과는 별개로, 툴바에 네이버 로고 + [사전] 버튼을 추가해 언어별(en/ja/zh) 네이버 사전 페이지를 외부 브라우저 새 창으로 연다(`question/naver.ts` `naverDictionaryUrl`, 언어별 서브도메인은 `shared/languages.ts` `naverDictSubdomain`). 새 창 열기 로직은 기존 `google.ts`에 있던 것을 `question/browser.ts`(`openUrlInNewWindow`)로 분리해 구글/네이버가 공유. 네이버는 공식 API가 없고 스크래핑은 ToS 위반 소지가 있어, LLM 뜻 번호 판정과 달리 "사용자가 직접 찾아보는" 바로가기 용도로만 제공~~
 - [x] ~~통합 질문: 자유 프롬프트 입출력 — `askLlm` 전체 파이프라인 완성(`question/index.ts` `runQuestion` → `llm/adapter.ts`, 스트리밍 포함)~~
 - [x] ~~자주 쓰는 질문: 등록 / 수정 / 삭제 + 영속화 — `popup/FrequentQuestions.tsx`. main 프로세스 `userData/frequent.json` 에 파일 저장(`main/frequentStore.ts` + IPC `FREQUENT_GET`/`SET`, 렌더러는 `popup/frequentStore.ts` 얇은 래퍼). localStorage 임시 저장에서 이전 완료 → 재시작·재설치 후 유지~~
