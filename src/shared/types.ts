@@ -169,8 +169,10 @@ export interface DictionarySense {
   classifiers?: string[]
   /** 뜻풀이 원문(번역하지 않음, 원어 그대로) */
   gloss: string
-  /** 있는 소스만(JMdict/萌典/CC-CEDICT 는 예문 자체가 없는 포맷) */
-  example?: string
+  /** 있는 소스만(JMdict/萌典/CC-CEDICT 는 예문 자체가 없는 포맷). 한 뜻에 예문이 여러 개인
+   *  경우가 흔해서(MW 실측: "run" 93개 뜻 중 20개가 2개 이상, 최대 4개) 배열로 둔다 —
+   *  WordNet 처럼 예문이 gloss 문자열에 세미콜론으로 뭉쳐 오는 소스는 어댑터가 분리해서 채움. */
+  examples?: string[]
 }
 
 export type DictionarySourceId =
