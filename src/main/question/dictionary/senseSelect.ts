@@ -136,6 +136,9 @@ export function formatDictionaryAnswer(
     const posSuffix = label ? ` · ${label}${idiomTag}` : ''
     const pronSuffix = sense.pronunciation ? ` [${sense.pronunciation}]` : ''
     lines.push(`**${headword}**${pronSuffix}${posSuffix}`)
+    // 활용형은 예문이 아니라 단어 자체에 딸린 정보라 표제어 줄 바로 아래(예문과는 분리된
+    // 자리)에 둔다.
+    if (sense.irregularForms?.length) lines.push(`활용형: ${sense.irregularForms.join(', ')}`)
     // 원문·번역을 둘 다, 각각 다른 줄에 보여준다 — 원문만으론 영어 학습에 안 맞고,
     // 번역만으론 사전 원문 표현을 확인할 수가 없다.
     lines.push(sense.gloss.join('; '))
@@ -146,7 +149,6 @@ export function formatDictionaryAnswer(
     }
     if (sense.usageTags?.length) lines.push(`_${sense.usageTags.join(', ')}_`)
     if (sense.usageNote) lines.push(sense.usageNote)
-    if (sense.irregularForms?.length) lines.push(`활용형: ${sense.irregularForms.join(', ')}`)
     lines.push('')
   }
 
