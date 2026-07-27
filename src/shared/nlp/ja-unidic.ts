@@ -12,13 +12,10 @@ const HOJO_DOUSHI_LEMMAS = new Set([
   'ください', 'みせる', 'いただく', 'やる',
 ])
 
-// IPADIC 의 動詞,接尾(て 없이 동사 連用形에 바로 붙는 접미동사: 歩き出す, 食べ過ぎる
-// 등)에 대응 — UniDic 도 마찬가지로 표제어 닫힌 목록으로 근사한다. 始める 는 제외 —
-// 歩き始めた 처럼 앞 동사(연용형)를 따로 선택하고 싶다는 요청으로 뺐다.
-const SUFFIX_VERB_LEMMAS = new Set([
-  '出す', '終わる', '続ける', '過ぎる', '得る', 'かねる', 'かける', 'たがる',
-  '合う', '直す', '忘れる', '損なう', '切る', '抜く', '尽くす',
-])
+// IPADIC 의 動詞,接尾(て 없이 동사 連用形에 바로 붙는 접미동사: 歩き出す, 食べ過ぎる 등)에
+// 대응하는 병합은 하지 않기로 했다 — 접미동사도 그 자체로 독립된 사전 표제어라(出す, 過ぎる
+// 등), 앞 동사(연용형)와 붙여버리면 따로 선택해 사전 조회하기 어려워진다(始める 를 뺀 것과
+// 같은 이유, 전체로 확장). IPADIC 엔진(kuromoji/lindera, ja.ts) 도 동일하게 뺐다.
 
 const TE_DE = new Set(['て', 'で'])
 
@@ -46,26 +43,27 @@ export function mergeJaTokensUnidic(tokens: JaToken[]): JaToken[] {
     if (t.pos === '動詞' || t.pos === '形容詞') {
       const group = [t]
       i++
+      let afterTeDe = false
       while (i < tokens.length) {
         const next = tokens[i]!
         if (next.pos === '助動詞') {
           group.push(next)
           i++
+          afterTeDe = false
           continue
         }
         if (next.pos === '助詞' && next.posDetail1 === '接続助詞' && TE_DE.has(next.surface)) {
           group.push(next)
           i++
+          afterTeDe = true
           continue
         }
-        if (next.pos === '動詞' && next.baseForm && HOJO_DOUSHI_LEMMAS.has(next.baseForm)) {
+        // 補助動詞(居る/おく/しまう 등)는 て/で 뒤에서만 문법적으로 성립한다(食べている 는
+        // 되지만 て 없이 食べいる 는 없음) — afterTeDe 로 그 문맥에서만 흡수하도록 제한한다.
+        if (afterTeDe && next.pos === '動詞' && next.baseForm && HOJO_DOUSHI_LEMMAS.has(next.baseForm)) {
           group.push(next)
           i++
-          continue
-        }
-        if (next.pos === '動詞' && next.baseForm && SUFFIX_VERB_LEMMAS.has(next.baseForm)) {
-          group.push(next)
-          i++
+          afterTeDe = false
           continue
         }
         break

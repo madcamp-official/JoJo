@@ -8,14 +8,17 @@ import type { JaToken } from '../types'
 // 따로 다룬다 — 이 함수 자체는 항상 같은 병합 결과를 낸다.
 //
 // 규칙:
-//  1. 動詞,自立 / 形容詞,自立 로 시작하는 어간 뒤에 붙는 조동사(助動詞)·접미동사
-//     (動詞,接尾) 는 무조건 앞에 흡수한다.
+//  1. 動詞,自立 / 形容詞,自立 로 시작하는 어간 뒤에 붙는 조동사(助動詞)는 무조건 앞에
+//     흡수한다.
 //  2. 접속조사 て/で 는 동사・형용사의 て형 활용어미 자체이므로(向かう→向かって 등)
-//     뒤에 오는 게 무엇이든 무조건 앞에 흡수하고, 그 뒤에 動詞,非自立(보조동사, 예:
-//     ている 의 いる)가 이어지면 계속 체인으로 흡수한다(食べている 도 하나로 묶임).
-// 명사 자동 병합(연속 名詞 복합명사, 接頭詞+名詞)은 의도적으로 넣지 않는다 — 사전에 없는
-// 긴 복합명사 덩어리가 만들어져 개별 단어(예: "日本語能力試験"의 "日本語")를 따로 선택해
-// 사전 조회하기 어려워지는 문제가 있어 뺐다.
+//     뒤에 오는 게 무엇이든 무조건 앞에 흡수하고, **바로 그 뒤에 이어지는** 動詞,非自立
+//     (보조동사, 예: ている 의 いる)만 계속 흡수한다(食べている 도 하나로 묶임) — て/で
+//     없이 어간에 바로 붙는 動詞,非自立(過ぎる, 出す 등 접미동사도 IPADIC 이 이 태그를
+//     씀, 실측 확인)까지 흡수하면 안 되므로 "て/で 를 방금 흡수했을 때만" 으로 제한한다.
+// 명사 자동 병합(연속 名詞 복합명사, 接頭詞+名詞)과 접미동사(動詞,接尾/て 없는 動詞,非自立:
+// 歩き出す, 食べ過ぎる 등) 병합은 의도적으로 넣지 않는다 — 둘 다 그 자체로 독립된 사전
+// 표제어라, 붙여버리면 개별 단어를 따로 선택해 사전 조회하기 어려워지는 문제가 있어 뺐다
+// (ja-unidic.ts 도 동일).
 const TE_DE = new Set(['て', 'で'])
 
 function combine(group: JaToken[]): JaToken {
@@ -38,21 +41,25 @@ export function mergeJaTokens(tokens: JaToken[]): JaToken[] {
     if ((t.pos === '動詞' || t.pos === '形容詞') && t.posDetail1 === '自立') {
       const group = [t]
       i++
+      let afterTeDe = false
       while (i < tokens.length) {
         const next = tokens[i]!
-        if (next.pos === '助動詞' || (next.pos === '動詞' && next.posDetail1 === '接尾')) {
+        if (next.pos === '助動詞') {
           group.push(next)
           i++
-          continue
-        }
-        if (next.pos === '動詞' && next.posDetail1 === '非自立') {
-          group.push(next)
-          i++
+          afterTeDe = false
           continue
         }
         if (next.pos === '助詞' && next.posDetail1 === '接続助詞' && TE_DE.has(next.surface)) {
           group.push(next)
           i++
+          afterTeDe = true
+          continue
+        }
+        if (afterTeDe && next.pos === '動詞' && next.posDetail1 === '非自立') {
+          group.push(next)
+          i++
+          afterTeDe = false
           continue
         }
         break
