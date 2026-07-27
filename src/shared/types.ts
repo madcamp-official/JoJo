@@ -185,11 +185,21 @@ export type DictionarySourceId =
   | 'moedict' // 萌典
   | 'cc-cedict'
 
-export interface DictionaryEntry {
-  headword: string
-  /** 병음/가나/IPA 등 발음 표기 — 있으면 */
+/** 발음 하나에 딸린 sense 묶음 — 같은 표기라도 발음(따라서 뜻 집합)이 갈리는 경우가
+ *  실측으로 확인됨: MW "read"는 hom(homograph) 별로 발음이 다름(동사 hom=1 /riːd/ vs
+ *  형용사 hom=2 /rɛd/), 萌典 "行"은 heteronyms 4개가 각각 다른 병음(háng/hàng/xíng/xìng)에
+ *  전혀 다른 뜻풀이 세트를 가짐 — 萌典은 이 구조를 필드명(heteronyms, 복수)에 그대로
+ *  반영해뒀을 정도. reading 을 DictionaryEntry 최상위에 하나만 두면 이 경우를 표현 못 해서
+ *  발음 그룹 단위로 내렸다. */
+export interface DictionaryReading {
+  /** 병음/가나/IPA 등 발음 표기 — 있으면. 소스가 발음별로 안 나누면(단일 발음) 1개만 옴 */
   reading?: string
   senses: DictionarySense[]
+}
+
+export interface DictionaryEntry {
+  headword: string
+  readings: DictionaryReading[]
   source: DictionarySourceId
 }
 
