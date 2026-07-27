@@ -142,11 +142,12 @@ export function formatDictionaryAnswer(
       lines.push(`활용형: ${sense.irregularForms.join(', ')}`)
       lines.push('') // 뜻풀이 파트와는 빈 줄로 띄워 구분
     }
-    // 원문·번역을 둘 다, 각각 다른 줄에 보여준다 — 원문만으론 영어 학습에 안 맞고,
-    // 번역만으론 사전 원문 표현을 확인할 수가 없다. 원문은 이탤릭(부가 정보), 번역은
-    // 볼드(핵심 뜻)로 서로 다르게 강조해 라벨 없이도 구분되게 한다.
-    lines.push(`_${sense.gloss.join('; ')}_`)
-    lines.push(`**${translatedGloss}**`)
+    // 원문·번역은 같은 뜻을 언어만 달리 적은 동격 정보라 스타일을 다르게 주지 않는다
+    // (한쪽만 강조하면 마치 부가 정보처럼 보임) — 대신 앞뒤로 빈 줄을 둬서 활용형·예문
+    // 등 다른 파트와 뜻풀이 파트 전체를 하나의 덩어리로 시각적으로 구분한다.
+    lines.push(sense.gloss.join('; '))
+    lines.push(translatedGloss)
+    lines.push('')
     if (sense.examples?.[0]) {
       lines.push(`> ${sense.examples[0]}`)
       if (translatedExample) lines.push(`> ${translatedExample}`)
