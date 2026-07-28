@@ -46,9 +46,9 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 | `sseq[].dt[].vis` | `DictionarySense.examples[]` |
 | `fl` (`"phrase"`) | `DictionaryEntry.isIdiom` |
 | `prs.mw` | `DictionaryReading.pronunciations[].value` (variety 없음) |
-| `sls` | `DictionarySense.usageTags` |
+| `sls` | `DictionarySense.usageTags[]` (`kind: 'register'`) |
 | `uns` | `DictionarySense.usageNote` |
-| `lbs`(entry 최상위, 실측: "deco" → `["often attributive"]`) | `DictionarySense.usageTags` — **레벨이 다름**(entry 전체 vs sense 단위)이라, 어댑터가 entry의 senses 전부에 복제해 `sls`와 합쳐 넣는다(값 자체가 드물고 가벼운 표기 관례라 이 정도 단순화로 결정, 2026-07-28). 전문분야(컴퓨터/의학 등) 라벨이 아니므로 `domain`엔 매핑 안 함. |
+| `lbs`(entry 최상위, 실측: "deco" → `["often attributive"]`) | `DictionarySense.usageTags[]` (`kind: 'convention'`) — **레벨이 다름**(entry 전체 vs sense 단위)이라, 어댑터가 entry의 senses 전부에 복제해 `sls`(`kind: 'register'`)와 합쳐 넣는다(값 자체가 드물고 가벼운 표기 관례라 이 정도 단순화로 결정, 2026-07-28). 전문분야(컴퓨터/의학 등) 라벨이 아니므로 `domain`엔 매핑 안 함. |
 | `ins` | `DictionarySense.irregularForms` |
 | `cxs`/`uros` | (파싱 로직에서만 처리, 전용 스키마 필드 없음) |
 
@@ -104,7 +104,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - `is_common`이 entry(reading 그룹) 최상위에만 있고 sense들이 공유하는 구조는 기존 기록대로.
 - `synonyms` 키 자체가 응답에 없음(재확인). 대신 `見よ:` 형태의 `see_also` — `synonyms`가 아니라 `seeAlso`로 분리.
 - `antonyms` 필드는 있음(재확인: "高い"→"低い", sense1에만).
-- **`tags` 필드가 misc(사용역)와 field(전문분야)를 한 배열에 뭉쳐 노출하는 것을 재확인**: レジスター의 3번째 sense(컴퓨팅 register 뜻)에서 `tags: ["Computing"]`(sense1/2는 tags 빈 배열). しどい는 `tags: ["Slang"]`. 薔薇 sense1은 `tags: ["Usually written using kana alone"]` — 격식이 아니라 표기 관례라 `usageTags`로 개명한 기존 판단이 정확했음을 재확인.
+- **`tags` 필드가 misc(사용역)와 field(전문분야)를 한 배열에 뭉쳐 노출하는 것을 재확인**: レジスター의 3번째 sense(컴퓨팅 register 뜻)에서 `tags: ["Computing"]`(sense1/2는 tags 빈 배열, → `domain`). しどい는 `tags: ["Slang"]`(→ `usageTags`, `kind: 'register'`). 薔薇 sense1은 `tags: ["Usually written using kana alone"]`(→ `usageTags`, `kind: 'convention'`) — 격식이 아니라 표기 관례라 `usageTags`로 개명한 기존 판단이 정확했음을 재확인, 이번엔 `kind`로 한 걸음 더 분리(2026-07-28). JMdict `misc` 값 자체가 어떤 게 register/convention인지는 값마다 다르므로(예: `sl`=slang/`derog`=derogatory/`col`=colloquial/`hon`=honorific/`hum`=humble/`arch`=archaism 등은 register, `uk`=주로 가나로만 표기/`ateji`=아테지/`ik`=이형 가나 등은 convention) 어댑터가 원본 JMdict misc 코드 기준 룩업 테이블로 분류해야 함 — jisho.org의 영문 설명(`tags`)만 보고는 이 구분이 항상 명확하진 않아 로컬 jmdict-simplified 번들(원본 misc 코드 보존)에서 분류하는 게 더 안전.
 - `info`(パン sense1 → `"originally written 麺麭 or 麪包"`)가 MW `uns`(sense 레벨 확정, "ain't hay" 실측 확인)와 같은 "gloss/examples 어디에도 안 들어가는 자유 서술" 역할이라는 것도 재확인 → `usageNote`.
 
 **스키마 매핑**:
@@ -117,7 +117,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 | `see_also` | `DictionarySense.seeAlso` |
 | `antonyms` | `DictionarySense.antonyms` |
 | `field`(로컬 데이터셋) | `DictionarySense.domain` |
-| `misc`/`tags`(jisho.org) | `DictionarySense.usageTags` |
+| `misc`/`tags`(jisho.org) | `DictionarySense.usageTags[]` — 값별로 `kind` 분류 필요(아래 참고) |
 | `info` | `DictionarySense.usageNote` |
 | `v1`/`vt` 등 자동사/타동사 코드 | `DictionarySense.transitive` |
 | (해당 없음, synonyms 키 없음) | `DictionarySense.synonyms` — 항상 undefined |
@@ -136,18 +136,18 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - 포맷 자체가 `번체 간체 [pinyin] /뜻1/뜻2/.../` — 슬래시 구분 뜻 목록 안에 실제 정의뿐 아니라 사용역 라벨·전문분야 라벨·교차참조·발음 변이가 전부 비정형 평문으로 뒤섞여 있음. **어댑터가 슬래시 세그먼트마다 정규식으로 분류해 올바른 필드로 라우팅**해야 하는 파싱 문제.
 - 사용역/전문분야 라벨 빈도 `[2026-07-28 재실측, 이전 수치 정정]`(전체 124,732개 항목 중, `grep -c` 기준). **정정(2026-07-28): 아래 두 그룹은 성격이 달라 스키마 필드도 나뉘어야 하는데, 기존 기록이 전부 `usageTags` 하나로 뭉뚱그려 놨었다** — `domain`(JMdict `field`용으로 이미 만들어 둔 전문분야 필드, `types.ts` 참고) 설계 의도상 전문분야 라벨은 여기로 가야 정합이 맞음:
 
-  **사용역/표기 관례 라벨(→ `DictionarySense.usageTags`)**:
+  **사용역/표기 관례 라벨(→ `DictionarySense.usageTags`, `kind` 분류는 2026-07-28 결정)**:
 
-  | 라벨 | 빈도(재실측) | 이전 기록 |
-  |---|---|---|
-  | `(loanword)` | 842 | 849 |
-  | `(literary)` | 1,152 | 1,331 |
-  | `(coll.)` | 911 | 950 |
-  | `(dialect)` | 548 | 576 |
-  | `(bound form)` | 536 | 772 |
-  | `(slang)` | 536 | 545 |
-  | `(derog.)` | 93 | 94 |
-  | `(archaic)` | 182 | 188 |
+  | 라벨 | 빈도(재실측) | 이전 기록 | `kind` |
+  |---|---|---|---|
+  | `(coll.)` | 911 | 950 | `register` |
+  | `(slang)` | 536 | 545 | `register` |
+  | `(derog.)` | 93 | 94 | `register` |
+  | `(archaic)` | 182 | 188 | `register` |
+  | `(literary)` | 1,152 | 1,331 | `register` |
+  | `(dialect)` | 548 | 576 | `dialect` |
+  | `(loanword)` | 842 | 849 | `other`(격식·방언 어느 쪽도 아닌 어원 설명) |
+  | `(bound form)` | 536 | 772 | `other`(형태 결합 제약 표시, 격식·방언과 무관) |
 
   **전문분야 라벨(→ `DictionarySense.domain`, JMdict `field`와 동일 필드로 통합)**:
 
@@ -240,6 +240,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - `isCommon`(entry 선택용 필드)은 최종적으로 없앰 — 동일 표기의 서로 다른 reading(예: はし/きょう)은 **하나의 entry로 병합**되는 게 맞는 설계(MW hom, 萌典 heteronyms와 동일 패턴)라 우선순위 신호의 역할은 "entry 선택"이 아니라 "그 entry 안 어느 reading/sense가 대표인지"로 축소 — `DictionaryReading.isCommon`(JMdict 전용, reading 레벨)으로 분리해 실제 데이터가 있는 레벨에 맞춰 부활시킴. (당초 함께 부활시켰던 `DictionarySense.tagCount`(OEWN 전용, sense 레벨)는 **2026-07-28 실제 데이터 확인 결과 이 JSON 릴리스에 해당 필드가 없어 폐기 대상** — 아래 OEWN 섹션 참고.)
 - `pos`(CanonicalPos)는 언어 간 겹치는 범위로만 표준화하고, 원본 세부 표기는 `posRaw`(LLM에 전달 안 함)에 보존. 문법 설명에 실제로 필요한 세부 정보(활용 분류 등)는 `posRaw`에만 있으면 버려지는 것과 같으므로 `conjugationClass`(사람이 읽을 수 있는 문자열, LLM에도 전달)로 별도 승격.
 - 판별 유니온(discriminated union) 대신 공통 베이스+옵셔널 확장 필드 방식을 의도적으로 채택 — 언어 전용 필드가 2~3개 규모에서는 유니온이 과한 복잡도로 판단(실행 시점엔 JSON 직렬화로 undefined 키 자동 생략되어 안전, 다만 타입 수준에서 "이 필드는 이 언어 전용"을 컴파일러가 강제하지는 않음).
+- `usageTags`를 `string[]`에서 `UsageTag[]`(`{ text, kind?: 'register'|'convention'|'dialect'|'other' }`)로 구조화(2026-07-28) — 격식(MW `sls`, CC-CEDICT `(coll.)`/`(slang)` 등)과 격식 무관 표기 관례(MW `lbs`, JMdict "가나로만 씀")가 문자열 하나에 섞여 있으면, PLAN §3 "격식·객관 표현 여부" 자주 쓰는 질문 기능이 격식 판단에 무관한 태그까지 LLM에 같이 넣어 판단을 오염시킬 수 있음을 뒤늦게 발견해 정정. 소스별 라벨의 `kind` 분류는 위 MW/JMdict/CC-CEDICT 각 섹션 참고 — 분류가 애매한 라벨(CC-CEDICT `(loanword)`/`(bound form)`)은 `other`로 남겨 억지로 분류하지 않는다.
 
 **아직 미확인 항목** (실측 필요, 확인되는 대로 위 해당 섹션에 반영):
 - ~~汉典 近反义词(lazy 섹션)를 채우는 실제 AJAX 엔드포인트~~ → **해소(2026-07-28)**: 애초에 AJAX가 필요 없었다 — `data-lazy` 속성과 무관하게 정적 HTML에 이미 내용이 채워져 있음을 재확인(위 汉典 섹션 참고). 찾을 엔드포인트 자체가 없다.
