@@ -354,17 +354,39 @@ export async function fetchWiktionaryEntry<L extends Language>(
   // assignPerBlockPronunciations 주석 참고) — 페이지 전체에서 긁어 모든 reading 에
   // 뭉뚱그려 넣지 않는다.
   const wikitext = await fetchWikitext(word)
-  if (wikitext) {
-    const extractValues =
-      language === 'en' ? extractEnIpaValues : language === 'ja' ? extractJaPronValues : extractZhMandarinFromWikitext
-    const perBlock = assignPerBlockPronunciations(wikitext, langName, blocks, extractValues)
-    for (const { blockIndex, reading } of readingsWithBlockIndex) {
-      const values = perBlock[blockIndex]
-      if (values?.length) reading.pronunciations = values.map((value) => ({ value }))
-    }
-  }
+  const perBlock: (string[] | undefined)[] = wikitext
+    ? assignPerBlockPronunciations(
+        wikitext,
+        langName,
+        blocks,
+        language === 'en' ? extractEnIpaValues : language === 'ja' ? extractJaPronValues : extractZhMandarinFromWikitext,
+      )
+    : blocks.map(() => undefined)
 
-  const readings = readingsWithBlockIndex.map((r) => r.reading)
+  // 같은 Pronunciation 헤더에 딸린 블록들(예: "lead" 금속 뜻의 Noun+Verb, 실측: 둘 다
+  // /ˈlɛd/)은 DictionaryReading 이 원래 "발음 하나에 딸린 sense 묶음"으로 설계됐다는
+  // 취지(shared/types.ts DictionaryReading 주석 참고, MW hom·萌典 heteronyms 와 반대
+  // 방향의 같은 원칙)에 맞춰 reading 하나로 합친다 — REST API 블록(품사 단위)과
+  // DictionaryReading(발음 단위)이 서로 다른 축이라 기계적으로 1:1 대응시키면 같은
+  // 발음이 여러 reading 으로 쪼개지는 문제가 있었다(2026-07-28 사용자 지적).
+  // assignPerBlockPronunciations 가 같은 Pronunciation 헤더 구간에 속한 블록들에 정확히
+  // 같은 배열 레퍼런스를 재사용해 채워주므로(새 Pronunciation 헤더를 만날 때만 새 배열로
+  // 교체), "바로 이전 블록과 배열 레퍼런스가 같은가"만 보면 같은 그룹인지 안전하게 알 수
+  // 있다 — 값(내용)이 우연히 같은 별개 그룹까지 잘못 합치는 걸 막는다. 발음을 못 찾은
+  // 블록(undefined)은 서로 무관할 수 있어 합치지 않고 각자 별도 reading 으로 둔다.
+  const readings: DictionaryReading<L>[] = []
+  let lastPron: string[] | undefined
+  for (const { blockIndex, reading } of readingsWithBlockIndex) {
+    const pron = perBlock[blockIndex]
+    const prev = readings[readings.length - 1]
+    if (pron && prev && pron === lastPron) {
+      prev.senses.push(...reading.senses)
+    } else {
+      if (pron?.length) reading.pronunciations = pron.map((value) => ({ value }))
+      readings.push(reading)
+    }
+    lastPron = pron
+  }
 
   const entry = {
     language,
