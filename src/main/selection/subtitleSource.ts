@@ -122,24 +122,72 @@ export function buildSubtitleSelection(point: { x: number; y: number }): Extract
   }
   if (!clickedWord) return null
 
-  // 앞뒤 범위 자막(timedtext)으로 팝업 문맥을 구성. 없으면 현재 줄만.
-  const before = latest.context?.before ?? []
-  const after = latest.context?.after ?? []
-  const parts = [...before, currentLine, ...after]
-  const text = parts.join('\n')
-  const base = before.reduce((n, l) => n + l.length + 1, 0) // 각 줄 뒤 '\n' 만큼 +1
-  const start = base + wordOffsetInLine
-  const end = start + clickedWord.text.length
-
-  const language = detectSubtitleLanguage(text)
   const source = getBrowserSource()?.source ?? { kind: 'youtube' as const }
+  const transcript = extensionBridge.getTranscript()
 
-  return {
-    text,
-    anchor: { start, end },
-    words: latestWords,
-    language,
-    source, // kind: youtube/netflix 가 자막 경로임을 나타냄
-    extraction: 'direct', // 자막도 DOM/timedtext 직접 추출
+  // 전체 자막(timedtext)이 있으면 그걸 통째로 text 로 주고 anchor 만 클릭 단어에 맞춘다 —
+  // 팝업이 설정 바이트(contextBytesBefore/After)만큼 앞뒤를 알아서 보여준다(OCR/텍스트와 동일).
+  if (transcript && transcript.cues.length > 0) {
+    const anchored = anchorInTranscript(transcript.cues, latest.currentTime, currentLine, clickedWord.text, wordOffsetInLine)
+    if (anchored) {
+      return {
+        text: anchored.text,
+        anchor: { start: anchored.start, end: anchored.end },
+        words: latestWords,
+        language: detectSubtitleLanguage(currentLine || anchored.text),
+        source,
+        extraction: 'direct',
+      }
+    }
   }
+
+  // 전체 자막이 아직 없으면(로드 전/트랙 없음) 현재 줄만이라도 보여준다.
+  return {
+    text: currentLine,
+    anchor: { start: wordOffsetInLine, end: wordOffsetInLine + clickedWord.text.length },
+    words: latestWords,
+    language: detectSubtitleLanguage(currentLine),
+    source,
+    extraction: 'direct',
+  }
+}
+
+// 전체 자막 cue 들을 이어 붙여 팝업용 text 를 만들고, 클릭 단어의 offset(anchor)을 찾는다.
+function anchorInTranscript(
+  cues: { start: number; text: string }[],
+  currentTime: number,
+  currentLine: string,
+  wordText: string,
+  wordOffsetInLine: number,
+): { text: string; start: number; end: number } | null {
+  // 각 cue 를 줄바꿈으로 이어 붙이며 시작 offset 을 기록.
+  const offsets: number[] = []
+  let full = ''
+  for (let i = 0; i < cues.length; i++) {
+    offsets[i] = full.length
+    full += cues[i].text
+    if (i < cues.length - 1) full += '\n'
+  }
+
+  // 현재 재생 시각이 속한(또는 직전) cue.
+  let idx = -1
+  for (let i = 0; i < cues.length; i++) {
+    if (cues[i].start <= currentTime + 0.25) idx = i
+    else break
+  }
+  if (idx < 0) idx = 0
+
+  // cue 안에서 클릭 단어 위치: 화면 줄이 cue 안 어디에 있는지 먼저 찾고 그 안의 단어 offset 을 더한다.
+  const cueText = cues[idx].text
+  let inCue: number
+  const lineBase = currentLine ? cueText.indexOf(currentLine) : -1
+  if (lineBase >= 0) {
+    inCue = lineBase + wordOffsetInLine
+  } else {
+    const wi = cueText.indexOf(wordText)
+    inCue = wi >= 0 ? wi : 0
+  }
+  const start = offsets[idx] + Math.min(inCue, cueText.length)
+  const end = Math.min(start + wordText.length, offsets[idx] + cueText.length)
+  return { text: full, start, end }
 }

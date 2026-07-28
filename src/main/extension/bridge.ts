@@ -7,7 +7,13 @@ import {
   type ExtActiveTab,
   type ExtToApp,
   type SubtitleSnapshot,
+  type TranscriptCue,
 } from '@shared/extension'
+
+export interface Transcript {
+  videoId: string
+  cues: TranscriptCue[]
+}
 
 // 담당 B — 크롬 확장 브릿지 (Electron main 쪽 WebSocket 서버).
 // 확장 background 가 이 서버에 접속해 활성 탭 변화·자막 등을 보내온다.
@@ -18,6 +24,7 @@ const KEEPALIVE_MS = 20_000 // 서비스 워커는 ~30초 유휴 시 종료됨 �
 type BridgeEvents = {
   activeTab: [ExtActiveTab | null]
   subtitles: [SubtitleSnapshot | null]
+  transcript: [Transcript]
   connected: []
   disconnected: []
 }
@@ -28,6 +35,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   private keepalive: NodeJS.Timeout | null = null
   private lastActiveTab: ExtActiveTab | null = null
   private lastSubtitles: SubtitleSnapshot | null = null
+  private lastTranscript: Transcript | null = null
 
   start(): void {
     if (this.wss) return
@@ -96,6 +104,11 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         this.lastSubtitles = msg.snapshot
         this.emit('subtitles', msg.snapshot)
         break
+      case 'transcript':
+        this.lastTranscript = { videoId: msg.videoId, cues: msg.cues }
+        console.log(`[ext-bridge] transcript 수신: ${msg.cues.length} cues (video=${msg.videoId})`)
+        this.emit('transcript', this.lastTranscript)
+        break
     }
   }
 
@@ -131,10 +144,19 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     return this.lastSubtitles
   }
 
+  getTranscript(): Transcript | null {
+    return this.lastTranscript
+  }
+
   // 선택 모드 진입/이탈 시 확장에 자막 캡처 on/off 를 지시한다.
   setSubtitleCapture(active: boolean): void {
     if (!active) this.lastSubtitles = null
     this.send({ type: 'setSubtitleCapture', active })
+  }
+
+  // 팝업 열림/닫힘에 맞춰 영상 재생/일시정지를 지시한다.
+  setVideoPlayback(play: boolean): void {
+    this.send({ type: 'setVideoPlayback', play })
   }
 }
 

@@ -153,23 +153,3 @@ function pickTrack(tracks: CaptionTrack[], langHint: string | null): CaptionTrac
   }
   return tracks.find((t) => t.kind !== 'asr') ?? tracks[0]
 }
-
-// 현재 재생 위치 기준 앞/뒤 자막을 모은다.
-export function surroundingCues(
-  cues: TranscriptCue[],
-  currentTime: number,
-  before: number,
-  after: number,
-): { before: string[]; current: string | null; after: string[] } {
-  if (cues.length === 0) return { before: [], current: null, after: [] }
-  // 현재 시간이 속한(또는 직전) cue 인덱스를 찾는다.
-  let idx = -1
-  for (let i = 0; i < cues.length; i++) {
-    if (cues[i].start <= currentTime + 0.25) idx = i
-    else break
-  }
-  if (idx === -1) idx = 0
-  const beforeLines = cues.slice(Math.max(0, idx - before), idx).map((c) => c.text)
-  const afterLines = cues.slice(idx + 1, idx + 1 + after).map((c) => c.text)
-  return { before: beforeLines, current: cues[idx]?.text ?? null, after: afterLines }
-}

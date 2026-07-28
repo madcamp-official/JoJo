@@ -35,13 +35,6 @@ export interface SubLine {
   words: SubWord[]
 }
 
-// 클릭한 줄의 앞뒤 범위 자막(timedtext 전체 버퍼에서 현재 시간 기준으로 뽑음).
-export interface SubtitleContext {
-  before: string[]
-  current: string | null
-  after: string[]
-}
-
 // 현재 화면에 떠 있는 자막 한 프레임 + 좌표.
 export interface SubtitleSnapshot {
   lines: SubLine[]
@@ -55,8 +48,14 @@ export interface SubtitleSnapshot {
     chromeLeft: number
     chromeTop: number
   }
-  currentTime: number // 영상 재생 위치(초) — timedtext 버퍼에서 앞뒤 자막을 찾는 기준
-  context?: SubtitleContext // timedtext 로딩이 끝났으면 앞뒤 범위 자막 문맥
+  currentTime: number // 영상 재생 위치(초) — 전체 자막에서 현재 자막(클릭 기준)을 찾는 기준
+}
+
+// timedtext 전체 자막 한 줄(cue). 앱이 이걸 이어붙여 팝업 문맥(전체 텍스트)을 만들고,
+// 팝업이 설정 바이트(contextBytesBefore/After)만큼 선택 앞뒤를 보여준다.
+export interface TranscriptCue {
+  start: number // 시작 시각(초)
+  text: string
 }
 
 // 확장 → 앱
@@ -65,6 +64,7 @@ export type ExtToApp =
   | { type: 'pong' } // keepalive 응답(서비스 워커 생존 유지 겸)
   | { type: 'activeTab'; tab: ExtActiveTab | null } // 활성 탭 변화(없으면 null)
   | { type: 'subtitles'; snapshot: SubtitleSnapshot | null } // 화면 자막 프레임 갱신(사라지면 null)
+  | { type: 'transcript'; videoId: string; cues: TranscriptCue[] } // 영상 전체 자막(로드 완료 시 1회)
 
 // 앱 → 확장
 export type AppToExt =
@@ -72,5 +72,6 @@ export type AppToExt =
   | { type: 'ping' } // keepalive
   | { type: 'requestActiveTab' } // 현재 활성 탭을 다시 보고하라(재접속 직후 등)
   | { type: 'setSubtitleCapture'; active: boolean } // 자막 캡처 on/off(선택 모드 진입/이탈 시)
+  | { type: 'setVideoPlayback'; play: boolean } // 영상 재생/일시정지(팝업 열림=정지, 닫힘=재생)
 
 export type ExtMessage = ExtToApp | AppToExt
