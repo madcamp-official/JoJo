@@ -39,7 +39,8 @@ function connect(): void {
     backoffMs = 1000
     console.log('[nuance] WS 연결됨 → hello 전송')
     send({ type: 'hello', version: EXT_VERSION })
-    void reportActiveTab()
+    // 활성 탭 보고는 여기서 먼저 하지 않는다 — 앱(bridge.ts onConnection)이 새 연결마다
+    // requestActiveTab 을 보내오므로 그 응답으로 한 번만 보고한다(중복 보고 방지).
   }
   ws.onmessage = (ev) => onAppMessage(ev.data)
   ws.onclose = () => {

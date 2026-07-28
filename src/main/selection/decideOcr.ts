@@ -1,8 +1,19 @@
 import type { Language, SelectionSource } from '@shared/types'
 import { readWindowText } from './accessibility'
-import { getSelectedWindowId } from './capture'
+import { getSelectedWindowId, getSelectedWindowName } from './capture'
 import { detectLanguage } from './langDetect'
 import { getBrowserSource } from '../extension/activeTab'
+
+// 확장은 Nuance 에서 어떤 창을 선택했는지와 무관하게 자신이 설치된 브라우저의 활성 탭을
+// 계속 보고한다 — 그래서 사용자가 브라우저가 아닌 다른 창을 선택해도(예: 메모장), 배경에
+// 크롬이 유튜브를 띄우고 있으면 확장 정보가 그대로 잡혀 잘못 자막 경로로 갈 수 있었다.
+// 선택된 창 이름("오너앱 - 창 제목", capture.ts: withOwnerName)이 크롬(계열)인지 확인해서
+// 그 경우에만 확장이 보고하는 활성 탭 정보를 신뢰한다.
+function selectedWindowIsChrome(): boolean {
+  const name = getSelectedWindowName()
+  if (!name) return false
+  return /^(google chrome|chrome|chromium)\b/i.test(name)
+}
 
 // 담당 A/B — 추출 방식 판정 (PLAN.md §4.1 / §7)
 // 원칙: 직접 추출 먼저 시도, 텍스트가 부족할 때만 OCR fallback.
@@ -25,10 +36,14 @@ const MIN_DIRECT_TEXT_LENGTH = 20
 export async function decideExtraction(): Promise<ExtractionDecision> {
   const language = await detectLanguage()
 
-  // 브라우저면(확장이 활성 탭을 보고 중) URL 로 자막/웹 경로를 먼저 분기한다.
-  // 유튜브 동영상·넷플릭스 에피소드 = 확장으로 원어 자막 추출(subtitle).
-  const browser = getBrowserSource()
-  console.log('[decideExtraction] browserSource =', browser ? `${browser.source.kind} media=${browser.isMedia}` : 'null(확장 미연결/미보고)')
+  // 브라우저면(확장이 활성 탭을 보고 중, 그리고 선택된 창이 실제로 크롬) URL 로 자막/웹
+  // 경로를 먼저 분기한다. 유튜브 동영상·넷플릭스 에피소드 = 확장으로 원어 자막 추출(subtitle).
+  const isChrome = selectedWindowIsChrome()
+  const browser = isChrome ? getBrowserSource() : null
+  console.log(
+    `[decideExtraction] selectedWindowIsChrome=${isChrome} browserSource =`,
+    browser ? `${browser.source.kind} media=${browser.isMedia}` : 'null(확장 미연결/미보고/선택창이 크롬 아님)',
+  )
   if (browser) {
     if (browser.isMedia) {
       return { mode: 'subtitle', source: browser.source, language }
