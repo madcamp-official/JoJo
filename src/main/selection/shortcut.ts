@@ -1,14 +1,17 @@
 import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
+  getMainWindow,
   onWindowResized,
   openSettingsWindow,
   sendOverlayNotice,
   sendRegionSelectionNeeded,
   setOverlayMode,
 } from '../windows'
+import { isTrayMenuOpen } from '../tray'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
+import { getSelectedWindowId } from './capture'
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
@@ -181,15 +184,52 @@ export function currentMode(): AppMode {
   return mode
 }
 
-// 담당 공동 — "어디서나 설정 화면 열기" 전역 단축키(기본 CommandOrControl+,, macOS
-// 관례상 Cmd+, / 그 외 Ctrl+,). 모드 전환 단축키와 동일한 등록/해제/OS 대응 패턴을 그대로
-// 재사용한다(expandAccelerator 로 macOS 에서 Cmd/Ctrl 둘 다 동작하게).
+/** 지금 이 단축키를 눌러도 되는 상황인지 — "어디서나"가 아니라 (1) Nuance 자신의 창이
+ *  포커싱돼 있을 때, (2) 트레이 메뉴(창 선택/설정/종료)가 떠 있을 때, (3) 선택된 대상
+ *  창이 포커싱돼 있을 때로 한정한다(사용자 요청, 2026-07-29 — globalShortcut 은 원래
+ *  다른 아무 앱에 포커스가 있어도 전역으로 반응하는데, 그러면 예를 들어 이 단축키와
+ *  다른 앱의 단축키가 우연히 겹칠 때 사용자가 그 앱을 쓰다가 의도치 않게 설정 화면이
+ *  뜨는 문제가 있었음). 선택된 대상 창 포커스 판정은 플랫폼 네이티브 호출이 필요해
+ *  비동기다 — win32Capture.isWin32WindowForeground/macWindow.isMacWindowFocused. */
+async function isSettingsShortcutAllowed(): Promise<boolean> {
+  if (getMainWindow()?.isFocused()) return true
+  if (isTrayMenuOpen()) return true
+
+  const selectedId = getSelectedWindowId()
+  if (!selectedId) return false
+
+  if (process.platform === 'win32') {
+    const { isWin32WindowForeground } = await import('./win32Capture')
+    try {
+      return isWin32WindowForeground(BigInt(selectedId))
+    } catch {
+      return false // hwnd 파싱 실패(형식이 다른 값 등) — 안전하게 거부
+    }
+  }
+  if (process.platform === 'darwin') {
+    const { isMacWindowFocused } = await import('./macWindow')
+    const windowId = Number(/^window:(\d+)/.exec(selectedId)?.[1])
+    return Number.isFinite(windowId) && isMacWindowFocused(windowId)
+  }
+  return false
+}
+
+// 담당 공동 — "선택된 컨텍스트에서만" 설정 화면 열기 전역 단축키(기본 CommandOrControl+,,
+// macOS 관례상 Cmd+, / 그 외 Ctrl+,). 모드 전환 단축키와 동일한 등록/해제/OS 대응 패턴을
+// 그대로 재사용한다(expandAccelerator 로 macOS 에서 Cmd/Ctrl 둘 다 동작하게) — 다만
+// 실제 동작 여부는 위 isSettingsShortcutAllowed 로 한 번 더 걸러진다.
 let currentSettingsAccelerators: string[] = []
 
 export function registerSettingsShortcut(accelerator = 'CommandOrControl+,'): void {
   if (!accelerator) return // 빈 문자열 = 단축키 해제 상태(등록 안 함)
   const accelerators = expandAccelerator(accelerator)
-  accelerators.forEach((a) => globalShortcut.register(a, openSettingsWindow))
+  accelerators.forEach((a) =>
+    globalShortcut.register(a, () => {
+      void isSettingsShortcutAllowed().then((allowed) => {
+        if (allowed) openSettingsWindow()
+      })
+    }),
+  )
   currentSettingsAccelerators = accelerators
 }
 
