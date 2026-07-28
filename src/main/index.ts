@@ -13,6 +13,7 @@ import { warmJapaneseTokenizer } from './nlp/japanese'
 import { warmChineseSegmenter } from './nlp/chinese'
 import { cleanupOrphanedPythonServers, killAllPythonServers } from './selection/pythonServer'
 import { startWarmUp } from './selection/warmup'
+import { startExtensionBridge } from './extension/bridge'
 
 // 앱 진입점 — 윈도우 생성, IPC 등록, 전역 단축키 등록
 app.whenReady().then(() => {
@@ -33,6 +34,7 @@ app.whenReady().then(() => {
   createMainWindow()
   createTray()
   registerIpc()
+  startExtensionBridge() // 크롬 확장이 접속할 로컬 WebSocket 서버 시작
   registerModeShortcut(settings.modeShortcut)
   registerSettingsShortcut(settings.settingsShortcut)
   warmJapaneseTokenizer() // 일본어 형태소 분석 엔진 로드를 미리 시작 — 첫 사용 시 지연 없게

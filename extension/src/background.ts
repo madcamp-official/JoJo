@@ -1,19 +1,88 @@
-// 담당 A — 확장 백그라운드 (service worker)
-// content script 와 데스크톱 앱(native messaging) 사이의 브릿지.
-// TODO(담당 A): native messaging 포트 연결, 탭 URL 변화 → 앱에 재판정 통지.
+// 담당 B — 확장 백그라운드 (service worker).
+// Electron 앱의 로컬 WebSocket 서버에 접속해 활성 탭 변화·자막 등을 보낸다.
+// MV3 서비스 워커는 유휴 시 종료되므로, 앱이 보내는 ping 으로 생존을 유지하고
+// 끊기면 백오프 재접속한다. content script 와는 chrome.runtime 메시지로 중계한다.
+import { extWsUrl, type AppToExt, type ExtActiveTab, type ExtToApp } from '@shared/extension'
 
-const NATIVE_HOST = 'com.madcamp.nuance'
+const EXT_VERSION = chrome.runtime.getManifest().version
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  const port = chrome.runtime.connectNative(NATIVE_HOST)
-  port.postMessage(msg)
-  port.onMessage.addListener((res) => sendResponse(res))
-  return true
-})
+let socket: WebSocket | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let backoffMs = 1000
+const MAX_BACKOFF_MS = 30_000
 
-chrome.tabs.onUpdated.addListener((_tabId, info, tab) => {
-  if (info.url) {
-    // TODO: 앱에 URL 변화 통지 → decideOcr 재판정 유도
-    void tab
+function send(msg: ExtToApp): void {
+  if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg))
+}
+
+function scheduleReconnect(): void {
+  if (reconnectTimer) return
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    connect()
+  }, backoffMs)
+  backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS)
+}
+
+function connect(): void {
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return
+  let ws: WebSocket
+  try {
+    ws = new WebSocket(extWsUrl())
+  } catch {
+    scheduleReconnect()
+    return
   }
-})
+  socket = ws
+
+  ws.onopen = () => {
+    backoffMs = 1000
+    send({ type: 'hello', version: EXT_VERSION })
+    void reportActiveTab()
+  }
+  ws.onmessage = (ev) => onAppMessage(ev.data)
+  ws.onclose = () => {
+    if (socket === ws) socket = null
+    scheduleReconnect()
+  }
+  ws.onerror = () => {
+    try {
+      ws.close()
+    } catch {
+      /* 무시 */
+    }
+  }
+}
+
+function onAppMessage(raw: unknown): void {
+  let msg: AppToExt
+  try {
+    msg = JSON.parse(String(raw)) as AppToExt
+  } catch {
+    return
+  }
+  switch (msg.type) {
+    case 'ping':
+      send({ type: 'pong' })
+      break
+    case 'requestActiveTab':
+      void reportActiveTab()
+      break
+    case 'welcome':
+      break
+  }
+}
+
+// 현재 활성 탭을 앱에 보고한다. (탭/URL 변화 감지 트리거는 task 3에서 확장)
+async function reportActiveTab(): Promise<void> {
+  const tab = await currentActiveTab()
+  send({ type: 'activeTab', tab })
+}
+
+async function currentActiveTab(): Promise<ExtActiveTab | null> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  if (!tab || tab.id === undefined || !tab.url) return null
+  return { tabId: tab.id, url: tab.url, title: tab.title }
+}
+
+connect()

@@ -21,6 +21,8 @@ const buildOptions = {
   target: 'chrome110',
   sourcemap: watch,
   logLevel: 'info',
+  // main/확장이 공유하는 프로토콜(src/shared/extension.ts)을 @shared 로 참조한다.
+  alias: { '@shared': resolve(root, 'src/shared') },
 }
 
 function copyManifest() {
