@@ -1,8 +1,16 @@
 // 담당 B — 확장 content script.
 // 유튜브 화면 자막을 단어별 좌표와 함께 추출해(youtube.ts) background 로 보낸다.
 // background 가 WS 로 앱에 중계한다. 자막 캡처는 앱이 선택 모드일 때만 켜진다(setCapture).
-import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles } from './youtube'
+import {
+  extractSubtitleSnapshot,
+  isYoutubeWatch,
+  observeSubtitles,
+  pinPlayerControlsVisible,
+  videoCurrentTime,
+} from './youtube'
 import { currentVideoId, loadTranscript, subtitleLangHint } from './timedtext'
+import { startHighlight, type WordHit } from './highlight'
+import type { SubLine } from '@shared/extension'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).
 type FromBackground =
@@ -19,10 +27,23 @@ function setVideoPlayback(play: boolean): void {
 
 let capturing = false
 let stopObserving: (() => void) | null = null
+let stopPinControls: (() => void) | null = null
+let stopHighlightUi: (() => void) | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSent = ''
 let lastDiag = -1
 let transcriptKey: string | null = null // `${videoId}|${langHint}`
+let currentLines: SubLine[] = [] // 하이라이트(highlight.ts)가 참조하는 최신 자막 줄+좌표
+
+function onWordClicked(hit: WordHit): void {
+  chrome.runtime.sendMessage({
+    kind: 'subtitleClick',
+    word: hit.text,
+    lineText: hit.lineText,
+    wordOffsetInLine: hit.wordOffsetInLine,
+    currentTime: videoCurrentTime(),
+  })
+}
 
 // 진단(임시): 화면에 자막 요소가 몇 개 보이는지 유튜브 탭 콘솔에 찍는다(개수 바뀔 때만).
 function debugCounts(): void {
@@ -54,9 +75,9 @@ function ensureTranscript(screenText: string): void {
         cues: cues.map((c) => ({ start: c.start, text: c.text })),
       })
     })
-    .catch(() => {
+    .catch((err) => {
       transcriptKey = null // 실패는 다음 프레임에서 재시도
-      console.log('[nuance content] transcript 로드 실패(자막 트랙 없음/차단) — 화면 자막만 사용')
+      console.log('[nuance content] transcript 로드 실패:', err?.message ?? err)
     })
 }
 
@@ -64,11 +85,12 @@ function pushSnapshot(): void {
   if (!capturing) return
   debugCounts()
   const snapshot = isYoutubeWatch() ? extractSubtitleSnapshot() : null
+  currentLines = snapshot?.lines ?? [] // hover 하이라이트(highlight.ts)가 매 이동마다 참조
   if (snapshot) {
     // 화면 자막 언어에 맞는 timedtext 트랙을 (필요 시) 로드해 앱에 보낸다(영상/자막언어 변경 대응).
     ensureTranscript(snapshot.lines.map((l) => l.text).join(' '))
   }
-  // 동일 프레임 중복 전송 방지(좌표+텍스트가 같으면 스킵). null 도 한 번만 보낸다.
+  // 동일 프레임 중복 전송 방지(디버그 로그용, 좌표+텍스트가 같으면 스킵). null 도 한 번만 보낸다.
   const sig = snapshot ? JSON.stringify(snapshot) : 'null'
   if (sig === lastSent) return
   lastSent = sig
@@ -83,6 +105,12 @@ function startCapture(): void {
   stopObserving = observeSubtitles(() => pushSnapshot())
   // MutationObserver 가 자막 등장/좌표 변화를 놓치는 경우를 대비한 폴링 폴백(중복은 dedup 됨).
   pollTimer = setInterval(() => pushSnapshot(), 300)
+  // 컨트롤바를 항상 표시 상태로 고정 — 클릭하려고 커서를 움직이는 동안 자막이 밀려 올라가
+  // 클릭 대상이 어긋나는 문제 방지(youtube.ts: pinPlayerControlsVisible 참고).
+  stopPinControls = pinPlayerControlsVisible()
+  // hover 하이라이트 박스 + 클릭을 페이지 안에서 직접 처리(highlight.ts) — Electron 오버레이로
+  // 좌표를 릴레이하지 않아 지연·크롬오프셋 보정 문제가 없다.
+  stopHighlightUi = startHighlight(() => currentLines, onWordClicked)
   pushSnapshot()
 }
 
@@ -91,6 +119,11 @@ function stopCapture(): void {
   capturing = false
   stopObserving?.()
   stopObserving = null
+  stopPinControls?.()
+  stopPinControls = null
+  stopHighlightUi?.()
+  stopHighlightUi = null
+  currentLines = []
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null

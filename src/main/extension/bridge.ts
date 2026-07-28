@@ -6,6 +6,7 @@ import {
   type AppToExt,
   type ExtActiveTab,
   type ExtToApp,
+  type SubtitleClickMsg,
   type SubtitleSnapshot,
   type TranscriptCue,
 } from '@shared/extension'
@@ -25,6 +26,7 @@ type BridgeEvents = {
   activeTab: [ExtActiveTab | null]
   subtitles: [SubtitleSnapshot | null]
   transcript: [Transcript]
+  subtitleClick: [Omit<SubtitleClickMsg, 'type'>]
   connected: []
   disconnected: []
 }
@@ -108,6 +110,14 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         this.lastTranscript = { videoId: msg.videoId, cues: msg.cues }
         console.log(`[ext-bridge] transcript 수신: ${msg.cues.length} cues (video=${msg.videoId})`)
         this.emit('transcript', this.lastTranscript)
+        break
+      case 'subtitleClick':
+        this.emit('subtitleClick', {
+          word: msg.word,
+          lineText: msg.lineText,
+          wordOffsetInLine: msg.wordOffsetInLine,
+          currentTime: msg.currentTime,
+        })
         break
     }
   }

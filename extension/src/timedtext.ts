@@ -1,19 +1,18 @@
-// 담당 B — 유튜브 timedtext 전체 자막 버퍼 (앞뒤 범위 문맥용).
+// 담당 B — 유튜브 전체 자막(transcript) 로드.
 // 화면 자막 DOM(youtube.ts)은 "지금 이 순간" 한 줄뿐이라, 클릭한 줄의 앞뒤 자막까지
-// 팝업에 보여주려면 전체 타임코드 자막이 필요하다. Language Reactor 와 동일하게
-// watch 페이지 HTML 의 ytInitialPlayerResponse 에서 자막 트랙 URL 을 얻어 timedtext(json3)
-// 를 받아 캐시한다. content script 는 페이지와 동일 출처라 쿠키 포함 fetch 가 가능하다.
+// 팝업에 보여주려면 영상 전체의 타임코드 자막이 필요하다.
+//
+// 예전엔 ytInitialPlayerResponse 의 captionTracks.baseUrl(timedtext, json3)을 직접 호출했는데,
+// 유튜브가 이 구식 엔드포인트를 최근 정책으로 막아(200 응답에 빈 바디만 줌 — 여러 오픈소스
+// 자막 추출 라이브러리가 2024~2025년 사이 이 문제로 깨졌다) 더 이상 안정적으로 동작하지
+// 않는다. 대신 유튜브 페이지 자체가 "스크립트 표시(Show transcript)" 패널에 쓰는 내부
+// InnerTube `get_transcript` API(Language Reactor 등 현행 도구들이 쓰는 방식)를 그대로 쓴다.
+// watch 페이지 HTML에서 그 패널의 continuation params 를 찾아 같은 오리진(www.youtube.com)
+// 으로 POST 하면 되므로 CORS 문제도 없다.
 
 export interface TranscriptCue {
   start: number // 초
-  end: number
   text: string
-}
-
-interface CaptionTrack {
-  baseUrl: string
-  languageCode: string
-  kind?: string // 'asr' = 자동 생성 자막
 }
 
 const cache = new Map<string, Promise<TranscriptCue[]>>()
@@ -25,8 +24,8 @@ export function currentVideoId(): string | null {
   return m ? m[1] : null
 }
 
-// 화면 자막 텍스트의 스크립트로 트랙 언어 힌트를 잡는다(앱 지원 범위 en/ja/zh).
-// 화면에 뜬 자막과 같은 언어의 timedtext 트랙을 골라 앞뒤 문맥 언어를 일치시키기 위함.
+// 화면 자막 텍스트의 스크립트로 언어 힌트를 잡는다(앱 지원 범위 en/ja/zh). get_transcript
+// 는 기본 트랙(패널에 뜨는 트랙) 자막만 주므로 캐시 키에만 쓰고 트랙 선택엔 관여하지 않는다.
 export function subtitleLangHint(text: string): string | null {
   if (/[぀-ヿ]/.test(text)) return 'ja'
   if (/[一-鿿]/.test(text)) return 'zh'
@@ -34,13 +33,11 @@ export function subtitleLangHint(text: string): string | null {
   return null
 }
 
-// videoId + 언어 힌트별로 캐시한다 — 같은 영상이라도 화면 자막 언어가 바뀌면 그 언어
-// 트랙을 새로 받는다.
 export function loadTranscript(videoId: string, langHint: string | null): Promise<TranscriptCue[]> {
   const key = `${videoId}|${langHint ?? ''}`
   const cached = cache.get(key)
   if (cached) return cached
-  const p = fetchTranscript(videoId, langHint).catch((err) => {
+  const p = fetchTranscript(videoId).catch((err) => {
     cache.delete(key) // 실패는 캐시하지 않아 다음 시도에서 재요청
     throw err
   })
@@ -48,108 +45,99 @@ export function loadTranscript(videoId: string, langHint: string | null): Promis
   return p
 }
 
-async function fetchTranscript(videoId: string, langHint: string | null): Promise<TranscriptCue[]> {
-  const tracks = await fetchCaptionTracks(videoId)
-  if (tracks.length === 0) return []
-  const track = pickTrack(tracks, langHint)
-  const url = new URL(track.baseUrl)
-  url.searchParams.set('fmt', 'json3')
-  const res = await fetch(url.toString(), { credentials: 'include' })
+async function fetchWatchHtml(videoId: string): Promise<string | null> {
+  const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
+    credentials: 'include',
+  })
+  console.log(`[nuance timedtext] watch fetch status=${res.status}`)
+  if (!res.ok) return null
+  return res.text()
+}
+
+async function fetchTranscript(videoId: string): Promise<TranscriptCue[]> {
+  const html = await fetchWatchHtml(videoId)
+  if (!html) return []
+  const cues = await fetchViaInnertube(html)
+  console.log(`[nuance timedtext] get_transcript cues=${cues.length}`)
+  return cues
+}
+
+// 유튜브 웹 클라이언트 공개 API 키 — 세션/로그인과 무관하게 오랫동안 안정적으로 쓰이는
+// 값(yt-dlp 등 여러 오픈소스 도구가 동일하게 사용). 비밀 키가 아니라 클라이언트 식별용.
+const INNERTUBE_API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8'
+const CLIENT_VERSION = '2.20240101.00.00'
+
+// watch 페이지 HTML에서 "스크립트 표시" 패널의 get_transcript continuation params(base64)를 찾는다.
+function extractTranscriptParams(html: string): string | null {
+  const m = html.match(/"getTranscriptEndpoint":\{"params":"([^"]+)"/)
+  return m ? m[1] : null
+}
+
+async function fetchViaInnertube(html: string): Promise<TranscriptCue[]> {
+  const params = extractTranscriptParams(html)
+  if (!params) {
+    console.log('[nuance timedtext] get_transcript params 없음(자막 패널 없음 — 자막 트랙 자체가 없을 수 있음)')
+    return []
+  }
+  const res = await fetch(`https://www.youtube.com/youtubei/v1/get_transcript?key=${INNERTUBE_API_KEY}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      context: { client: { clientName: 'WEB', clientVersion: CLIENT_VERSION } },
+      params,
+    }),
+  })
+  console.log(`[nuance timedtext] get_transcript status=${res.status}`)
   if (!res.ok) return []
-  const data = (await res.json()) as { events?: TimedTextEvent[] }
-  return parseJson3(data.events ?? [])
+  let data: unknown
+  try {
+    data = await res.json()
+  } catch (err) {
+    console.log('[nuance timedtext] get_transcript JSON 파싱 실패:', (err as Error).message)
+    return []
+  }
+  return parseTranscriptResponse(data)
 }
 
-interface TimedTextEvent {
-  tStartMs?: number
-  dDurationMs?: number
-  segs?: { utf8?: string }[]
-}
-
-function parseJson3(events: TimedTextEvent[]): TranscriptCue[] {
+// 응답 구조(2023+ 포맷): actions[0].updateEngagementPanelAction.content.transcriptRenderer
+//   .content.transcriptSearchPanelRenderer.body.transcriptSegmentListRenderer.initialSegments[]
+//   각 원소: transcriptSegmentRenderer.{ startMs, snippet.runs[].text }
+function parseTranscriptResponse(data: unknown): TranscriptCue[] {
+  const segments = dig(data, [
+    'actions',
+    0,
+    'updateEngagementPanelAction',
+    'content',
+    'transcriptRenderer',
+    'content',
+    'transcriptSearchPanelRenderer',
+    'body',
+    'transcriptSegmentListRenderer',
+    'initialSegments',
+  ])
+  if (!Array.isArray(segments)) return []
   const cues: TranscriptCue[] = []
-  for (const ev of events) {
-    if (ev.tStartMs === undefined || !ev.segs) continue
-    const text = ev.segs
-      .map((s) => s.utf8 ?? '')
+  for (const seg of segments) {
+    const r = (seg as Record<string, unknown>)?.transcriptSegmentRenderer as
+      | { startMs?: string; snippet?: { runs?: { text?: string }[] } }
+      | undefined
+    if (!r) continue
+    const text = (r.snippet?.runs ?? [])
+      .map((run) => run.text ?? '')
       .join('')
-      .replace(/\s+/g, ' ')
       .trim()
     if (!text) continue
-    const start = ev.tStartMs / 1000
-    const end = start + (ev.dDurationMs ?? 0) / 1000
-    cues.push({ start, end, text })
+    cues.push({ start: Number(r.startMs ?? 0) / 1000, text })
   }
   return cues
 }
 
-// watch 페이지 HTML 에서 ytInitialPlayerResponse 를 뽑아 captionTracks 를 얻는다.
-// SPA 네비게이션 후 DOM 의 초기 스크립트는 낡을 수 있어, videoId 로 직접 fetch 한다.
-async function fetchCaptionTracks(videoId: string): Promise<CaptionTrack[]> {
-  const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
-    credentials: 'include',
-  })
-  if (!res.ok) return []
-  const html = await res.text()
-  const player = extractPlayerResponse(html)
-  const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks
-  return Array.isArray(tracks) ? tracks : []
-}
-
-interface PlayerResponse {
-  captions?: {
-    playerCaptionsTracklistRenderer?: {
-      captionTracks?: CaptionTrack[]
-      audioTracks?: { defaultCaptionTrackIndices?: number[] }[]
-    }
+function dig(obj: unknown, path: (string | number)[]): unknown {
+  let cur = obj
+  for (const key of path) {
+    if (cur == null) return undefined
+    cur = (cur as Record<string | number, unknown>)[key]
   }
-}
-
-function extractPlayerResponse(html: string): PlayerResponse | null {
-  const marker = 'ytInitialPlayerResponse'
-  const idx = html.indexOf(marker)
-  if (idx === -1) return null
-  const braceStart = html.indexOf('{', idx)
-  if (braceStart === -1) return null
-  const json = sliceBalancedJson(html, braceStart)
-  if (!json) return null
-  try {
-    return JSON.parse(json) as PlayerResponse
-  } catch {
-    return null
-  }
-}
-
-// 문자열/이스케이프를 인식하며 균형 잡힌 { ... } 한 덩어리를 잘라낸다.
-function sliceBalancedJson(s: string, start: number): string | null {
-  let depth = 0
-  let inStr = false
-  let escaped = false
-  for (let i = start; i < s.length; i++) {
-    const c = s[i]
-    if (inStr) {
-      if (escaped) escaped = false
-      else if (c === '\\') escaped = true
-      else if (c === '"') inStr = false
-      continue
-    }
-    if (c === '"') inStr = true
-    else if (c === '{') depth++
-    else if (c === '}') {
-      depth--
-      if (depth === 0) return s.slice(start, i + 1)
-    }
-  }
-  return null
-}
-
-// 화면 자막 언어(langHint)와 같은 언어의 트랙을 고른다 — 앞뒤 문맥이 클릭한 줄과 같은
-// 언어가 되도록. 힌트와 맞는 트랙 중 수동 자막(kind!=='asr')을 우선하고, 없으면 힌트
-// 무관하게 수동 자막, 그것도 없으면 첫 트랙.
-function pickTrack(tracks: CaptionTrack[], langHint: string | null): CaptionTrack {
-  if (langHint) {
-    const matches = tracks.filter((t) => (t.languageCode ?? '').toLowerCase().startsWith(langHint))
-    if (matches.length > 0) return matches.find((t) => t.kind !== 'asr') ?? matches[0]
-  }
-  return tracks.find((t) => t.kind !== 'asr') ?? tracks[0]
+  return cur
 }
