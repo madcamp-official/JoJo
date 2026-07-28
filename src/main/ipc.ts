@@ -14,6 +14,8 @@ import type {
   SelectionContext,
 } from '@shared/types'
 import { runSelectionPipeline } from './selection'
+import { isSubtitleModeActive } from './selection/subtitleSource'
+import { extensionBridge } from './extension/bridge'
 import { runQuestion } from './question'
 import { listAvailableDictionarySources } from './question/dictionary/registry'
 import { startChangeWatcher } from './selection/changeWatcher'
@@ -44,6 +46,9 @@ import { naverDictionaryUrl } from './question/naver'
 import { openUrlInNewWindow } from './question/browser'
 import { JA_ENGINE, tokenizeJapanese } from './nlp/japanese'
 import { segmentChineseWords } from './nlp/chinese'
+
+// 자막 팝업 때문에 영상을 멈춘 상태인지 — 팝업 재사용 시 close 리스너 중복 부착을 막는다.
+let pausedForPopup = false
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
@@ -107,7 +112,20 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.SELECTION_EXTRACTED, async (_e, point: { x: number; y: number }) => {
     const extracted: ExtractedSelection = await runSelectionPipeline(point)
     // 빈 곳 클릭(자막 단어를 못 짚음)이면 빈 팝업을 띄우지 않는다.
-    if (extracted.text.trim()) createPopupWindow(extracted)
+    if (extracted.text.trim()) {
+      const win = createPopupWindow(extracted)
+      // 자막(유튜브/넷플릭스) 클릭이면 팝업 뜨는 동안 영상을 멈추고, 닫히면 다시 재생한다.
+      if (isSubtitleModeActive()) {
+        extensionBridge.setVideoPlayback(false)
+        if (!pausedForPopup) {
+          pausedForPopup = true
+          win.once('closed', () => {
+            pausedForPopup = false
+            extensionBridge.setVideoPlayback(true)
+          })
+        }
+      }
+    }
     return extracted
   })
 

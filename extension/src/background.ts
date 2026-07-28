@@ -74,8 +74,22 @@ function onAppMessage(raw: unknown): void {
       captureDesired = msg.active
       void syncCapture()
       break
+    case 'setVideoPlayback':
+      void sendPlaybackToActiveTab(msg.play)
+      break
     case 'welcome':
       break
+  }
+}
+
+// 팝업 열림/닫힘에 맞춰 활성 탭 영상을 정지/재생한다.
+async function sendPlaybackToActiveTab(play: boolean): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  if (tab?.id === undefined) return
+  try {
+    await chrome.tabs.sendMessage(tab.id, { kind: 'setPlayback', play })
+  } catch {
+    /* content 미로드/비대상 무시 */
   }
 }
 
@@ -109,10 +123,12 @@ async function syncCapture(): Promise<void> {
   capturedTabId = activeId
 }
 
-// content script → background: 화면 자막 프레임을 받아 앱으로 중계한다.
+// content script → background: 화면 자막 프레임/전체 자막을 받아 앱으로 중계한다.
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.kind === 'subtitles') {
     send({ type: 'subtitles', snapshot: msg.snapshot ?? null })
+  } else if (msg?.kind === 'transcript') {
+    send({ type: 'transcript', videoId: msg.videoId, cues: msg.cues ?? [] })
   }
   return undefined
 })

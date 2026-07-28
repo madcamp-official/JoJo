@@ -540,6 +540,10 @@ export function createPopupWindow(
     return { action: 'deny' }
   })
   win.once('ready-to-show', () => win.show())
+  // ESC 로 팝업을 닫는다(자막 경로에선 닫힐 때 영상이 다시 재생된다 — ipc.ts).
+  win.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape' && !win.isDestroyed()) win.close()
+  })
   win.on('closed', () => {
     if (popupWindow === win) popupWindow = null
     popupContext = null
