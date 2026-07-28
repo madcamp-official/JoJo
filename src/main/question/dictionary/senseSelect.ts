@@ -352,9 +352,18 @@ export function formatDictionaryAnswer(
 
   // 라이선스가 있는 소스(Wiktionary/OEWN)는 원문 링크 + 라이선스명을 함께 표기해
   // 저작자 표시 요건을 최소한으로 충족한다 — 링크 빌더가 없는 소스는 라이선스명만.
+  //
+  // **링크는 queryWord(조회어 원문)가 아니라 실제로 선택된 sense 의 headword 를 써야
+  // 한다**(2026-07-28, 실측으로 발견) — MW "walked" 조회 시 채팅창 본문은 정확히
+  // "walk"(동사 원형)로 나오는데, queryWord 는 원래 선택 표면형("walked")이라 링크만
+  // `dictionary/walked`로 걸려 본문과 어긋나는 걸 확인. sense.headword 는 소스가 실제로
+  // 찾은 원형을 항상 정확히 반영하므로(활용형 변환 로직이 언어/소스마다 달라도) 이걸
+  // 쓰면 ja 전용으로 따로 손볼 필요 없이 en/zh 포함 전부 일관되게 맞는다. queryWord 는
+  // "문맥에 맞는 뜻을 못 찾았을 때"의 안내 메시지에만 남겨 쓴다(위 참고).
+  const linkWord = selected[0]?.sense.headword ?? queryWord
   const license = SOURCE_LICENSE[source]
   const urlBuilder = SOURCE_URL[source]
-  const sourceLabel = urlBuilder ? `[${SOURCE_LABELS[source]}](${urlBuilder(queryWord, language)})` : SOURCE_LABELS[source]
+  const sourceLabel = urlBuilder ? `[${SOURCE_LABELS[source]}](${urlBuilder(linkWord, language)})` : SOURCE_LABELS[source]
   const licenseSuffix = license ? ` (${license})` : ''
   lines.push(`_출처: ${sourceLabel}${licenseSuffix}_`)
   // 마크다운은 줄바꿈 하나(\n)만으론 같은 문단으로 합쳐 렌더링하므로(예: 원문/번역이
