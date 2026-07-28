@@ -238,7 +238,8 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 항목) 이 어댑터가 만드는 `DictionaryReading.pronunciations`는 기본적으로 전부 undefined다. 이를 언어별로 별도 보강한다. **찾은 값은 전부 배열로 채운다**(`DictionaryReading.pronunciations`가 원래 배열 스키마인데도 처음엔 첫 번째 값만 쓰고 있었음 — 2026-07-28 수정, 아래 각 언어 항목의 실측 예시가 이제 전부 그 대상):
 
-- **en**: dictionaryapi.dev(위 2번 항목)를 추가 호출해 `phonetic`(최상위)과 `phonetics[].text`(개별 값) 전부를 중복 제거해 모은 뒤 그 단어의 모든 reading에 동일하게 채운다. 실측 확인(`run`): 발음이 meaning(품사)별이 아니라 entry 최상위 하나뿐이라(`phonetics[]`가 품사 구분 없이 공유) 품사별로 나눠 붙일 수가 없음 — MW가 hom 간 발음을 상속하는 것과 같은 단순화. `run`(중복 제거 후 `/ɹʊn/`·`/ɹʌn/` 2개)·`ate`(`/eɪt/` 1개)로 검증. **en도 wikitext 자체엔 Etymology별 발음 구조가 있으나(아래 ja/zh처럼) dictionaryapi.dev 로만 보강하고 있어 이 정밀도 개선 대상에서 빠져 있음 — 추후 en도 wikitext 경로로 전환하면 이 단순화를 없앨 수 있음(미착수).**
+**en/ja/zh 셋 다 raw wikitext 경로로 통일**(2026-07-28, 사용자 지적으로 재작업 — 처음엔 en 만 dictionaryapi.dev(서드파티) 로 보강했음): dictionaryapi.dev 는 `phonetic`/`phonetics[].text` 가 entry 하나에 하나뿐이라(meaning/품사별 구분 자체가 없는 API 구조 — 실측 확인, "run") "lead"(금속 `/lɛd/` vs 이끌다 `/liːd/`)처럼 뜻마다 발음이 다른 단어를 근본적으로 구분 못 했다. en wikitext 도 ja/zh 와 똑같이 `===Etymology N===`/`====Pronunciation====`/`{{IPA|en|/값/|...}}` 구조를 가진 것을 "lead"/"run" 실측으로 확인(REST API 블록 순서와도 일치: "lead" wikitext 헤더 [Noun, Verb, Verb, Noun, Adjective, Verb] ↔ REST API 블록 순서 완전 일치) — dictionaryapi.dev 를 완전히 걷어내고 en 도 아래 `assignPerBlockPronunciations` 로 통일했다. `lead`(Noun+Verb=`/ˈlɛd/`, 나머지 Verb+Noun+Adjective+Verb=`/ˈliːd/` 정확히 분리)·`run`(단일 Etymology, GA/RP·North England/Ireland·Scotland/Wales 3개 지역 발음 전부 모든 reading에 동일 적용)으로 검증.
+
 - **ja/zh**: raw wikitext(`action=parse`, `prop=wikitext`)의 `{{ja-pron|よみ|...}}`/`{{zh-pron|m=병음|...}}`에서 값을 뽑되, **처음엔 페이지 전체에서 긁어 모든 reading에 똑같이 복제하는 방식**이었다가, **사용자 지적(2026-07-28)으로 재작업** — Wiktionary wikitext 헤더 구조를 실측(`猫`/`東京`/`打` 직접 조회) 확인한 결과 `{{ja-pron}}`/`{{zh-pron}}`가 페이지에 뭉텅이로 있는 게 아니라 `===Etymology N===`(다의어별) 아래 `====Pronunciation====`으로 **그 바로 다음 POS 섹션에만** 대응됨을 확인:
   - `猫`: Etymology 1(ねこ)/Noun, Etymology 2(ねこま)/Noun — 완전히 분리된 두 뜻.
   - `東京`: Etymology 1(とうきょう)/Proper noun+Noun, Etymology 2(とうけい)/Proper noun, Etymology 3(トンキン)/Proper noun.
@@ -254,7 +255,7 @@ REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 
 
 **부가 보강**(2026-07-28, 사용자 피드백 반영):
 - 발음이 여러 개일 때 `senseSelect.ts`가 첫 번째만 쓰던 것도 함께 고쳐 전부 `[값1, 값2]` 형태로 표시하도록 변경(위 wiktionary.ts 변경이 실제 화면에 드러나려면 이 쪽도 같이 고쳐야 했음).
-- Wikimedia User-Agent 정책(연락 가능한 수단 명시 필수, 이메일이 꼭 아니어도 이슈를 남길 수 있는 저장소 URL이면 충분) 미준수로 개발 중 HTTP 429를 자주 맞아, `WIKTIONARY_USER_AGENT` 상수(`"JoJo-dictionary-adapter/1.0 (저장소 URL)"`)로 en.wiktionary.org REST API·action API·dictionaryapi.dev 요청 전부에 통일 적용.
+- Wikimedia User-Agent 정책(연락 가능한 수단 명시 필수, 이메일이 꼭 아니어도 이슈를 남길 수 있는 저장소 URL이면 충분) 미준수로 개발 중 HTTP 429를 자주 맞아, `WIKTIONARY_USER_AGENT` 상수(`"JoJo-dictionary-adapter/1.0 (저장소 URL)"`)로 en.wiktionary.org REST API·action API 요청 전부에 통일 적용(이후 dictionaryapi.dev 는 아예 걷어냄 — 아래 발음 en/ja/zh 통일 항목 참고).
 - Wiktionary는 CC BY-SA 4.0(+ GFDL) 라이선스라 저작자 표시 의무가 있음 — `senseSelect.ts`의 출처 줄이 Wiktionary일 때만 `[Wiktionary](표제어 페이지 URL) (CC BY-SA 4.0)` 형태로 링크+라이선스명을 함께 표기하도록 변경. OEWN도 CC BY 4.0이라 같은 처리가 필요하나 이번 스코프에서는 제외(별도 검토 필요).
 
 ---

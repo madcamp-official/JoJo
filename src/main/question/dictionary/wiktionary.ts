@@ -4,31 +4,27 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense,
 // 실측 근거는 DICTIONARY_SOURCES.md "Wiktionary (공용 — en/ja/zh 최종 폴백)" 절 참고.
 // en.wiktionary.org 공식 REST API(GET /api/rest_v1/page/definition/{word}, 무료·키 불필요)를
 // 뜻풀이 소스로 쓴다 — ja.wiktionary.org/zh.wiktionary.org 같은 네이티브판은 커버리지가 더
-// 약해 미채택. 이 API 엔 발음(phonetic) 필드가 없어(실측), en 한정으로 dictionaryapi.dev
-// (서드파티, en.wiktionary.org 데이터 재가공, 실제 IPA 제공)를 발음 전용으로 추가 호출해
-// 보강한다. ja/zh는 이 서드파티 커버리지가 없는 대신, en.wiktionary.org 의 raw wikitext
-// (action=parse)에서 발음 템플릿 파라미터를 정규식으로 뽑아 보강한다(활용표·방언 발음
-// 전체를 파싱하는 건 여전히 스코프 밖 — 발음 값만 필요한 만큼 다룬다). ja는
-// {{ja-pron|よみ|...}} 의 첫 위치 인자(히라가나 읽기), zh는 {{zh-pron|m=병음|...}} 의
-// m= 파라미터(표준중국어/Mandarin 병음)만 뽑는다. **단순히 페이지 전체에서 긁어 전부
-// 합치는 게 아니라**, wikitext 의 `===Etymology N===`/`====Pronunciation====`/POS 헤더
-// 구조를 걸어(assignPerBlockPronunciations) REST API 블록 하나하나에 정확히 대응되는
-// 발음만 붙인다 — 실측 근거는 그 함수 주석 참고.
+// 약해 미채택. 이 API 엔 발음(phonetic) 필드가 없어(실측) en/ja/zh 세 언어 모두 발음은
+// en.wiktionary.org 의 raw wikitext(action=parse)에서 따로 뽑는다. **처음엔 en 만
+// dictionaryapi.dev(서드파티, en.wiktionary.org 데이터 재가공)로 보강했었는데, 그 API가
+// meaning(품사)별 구분 없이 entry 하나에 발음 하나만 줘서(실측: "lead"(금속 /lɛd/) vs
+// "lead"(이끌다 /liːd/) 처럼 뜻마다 발음이 다른 단어를 구분 못 함) 결국 걷어내고 en도
+// ja/zh 와 똑같이 wikitext 경로로 통일했다(2026-07-28, 사용자 지적) — en wikitext 도
+// `===Etymology N===`/`====Pronunciation====`/`{{IPA|en|...}}` 구조가 ja/zh 와 동일해서
+// (실측: "lead"/"run") 셋 다 같은 함수(assignPerBlockPronunciations)로 처리 가능함이
+// 확인됨. en `{{IPA|en|/lɛd/|...}}`, ja `{{ja-pron|よみ|...}}`, zh `{{zh-pron|m=병음|...}}`
+// 에서 값만 뽑는다(활용표·방언 발음 전체를 파싱하는 건 여전히 스코프 밖). **단순히 페이지
+// 전체에서 긁어 전부 합치는 게 아니라**, wikitext 의 헤더 구조를 걸어 REST API 블록
+// 하나하나에 정확히 대응되는 발음만 붙인다 — 실측 근거는 assignPerBlockPronunciations
+// 주석 참고.
 
 const WIKTIONARY_ENDPOINT = 'https://en.wiktionary.org/api/rest_v1/page/definition'
 const WIKTIONARY_ACTION_API = 'https://en.wiktionary.org/w/api.php'
 /** Wikimedia User-Agent 정책(https://meta.wikimedia.org/wiki/User-Agent_policy) 준수용 —
  *  "ClientName/Version (연락처)" 형식으로 연락 가능한 수단을 명시해야 한다(이메일 필수는
  *  아님 — 이슈를 남길 수 있는 저장소 URL도 인정되는 형태). 연락처 없는 UA는 정책 위반으로
- *  더 강하게 레이트리밋/차단될 수 있음(실측: 개발 중 여러 번 HTTP 429 수신). Wikimedia
- *  소유가 아닌 dictionaryapi.dev 호출에도 동일하게 재사용 — 일부 API가 UA 없는/일반적인
- *  요청을 더 박하게 다루는 경우가 있어 좋은 관행으로 통일. */
+ *  더 강하게 레이트리밋/차단될 수 있음(실측: 개발 중 여러 번 HTTP 429 수신). */
 const WIKTIONARY_USER_AGENT = 'JoJo-dictionary-adapter/1.0 (https://github.com/madcamp-official/JoJo)'
-/** en 전용 발음 보강 소스 — en.wiktionary.org REST API(definition 엔드포인트)엔 phonetic
- *  필드 자체가 없어(DICTIONARY_SOURCES.md 실측) 별도로 붙인다. 서드파티(en.wiktionary.org
- *  데이터를 재가공)라 무료·키 불필요. ja/zh는 이 API 자체가 커버리지가 없어(en 전용,
- *  DICTIONARY_SOURCES.md 실측) 보강 대상에서 제외 — 대신 아래 raw wikitext 경로를 쓴다. */
-const DICTIONARYAPI_DEV_ENDPOINT = 'https://api.dictionaryapi.dev/api/v2/entries/en'
 
 export class WiktionaryHttpError extends Error {
   constructor(
@@ -138,51 +134,12 @@ function extractExamples(def: WiktionaryDefinition): string[] {
   return source.map(stripWiktionaryHtml).filter(Boolean)
 }
 
-// ---- dictionaryapi.dev 발음 보강(en 전용) -------------------------------------
-
-interface DictionaryApiDevPhonetic {
-  text?: string
-}
-
-interface DictionaryApiDevEntry {
-  phonetic?: string
-  phonetics?: DictionaryApiDevPhonetic[]
-}
-
-/** 순서를 유지하며 중복만 제거 — 세 fetch*Pronunciations 함수가 공유. */
+/** 순서를 유지하며 중복만 제거 — 세 extract*Values 함수가 공유. */
 function dedupe(values: string[]): string[] {
   return [...new Set(values)]
 }
 
-/** dictionaryapi.dev 로 실제 IPA 발음(들)을 가져온다 — 실측 확인(2026-07-28, "run"):
- *  발음이 meaning(품사)별이 아니라 entry 최상위에만 있어(phonetics[] 가 품사와 무관하게
- *  공유됨) 품사별로 구분해 붙일 수가 없다. 그래서 여기서 모은 값 전부를 그 word 의 모든
- *  reading에 동일하게 채운다(DictionaryReading.pronunciations 가 배열이라 실제로 발음이
- *  여러 개인 경우, 예: 지역별 이표기, 전부 담을 수 있음 — 첫 번째만 쓰던 이전 방식에서
- *  2026-07-28 변경). `phonetic`(최상위 대표값)과 `phonetics[].text`(개별 값, 중복 많음—
- *  실측: "run"은 4개 중 서로 다른 값이 1개뿐) 전부 모아 중복만 제거한다. 실패(네트워크
- *  오류·404 등)해도 조용히 빈 배열 반환 — 발음은 부가 정보라 이것 때문에 전체 조회를
- *  실패시키지 않는다. */
-async function fetchEnPronunciations(word: string): Promise<string[]> {
-  try {
-    const res = await fetch(`${DICTIONARYAPI_DEV_ENDPOINT}/${encodeURIComponent(word)}`, {
-      headers: { 'User-Agent': WIKTIONARY_USER_AGENT },
-    })
-    if (!res.ok) return []
-    const raw = (await res.json()) as DictionaryApiDevEntry[]
-    const values: string[] = []
-    for (const entry of raw) {
-      if (entry.phonetic) values.push(entry.phonetic)
-      for (const p of entry.phonetics ?? []) if (p.text) values.push(p.text)
-    }
-    return dedupe(values)
-  } catch {
-    /* 폴백 실패는 무시 — 나머지 사전 정보는 이미 확보돼 있음 */
-    return []
-  }
-}
-
-// ---- raw wikitext 발음 보강(ja/zh 전용) ---------------------------------------
+// ---- raw wikitext 발음 보강(en/ja/zh 공용) -------------------------------------
 
 /** en.wiktionary.org raw wikitext(action=parse, prop=wikitext)를 가져온다 — REST API가
  *  안 주는 발음 템플릿(ja-pron/zh-pron)이 여기에만 있다(DICTIONARY_SOURCES.md 실측).
@@ -198,6 +155,17 @@ async function fetchWikitext(word: string): Promise<string | undefined> {
   } catch {
     return undefined
   }
+}
+
+/** en IPA 발음(들) — `{{IPA|en|/값/|[좁은전사]}}` 의 "en" 다음 첫 위치 인자를 뽑는다(주어진
+ *  텍스트 구간 안에서 전부). 실측 확인(2026-07-28, "lead"/"run" 직접 wikitext 조회): 한
+ *  Pronunciation 구간 안에 지역별 발음이 `* {{IPA|en|/ɹʌn/|a=GA,RP}}` 처럼 여러 줄로 올 수
+ *  있다("run" → GA/RP·North England/Ireland·Scotland/Wales 3개) — 전부 모은다. 두 번째
+ *  위치 인자(`[ˈlɛd]` 같은 대괄호, 좁은/음성 전사)는 안 뽑는다 — 첫 슬래시 인자(음소 전사)만
+ *  으로 dictionaryapi.dev 가 주던 것과 같은 성격의 값이 나옴. */
+function extractEnIpaValues(content: string): string[] {
+  const values = [...content.matchAll(/\{\{IPA\|en\|([^|}]+)/g)].map((m) => m[1].trim()).filter(Boolean)
+  return dedupe(values)
 }
 
 /** ja 읽기(들) — {{ja-pron|よみ|...}} 의 첫 위치 인자를 뽑는다(주어진 텍스트 구간 안에서
@@ -320,7 +288,7 @@ function assignPerBlockPronunciations(
 
 /** REST API 는 발음/homograph 그룹을 안 주므로(DICTIONARY_SOURCES.md 실측: phonetic 필드
  *  자체가 없음), pos 블록 하나당 reading 하나로 대응한다 — pronunciations 는 여기선 항상
- *  undefined 로 두고(en 은 fetchWiktionaryEntry 가 dictionaryapi.dev 로 보강). */
+ *  undefined 로 두고(fetchWiktionaryEntry 가 raw wikitext 로 블록별로 보강). */
 function blockToReading<L extends Language>(block: WiktionaryPosBlock, language: L): DictionaryReading<L> | null {
   const mapped = mapPos(block.partOfSpeech, language)
   const pos = mapped ? [mapped] : undefined
@@ -382,25 +350,17 @@ export async function fetchWiktionaryEntry<L extends Language>(
     .filter((r): r is { blockIndex: number; reading: DictionaryReading<L> } => r.reading !== null)
   if (!readingsWithBlockIndex.length) return {}
 
-  if (language === 'en') {
-    // dictionaryapi.dev 는 REST API 블록과 무관한 entry 단위 발음이라 전부 동일하게 적용
-    // (위 fetchEnPronunciations 주석 참고 — 품사별 구조 자체가 이 소스엔 없음).
-    const pronunciations = await fetchEnPronunciations(word)
-    if (pronunciations.length) {
-      const values = pronunciations.map((value) => ({ value }))
-      for (const { reading } of readingsWithBlockIndex) reading.pronunciations = values
-    }
-  } else {
-    // ja/zh 는 raw wikitext 헤더 구조를 걸어 블록별로 정확한 발음을 매칭한다(위
-    // assignPerBlockPronunciations 주석 참고) — en 처럼 뭉뚱그려 전부 같은 값을 넣지 않는다.
-    const wikitext = await fetchWikitext(word)
-    if (wikitext) {
-      const extractValues = language === 'ja' ? extractJaPronValues : extractZhMandarinFromWikitext
-      const perBlock = assignPerBlockPronunciations(wikitext, langName, blocks, extractValues)
-      for (const { blockIndex, reading } of readingsWithBlockIndex) {
-        const values = perBlock[blockIndex]
-        if (values?.length) reading.pronunciations = values.map((value) => ({ value }))
-      }
+  // en/ja/zh 전부 raw wikitext 헤더 구조를 걸어 블록별로 정확한 발음을 매칭한다(위
+  // assignPerBlockPronunciations 주석 참고) — 페이지 전체에서 긁어 모든 reading 에
+  // 뭉뚱그려 넣지 않는다.
+  const wikitext = await fetchWikitext(word)
+  if (wikitext) {
+    const extractValues =
+      language === 'en' ? extractEnIpaValues : language === 'ja' ? extractJaPronValues : extractZhMandarinFromWikitext
+    const perBlock = assignPerBlockPronunciations(wikitext, langName, blocks, extractValues)
+    for (const { blockIndex, reading } of readingsWithBlockIndex) {
+      const values = perBlock[blockIndex]
+      if (values?.length) reading.pronunciations = values.map((value) => ({ value }))
     }
   }
 
