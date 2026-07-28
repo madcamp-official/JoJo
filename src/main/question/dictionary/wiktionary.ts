@@ -7,11 +7,13 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense,
 // 약해 미채택. 이 API 엔 발음(phonetic) 필드가 없어(실측), en 한정으로 dictionaryapi.dev
 // (서드파티, en.wiktionary.org 데이터 재가공, 실제 IPA 제공)를 발음 전용으로 추가 호출해
 // 보강한다. ja/zh는 이 서드파티 커버리지가 없는 대신, en.wiktionary.org 의 raw wikitext
-// (action=parse)에서 발음 템플릿 파라미터만 정규식으로 뽑아 보강한다(활용표·방언 발음
-// 전체를 파싱하는 건 여전히 스코프 밖 — 발음 값 하나만 필요한 만큼만 다룬다). ja는
+// (action=parse)에서 발음 템플릿 파라미터를 정규식으로 뽑아 보강한다(활용표·방언 발음
+// 전체를 파싱하는 건 여전히 스코프 밖 — 발음 값만 필요한 만큼 다룬다). ja는
 // {{ja-pron|よみ|...}} 의 첫 위치 인자(히라가나 읽기), zh는 {{zh-pron|m=병음|...}} 의
-// m= 파라미터(표준중국어/Mandarin 병음)만 뽑는다 — 실측 근거는 각 fetch*Pronunciation
-// 함수 주석 참고.
+// m= 파라미터(표준중국어/Mandarin 병음)만 뽑는다. **단순히 페이지 전체에서 긁어 전부
+// 합치는 게 아니라**, wikitext 의 `===Etymology N===`/`====Pronunciation====`/POS 헤더
+// 구조를 걸어(assignPerBlockPronunciations) REST API 블록 하나하나에 정확히 대응되는
+// 발음만 붙인다 — 실측 근거는 그 함수 주석 참고.
 
 const WIKTIONARY_ENDPOINT = 'https://en.wiktionary.org/api/rest_v1/page/definition'
 const WIKTIONARY_ACTION_API = 'https://en.wiktionary.org/w/api.php'
@@ -198,20 +200,17 @@ async function fetchWikitext(word: string): Promise<string | undefined> {
   }
 }
 
-/** ja 읽기(들) — {{ja-pron|よみ|...}} 의 첫 위치 인자를 전부 뽑는다. 실측 확인(2026-07-28,
- *  走る/美しい/東京/猫/犬/食べる 6개 표제어 직접 wikitext 조회): 이 템플릿이 항상 히라가나
- *  읽기를 첫 인자로 그대로 담고 있어(예: "走る"→"はしる", "美しい"→"うつくしい") 뒤따르는
- *  `acc=`/`acc_ref=`/`a=`(오디오 파일명) 등 named 파라미터와 파이프(|)로 안전하게 구분됨.
- *  한 표제어에 읽기가 여러 개인 경우(실측: "猫"→ねこ/ねこま 2개, "東京"→とうきょう/とうけい/
- *  トンキン 3개) **전부 모아 배열로 채운다**(DictionaryReading.pronunciations 가 배열이라
- *  전부 담을 수 있음 — 첫 번째만 대표로 쓰던 이전 방식에서 2026-07-28 변경, 猫/東京로
- *  재검증). 어느 읽기가 어느 sense에 대응하는지까지는 아직 안 함 — 정확한 매칭은 추후
- *  Kotobank/JMdict 정식 어댑터가 담당. 템플릿 자체가 없으면(드묾, 명사 표제어 일부)
- *  빈 배열. */
-async function fetchJaPronunciations(word: string): Promise<string[]> {
-  const wikitext = await fetchWikitext(word)
-  if (!wikitext) return []
-  const values = [...wikitext.matchAll(/\{\{ja-pron\|([^|}]+)/g)].map((m) => m[1].trim()).filter(Boolean)
+/** ja 읽기(들) — {{ja-pron|よみ|...}} 의 첫 위치 인자를 뽑는다(주어진 텍스트 구간 안에서
+ *  전부). 실측 확인(2026-07-28, 走る/美しい/東京/猫/犬/食べる 6개 표제어 직접 wikitext
+ *  조회): 이 템플릿이 항상 히라가나 읽기를 첫 인자로 그대로 담고 있어(예: "走る"→"はしる",
+ *  "美しい"→"うつくしい") 뒤따르는 `acc=`/`acc_ref=`/`a=`(오디오 파일명) 등 named 파라미터와
+ *  파이프(|)로 안전하게 구분됨. `assignPerBlockPronunciations`가 페이지 전체가 아니라
+ *  Pronunciation 헤더 하나의 콘텐츠 구간만 넘기므로, 한 표제어에 읽기가 여러 개라도
+ *  (실측: "猫"→ねこ/ねこま 2개, "東京"→とうきょう/とうけい/トンキン 3개) 이 함수 자체는
+ *  그 구간에 있는 것만 본다 — Etymology별로 다른 POS 블록에 정확히 대응된다(아래
+ *  assignPerBlockPronunciations 주석 참고). 템플릿 자체가 없으면 빈 배열. */
+function extractJaPronValues(content: string): string[] {
+  const values = [...content.matchAll(/\{\{ja-pron\|([^|}]+)/g)].map((m) => m[1].trim()).filter(Boolean)
   return dedupe(values)
 }
 
@@ -246,10 +245,69 @@ function extractZhMandarinFromWikitext(wikitext: string): string[] {
   return dedupe(values)
 }
 
-async function fetchZhPronunciations(word: string): Promise<string[]> {
-  const wikitext = await fetchWikitext(word)
-  if (!wikitext) return []
-  return extractZhMandarinFromWikitext(wikitext)
+// ---- 헤더 트리 순서로 발음을 POS 블록에 정확히 대응 ----------------------------
+
+/** Wiktionary 언어 섹션(`==Japanese==` 등)을 헤더 등장 순서대로 걸어, 각 POS 헤더
+ *  (=REST API 블록)에 그 직전 `====Pronunciation====` 헤더에서 뽑은 값을 붙인다.
+ *
+ *  **왜 필요한가** — 실측 확인(2026-07-28, 猫/東京/打 wikitext 헤더 구조 직접 확인):
+ *  `{{ja-pron}}`/`{{zh-pron}}`는 페이지 전체에 뭉텅이로 있는 게 아니라 `===Etymology
+ *  N===`(다의어별) 아래 `====Pronunciation====`으로, 그 바로 다음 POS 섹션(`====Noun====`
+ *  등)에만 대응된다 — 예: "猫"는 Etymology 1(ねこ)/Noun, Etymology 2(ねこま)/Noun 로
+ *  완전히 분리돼 있고, "東京"은 Etymology 1(とうきょう)/Proper noun+Noun, Etymology
+ *  2(とうけい)/Proper noun, Etymology 3(トンキン)/Proper noun 로 분리돼 있다. 단일
+ *  Etymology 표제어(예: 食べる)는 `===Etymology===`/`===Pronunciation===`/`===Verb===`
+ *  가 같은 깊이로 나란히 오는데, 두 구조 다 "헤더 등장 순서로 걷기"만 하면 동일하게
+ *  처리된다(깊이는 안 봄).
+ *
+ *  **REST API와 순서 정합 실측 확인**: 東京의 wikitext 헤더 순서 [Proper noun, Noun,
+ *  Proper noun, Proper noun] ↔ REST API 블록 순서 [Proper noun(5 defs), Noun(1),
+ *  Proper noun(5), Proper noun(1)]가 완전히 일치했고, 猫도 [Noun, Noun] 일치했다 —
+ *  그래서 "헤더 텍스트가 지금 기다리는 REST 블록의 partOfSpeech 와 일치할 때만
+ *  매칭·소비"하는 방식으로 순서를 맞춘다.
+ *
+ *  **실패 시 undefined(추측하지 않음)**: 헤더 구조가 예상과 달라(드묾) 블록 수만큼
+ *  못 채우면 남는 블록은 undefined로 남긴다 — 예전 방식(구분 없이 페이지 전체 발음을
+ *  모든 reading에 똑같이 복제)은 猫/東京처럼 서로 다른 읽기를 가진 표제어에서 부정확한
+ *  정보를 자신 있게 보여주는 문제가 있었다(2026-07-28 사용자 피드백으로 발견) — "모른다"가
+ *  틀린 값보다 안전하다는 판단. */
+function assignPerBlockPronunciations(
+  wikitext: string,
+  languageName: string,
+  blocks: WiktionaryPosBlock[],
+  extractValues: (content: string) => string[],
+): (string[] | undefined)[] {
+  const results: (string[] | undefined)[] = blocks.map(() => undefined)
+
+  const sectionRegex = new RegExp(`==${languageName}==([\\s\\S]*?)(?=\\n==[A-Za-z][^=\\n]*==\\n|$)`)
+  const sectionMatch = wikitext.match(sectionRegex)
+  if (!sectionMatch) return results
+  const section = sectionMatch[1]
+
+  const headingRegex = /^(=+)\s*(.+?)\s*\1\s*$/gm
+  const headings: { text: string; start: number; end: number }[] = []
+  for (const m of section.matchAll(headingRegex)) {
+    const start = m.index ?? 0
+    headings.push({ text: m[2].trim(), start, end: start + m[0].length })
+  }
+
+  let currentPron: string[] = []
+  let blockIdx = 0
+  for (let i = 0; i < headings.length && blockIdx < blocks.length; i++) {
+    const h = headings[i]
+    const contentEnd = i + 1 < headings.length ? headings[i + 1].start : section.length
+    const content = section.slice(h.end, contentEnd)
+
+    if (h.text === 'Pronunciation') {
+      currentPron = extractValues(content)
+      continue
+    }
+    if (h.text === blocks[blockIdx].partOfSpeech) {
+      results[blockIdx] = currentPron.length ? currentPron : undefined
+      blockIdx++
+    }
+  }
+  return results
 }
 
 // ---- WiktionaryPosBlock[] → DictionaryEntry ----------------------------------
@@ -309,21 +367,38 @@ export async function fetchWiktionaryEntry<L extends Language>(
   const blocks = (raw[langKey] ?? []).filter((b) => b.language === langName)
   if (!blocks.length) return {}
 
-  const readings = blocks
-    .map((b) => blockToReading(b, language))
-    .filter((r): r is DictionaryReading<L> => r !== null)
-  if (!readings.length) return {}
+  // blocks 인덱스를 보존한 채 reading 을 만든다 — gloss 가 하나도 안 남아 블록이 통째로
+  // 버려지는 경우가 있어(blockToReading 이 null 반환), 아래 발음 매칭이 "원래 REST API
+  // 블록 순서"를 기준으로 하는 assignPerBlockPronunciations 결과와 어긋나지 않으려면
+  // 버려진 블록의 인덱스도 계속 알고 있어야 한다.
+  const readingsWithBlockIndex = blocks
+    .map((b, blockIndex) => ({ blockIndex, reading: blockToReading(b, language) }))
+    .filter((r): r is { blockIndex: number; reading: DictionaryReading<L> } => r.reading !== null)
+  if (!readingsWithBlockIndex.length) return {}
 
-  const pronunciations =
-    language === 'en'
-      ? await fetchEnPronunciations(word)
-      : language === 'ja'
-        ? await fetchJaPronunciations(word)
-        : await fetchZhPronunciations(word)
-  if (pronunciations.length) {
-    const values = pronunciations.map((value) => ({ value }))
-    for (const reading of readings) reading.pronunciations = values
+  if (language === 'en') {
+    // dictionaryapi.dev 는 REST API 블록과 무관한 entry 단위 발음이라 전부 동일하게 적용
+    // (위 fetchEnPronunciations 주석 참고 — 품사별 구조 자체가 이 소스엔 없음).
+    const pronunciations = await fetchEnPronunciations(word)
+    if (pronunciations.length) {
+      const values = pronunciations.map((value) => ({ value }))
+      for (const { reading } of readingsWithBlockIndex) reading.pronunciations = values
+    }
+  } else {
+    // ja/zh 는 raw wikitext 헤더 구조를 걸어 블록별로 정확한 발음을 매칭한다(위
+    // assignPerBlockPronunciations 주석 참고) — en 처럼 뭉뚱그려 전부 같은 값을 넣지 않는다.
+    const wikitext = await fetchWikitext(word)
+    if (wikitext) {
+      const extractValues = language === 'ja' ? extractJaPronValues : extractZhMandarinFromWikitext
+      const perBlock = assignPerBlockPronunciations(wikitext, langName, blocks, extractValues)
+      for (const { blockIndex, reading } of readingsWithBlockIndex) {
+        const values = perBlock[blockIndex]
+        if (values?.length) reading.pronunciations = values.map((value) => ({ value }))
+      }
+    }
   }
+
+  const readings = readingsWithBlockIndex.map((r) => r.reading)
 
   const entry = {
     language,

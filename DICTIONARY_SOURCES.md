@@ -238,12 +238,19 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 항목) 이 어댑터가 만드는 `DictionaryReading.pronunciations`는 기본적으로 전부 undefined다. 이를 언어별로 별도 보강한다. **찾은 값은 전부 배열로 채운다**(`DictionaryReading.pronunciations`가 원래 배열 스키마인데도 처음엔 첫 번째 값만 쓰고 있었음 — 2026-07-28 수정, 아래 각 언어 항목의 실측 예시가 이제 전부 그 대상):
 
-- **en**: dictionaryapi.dev(위 2번 항목)를 추가 호출해 `phonetic`(최상위)과 `phonetics[].text`(개별 값) 전부를 중복 제거해 모은 뒤 그 단어의 모든 reading에 동일하게 채운다. 실측 확인(`run`): 발음이 meaning(품사)별이 아니라 entry 최상위 하나뿐이라(`phonetics[]`가 품사 구분 없이 공유) 품사별로 나눠 붙일 수가 없음 — MW가 hom 간 발음을 상속하는 것과 같은 단순화. `run`(중복 제거 후 `/ɹʊn/`·`/ɹʌn/` 2개)·`ate`(`/eɪt/` 1개)로 검증.
-- **ja**: raw wikitext(`action=parse`, `prop=wikitext`)의 `{{ja-pron|よみ|...}}` 첫 위치 인자(히라가나 읽기)를 정규식으로 전부 뽑아 en과 동일하게 모든 reading에 채운다. 실측(走る→はしる, 美しい→うつくしい, 東京→とうきょう, 食べる→たべる) 확인. 한 표제어에 읽기가 여러 개인 경우(**猫**→ねこ/ねこま 2개, **東京**→とうきょう/とうけい/トンキン 3개 실측 확인) **전부 배열로 채운다** — 어느 읽기가 어느 sense에 대응하는지까지는 아직 안 함(정확한 매칭은 추후 Kotobank/JMdict 정식 어댑터가 담당).
-- **zh**: 같은 raw wikitext 경로에서 `{{zh-pron|m=병음|...}}`의 `m=` 파라미터만 뽑는다(다른 방언 파라미터는 버림, 위 방침 그대로). 실측(11개 표제어: 你好/中國/一/打/謝謝/打算/水/的/了/麼/嗎 wikitext 직접 조회)으로 이 파라미터의 함정 두 가지를 새로 확인:
+- **en**: dictionaryapi.dev(위 2번 항목)를 추가 호출해 `phonetic`(최상위)과 `phonetics[].text`(개별 값) 전부를 중복 제거해 모은 뒤 그 단어의 모든 reading에 동일하게 채운다. 실측 확인(`run`): 발음이 meaning(품사)별이 아니라 entry 최상위 하나뿐이라(`phonetics[]`가 품사 구분 없이 공유) 품사별로 나눠 붙일 수가 없음 — MW가 hom 간 발음을 상속하는 것과 같은 단순화. `run`(중복 제거 후 `/ɹʊn/`·`/ɹʌn/` 2개)·`ate`(`/eɪt/` 1개)로 검증. **en도 wikitext 자체엔 Etymology별 발음 구조가 있으나(아래 ja/zh처럼) dictionaryapi.dev 로만 보강하고 있어 이 정밀도 개선 대상에서 빠져 있음 — 추후 en도 wikitext 경로로 전환하면 이 단순화를 없앨 수 있음(미착수).**
+- **ja/zh**: raw wikitext(`action=parse`, `prop=wikitext`)의 `{{ja-pron|よみ|...}}`/`{{zh-pron|m=병음|...}}`에서 값을 뽑되, **처음엔 페이지 전체에서 긁어 모든 reading에 똑같이 복제하는 방식**이었다가, **사용자 지적(2026-07-28)으로 재작업** — Wiktionary wikitext 헤더 구조를 실측(`猫`/`東京`/`打` 직접 조회) 확인한 결과 `{{ja-pron}}`/`{{zh-pron}}`가 페이지에 뭉텅이로 있는 게 아니라 `===Etymology N===`(다의어별) 아래 `====Pronunciation====`으로 **그 바로 다음 POS 섹션에만** 대응됨을 확인:
+  - `猫`: Etymology 1(ねこ)/Noun, Etymology 2(ねこま)/Noun — 완전히 분리된 두 뜻.
+  - `東京`: Etymology 1(とうきょう)/Proper noun+Noun, Etymology 2(とうけい)/Proper noun, Etymology 3(トンキン)/Proper noun.
+  - REST API 블록도 같은 문서 순서로 옴을 실측 확인(東京: wikitext 헤더 [Proper noun, Noun, Proper noun, Proper noun] ↔ REST API 블록 [Proper noun(5 defs), Noun(1), Proper noun(5), Proper noun(1)] 완전 일치).
+
+  그래서 `assignPerBlockPronunciations`(`wiktionary.ts`)가 헤더를 등장 순서대로 걸으며 "헤더 텍스트가 지금 기다리는 REST 블록의 partOfSpeech 와 일치할 때만 매칭·소비"하는 방식으로 각 REST API 블록(=`DictionaryReading`)에 그 직전 Pronunciation 헤더의 값만 정확히 붙인다 — 이전처럼 서로 무관한 읽기(ねこ/ねこま, とうきょう/とうけい/トンキン)를 모든 reading에 동일하게 복제하지 않는다. 단일 Etymology 표제어(`食べる`처럼 `===Etymology===`/`===Pronunciation===`/`===Verb===`가 나란한 구조)도 같은 알고리즘으로 자연히 처리됨(깊이를 안 보고 등장 순서만 봄).
+
+  zh는 값 자체를 뽑을 때 두 가지 함정이 있다(실측: 你好/中國/一/打/謝謝/打算/水/的/了/麼/嗎 11개 표제어):
   1. 값이 콤마로 여러 개 이어질 때 일부는 병음이 아니라 콤마로 덧붙는 수식 플래그다 — `打算`→`m=dǎsuàn,tl=y`(tl=톤 산디), `水`→`m=shuǐ,er=y`(er=얼화), `的`→`m=de,dì,2tl=y,1nb=unstressed,2nb=stressed`(앞 2개는 실제 복수 병음 — "de"/"dì" 둘 다 채택, 나머지는 번호 붙은 플래그). `=`가 포함된 세그먼트만 걸러내고 남는 건 전부 채택한다.
   2. 일부 블록은 `m=` 값 자체가 병음이 아니라 조회한 한자 그대로다(실측: `一`/`打`의 일부 zh-pron 블록 → `m=一`/`m=打`, 정확한 의미는 불명 — 다른 항목을 보라는 플레이스홀더로 추정). CJK 통합 한자 포함 여부로 걸러낸다.
-  - `捷運`(jiéyùn)·`打算`(dǎsuàn)·`你好`(nǐ hǎo)로 검증. **`水`/`一` 같은 단일 한자 표제어는 이 발음 보강과 무관하게, REST API definition 엔드포인트 자체가 `zh` 언어 블록을 안 줘서(원인 불명 — 페이지 구조 문제로 추정) 뜻풀이 단계에서부터 entry 없음으로 끝난다** — 발음 시도 자체가 안 일어남, 별도 조사 필요(아래 "아직 미확인 항목" 참고).
+
+  ja는 `猫`(ねこ/ねこま)·`東京`(3개, 위 예시)·`食べる`(たべる)·`走る`(はしる)로, zh는 `打算`(Verb/Noun 둘 다 dǎsuàn)·`你好`(nǐ hǎo)·`捷運`(jiéyùn)로 블록별 정확 매칭까지 실API 검증 완료. **`水`/`一` 같은 단일 한자 표제어는 이 발음 보강과 무관하게, REST API definition 엔드포인트 자체가 `zh` 언어 블록을 안 줘서(원인 불명 — 페이지 구조 문제로 추정) 뜻풀이 단계에서부터 entry 없음으로 끝난다** — 발음 시도 자체가 안 일어남, 별도 조사 필요(아래 "아직 미확인 항목" 참고). **헤더 구조가 예상과 다르면(드묾) 그 블록은 undefined로 남긴다** — 틀린 값을 자신 있게 보여주는 것보다 안전하다는 판단(2026-07-28).
 
 **부가 보강**(2026-07-28, 사용자 피드백 반영):
 - 발음이 여러 개일 때 `senseSelect.ts`가 첫 번째만 쓰던 것도 함께 고쳐 전부 `[값1, 값2]` 형태로 표시하도록 변경(위 wiktionary.ts 변경이 실제 화면에 드러나려면 이 쪽도 같이 고쳐야 했음).
