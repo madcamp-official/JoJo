@@ -7,6 +7,20 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense 
 
 const MW_ENDPOINT = 'https://www.dictionaryapi.com/api/v3/references/collegiate/json'
 
+/** MW 요청 실패(HTTP 에러 또는 무효 키의 평문 응답) — llm/errors.ts 의 LlmHttpError 와
+ *  같은 모양이지만, MW 는 provider(LlmProvider)가 아니라(ApiKeyId 만) classifyLlmError
+ *  대상이 아니라서 별도 클래스로 둔다. */
+export class MwHttpError extends Error {
+  constructor(
+    public status: number,
+    public body: string,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'MwHttpError'
+  }
+}
+
 // ---- MW 원본 응답 타입 (느슨하게 — 공식 스키마 문서가 없어 실측 기반) ----------------
 
 interface MwPr {
@@ -274,22 +288,62 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
   const url = `${MW_ENDPOINT}/${encodeURIComponent(word)}?key=${apiKey}`
   const res = await fetch(url)
   if (!res.ok) {
-    throw new Error(`MW API 요청 실패: HTTP ${res.status}`)
+    throw new MwHttpError(res.status, '', `MW API 요청 실패: HTTP ${res.status}`)
   }
-  const raw = (await res.json()) as MwRaw[]
+  // 실측 확인(2026-07-28, 무효 키로 직접 호출): 키가 무효해도 HTTP 200을 그대로 주고
+  // 본문에 JSON 배열 대신 평문("Invalid API key. Not subscribed for this reference.")을
+  // 담아 보낸다 — 위 !res.ok 체크로는 절대 못 걸러진다. res.json() 을 바로 부르면
+  // SyntaxError 가 나서 호출부가 "네트워크 오류"로 뭉뚱그리게 되므로, 텍스트로 먼저
+  // 받아 파싱 실패 시 그 본문을 실은 MwHttpError 로 명시적으로 구분해 던진다.
+  const text = await res.text()
+  let raw: MwRaw[]
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    throw new MwHttpError(res.status, text, `MW 응답을 파싱할 수 없습니다: ${text.slice(0, 200)}`)
+  }
   if (raw.length === 0) return {}
   if (typeof raw[0] === 'string') return { suggestions: raw as string[] }
 
   const entries = raw.filter((r): r is MwEntry => typeof r !== 'string')
+
+  // 조회어와 무관한 entry(관용구 구성 성분 등)를 먼저 제외한 뒤, 남은 entry를 실제
+  // 표제어(hw)별로 묶는다. 실측 확인(2026-07-28, "closed" 조회): 활용형 하나가 서로
+  // 다른 두 표제어에 동시에 걸치는 경우가 있다 — "closed" 자체가 형용사 표제어이면서,
+  // 동시에 동사 "close"의 활용형(stems)에도 포함된다. 이걸 하나의 DictionaryEntry로
+  // 뭉치면 headword가 하나로 뭉개져서, 실제로 골라진 뜻이 형용사 "closed"인지 동사
+  // 원형 "close"인지 표시에서 구분이 안 된다 — 표제어별로 별도 DictionaryEntry를 만든다.
+  const groups = new Map<string, MwEntry[]>()
+  for (const entry of entries) {
+    if (!isRelevantEntry(entry, word)) continue
+    const headword = entry.hwi.hw.replace(/[·*]/g, '') // MW hw 는 음절 경계를 '·'/'*'로 표시
+    const group = groups.get(headword)
+    if (group) group.push(entry)
+    else groups.set(headword, [entry])
+  }
+
+  const resultEntries: DictionaryEntry[] = []
+  for (const [headword, groupEntries] of groups) {
+    const entry = await buildEntryForHeadword(headword, groupEntries, word, apiKey)
+    if (entry) resultEntries.push(entry)
+  }
+
+  if (!resultEntries.length) return {}
+  return { entries: resultEntries }
+}
+
+/** 표제어 하나에 속한 MW entry(들, 보통 hom 별)를 모아 DictionaryEntry 하나로 만든다. */
+async function buildEntryForHeadword(
+  headword: string,
+  groupEntries: MwEntry[],
+  word: string,
+  apiKey: string,
+): Promise<DictionaryEntry | null> {
   const readings: DictionaryReading[] = []
   let isIdiom = false
-  const headwordSet = new Set<string>()
   let lastPronunciations: DictionaryReading['pronunciations']
 
-  for (const entry of entries) {
-    if (!isRelevantEntry(entry, word)) continue // 조회어와 무관한 entry(관용구 구성 성분 등) 제외
-
-    headwordSet.add(entry.hwi.hw.replace(/[·*]/g, '')) // MW hw 는 음절 경계를 '·'/'*'로 표시
+  for (const entry of groupEntries) {
     if (entry.fl === 'phrase') isIdiom = true
 
     if (entry.cxs) {
@@ -307,7 +361,7 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
     }
   }
 
-  if (!readings.length) return {}
+  if (!readings.length) return null
 
   // 실측 확인(2026-07-28, "banked"/"bank" 직접 호출): MW 는 같은 headword 의 hom 중
   // **가장 먼저 오는 hom(대개 hom=1)에만 hwi.prs 를 채우고 나머지 hom 은 전부 생략**한다
@@ -315,25 +369,18 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
   // 응답에 오는데, 정작 발음을 가진 hom=1은 이 응답에 아예 없어서 위 entry 간 상속으로도
   // 못 채운다. 이 경우에만 원래 headword로 한 번 더 조회해 발음을 가져와 채운다(비용은
   // 발음이 진짜 하나도 없을 때만 발생 — 대부분의 직접 조회는 이 분기를 안 탄다).
-  if (!lastPronunciations && headwordSet.size) {
-    const baseHeadword = [...headwordSet][0]
-    if (baseHeadword.toLowerCase() !== word.toLowerCase()) {
-      const basePronunciations = await fetchHeadwordPronunciation(baseHeadword, apiKey)
-      if (basePronunciations) {
-        for (const r of readings) if (!r.pronunciations?.length) r.pronunciations = basePronunciations
-      }
+  if (!lastPronunciations && headword.toLowerCase() !== word.toLowerCase()) {
+    const basePronunciations = await fetchHeadwordPronunciation(headword, apiKey)
+    if (basePronunciations) {
+      for (const r of readings) if (!r.pronunciations?.length) r.pronunciations = basePronunciations
     }
   }
 
   return {
-    entries: [
-      {
-        headword: headwordSet.size ? [...headwordSet] : [word],
-        isIdiom: isIdiom || undefined,
-        readings,
-        source: 'merriam-webster',
-      },
-    ],
+    headword: [headword],
+    isIdiom: isIdiom || undefined,
+    readings,
+    source: 'merriam-webster',
   }
 }
 

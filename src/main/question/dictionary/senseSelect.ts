@@ -120,12 +120,16 @@ const POS_KO: Partial<Record<CanonicalPos, string>> = {
 
 /** 최종적으로 채팅창에 보여줄 마크다운 — 뜻풀이·예문은 LLM 이 번역한 한국어, 나머지
  *  (표제어·발음·품사·출처 등)는 사전 데이터를 그대로 서식화한다. */
+/** queryWord 는 표시용이 아니라 "문맥에 맞는 뜻을 못 찾았을 때"의 안내 메시지에만 쓰인다
+ *  — 실제 표제어 표시는 sense 마다 다를 수 있어(예: "closed" 조회 시 형용사 "closed"
+ *  자체와 동사 "close"의 활용형이 동시에 후보로 오는 경우, 실측 확인) sense.headword
+ *  (원형이 정확히 반영된 값)를 그대로 쓴다. */
 export function formatDictionaryAnswer(
-  headword: string,
+  queryWord: string,
   source: DictionarySourceId,
   selected: SelectedSense[],
 ): string {
-  if (!selected.length) return `**${headword}**\n\n문맥에 맞는 뜻을 찾지 못했습니다.`
+  if (!selected.length) return `**${queryWord}**\n\n문맥에 맞는 뜻을 찾지 못했습니다.`
 
   const lines: string[] = []
 
@@ -142,7 +146,7 @@ export function formatDictionaryAnswer(
         ? mwToIpa(sense.pronunciation)
         : sense.pronunciation
     const pronSuffix = pronunciation ? ` [${pronunciation}]` : ''
-    lines.push(`**${headword}**${pronSuffix}${posSuffix}`)
+    lines.push(`**${sense.headword}**${pronSuffix}${posSuffix}`)
     // 원문·번역은 같은 뜻을 언어만 달리 적은 동격 정보라 스타일을 다르게 주지 않는다.
     lines.push(sense.gloss.join('; '))
     lines.push(translatedGloss)
