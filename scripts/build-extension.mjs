@@ -10,7 +10,7 @@ const srcDir = resolve(root, 'extension/src')
 const outDir = resolve(root, 'extension/dist')
 const watch = process.argv.includes('--watch')
 
-const entries = ['background', 'content']
+const entries = ['background', 'content', 'networkHook']
 
 const buildOptions = {
   entryPoints: entries.map((name) => resolve(srcDir, `${name}.ts`)),
