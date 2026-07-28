@@ -62,19 +62,37 @@ export function extractZhMandarinFromWikitext(wikitext: string): string[] {
  *  `{{gl|...}}`(nongloss 보조설명 템플릿, 인자 안 위키링크 파이프에 안 잘리게 인자 전체를
  *  그대로 씀 — 실측: "一" "{{n-g|With the [[verb]] [[modify|modified]] ...}}"를 첫 `|`
  *  에서 잘라버리는 버그가 있었음), 나머지 템플릿은 통째로 제거(얕은 중첩 대비 2회 반복),
- *  위키링크 평문화 순으로 처리한다. */
+ *  위키링크 평문화 순으로 처리한다.
+ *
+ *  **2026-07-28 사용자 피드백으로 추가 정리 3건**(실측: 水/人):
+ *  1. `''이탤릭''`(홑따옴표 2개) 마크업이 안 지워지는 버그 — `'''?`(정확히 2~3개만 매칭)
+ *     로는 `''{{템플릿}}''`에서 템플릿이 지워져 홑따옴표 4개(`''''`)가 붙어버리면 3개+3개로
+ *     안 나뉘어 1개가 찌꺼기로 남았다(실측: "water, one of the five elements of ' ()").
+ *     `/'{2,}/g`(2개 이상이면 개수 상관없이 전부 제거)로 교체.
+ *  2. 템플릿을 지운 자리에 감싸던 괄호만 빈 채로 남는 경우(실측: 위 예시의 `()`) — 정리
+ *     마지막 단계에서 빈 괄호를 제거.
+ *  3. `{{gl|...}}`(괄호 보충설명 템플릿, 뜻풀이 자체인 `{{n-g|...}}`와 달리 원래 렌더링도
+ *     괄호 안에 들어감)를 `{{n-g|...}}`와 같이 인자만 이어붙이면 "wave event; rush"처럼
+ *     구두점 없이 붙어버린다(실측: "# {{lb|zh|Cantonese|figurative}} [[wave]] {{gl|event}};
+ *     [[rush]]") — `{{gl|...}}`만 따로 떼어 인자를 괄호로 감싸 넣는다("wave (event); rush").
+ *  4. 안전장치 — 위 정리를 다 거쳐도 맨 앞에 콜론만 남는 경우(실측: "# {{lb|zh|classical}}
+ *     {{short for|zh|水曜日}}: Wednesday" → 앞의 두 템플릿이 통째로 지워지고 ": Wednesday"만
+ *     남음)가 있어, 결과 맨 앞의 `:`(+공백)는 마지막에 한 번 더 잘라낸다. */
 function cleanZhGlossText(body: string): string {
   let text = body
   text = text.replace(/<!--[\s\S]*?-->/g, '')
-  text = text.replace(/\{\{(?:n-g|gl)\|([^{}]*)\}\}/g, '$1')
+  text = text.replace(/\{\{n-g\|([^{}]*)\}\}/g, '$1')
+  text = text.replace(/\{\{gl\|([^{}]*)\}\}/g, '($1)')
   text = text.replace(/\{\{[^{}]*\}\}/g, '')
   text = text.replace(/\{\{[^{}]*\}\}/g, '')
   text = text.replace(/\[\[[^\]|]*\|([^\]]*)\]\]/g, '$1') // [[link|표시]] → 표시
   text = text.replace(/\[\[([^\]]*)\]\]/g, '$1') // [[link]] → link
-  return text
-    .replace(/'''?/g, '')
+  text = text
+    .replace(/'{2,}/g, '') // ''이탤릭''/'''볼드''' 등 홑따옴표 서식 전부 제거
+    .replace(/\(\s*\)/g, '') // 템플릿 제거 후 빈 채로 남은 괄호
     .replace(/\s+/g, ' ')
     .trim()
+  return text.replace(/^:\s*/, '') // 앞선 템플릿이 통째로 사라지고 콜론만 남는 경우
 }
 
 function extractZhDefinitionsGloss(content: string): string[] {
