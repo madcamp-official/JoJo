@@ -1,20 +1,50 @@
-// 담당 A — 확장 content script (PLAN.md §4.1)
-// (1) DOM 텍스트 추출(태그 제외, 문단 잇기)
-// (2) 유튜브/넷플릭스 원어 자막 추출
-// (3) 선택 모드 시 단어 주변 사각형 하이라이트
+// 담당 B — 확장 content script.
+// 유튜브 화면 자막을 단어별 좌표와 함께 추출해(youtube.ts) background 로 보낸다.
+// background 가 WS 로 앱에 중계한다. 자막 캡처는 앱이 선택 모드일 때만 켜진다(setCapture).
+import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles } from './youtube'
 
-export function extractDomText(): { text: string; rects: DOMRect[] } {
-  // TODO(담당 A): 가시 텍스트 노드 순회 → 태그 제외 후 이어붙이기 + 좌표.
-  return { text: '', rects: [] }
+// content ↔ background 내부 메시지(확장 안에서만 씀).
+type FromBackground = { kind: 'setCapture'; active: boolean } | { kind: 'requestSnapshot' }
+
+let capturing = false
+let stopObserving: (() => void) | null = null
+let lastSent = ''
+
+function pushSnapshot(): void {
+  if (!capturing) return
+  const snapshot = isYoutubeWatch() ? extractSubtitleSnapshot() : null
+  // 동일 프레임 중복 전송 방지(좌표+텍스트가 같으면 스킵). null 도 한 번만 보낸다.
+  const sig = snapshot ? JSON.stringify(snapshot) : 'null'
+  if (sig === lastSent) return
+  lastSent = sig
+  chrome.runtime.sendMessage({ kind: 'subtitles', snapshot })
 }
 
-export function extractSubtitles(): string[] {
-  // TODO(담당 A): youtube=URL/timedtext, netflix=플레이어 자막 트랙에서 원어 자막.
-  return []
+function startCapture(): void {
+  if (capturing) return
+  capturing = true
+  lastSent = ''
+  stopObserving = observeSubtitles(() => pushSnapshot())
+  pushSnapshot()
 }
 
-// content ↔ background 메시지 예시
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === 'extract') sendResponse(extractDomText())
-  return true
+function stopCapture(): void {
+  if (!capturing) return
+  capturing = false
+  stopObserving?.()
+  stopObserving = null
+  chrome.runtime.sendMessage({ kind: 'subtitles', snapshot: null })
+}
+
+chrome.runtime.onMessage.addListener((msg: FromBackground, _sender, sendResponse) => {
+  if (msg?.kind === 'setCapture') {
+    if (msg.active) startCapture()
+    else stopCapture()
+  } else if (msg?.kind === 'requestSnapshot') {
+    // 최신 좌표+재생시간으로 한 프레임 즉시 반환(hover/클릭 직전 앱 요청용).
+    const snapshot = isYoutubeWatch() ? extractSubtitleSnapshot() : null
+    sendResponse({ snapshot })
+    return true
+  }
+  return undefined
 })

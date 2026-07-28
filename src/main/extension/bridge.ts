@@ -1,6 +1,13 @@
 import { EventEmitter } from 'node:events'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { EXT_WS_HOST, EXT_WS_PORT, type AppToExt, type ExtActiveTab, type ExtToApp } from '@shared/extension'
+import {
+  EXT_WS_HOST,
+  EXT_WS_PORT,
+  type AppToExt,
+  type ExtActiveTab,
+  type ExtToApp,
+  type SubtitleSnapshot,
+} from '@shared/extension'
 
 // 담당 B — 크롬 확장 브릿지 (Electron main 쪽 WebSocket 서버).
 // 확장 background 가 이 서버에 접속해 활성 탭 변화·자막 등을 보내온다.
@@ -10,6 +17,7 @@ const KEEPALIVE_MS = 20_000 // 서비스 워커는 ~30초 유휴 시 종료됨 �
 
 type BridgeEvents = {
   activeTab: [ExtActiveTab | null]
+  subtitles: [SubtitleSnapshot | null]
   connected: []
   disconnected: []
 }
@@ -19,6 +27,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   private socket: WebSocket | null = null
   private keepalive: NodeJS.Timeout | null = null
   private lastActiveTab: ExtActiveTab | null = null
+  private lastSubtitles: SubtitleSnapshot | null = null
 
   start(): void {
     if (this.wss) return
@@ -76,6 +85,10 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         this.lastActiveTab = msg.tab
         this.emit('activeTab', msg.tab)
         break
+      case 'subtitles':
+        this.lastSubtitles = msg.snapshot
+        this.emit('subtitles', msg.snapshot)
+        break
     }
   }
 
@@ -105,6 +118,16 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
 
   getActiveTab(): ExtActiveTab | null {
     return this.lastActiveTab
+  }
+
+  getSubtitles(): SubtitleSnapshot | null {
+    return this.lastSubtitles
+  }
+
+  // 선택 모드 진입/이탈 시 확장에 자막 캡처 on/off 를 지시한다.
+  setSubtitleCapture(active: boolean): void {
+    if (!active) this.lastSubtitles = null
+    this.send({ type: 'setSubtitleCapture', active })
   }
 }
 

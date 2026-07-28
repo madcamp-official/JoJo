@@ -68,10 +68,32 @@ function onAppMessage(raw: unknown): void {
     case 'requestActiveTab':
       void reportActiveTab()
       break
+    case 'setSubtitleCapture':
+      void setCaptureOnActiveTab(msg.active)
+      break
     case 'welcome':
       break
   }
 }
+
+// 앱이 선택 모드를 켜고 끌 때, 활성 탭의 content script 에 자막 캡처 on/off 를 전달한다.
+async function setCaptureOnActiveTab(active: boolean): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  if (tab?.id === undefined) return
+  try {
+    await chrome.tabs.sendMessage(tab.id, { kind: 'setCapture', active })
+  } catch {
+    // content script 가 아직 없거나(로드 전) 대상 페이지가 아니면 무시.
+  }
+}
+
+// content script → background: 화면 자막 프레임을 받아 앱으로 중계한다.
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.kind === 'subtitles') {
+    send({ type: 'subtitles', snapshot: msg.snapshot ?? null })
+  }
+  return undefined
+})
 
 // 현재 활성 탭을 앱에 보고한다. (탭/URL 변화 감지 트리거는 task 3에서 확장)
 async function reportActiveTab(): Promise<void> {
