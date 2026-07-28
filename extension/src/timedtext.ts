@@ -97,6 +97,21 @@ function extractInnertubeContext(html: string): unknown | null {
   }
 }
 
+// context 객체에서 InnerTube 가 body 와 별개로 헤더로도 요구하는 값들을 뽑는다 —
+// "Precondition check failed"(FAILED_PRECONDITION)는 body 의 context 만으론 부족하고
+// 헤더의 클라이언트명/버전/방문자ID가 그와 일치해야 통과하는 경우가 실측으로 확인된다.
+function clientHeaders(context: unknown): Record<string, string> {
+  const client = (context as { client?: Record<string, unknown> } | null)?.client
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  const clientVersion = client?.clientVersion
+  if (typeof clientVersion === 'string') headers['x-youtube-client-version'] = clientVersion
+  // WEB=1 — InnerTube 클라이언트명 → 숫자 id 매핑 중 웹 클라이언트 고정값(공개적으로 잘 알려진 값).
+  headers['x-youtube-client-name'] = '1'
+  const visitorData = client?.visitorData
+  if (typeof visitorData === 'string') headers['x-goog-visitor-id'] = visitorData
+  return headers
+}
+
 async function fetchViaInnertube(html: string): Promise<TranscriptCue[]> {
   const params = extractTranscriptParams(html)
   if (!params) {
@@ -109,7 +124,7 @@ async function fetchViaInnertube(html: string): Promise<TranscriptCue[]> {
   const res = await fetch(`https://www.youtube.com/youtubei/v1/get_transcript?key=${apiKey}`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'content-type': 'application/json' },
+    headers: clientHeaders(context),
     body: JSON.stringify({ context, params }),
   })
   console.log(`[nuance timedtext] get_transcript status=${res.status}`)
