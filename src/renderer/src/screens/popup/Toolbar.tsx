@@ -1,6 +1,13 @@
+import type { DictionarySourceId, DictionarySourceOption } from '@shared/types'
+
 // 담당 B — 팝업 툴바 (PLAN.md §3/§4.2)
 // [발음]·[사전] 버튼 — 누르면 즉시 채팅에 질문을 넣고 LLM 요청 · 구글 발음/이미지 버튼.
 // 통합 질문 입력은 하단 채팅 입력창.
+//
+// dictSources/selectedSource/onSelectSource: 사전 어댑터 병렬 구현 디버깅용 임시
+// 드롭다운(2026-07-28) — "AI" 배지 옆에 그 언어에 실제로 구현된 소스만 보여주고, 사용자가
+// 직접 골라 검색해볼 수 있게 한다. 구현된 소스가 없으면(dictSources 비어있음) 드롭다운
+// 자체를 숨긴다.
 
 interface Props {
   onPron: () => void
@@ -8,6 +15,9 @@ interface Props {
   onGoogle: (mode: 'pron' | 'image') => void
   onNaverDict: () => void
   disabled?: boolean
+  dictSources: DictionarySourceOption[]
+  selectedSource: DictionarySourceId | undefined
+  onSelectSource: (id: DictionarySourceId) => void
 }
 
 function GoogleIcon() {
@@ -42,7 +52,16 @@ function NaverIcon() {
   )
 }
 
-export function Toolbar({ onPron, onDict, onGoogle, onNaverDict, disabled }: Props) {
+export function Toolbar({
+  onPron,
+  onDict,
+  onGoogle,
+  onNaverDict,
+  disabled,
+  dictSources,
+  selectedSource,
+  onSelectSource,
+}: Props) {
   return (
     <div className="toolbar">
       <span className="llm-badge">
@@ -67,6 +86,23 @@ export function Toolbar({ onPron, onDict, onGoogle, onNaverDict, disabled }: Pro
       <span className="llm-badge">
         AI
       </span>
+
+      {/* 임시 디버깅 드롭다운(2026-07-28) — 구현된 사전 소스가 없으면 아예 안 보여준다. */}
+      {dictSources.length > 0 && (
+        <select
+          className="dict-source-select"
+          title="사전 검색에 쓸 소스(디버깅용 임시)"
+          value={selectedSource ?? ''}
+          disabled={disabled}
+          onChange={(e) => onSelectSource(e.target.value as DictionarySourceId)}
+        >
+          {dictSources.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+      )}
 
       <button className="tb-btn" disabled={disabled} onClick={onPron}>
         발음

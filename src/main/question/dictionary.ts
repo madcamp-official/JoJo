@@ -1,9 +1,17 @@
-import type { QuestionResult, SelectionContext, DictionarySourceId } from '@shared/types'
+import type {
+  DictionaryEntry,
+  DictionarySourceId,
+  Language,
+  QuestionResult,
+  SelectionContext,
+} from '@shared/types'
 import { getApiKey } from '@main/keyStore'
 import { getSettings } from '@main/settingsStore'
 import { DEFAULT_MODELS } from '@shared/providers'
 import { LANGUAGES } from '@shared/languages'
 import { fetchMerriamWebsterEntry, MerriamWebsterHttpError } from './dictionary/merriamWebster'
+import { fetchOewnEntry } from './dictionary/oewn'
+import { fetchWiktionaryEntry } from './dictionary/wiktionary'
 import {
   buildSenseListText,
   formatDictionaryAnswer,
@@ -28,6 +36,13 @@ import { buildErrorResult } from './errors'
 // 독립적으로 같은 파이프라인(lookupSingleWord)을 병렬 호출한다. 단어별 뜻은 서로 무관해
 // 하나의 프롬프트/판정으로 억지로 합칠 필요가 없어 이 구조를 택함 — 단, MW+LLM 호출이
 // 단어 수만큼 늘어나므로 MAX_FALLBACK_WORDS 로 상한을 둔다.
+//
+// **TODO(정식 폴백 오케스트레이션, 각 어댑터 merge 후 담당)**: en 은 MW → OEWN → Wiktionary,
+// ja 는 Kotobank → JMdict → Wiktionary, zh 는 汉典/萌典 → CC-CEDICT → Wiktionary 순으로
+// 앞 소스가 못 찾을 때만 다음으로 넘어가야 한다(TODO.md/DICTIONARY_SOURCES.md 에 확정된
+// 순서). 지금은 en 도 MW 단독이고, OEWN/Wiktionary 어댑터(dictionary/oewn.ts,
+// dictionary/wiktionary.ts)는 파일만 존재하고 이 orchestration 엔 아직 안 엮여 있음 —
+// 아래 forceSource 디버깅 경로에서만 직접 호출된다.
 
 const DICTIONARY_JUDGE_TEMPERATURE = 0.2
 const DICTIONARY_JUDGE_MAX_TOKENS = 500
@@ -37,8 +52,21 @@ const MAX_FALLBACK_WORDS = 5
 
 export async function lookupDictionary(
   ctx: SelectionContext,
+  forceSource: DictionarySourceId | undefined,
   onChunk: (chunk: QuestionResult) => void,
 ): Promise<QuestionResult> {
+  // ============================================================================
+  // 임시 디버깅 강제 소스 선택 — 제거 예정(팝업 드롭다운 registry.ts 와 한 세트).
+  // en/ja/zh 어댑터가 각자 다른 워크트리에서 병렬 구현 중이라, 정식 폴백 순서 대신
+  // 팝업에서 고른 소스 하나만 호출해볼 수 있게 하는 디버깅 경로. 정식 오케스트레이션이
+  // 완성되면 이 if 블록 + forceSource 매개변수 + registry.ts + 팝업 드롭다운(Toolbar.tsx/
+  // PopupScreen.tsx) 만 지우면 되고, 아래 진짜 로직(현재 MW 단독, 나중엔 폴백 체인)은
+  // 전혀 안 건드려도 된다 — forceSource 가 없으면(undefined) 이 블록은 그냥 통과한다.
+  if (forceSource) {
+    return emit(onChunk, await lookupForcedSource(forceSource, ctx))
+  }
+  // ============================================================================
+
   if (ctx.language !== 'en') {
     return emit(onChunk, { kind: 'dictionary', content: '이 언어는 아직 사전 검색을 지원하지 않습니다.' })
   }
@@ -288,4 +316,90 @@ function notFoundResult(word: string, suggestions?: string[]): QuestionResult {
 function emit(onChunk: (chunk: QuestionResult) => void, result: QuestionResult): QuestionResult {
   onChunk(result)
   return result
+}
+
+// ============================================================================
+// 임시 디버깅 강제 소스 선택 구현부 — 위 forceSource 블록과 한 세트, 제거 예정.
+// registry.ts 가 감지한 소스 id 별로 실제 어댑터의 fetch 함수만 골라 호출하고, 그 뒤(sense
+// 번호매김 → LLM 판정/번역 → 서식화)는 위 정식 플로우와 완전히 같은 judgeAndFormat/
+// numberSenses(senseSelect.ts)를 그대로 재사용한다 — MW 전용 로직을 복붙하지 않기 위함.
+// 아직 어댑터가 안 붙은 소스는 미구현 안내만 돌려준다. 정식 폴백 오케스트레이션이
+// 완성되면 이 함수 전체 + 위 forceSource 분기 + registry.ts + 팝업 드롭다운만 지우면
+// 되고, judgeAndFormat 등 아래에서 재사용한 헬퍼는 정식 플로우도 계속 쓰므로 그대로 둔다.
+// ============================================================================
+async function lookupForcedSource(source: DictionarySourceId, ctx: SelectionContext): Promise<QuestionResult> {
+  const word = ctx.selectedText.trim()
+  if (!word) {
+    return { kind: 'dictionary', content: '선택된 표현이 없습니다.' }
+  }
+
+  let entries: DictionaryEntry<Language>[] | undefined
+  let suggestions: string[] | undefined
+
+  switch (source) {
+    case 'merriam-webster': {
+      if (ctx.language !== 'en') {
+        return { kind: 'dictionary', content: 'Merriam-Webster는 영어 전용 사전입니다.' }
+      }
+      const merriamWebsterKey = getApiKey('mw')
+      if (!merriamWebsterKey) {
+        return { kind: 'dictionary', content: 'Merriam-Webster 사전 API 키가 설정되어 있지 않습니다. 설정에서 키를 입력해 주세요.' }
+      }
+      let lookup
+      try {
+        lookup = await fetchMerriamWebsterEntry(word, merriamWebsterKey)
+      } catch (err) {
+        return { kind: 'dictionary', content: describeMerriamWebsterError(err) }
+      }
+      entries = lookup.entries
+      suggestions = lookup.suggestions
+      break
+    }
+    case 'wordnet': {
+      if (ctx.language !== 'en') {
+        return { kind: 'dictionary', content: 'OEWN은 영어 전용 사전입니다.' }
+      }
+      entries = (await fetchOewnEntry(word)).entries
+      break
+    }
+    case 'wiktionary': {
+      const lookup = await fetchWiktionaryEntry(word, ctx.language)
+      entries = lookup.entry ? [lookup.entry] : undefined
+      break
+    }
+    default:
+      return { kind: 'dictionary', content: `"${source}" 어댑터는 아직 디버깅 강제 호출에 연결되지 않았습니다.` }
+  }
+
+  if (!entries?.length) {
+    return notFoundResult(word, suggestions)
+  }
+  const senses = numberSenses(entries)
+  if (!senses.length) {
+    return notFoundResult(word, suggestions)
+  }
+
+  const provider = getActiveProvider()
+  if (!provider) return buildErrorResult('dictionary', 'no_active_provider')
+  const llmKey = getApiKey(provider)
+  if (!llmKey) return buildErrorResult('dictionary', 'no_api_key', provider)
+
+  const settings = getSettings()
+  const client = createClient(provider, { apiKey: llmKey })
+  const cacheableContext = buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter)
+
+  const outcome = await judgeAndFormat({
+    word,
+    source: entries[0].source,
+    senses,
+    ctx,
+    client,
+    model: settings.models[provider] || DEFAULT_MODELS[provider],
+    cacheableContext,
+  })
+
+  if (!outcome.ok) {
+    return buildErrorResult('dictionary', classifyLlmError(outcome.error), provider)
+  }
+  return { kind: 'dictionary', content: outcome.formatted, meta: { provider, source: entries[0].source } }
 }

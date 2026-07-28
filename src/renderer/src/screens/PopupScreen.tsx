@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChatTurn,
+  DictionarySourceId,
+  DictionarySourceOption,
   ExtractedSelection,
   JaTokenizeResult,
   QuestionRequest,
@@ -141,6 +143,26 @@ export function PopupScreen() {
     })
   }, [currentCtx.selectedText])
 
+  // ---- 사전 소스 선택(임시 디버깅용, 2026-07-28) -----------------------------
+  // en/ja/zh 사전 어댑터가 각자 다른 워크트리에서 병렬 구현 중이라, 실제 폴백
+  // 오케스트레이션이 갖춰지기 전까지 어느 소스로 검색할지 직접 골라볼 수 있게 한다.
+  // 언어가 바뀔 때마다 그 언어에 실제로 구현된(파일이 존재하는) 소스 목록을 다시
+  // 조회하고, 폴백 순위 1순위를 기본 선택값으로 삼는다 — main/question/dictionary/
+  // registry.ts 가 자동 감지하므로 여기서는 그냥 받아서 보여주기만 하면 된다.
+  const [dictSources, setDictSources] = useState<DictionarySourceOption[]>([])
+  const [selectedSource, setSelectedSource] = useState<DictionarySourceId | undefined>(undefined)
+  useEffect(() => {
+    let active = true
+    void window.nuance.getDictionarySources(currentCtx.language).then((sources) => {
+      if (!active) return
+      setDictSources(sources)
+      setSelectedSource(sources[0]?.id)
+    })
+    return () => {
+      active = false
+    }
+  }, [currentCtx.language])
+
   // ---- 채팅 상태 -------------------------------------------------------------
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
@@ -206,6 +228,7 @@ export function PopupScreen() {
   function askDictionary() {
     return send(DICTIONARY_QUESTION.replace('[선택된 표현]', currentCtx.selectedText), {
       type: 'dictionary',
+      source: selectedSource,
     })
   }
 
@@ -265,6 +288,9 @@ export function PopupScreen() {
           onGoogle={google}
           onNaverDict={naverDict}
           disabled={busy}
+          dictSources={dictSources}
+          selectedSource={selectedSource}
+          onSelectSource={setSelectedSource}
         />
 
         <Chat messages={messages} onSend={ask} busy={busy} />

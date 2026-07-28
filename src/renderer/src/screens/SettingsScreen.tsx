@@ -165,15 +165,20 @@ function isStandaloneKey(key: string): boolean {
 }
 
 /**
- * keydown 이벤트를 Electron accelerator 문자열로 변환 (예: 'Alt+Q', 'CommandOrControl+Shift+K').
+ * keydown 이벤트를 Electron accelerator 문자열로 변환 (예: 'Alt+Q', 'Command+,', 'Control+K').
  * 유효하지 않은 입력(수식키 단독, 수식키 없는 일반 키)은 null 을 돌려준다.
  * 수식키 없는 일반 단일 키(예: 'Q')를 전역 단축키로 등록하면 시스템 전역에서 그 키를
  * 가로채 정상 타이핑을 막으므로, F1~F12 를 제외하고는 최소 1개의 수식키를 요구한다.
+ *
+ * macOS 는 Cmd(metaKey)와 Ctrl(ctrlKey)을 서로 다른 물리 키로 취급해 각각 'Command'/
+ * 'Control'로 따로 기록한다(둘 다 눌러도 됨, 'CommandOrControl' 로 뭉치지 않음) — Windows/
+ * Linux 는 Cmd 키 자체가 없어 물리적으로 Ctrl 만 눌리므로 자연히 'Control' 만 기록된다.
  */
 function toAccelerator(e: KeyboardEvent): string | null {
   if (NON_KEY_MODIFIERS.has(e.key)) return null // 수식키 단독 입력은 무시
   const mods: string[] = []
-  if (e.ctrlKey || e.metaKey) mods.push('CommandOrControl')
+  if (e.metaKey) mods.push('Command')
+  if (e.ctrlKey) mods.push('Control')
   if (e.altKey) mods.push('Alt')
   if (e.shiftKey) mods.push('Shift')
   const key = e.key.length === 1 ? e.key.toUpperCase() : e.key
@@ -181,15 +186,13 @@ function toAccelerator(e: KeyboardEvent): string | null {
   return [...mods, key].join('+')
 }
 
-// Electron accelerator 토큰을 OS 에 맞는 표시 라벨로 바꾼다. macOS 에서는 Cmd 와 Ctrl 이
-// 서로 다른 물리 키인데, registerModeShortcut(shortcut.ts) 이 'CommandOrControl' 조합을
-// Cmd/Ctrl 두 키 모두로 등록해두었으므로(expandAccelerator) 표시도 실제 동작대로 "Cmd/Ctrl"
-// 둘 다 보여준다. macOS 가 아니면 물리적으로 Ctrl 하나뿐이라 그대로 Ctrl 만 표시.
 const IS_MAC = navigator.platform.toUpperCase().includes('MAC')
 
+// Electron accelerator 토큰을 화면 표시용 라벨로 바꾼다. 'CommandOrControl' 은 이제 새로
+// 녹화되진 않지만, 과거에 저장된 값(예: 이전 기본값)을 열었을 때도 깨지지 않게 표시만 유지.
 const MODIFIER_LABELS: Record<string, string> = IS_MAC
-  ? { CommandOrControl: 'Cmd/Ctrl', Alt: 'Opt', Shift: 'Shift' }
-  : { CommandOrControl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' }
+  ? { Command: 'Cmd', Control: 'Ctrl', CommandOrControl: 'Cmd', Alt: 'Opt', Shift: 'Shift' }
+  : { Command: 'Ctrl', Control: 'Ctrl', CommandOrControl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' }
 
 // 수식키가 아닌 실제 키는 풀네임 대신 흔히 쓰는 약어/기호로 표시한다.
 const KEY_LABELS: Record<string, string> = {
@@ -219,7 +222,9 @@ export function SettingsScreen() {
   const [apiKey, setApiKeyState] = useState('')
   const [keyEditing, setKeyEditing] = useState(false)
   const [keyVisible, setKeyVisible] = useState(false)
-  const [recording, setRecording] = useState(false)
+  // 지금 키 입력을 기다리는 단축키 필드 — null 이면 녹화 중이 아님. 두 단축키(모드 전환/설정
+  // 화면 열기)가 같은 녹화 UI 를 공유하므로 어느 필드를 채울지 여기서 구분한다.
+  const [recordingField, setRecordingField] = useState<'modeShortcut' | 'settingsShortcut' | null>(null)
   // 현재 provider 의 키 검증 결과(유효성 + 사용 가능 모델). 무과금 GET 기반.
   const [validation, setValidation] = useState<ProviderValidation | null>(null)
   const [validating, setValidating] = useState(false)
@@ -285,11 +290,11 @@ export function SettingsScreen() {
   // Esc 가 "녹화 취소" 의미로 이미 따로 처리되고 있어(위 useEffect) 그동안엔 건너뛴다.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !recording) goto('main')
+      if (e.key === 'Escape' && !recordingField) goto('main')
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [recording])
+  }, [recordingField])
 
   // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 미리보기가 처음 뜰 때 1회만.
   // (바이트 값을 바꿀 때는 스크롤을 건드리지 않아 사용자가 보던 위치를 유지한다.)
@@ -305,22 +310,23 @@ export function SettingsScreen() {
   }, [settings != null])
 
   useEffect(() => {
-    if (!recording) return
+    if (!recordingField) return
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
       if (e.key === 'Escape') {
-        setRecording(false) // 취소 — 기존 단축키 유지
+        setRecordingField(null) // 취소 — 기존 단축키 유지
         return
       }
       const accelerator = toAccelerator(e)
       if (!accelerator) return // 유효하지 않은 조합은 무시하고 계속 대기
-      setRecording(false)
-      void patch({ modeShortcut: accelerator })
+      const field = recordingField
+      setRecordingField(null)
+      void patch({ [field]: accelerator })
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-    // recording 상태에만 반응하면 된다(patch 는 재실행 불필요).
-  }, [recording])
+    // recordingField 에만 반응하면 된다(patch 는 재실행 불필요).
+  }, [recordingField])
 
   if (!settings) return <div className="screen settings-screen" />
 
@@ -608,11 +614,13 @@ export function SettingsScreen() {
         <div className="shortcut-row">
           <span className="label">모드 전환 (일반 ↔ 선택)</span>
           <div className="shortcut-control">
-            <span className={`shortcut-keys${recording ? ' recording' : ''}`}>
-              {recording ? '수식키+키 입력 (Esc 취소)' : formatAccelerator(settings.modeShortcut)}
+            <span className={`shortcut-keys${recordingField === 'modeShortcut' ? ' recording' : ''}`}>
+              {recordingField === 'modeShortcut'
+                ? '수식키+키 입력 (Esc 취소)'
+                : formatAccelerator(settings.modeShortcut)}
             </span>
             <EditDeleteGroup
-              onEdit={() => setRecording(true)}
+              onEdit={() => setRecordingField('modeShortcut')}
               onDelete={() => void patch({ modeShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.modeShortcut}
@@ -621,6 +629,25 @@ export function SettingsScreen() {
         </div>
         <div className="settings-note">
           <KeyboardIcon /> 설정한 단축키를 누를 때마다 일반 모드와 선택 모드가 전환됩니다.
+        </div>
+        <div className="shortcut-row">
+          <span className="label">설정 화면 열기</span>
+          <div className="shortcut-control">
+            <span className={`shortcut-keys${recordingField === 'settingsShortcut' ? ' recording' : ''}`}>
+              {recordingField === 'settingsShortcut'
+                ? '수식키+키 입력 (Esc 취소)'
+                : formatAccelerator(settings.settingsShortcut)}
+            </span>
+            <EditDeleteGroup
+              onEdit={() => setRecordingField('settingsShortcut')}
+              onDelete={() => void patch({ settingsShortcut: '' })}
+              deleteTitle="단축키 해제"
+              deleteDisabled={!settings.settingsShortcut}
+            />
+          </div>
+        </div>
+        <div className="settings-note">
+          <KeyboardIcon /> 어디서든 이 단축키를 누르면 설정 화면이 열립니다.
         </div>
       </section>
 

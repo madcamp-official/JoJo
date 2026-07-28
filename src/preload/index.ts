@@ -5,6 +5,7 @@ import type {
   AppMode,
   AppSettings,
   CaptureSource,
+  DictionarySourceOption,
   ExtractedSelection,
   JaTokenizeResult,
   Language,
@@ -105,6 +106,11 @@ const api = {
 
   question: (ctx: SelectionContext, req: QuestionRequest): Promise<QuestionResult> =>
     ipcRenderer.invoke(IPC.QUESTION_REQUEST, ctx, req),
+
+  // 사전 어댑터 병렬 구현 디버깅용 임시 API(2026-07-28) — 이 언어에 실제로 구현된 소스
+  // 목록(registry.ts)을 조회한다.
+  getDictionarySources: (language: Language): Promise<DictionarySourceOption[]> =>
+    ipcRenderer.invoke(IPC.DICTIONARY_SOURCES_GET, language),
 
   onQuestionStream: (cb: (chunk: QuestionResult) => void): (() => void) => {
     const listener = (_e: unknown, chunk: QuestionResult) => cb(chunk)

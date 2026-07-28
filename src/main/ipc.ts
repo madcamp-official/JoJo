@@ -4,6 +4,7 @@ import type {
   ApiKeyId,
   AppSettings,
   CaptureSource,
+  DictionarySourceOption,
   ExtractedSelection,
   Language,
   LlmProvider,
@@ -14,6 +15,7 @@ import type {
 } from '@shared/types'
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
+import { listAvailableDictionarySources } from './question/dictionary/registry'
 import { startChangeWatcher } from './selection/changeWatcher'
 import { getSelectedWindowId, listWindows, setSelectedWindowId } from './selection/capture'
 import { invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
@@ -31,7 +33,7 @@ import {
   trackSelectionOverlay,
   type MainRoute,
 } from './windows'
-import { resetToNormalMode, updateModeShortcut } from './selection/shortcut'
+import { resetToNormalMode, updateModeShortcut, updateSettingsShortcut } from './selection/shortcut'
 import { getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
@@ -125,6 +127,15 @@ export function registerIpc(): void {
     },
   )
 
+  // 사전 어댑터 병렬 구현 디버깅용 임시 채널 — 이 언어에 실제로 구현된(파일이 존재하는)
+  // 소스 목록을 폴백 순위대로 내려준다(registry.ts).
+  ipcMain.handle(
+    IPC.DICTIONARY_SOURCES_GET,
+    async (_e, language: Language): Promise<DictionarySourceOption[]> => {
+      return listAvailableDictionarySources(language)
+    },
+  )
+
   // 담당 B: 설정 조회/변경
   ipcMain.handle(IPC.SETTINGS_GET, async (): Promise<AppSettings> => {
     return getSettings()
@@ -134,6 +145,7 @@ export function registerIpc(): void {
     const next = setSettings(patch)
     if (patch.llm) setActiveProvider(patch.llm)
     if (patch.modeShortcut !== undefined) updateModeShortcut(patch.modeShortcut)
+    if (patch.settingsShortcut !== undefined) updateSettingsShortcut(patch.settingsShortcut)
     return next
   })
 

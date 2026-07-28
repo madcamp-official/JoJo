@@ -18,7 +18,7 @@ export async function runQuestion(
     case 'pronunciation':
       return getPronunciation(ctx, onChunk)
     case 'dictionary':
-      return lookupDictionary(ctx, onChunk)
+      return lookupDictionary(ctx, req.source, onChunk)
     case 'ask':
       return askLlm(ctx, req.prompt, req.history ?? [], onChunk)
   }

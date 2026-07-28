@@ -41,6 +41,9 @@ export const IPC = {
   // 질문 (담당 B)
   QUESTION_REQUEST: 'question:request',
   QUESTION_STREAM: 'question:stream',
+  // 사전 어댑터 병렬 구현 디버깅용 임시 채널(2026-07-28) — 언어별로 실제 구현된
+  // 소스 목록(question/dictionary/registry.ts)을 조회한다.
+  DICTIONARY_SOURCES_GET: 'dictionary:sourcesGet',
 
   // 팝업 (담당 B) — 선택 확정 후 뜨는 검색/채팅 팝업
   OPEN_POPUP: 'popup:open',

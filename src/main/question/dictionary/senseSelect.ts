@@ -35,6 +35,9 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
     for (const reading of entry.readings) {
       const pronunciation = reading.pronunciations?.[0]?.value
       for (const sense of reading.senses) {
+        // gloss 없는 sense 는 하위 구분을 위한 그룹 헤더일 뿐 그 자체로는 선택 가능한
+        // 뜻풀이가 아니다(shared/types.ts DictionarySenseGloss 참고) — LLM 판정 목록에서 제외한다.
+        if (!sense.gloss) continue
         out.push({
           index: index++,
           headword,
