@@ -145,6 +145,8 @@ function validationMessage(code?: QuestionErrorCode): string {
     case 'invalid_api_key':
     case 'no_api_key':
       return '유효하지 않은 API 키입니다.'
+    case 'insufficient_credit':
+      return '키는 유효하지만 크레딧(사용 한도)이 부족합니다. 결제 정보를 확인해 주세요.'
     case 'rate_limited':
       return '요청이 많아 확인에 실패했습니다. 잠시 후 다시 시도하세요.'
     case 'network_error':
