@@ -15,6 +15,7 @@ export interface NumberedSense {
   pronunciation?: string
   irregularForms?: string[]
   transitive?: boolean
+  definite?: boolean
   gloss: string[]
   examples?: string[]
   usageTags?: UsageTag[]
@@ -45,6 +46,7 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
           pronunciation,
           irregularForms: 'irregularForms' in sense ? sense.irregularForms : undefined,
           transitive: 'transitive' in sense ? sense.transitive : undefined,
+          definite: 'definite' in sense ? sense.definite : undefined,
           gloss: sense.gloss,
           examples: sense.examples,
           usageTags: sense.usageTags,
@@ -63,10 +65,21 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
 export function buildSenseListText(senses: NumberedSense[]): string {
   return senses
     .map((s) => {
-      // transitive 가 있으면(MW def.vd 실측: "run"처럼 타동/자동사로 def 블록이 갈리는
-      // 경우) 품사 라벨 자체를 "타동사"/"자동사"로 대체한다 — "동사 (타동사)"처럼
-      // 병기하지 않는다(사용자 요청, 2026-07-28).
-      const label = s.transitive === true ? '타동사' : s.transitive === false ? '자동사' : (s.posRaw ?? s.pos)
+      // transitive/definite 가 있으면(MW def.vd/fl 실측: "run"처럼 타동/자동사로 def
+      // 블록이 갈리거나, "the"/"a" 처럼 정관사/부정관사가 구분되는 경우) 품사 라벨 자체를
+      // 대체한다 — "동사 (타동사)"처럼 병기하지 않는다(사용자 요청, 2026-07-28). 둘 다
+      // undefined 인 소스(OEWN/Wiktionary 등 구조화된 구분이 없는 경우)는 그냥 원래
+      // 라벨("관사" 등)로 폴백된다.
+      const label =
+        s.transitive === true
+          ? '타동사'
+          : s.transitive === false
+            ? '자동사'
+            : s.definite === true
+              ? '정관사'
+              : s.definite === false
+                ? '부정관사'
+                : (s.posRaw ?? s.pos)
       const tag = label ? `[${label}] ` : ''
       const gloss = s.gloss.join('; ')
       const ex = s.examples?.length ? ` (예: ${s.examples.map((e) => `"${e}"`).join(' / ')})` : ''
@@ -174,15 +187,21 @@ export function formatDictionaryAnswer(
   // sense 마다 발음·품사가 다를 수 있어(예: bank 명사 vs bank 동사) 표제어 줄 자체를
   // sense 블록 단위로 반복한다 — 선택된 sense 가 하나뿐인 보통의 경우엔 한 줄만 나온다.
   for (const { sense, translatedGloss, translatedExamples } of selected) {
-    // MW def[].vd(verb divider) 실측 확인(2026-07-28, "run") — 동사 sense 마다 타동/자동
-    // 여부가 다를 수 있어(intransitive/transitive 로 def 블록 자체가 갈림) 있으면 품사
-    // 라벨 자체를 "타동사"/"자동사"로 대체한다(사용자 요청, "동사 (타동사)"처럼 병기 안 함).
+    // MW def[].vd/fl 실측 확인(2026-07-28) — 동사는 sense 마다 타동/자동 여부가(intransitive/
+    // transitive 로 def 블록이 갈림), 관사는 fl 자체가("definite article"/"indefinite
+    // article") 다를 수 있어 있으면 품사 라벨을 "타동사"/"자동사"/"정관사"/"부정관사"로
+    // 대체한다(사용자 요청, "동사 (타동사)"처럼 병기 안 함). 구조화된 구분이 없는 소스는
+    // 전부 undefined 라 기존 POS_KO/posRaw 폴백 그대로 나온다.
     const label =
       sense.transitive === true
         ? '타동사'
         : sense.transitive === false
           ? '자동사'
-          : ((sense.pos && POS_KO[sense.pos]) ?? sense.posRaw)
+          : sense.definite === true
+            ? '정관사'
+            : sense.definite === false
+              ? '부정관사'
+              : ((sense.pos && POS_KO[sense.pos]) ?? sense.posRaw)
     const idiomTag = sense.isIdiom ? ' (관용구)' : ''
     const posSuffix = label ? ` · ${label}${idiomTag}` : ''
     // MW 는 IPA 가 아니라 자체 표기법이라 표시 직전에 IPA 근사치로 변환한다(merriamWebsterToIpa.ts).
