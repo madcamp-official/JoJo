@@ -1,5 +1,6 @@
 import { warmUp as warmUpLayout } from './layoutDetect'
 import { warmUp as warmUpPaddle } from './ocrPaddle'
+import { warmUp as warmUpYomitoku } from './ocrYomitoku'
 
 // 담당 A — 실험용 브랜치(experiment/doclayout-yolo). Python 엔진(DocLayout-YOLO/
 // PaddleOCR) 예열의 전체 완료 시점을 추적한다 — 렌더러(MainScreen)가 이걸 보고 창 선택
@@ -20,7 +21,7 @@ let readyPromise: Promise<void> | null = null
 /** main/index.ts 가 앱 시작 시 한 번 호출한다. */
 export function startWarmUp(): Promise<void> {
   if (!readyPromise) {
-    readyPromise = Promise.all([warmUpLayout(), warmUpPaddle()]).then(() => {
+    readyPromise = Promise.all([warmUpLayout(), warmUpPaddle(), warmUpYomitoku()]).then(() => {
       ready = true
     })
   }

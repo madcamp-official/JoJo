@@ -10,11 +10,17 @@ import { getApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { registerContextMenu } from './contextMenu'
 import { warmJapaneseTokenizer } from './nlp/japanese'
-import { killAllPythonServers } from './selection/pythonServer'
+import { cleanupOrphanedPythonServers, killAllPythonServers } from './selection/pythonServer'
 import { startWarmUp } from './selection/warmup'
 
 // 앱 진입점 — 윈도우 생성, IPC 등록, 전역 단축키 등록
 app.whenReady().then(() => {
+  // 지난 실행이 비정상 종료돼서(강제 종료 등) 못 지운 python 워커가 있으면 새로
+  // 워커를 스폰하기 전에 먼저 정리한다(pythonServer.ts: cleanupOrphanedPythonServers
+  // 주석 참고) — 실사용 중 반복 확인: 정상적인 before-quit 을 못 타는 종료가 쌓이면
+  // 프로세스가 계속 늘어나 CPU 오버서브스크립션으로 이어짐.
+  cleanupOrphanedPythonServers()
+
   // 개발 전용: .env(MAIN_VITE_*)의 API 키를 keyStore 에 주입
   if (import.meta.env.DEV) seedApiKeysFromEnv()
 

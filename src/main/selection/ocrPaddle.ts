@@ -188,11 +188,22 @@ function xGap(a: Rect, b: Rect): number {
   return Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width))
 }
 
-export function excludeFurigana(lines: Rect[]): Rect[] {
+// ja/zh 인식 백엔드를 여러 개(PaddleOCR, Yomitoku) 두면서 이 필터를 Rect 뿐 아니라
+// "Rect + 그 줄의 텍스트" 같은 확장 타입에도 그대로 쓸 일이 생겨서(ocrYomitoku.ts)
+// 제네릭으로 바꿨다 — 내부 로직은 Rect 필드(x/y/width/height)만 보고 그 외 필드는
+// 아예 안 건드리므로 동작 변화 없음, 기존 호출부(Rect[] 그대로 넘김)도 그대로 동작한다.
+//
+// widthRatio 를 인자로 뺀 이유: Yomitoku 의 후리가나 검출 박스는 PaddleOCR 만큼 타이트하게
+// 안 잘려서(실측 확인: 본문 대비 1.4~1.75배 정도, PaddleOCR 는 보통 2배 이상) 기본값
+// (FURIGANA_WIDTH_RATIO=1.8, PaddleOCR 기준으로 튜닝됨)으로는 실제 후리가나가 안 걸러지고
+// 그대로 열로 남아 열 순서/기준선 계산을 오염시켰다(실사용 중 확인) — ocrYomitoku.ts 는
+// 더 낮은 값을 넘겨써서 이 문제를 피한다. PaddleOCR 호출부는 인자를 안 넘기므로 기존
+// 동작(1.8) 그대로 유지된다.
+export function excludeFurigana<T extends Rect>(lines: T[], widthRatio: number = FURIGANA_WIDTH_RATIO): T[] {
   return lines.filter((line) => {
     const hasWiderNeighbor = lines.some((other) => {
       if (other === line) return false
-      if (other.width < line.width * FURIGANA_WIDTH_RATIO) return false
+      if (other.width < line.width * widthRatio) return false
       if (yOverlapFraction(line, other) < FURIGANA_Y_OVERLAP_MIN) return false
       return xGap(line, other) <= line.width * FURIGANA_MAX_GAP_RATIO
     })
@@ -212,7 +223,9 @@ export function excludeFurigana(lines: Rect[]): Rect[] {
 // 열 간격 판정이 흔들린다 — 실측 확인.)
 const COLUMN_GAP_RATIO = 1.5
 
-export function clusterVerticalLinesIntoColumns(lines: Rect[]): Rect[] {
+// excludeFurigana 와 같은 이유로 제네릭화(ocrYomitoku.ts 에서 "Rect + 텍스트" 쌍을
+// 그대로 재정렬하는 데 재사용) — 내부는 Rect 필드만 본다.
+export function clusterVerticalLinesIntoColumns<T extends Rect>(lines: T[]): T[] {
   if (lines.length <= 1) return lines
   const widths = [...lines].map((l) => l.width).sort((a, b) => a - b)
   const medianWidth = widths[Math.floor(widths.length / 2)]!
@@ -221,13 +234,20 @@ export function clusterVerticalLinesIntoColumns(lines: Rect[]): Rect[] {
   // 오른쪽 열부터 읽는다(세로쓰기 관례) — x 중심 기준 내림차순으로 훑으며 묶는다.
   const byX = [...lines].sort((a, b) => b.x + b.width / 2 - (a.x + a.width / 2))
 
-  const columns: Rect[][] = []
+  const columns: T[][] = []
   const columnCenterSum: number[] = []
   const columnCount: number[] = []
   for (const line of byX) {
     const center = line.x + line.width / 2
     const last = columns.length - 1
-    if (last >= 0 && Math.abs(columnCenterSum[last]! / columnCount[last]! - center) <= gapThreshold) {
+    // 경계값(간격이 정확히 gapThreshold 와 같은 경우)은 "다른 열"로 본다(<= 가 아니라 <)
+    // — 실측 확인: 어떤 페이지에서 서로 다른 두 열의 중심 간격이 medianWidth*COLUMN_GAP_RATIO
+    // 와 정확히 일치해서(글자 폭이 균일한 조판이라 우연이 아니라 실제로 자주 맞아떨어짐)
+    // <= 였을 때 두 열이 하나로 합쳐져 버렸고, 합쳐진 뭉치 안에서 y좌표로 재정렬되며 읽기
+    // 순서가 뒤섞였다(오른쪽 열이 왼쪽 열보다 늦게 읽힘). 경계에서는 "합치지 않음" 쪽이
+    // 더 안전한 기본값이다 — 잘못 합쳐지면 순서가 깨지지만, 잘못 안 합쳐지면(같은 열이
+    // 조각나 있던 경우) 최악의 경우도 조각들이 별개 열처럼 취급될 뿐 순서 자체는 유지된다.
+    if (last >= 0 && Math.abs(columnCenterSum[last]! / columnCount[last]! - center) < gapThreshold) {
       columns[last]!.push(line)
       columnCenterSum[last]! += center
       columnCount[last]!++
@@ -261,146 +281,314 @@ function padLine(line: Rect): Rect {
   }
 }
 
-function median(nums: number[]): number {
-  const sorted = [...nums].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2
+// PaddleOCR 의 `text_word`가 주는 개별 bbox 크기는 못 믿는다 — 실측 확인 결과 글자
+// 하나짜리 원시 단위도 が/を/で 같은 조사가 3~4px 높이로 잡히는 등 들쭉날쭉하고(모델
+// CTC 디코딩 특성상 나온 결과일 뿐, 실제 글자 칸 크기가 아님), 여러 글자가 원시 단위
+// 하나(bbox 하나)로 뭉쳐 오는 경우(예: "まさか、こんな" 7글자가 박스 하나)까지 겹치면
+// 그 안에서 이 개별 bbox 들을 기준으로 아무리 추정해도 실제 글자 위치와 어긋났다
+// (실사용 중 "박스 테두리가 글자 가운데 있음" 등으로 계속 확인됨).
+//
+// 대신 세로쓰기/가로쓰기 CJK 조판은 관례적으로 글자 한 칸이 전부 같은 크기인 균등
+// 격자다(활자 조판 "몇 자 詰め" 관례) — 그래서 PaddleOCR 의 개별 bbox 크기는 전부
+// 버리고, 이미 신뢰하는 줄 전체의 검출 범위(lineRect, detectLinesWithPaddle 결과)를
+// 그 줄의 실제 글자 수로 균등 격자 분할해 각 글자 칸의 위치를 새로 만든다. 그 격자
+// 위에 Sudachi/kuromoji 가 정한 단어 경계를 그대로 얹어 단어 박스(칸 여러 개를 이어붙인
+// 사각형)를 만든다 — PaddleOCR 가 내부적으로 글자를 어떻게 뭉쳐서 줬는지는 완전히
+// 무시되므로(텍스트만 가져다 씀) 뭉침 여부와 무관하게 항상 같은 방식으로 정확하다.
+//
+// vertical=true(세로쓰기, 위→아래로 읽음)면 높이를 글자 수로 나누고, false(가로쓰기,
+// 왼→오로 읽음)면 폭을 나눈다 — 이 함수는 recognizeVerticalColumnWithPaddle(세로)와
+// recognizeLinesWithPaddle(가로 폴백) 양쪽에서 공유해서 쓰이므로 방향을 인자로 받는다.
+// 문장부호(、。 등)를 다른 글자보다 좁게(반각) 칠 가능성을 고려해봤는데, 실제 대상
+// 문서에서는 문장부호도 전각(다른 글자와 같은 폭)으로 조판돼 있어 그냥 모든 글자를
+// 동일 가중치(1칸)로 균등 분할한다.
+//
+// typicalCellSize 를 주면(estimateCellSizeFromIndent 로 구한, 이 컬럼 세트 전체의
+// 들여쓰기 기반 기준값) 그걸 그대로 칸 크기로 쓰고, 없으면(그 기준값을 못 구한 경우)
+// 이 줄 자신의 "검출 범위 ÷ 글자 수"로 되돌아간다 — 후자는 검출 모델이 글자 사이
+// 여백까지 포함 안 하고 잉크에만 딱 맞게 범위를 잡는 경향이 있어(실측 확인) 실제 칸
+// 크기보다 살짝 작게 나오고, 글자 위치가 누적합이라 줄 아래로 갈수록 그 작은 오차가
+// 쌓여 어긋남이 커진다 — 페이지 전체에서 공통으로 구한 기준값을 쓰면 이 누적 오차가
+// 없다.
+// 세로쓰기 조판 관례(縦中横, tate-chū-yoko) — 아라비아 숫자가 정확히 2자리 연속으로
+// 나오면(예: "16") 세로 두 칸이 아니라 가로로 나란히 눕혀서 한 칸에 압축해 넣는다(실측
+// 확인: 레ベル 뒤의 "16"이 딱 한 글자 높이 안에 들어가 있음). 1자리나 3자리 이상인
+// 숫자 연속, 숫자+기호 조합(예: "+5")은 압축 안 되고 그대로 한 칸씩 차지한다(실측
+// 확인: "+5"는 "+"와 "5"가 각각 따로 한 칸씩). 이 압축을 안 셈에 넣으면 "16"을 2칸으로
+// 쳐서 그 뒤 모든 글자 위치가 한 칸씩 밀린다(실사용 중 "그 다음 글자에 박스가 안 뜨고
+// 밑에 밀림"으로 확인).
+const DIGIT_RE = /[0-9]/
+
+function computeSlotWeights(codepoints: string[]): number[] {
+  const weights = new Array(codepoints.length).fill(1)
+  let i = 0
+  while (i < codepoints.length) {
+    if (!DIGIT_RE.test(codepoints[i]!)) {
+      i++
+      continue
+    }
+    let j = i
+    while (j < codepoints.length && DIGIT_RE.test(codepoints[j]!)) j++
+    if (j - i === 2) {
+      weights[i] = 0.5
+      weights[i + 1] = 0.5
+    }
+    i = j
+  }
+  return weights
 }
 
-// PaddleOCR 의 `text_word`는 대체로 글자 하나 단위지만 항상 그렇지는 않다 — 실측 확인:
-// 히라가나가 연속되는 구간에서 "まさか、こんな"(7글자)처럼 여러 글자가 원시 단위 하나로
-// 뭉쳐서 오고, 그 bbox 는 그 7글자 전체를 감싸는 사각형 하나뿐이다(개별 글자 위치 정보가
-// 없음). 이 경우 세로쓰기 줄 안에서 위→아래로 읽히므로 "높이"를 나눠 각 글자의 근사
-// 위치를 만들어야 하는데, 글자 수로 그냥 균등 분할하면(마진 높이/글자수) 실측 확인 결과
-// 여전히 박스가 실제 글자와 눈에 띄게 어긋났다 — 실제로는 한자(약 20~25px)와 조사/작은
-// 가나(그보다 훨씬 얇게 검출되는 경우가 흔함, 예: が/を/で 가 3~4px로 검출된 사례 다수)의
-// 실측 높이가 균일하지 않아서, 그냥 나눈 값은 어느 글자에도 잘 안 맞는 절충값이 된다.
-// 대신 실측으로 얻은(다른 곳에서 글자 하나 단위로 잘 떼어진 원시 단위들의 실측 높이
-// 중앙값 — typicalHeight) "전형적인 글자 높이"를 가운데 글자들에 그대로 적용한다.
-//
-// 남은 오차(전형값 합계와 실제 합쳐진 bbox 높이의 차이)를 처음엔 마지막 글자 하나에
-// 전부 몰아줬는데, 실측 확인 결과 그러면 마지막 글자만 유독 심하게 어긋나 보였다(실사용
-// 중 "밑테두리가 마지막 글자 중간에 있음"으로 확인, 반대로 첫 글자는 멀쩡해 보임 —
-// 오차가 한쪽에만 쏠리니 그쪽만 도드라짐). 그래서 오차를 첫 글자와 마지막 글자 양쪽에
-// 절반씩 나눠 흡수시킨다 — 가운데 글자들은 그대로 전형값을 쓰고, 양 끝만 조금씩(전체
-// 오차의 절반씩만) 어긋나서 어느 한쪽만 크게 튀는 일이 줄어든다. 글자가 2개뿐이면
-// "가운데"가 없어 양쪽이 곧 전체이므로 자연히 균등 분할과 같아진다.
-//
-// 전형값을 가운데 글자들에 다 채우면 합쳐진 bbox 범위를 넘어버리는 경우(단독 글자
-// 참고 표본이 없어 전형값을 못 구했거나, 전형값이 이 구간엔 안 맞는 경우)엔 기존처럼
-// 균등 분할로 안전하게 되돌아간다.
-function splitCharBbox(bbox: Rect, charCount: number, typicalHeight: number | null): Rect[] {
-  if (charCount <= 1) return [bbox]
-  const middleCount = charCount - 2
-  const fitsTypical = typicalHeight && typicalHeight * middleCount < bbox.height
-  let heights: number[]
-  if (fitsTypical) {
-    const edgeHeight = (bbox.height - typicalHeight! * middleCount) / 2
-    heights = [edgeHeight, ...Array(middleCount).fill(typicalHeight), edgeHeight]
-  } else {
-    heights = Array(charCount).fill(bbox.height / charCount)
-  }
-  const boxes: Rect[] = []
-  let y = bbox.y
-  for (const h of heights) {
-    boxes.push({ x: bbox.x, y, width: bbox.width, height: h })
-    y += h
-  }
-  return boxes
-}
-
-/**
- * ocr.ts 의 Tesseract CJK 경로(buildCjkLineWords)는 이미 형태소 분석기(kuromoji/segmentit)
- * 로 의미 단위 재조합을 하는데, 이 Paddle 경로엔 그 단계가 없어서 최종 Word[] 가 전부
- * 글자(또는 위 splitCharBbox 이전 기준 원시 단위) 단위로 나가고 있었다(팝업 하이라이트/
- * 클릭 단위가 "단어"가 아니라 "글자"가 되는 문제). 같은 분석기를 재사용해 줄 하나(=붙어
- * 있는 글자 시퀀스) 안에서 의미 단위 경계를 다시 잡는다.
- *
- * splitCharBbox 로 먼저 모든 원시 단위를 글자 1개=배열 원소 1개로 완전히 풀어두면(아래
- * flatChars) 문자열 오프셋(segmentJapaneseWords/segmentChineseWords 의 [start,end))과
- * 배열 인덱스가 항상 1:1이라 그대로 슬라이스할 수 있다 — 이걸 안 하고 원시 단위 배열에
- * 바로 슬라이스하면(예전 버전) 원시 단위 하나가 글자 2개 이상을 담은 경우부터 배열
- * 인덱스가 문자열 오프셋보다 앞서가서 그 뒤로 모든 그룹의 경계가 밀리고, 그 원시 단위의
- * "합쳐진 큰 bbox"를 여러 단어가 그대로 나눠 갖게 돼 서로 겹치는 박스가 생겼다(실사용 중
- * "클릭한 단어와 팝업에서 선택된 단어가 다름", "박스 테두리가 글자 가운데 있음"으로 확인
- * — 겹치는 박스끼리 findWordAtPoint 의 최소 면적 우선 규칙이 클릭 위치와 무관하게 뒤섞여
- * 골랐던 것).
- *
- * segmentJapaneseWords/segmentChineseWords 는 문장부호만 있는 조각을 걸러내고 반환하는데,
- * 그 걸러진 문자를 그냥 버리면 팝업 본문 텍스트에서 문장부호가 통째로 사라진다(실사용
- * 확인). 그래서 boundaries 가 비운 구간(gap)의 글자는 원래 단위(글자 1개) 그대로 결과에
- * 끼워 넣어 원문을 그대로 보존한다 — 다만 bbox 는 없앤다: 문장부호는 클릭 가능한
- * "단어"가 아닌데 bbox 를 그대로 두면 오버레이에 박스가 뜨고 클릭도 돼버린다(실사용 중
- * "쉼표에 박스가 생기고, 누르면 그 위 단어가 선택됨"으로 확인 — findWordAtPoint 가
- * bbox 있는 항목만 클릭 대상으로 보므로 bbox 를 없애면 자동으로 클릭 대상에서 빠진다).
- *
- * typicalHeight(전형적 글자 높이)는 이 줄만 봐서 계산하지 않고 호출부(recognizeOrderedLines)
- * 가 같은 컬럼 세트 전체의 실측 단일 글자 높이로 미리 계산해 넘겨준다 — 줄이 짧으면
- * (특히 "だが" 처럼 글자 2~3개짜리) 참고할 단독 글자 표본이 거의 없어 중앙값이 불안정해질
- * 수 있어서, 표본이 많은 전체 컬럼 세트 기준이 더 안정적이다(실사용 중 "한 글자짜리
- * 단어인데 박스가 글자를 다 못 덮음"으로 확인된 사례들이 대부분 이런 표본 부족 케이스).
- */
-async function groupCjkChars(
-  chars: Word[],
+export async function groupCjkCharsGrid(
+  lineRect: Rect,
+  text: string,
   language: 'ja' | 'zh-Hans' | 'zh-Hant',
-  typicalHeight: number | null,
+  vertical: boolean,
+  typicalCellSize: number | null,
 ): Promise<Word[]> {
-  if (chars.length === 0) return []
-  const text = chars.map((c) => c.text).join('')
+  const codepoints = [...text]
+  if (codepoints.length === 0) return []
   const boundaries = [...(language === 'ja' ? await segmentJapaneseWords(text) : segmentChineseWords(text))].sort(
     (a, b) => a.start - b.start,
   )
-  const flatChars: Word[] = chars.flatMap((c) => {
-    const codepoints = [...c.text]
-    if (!c.bbox || codepoints.length <= 1) return codepoints.map((ch) => ({ text: ch, bbox: c.bbox }))
-    const boxes = splitCharBbox(c.bbox, codepoints.length, typicalHeight)
-    return codepoints.map((ch, i) => ({ text: ch, bbox: boxes[i] }))
-  })
+  const weights = computeSlotWeights(codepoints)
+  const cumulative: number[] = [0]
+  for (const w of weights) cumulative.push(cumulative[cumulative.length - 1]! + w)
+  const totalWeight = cumulative[cumulative.length - 1]!
+  const cellSize = typicalCellSize ?? (vertical ? lineRect.height : lineRect.width) / totalWeight
 
   const words: Word[] = []
   let pos = 0
+  // boundaries 가 비운 구간(문장부호 등 형태소 분석기가 걸러낸 글자)은 원문 보존을 위해
+  // 텍스트만 그대로 끼워 넣는다 — bbox 는 안 준다(클릭 가능한 "단어"가 아니므로 오버레이에
+  // 박스가 뜨거나 클릭되면 안 된다, 실사용 중 "쉼표에 박스 생김"으로 확인).
   const pushGapChars = (end: number) => {
-    for (; pos < end; pos++) {
-      const c = flatChars[pos]
-      if (c) words.push({ text: c.text })
-    }
+    for (; pos < end; pos++) words.push({ text: codepoints[pos]! })
   }
   for (const b of boundaries) {
     pushGapChars(b.start)
-    const group = flatChars.slice(b.start, b.end).filter((c) => c.bbox)
-    if (group.length > 0) {
-      const x0 = Math.min(...group.map((c) => c.bbox!.x))
-      const y0 = Math.min(...group.map((c) => c.bbox!.y))
-      const x1 = Math.max(...group.map((c) => c.bbox!.x + c.bbox!.width))
-      const y1 = Math.max(...group.map((c) => c.bbox!.y + c.bbox!.height))
-      words.push({ text: b.text, bbox: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } })
-    }
+    const start = cumulative[b.start]! * cellSize
+    const span = (cumulative[b.end]! - cumulative[b.start]!) * cellSize
+    words.push({
+      text: b.text,
+      bbox: vertical
+        ? { x: lineRect.x, y: lineRect.y + start, width: lineRect.width, height: span }
+        : { x: lineRect.x + start, y: lineRect.y, width: span, height: lineRect.height },
+    })
     pos = b.end
   }
-  pushGapChars(flatChars.length)
+  pushGapChars(codepoints.length)
   return words
 }
 
 /** 줄 목록을 정해진 순서 그대로 병렬 인식해 이어붙인다 — 실패한 줄이 하나라도 있으면
- * 전체를 null 로 반환해 호출부가 Tesseract 로 통째 폴백하게 한다. zh/ja 는 줄 하나
- * 단위로 groupCjkChars 를 거쳐 글자 단위 결과를 의미 단위 단어로 재조합한다(위 주석
- * 참고) — 이 함수의 호출부(recognizeVerticalColumnWithPaddle/recognizeLinesWithPaddle)
- * 는 전부 zh/ja 전용이라 language 는 항상 이 셋 중 하나다. */
-async function recognizeOrderedLines(image: Buffer, language: Language, orderedLines: Rect[]): Promise<Word[] | null> {
+ * 전체를 null 로 반환해 호출부가 Tesseract 로 통째 폴백하게 한다. zh/ja 는 PaddleOCR 의
+ * 인식 텍스트만 가져다 쓰고(bbox 는 안 믿음) `groupCjkCharsGrid`로 줄 자체의 검출 범위를
+ * 격자 분할해 단어 박스를 다시 만든다(위 주석 참고) — 이 함수의 호출부
+ * (recognizeVerticalColumnWithPaddle/recognizeLinesWithPaddle)는 전부 zh/ja 전용이라
+ * language 는 항상 이 셋 중 하나다. */
+async function recognizeOrderedLines(
+  image: Buffer,
+  language: Language,
+  orderedLines: Rect[],
+  vertical: boolean,
+): Promise<Word[] | null> {
   const perLine = await Promise.all(orderedLines.map((line) => recognizeWithPaddle(image, language, padLine(line))))
   if (perLine.some((words) => !words)) return null
   if (language !== 'ja' && language !== 'zh-Hans' && language !== 'zh-Hant') {
     return perLine.flatMap((words) => words!)
   }
-  // typicalHeight(전형적 글자 높이)는 이 컬럼 세트의 모든 줄에 걸쳐 실측으로 단일 글자
-  // 단위로 잘 떼어진 원시 단위들의 높이 중앙값이다 — groupCjkChars 주석 참고(줄 하나만
-  // 보면 표본이 부족할 수 있어 전체 세트 기준으로 계산).
-  const allSingleCharHeights = perLine.flatMap((words) =>
-    words!.filter((w) => w.bbox && [...w.text].length === 1).map((w) => w.bbox!.height),
+  const texts = perLine.map((words) => words!.map((w) => w.text).join(''))
+  // 세로쓰기에서만 대시(―) 보정을 시도한다 — 가로쓰기 폴백 경로는 이 문제 대상이 아니다.
+  const { texts: finalTexts, typicalCellSize } = vertical
+    ? await insertUndetectedMarks(
+        orderedLines,
+        perLine.map((w) => w!),
+        texts,
+      )
+    : { texts, typicalCellSize: null }
+  if (process.env.DEBUG_OCR_DUMP) {
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    writeFileSync(
+      join(process.env.DEBUG_OCR_DUMP, `texts-${Date.now()}.json`),
+      JSON.stringify(
+        orderedLines.map((line, i) => ({ x: line.x, before: texts[i], after: finalTexts[i], changed: texts[i] !== finalTexts[i] })),
+        null,
+        2,
+      ),
+    )
+  }
+  const grouped = await Promise.all(
+    orderedLines.map((line, i) => groupCjkCharsGrid(line, finalTexts[i]!, language, vertical, typicalCellSize)),
   )
-  const typicalHeight = allSingleCharHeights.length > 0 ? median(allSingleCharHeights) : null
-  const grouped = await Promise.all(perLine.map((words) => groupCjkChars(words!, language, typicalHeight)))
   return grouped.flat()
+}
+
+export function median(nums: number[]): number {
+  const sorted = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2
+}
+
+/**
+ * "글자 하나당 실제 크기"(typicalCellSize)를 세로쓰기 관례(문단/대사 시작 컬럼만 한 칸
+ * 들여쓰기)를 이용해 구한다 — 컬럼별 (검출 범위 ÷ 인식된 글자 수)의 중앙값을 쓰던
+ * 이전 방식은 인식이 실패한 컬럼(글자 수 자체가 틀림, 예: "有" 한 글자로 뭉개진 경우)
+ * 이 섞이면 기준값 자체가 오염됐다(실사용 중 확인). 컬럼의 "위쪽 시작 y좌표"는 인식
+ * 품질과 무관한 순수 검출 정보라 훨씬 깨끗하다 — 대부분 컬럼이 공유하는 기준선(baseline,
+ * 가장 많이 겹치는 y좌표)을 찾고, 그보다 뚜렷이 아래에서 시작하는(들여쓰기된) 컬럼들의
+ * 차이값이 곧 글자 하나의 높이다. 들여쓰기된 컬럼이 하나도 없으면(전부 기준선에서
+ * 시작) 이전 방식(글자 수 기반)으로 되돌아간다.
+ */
+// 후리가나 잔재 등 짧은 조각 줄은 본문 컬럼과 무관한 y좌표에 떠 있어(실측 확인: 이런
+// 조각들 때문에 기준선 계산이 엉뚱한 값으로 튐 — 77px 같은 비정상적인 "글자 하나 높이"가
+// 나온 사례). 본문 컬럼만 골라 쓰기 위한 최소 높이 기준.
+// ocrYomitoku.ts 도 같은 필터(짧은 잡음 줄 제외 후 기준선 계산)를 재사용한다.
+export const MIN_BODY_LINE_HEIGHT = 100
+
+/**
+ * 여러 컬럼(줄)이 공유하는 "기준선"(들여쓰기 없는 문단/컬럼들의 공통 시작 y좌표) —
+ * ocrYomitoku.ts 도 같은 개념(대시 미검출로 줄이 기준선보다 아래서 시작하는지 판정)이
+ * 필요해서 분리해 export 한다. 최빈값 기준이라 후리가나 등 잡음이 섞여도(MIN_BODY_LINE_HEIGHT
+ * 로 이미 걸렀다는 전제 하에) 안정적이다.
+ */
+export function computeBaseline(bodyLines: Rect[]): number | null {
+  if (bodyLines.length < 2) return null
+  const rounded = bodyLines.map((l) => Math.round(l.y / 5) * 5)
+  const counts = new Map<number, number>()
+  for (const y of rounded) counts.set(y, (counts.get(y) ?? 0) + 1)
+  let baseline = rounded[0]!
+  let bestCount = 0
+  for (const [y, c] of counts) {
+    // 동점이면 더 작은 y(=들여쓰기 없는 "기준" 쪽일 가능성이 더 큼)를 우선한다.
+    if (c > bestCount || (c === bestCount && y < baseline)) {
+      bestCount = c
+      baseline = y
+    }
+  }
+  return baseline
+}
+
+export function estimateCellSizeFromIndent(lines: Rect[]): number | null {
+  const bodyLines = lines.filter((l) => l.height >= MIN_BODY_LINE_HEIGHT)
+  const baseline = computeBaseline(bodyLines)
+  if (baseline === null) return null
+  const diffs = bodyLines.map((l) => l.y - baseline).filter((d) => d > 5)
+  if (diffs.length === 0) return null
+  // 중앙값 대신 최빈값을 쓴다 — 실측 확인 결과 들여쓰기 차이값들이 검출 노이즈로
+  // 두 무리 정도로 흩어질 때(예: 15~17 vs 19~21) 중앙값이 그 사이 애매한 값으로 나와
+  // 오히려 부정확했다. 2px 단위로 반올림해 가장 많이 겹치는 값을 고른다.
+  const roundedDiffs = diffs.map((d) => Math.round(d / 2) * 2)
+  const diffCounts = new Map<number, number>()
+  for (const d of roundedDiffs) diffCounts.set(d, (diffCounts.get(d) ?? 0) + 1)
+  let best = roundedDiffs[0]!
+  let bestDiffCount = 0
+  for (const [d, c] of diffCounts) {
+    if (c > bestDiffCount) {
+      bestDiffCount = c
+      best = d
+    }
+  }
+  return best
+}
+
+// 미검출/미식별 구간(대시 외에도 종류가 다양함 — 물결표, 각종 강조 기호 등)을 표시할
+// 때 쓰는 공통 자리표자. 처음엔 "―"(대시)로 단정하고 채웠는데, 실사용 중 세로쓰기에서
+// 몇 칸을 차지하는 기호 종류가 대시 말고도 여러 가지 있고 그때마다 어떤 기호인지
+// 정확히 맞히는 게 오히려 오류를 늘린다는 게 확인돼서(사용자 판단) — 정확한 기호를
+// 추정하려 들지 않고 "여기 뭔가 있었는데 못 읽었다"는 사실만 통일된 표시(게타 마크,
+// 일본어 문헌에서 미판독 글자를 표시하는 관례)로 팝업 본문에 남긴다.
+export const UNKNOWN_GAP_PLACEHOLDER = '□'
+
+/**
+ * 세로쓰기 일본어 소설에서 문장 시작/전환에 쓰이는 대시(―)나 그 밖의 몇 칸짜리 기호는
+ * 획이 단순해서 텍스트 검출 모델이 아예 텍스트로 못 잡는 경우가 많다(실측 확인) —
+ * detectLinesWithPaddle 이 잡은 줄 범위(line)가 이런 미검출 여백을 포함하고 있으면,
+ * 그 범위를 인식된 글자 수만큼 나눠 칸을 만들 때(groupCjkCharsGrid) 분모에 안 들어간
+ * 여백만큼 칸이 커져서 뒤 글자들 위치가 전부 계통적으로 밀린다(실사용 중 확인) — 이런
+ * 미검출 구간이 줄 맨 앞뿐 아니라 중간·끝에 오는 경우도 실제로 확인됨.
+ *
+ * 이미지 픽셀 모양(얇고 긴 직선인지)으로 판별하는 방식을 먼저 시도했는데, 실측 확인
+ * 결과 진짜 글자의 잉크가 우연히 얇게 잡히는 경우와 구분이 잘 안 돼 오탐이 잦았다.
+ * 대신 **PaddleOCR 가 실제로 인식해낸 글자(원시 단위)들 사이의 y 간격**을 직접 비교한다
+ * — 원시 단위 하나하나의 정확한 크기는 못 믿어도(실측 확인), 두 원시 단위 사이에 기준
+ * 칸 크기(typicalCellSize)의 약 2배에 달하는 빈틈이 있다는 건 훨씬 큰 신호라 믿을 만하다.
+ * 이런 간격이 줄 맨 앞(줄 시작~첫 원시 단위), 중간(원시 단위끼리), 맨 끝(마지막 원시
+ * 단위~줄 끝) 어디에 있든 같은 방식으로 잡아낸다. 간격 크기(기준 칸 크기의 몇 배인지
+ * 반올림)만큼 UNKNOWN_GAP_PLACEHOLDER 를 텍스트에 끼워 넣고, 그 뒤로는 원래 인식된
+ * 글자를 순서대로 이어 붙인다 — 이러면 이후 groupCjkCharsGrid 가 "줄 범위 ÷ 글자 수
+ * (자리표자 포함)"로 나눠도 미검출 구간이 어디에 있었든 정확한 자리에 놓인다(줄 범위
+ * 자체는 안 건드리므로 별도 좌표 보정이 필요 없음). 정확히 어떤 기호였는지는 추정하지
+ * 않는다 — 위 UNKNOWN_GAP_PLACEHOLDER 주석 참고.
+ *
+ * 간격이 기준 칸 크기의 1.5배 미만이면(원시 단위 사이의 정상적인 여백 수준) 무시한다 —
+ * PaddleOCR 인식 실패로 여러 글자가 통째로 빠진 경우(실측 확인된 별개 문제, 예: 10글자
+ * 넘는 내용이 "有" 한 글자로 뭉개짐)는 보통 원시 단위 자체가 그 넓은 범위를 통째로
+ * 차지해버려서(그 하나의 원시 단위 bbox 가 비정상적으로 큼) 단위 "사이"의 간격으로는
+ * 안 나타나므로 이 방식에서 자연히 걸러진다.
+ */
+// ocrYomitoku.ts 도 같은 배율(줄 시작이 기준선보다 1.5~3칸 아래면 미검출 구간으로 판단,
+// 딱 1칸이면 문단 들여쓰기 관례로 판단)을 재사용한다 — 판정 자체의 근거(몇 칸짜리
+// 기호는 육안상 다른 글자보다 넓은 공백을 차지)는 인식 엔진이 바뀌어도 동일하다.
+export const GAP_RATIO_THRESHOLD = 1.5
+// 이 배율을 넘는 간격은 기호가 아니라 PaddleOCR 인식 실패(여러 글자가 통째로 안 잡힘,
+// 실측 확인된 별개 문제 — 예: 10글자 넘는 내용이 "有" 한 글자로 뭉개짐)로 본다 — 이런
+// 경우까지 전부 자리표자로 채우면 이미 망가진 인식 결과를 더 이상하게 만든다.
+export const MAX_GAP_RATIO = 3
+
+async function insertUndetectedMarks(
+  lines: Rect[],
+  perLine: Word[][],
+  texts: string[],
+): Promise<{ texts: string[]; typicalCellSize: number | null }> {
+  const rawCellSizes = lines
+    .map((line, i) => {
+      const n = [...texts[i]!].length
+      return n > 0 ? line.height / n : null
+    })
+    .filter((v): v is number => v !== null)
+  const fallbackCellSize = rawCellSizes.length > 0 ? median(rawCellSizes) : null
+  const typicalCellSize = estimateCellSizeFromIndent(lines) ?? fallbackCellSize
+  if (!typicalCellSize) return { texts, typicalCellSize: null }
+
+  const newTexts = lines.map((line, i) => {
+    const text = texts[i]!
+    const units = perLine[i]!.filter((w) => w.bbox)
+    if (units.length === 0) return text
+
+    // gaps: [원시 단위 배열상 삽입 위치(문자 오프셋), 끼워 넣을 자리표자 개수][]
+    const gaps: [number, number][] = []
+    const countAt = (upTo: number) => [...units.slice(0, upTo).map((u) => u.text).join('')].length
+
+    const inRange = (gap: number) =>
+      gap >= typicalCellSize * GAP_RATIO_THRESHOLD && gap <= typicalCellSize * MAX_GAP_RATIO
+
+    const leadingGap = units[0]!.bbox!.y - line.y
+    if (inRange(leadingGap)) {
+      gaps.push([0, Math.round(leadingGap / typicalCellSize)])
+    }
+    for (let k = 1; k < units.length; k++) {
+      const prev = units[k - 1]!
+      const gap = units[k]!.bbox!.y - (prev.bbox!.y + prev.bbox!.height)
+      if (inRange(gap)) {
+        gaps.push([countAt(k), Math.round(gap / typicalCellSize)])
+      }
+    }
+    const last = units[units.length - 1]!
+    const trailingGap = line.y + line.height - (last.bbox!.y + last.bbox!.height)
+    if (inRange(trailingGap)) {
+      gaps.push([countAt(units.length), Math.round(trailingGap / typicalCellSize)])
+    }
+    if (gaps.length === 0) return text
+
+    // 뒤에서부터 끼워 넣어야 앞쪽 삽입이 뒤쪽 삽입 위치(문자 오프셋)를 안 밀리게 한다.
+    const codepoints = [...text]
+    for (const [idx, count] of [...gaps].sort((a, b) => b[0] - a[0])) {
+      codepoints.splice(idx, 0, ...Array(count).fill(UNKNOWN_GAP_PLACEHOLDER))
+    }
+    return codepoints.join('')
+  })
+  return { texts: newTexts, typicalCellSize }
 }
 
 /**
@@ -436,7 +624,7 @@ export async function recognizeVerticalColumnWithPaddle(
   // 흔들린다, 실측 확인: 순서 뒤섞임/내용 누락).
   const bodyLines = excludeFurigana(lines)
   const ordered = clusterVerticalLinesIntoColumns(bodyLines)
-  return recognizeOrderedLines(image, language, ordered)
+  return recognizeOrderedLines(image, language, ordered, true)
 }
 
 /**
@@ -457,7 +645,7 @@ export async function recognizeLinesWithPaddle(
   const lines = precomputedLines ?? (await detectLinesWithPaddle(image, bbox))
   if (!lines || lines.length === 0) return []
   const ordered = [...lines].sort((a, b) => a.y - b.y)
-  return recognizeOrderedLines(image, language, ordered)
+  return recognizeOrderedLines(image, language, ordered, false)
 }
 
 /**

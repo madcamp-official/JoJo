@@ -12,6 +12,7 @@ import {
   recognizeVerticalColumnWithPaddle,
   recognizeWithPaddle,
 } from './ocrPaddle'
+import { recognizeVerticalColumnWithYomitoku } from './ocrYomitoku'
 import { getCachedDetection } from './regionSelection'
 
 // YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
@@ -178,8 +179,21 @@ async function runVerticalOcr(
 ): Promise<Extracted | null> {
   const target = region ?? fullImageRect(image)
   const start = Date.now()
-  const words = await recognizeVerticalColumnWithPaddle(image, language, target, precomputedLines)
+  // 일본어는 Yomitoku 를 먼저 시도한다 — PaddleOCR 대비 문장부호 누락/숫자 오독/긴
+  // 줄 뭉개짐이 실측으로 사라짐 확인(ocrYomitoku.ts 상단 주석). Yomitoku 는 일본어
+  // 특화 모델이라 zh-Hans/zh-Hant 는 대상이 아니고(중국어 지원 없음), 실패하면(Python
+  // 환경 없음 등) null 이 와서 기존 PaddleOCR 경로로 그대로 폴백한다.
+  const words =
+    language === 'ja'
+      ? (await recognizeVerticalColumnWithYomitoku(image, target)) ??
+        (await recognizeVerticalColumnWithPaddle(image, language, target, precomputedLines))
+      : await recognizeVerticalColumnWithPaddle(image, language, target, precomputedLines)
   console.log(`[timing]   세로쓰기(전체 영역): ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
+  if (process.env.DEBUG_OCR_DUMP) {
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    writeFileSync(join(process.env.DEBUG_OCR_DUMP, `words-${Date.now()}.json`), JSON.stringify(words, null, 2))
+  }
   if (!words) return null
   // zh/ja 는 띄어쓰기 없는 문자 체계라 단어 사이를 공백 없이 그냥 이어붙인다.
   const text = words.map((w) => w.text).join('')
