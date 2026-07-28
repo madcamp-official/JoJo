@@ -61,7 +61,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - `pronunciation[]`에 지역별 발음이 여러 개(각각 `variety` 태그) 붙을 수 있음(실측 확인: `Bach` 항목이 `variety: "US"`/`"GB"` 2개, `Balinese`는 `"GB"` 등 — 태그 값은 "미국"/"영국" 같은 한글 라벨이 아니라 `US`/`GB`/`NZ` 같은 짧은 코드 원문 그대로) — 실제 IPA(예: run(v) → "ɹʌn").
 - synset이 패러프레이즈 대안 정의를 여러 개 가질 수 있음(실측: `81484980-r` synset이 정의 3개: "quickly and without warning" / "happening unexpectedly" / "on impulse; without premeditation").
 - ~~`tagcount`(SemCor 코퍼스 실사용 빈도수, sense마다 다름 — 실측: run(v) "달리다" 뜻 tagcount=106)~~ → **정정(2026-07-28, GitHub Releases `english-wordnet-2025-json.zip`을 실제로 받아 압축 해제 후 전수 검사)**: 이 필드는 이 JSON 릴리스에 **존재하지 않는다** — `grep -r "tagcount"` 결과 0건, sense 객체가 실제로 갖는 키 전체(26종: `id`/`synset`/`derivation`/`sent`/`agent`/`also`/`antonym`/`similar`/`pertainym`/`subcat` 등 프레임 의미 정보 위주)를 전수 확인해도 빈도 관련 필드가 없다. 예전 Princeton WordNet WNDB 배포판의 `index.sense`(`tag_cnt`)에 있던 개념으로 추정되나, 이 GitHub JSON 릴리스로는 가져올 수 없다 — **`DictionarySense.tagCount` 필드는 이 데이터 소스로 채울 수 없으므로 폐기하거나 다른 소스(WNDB 원본 파일을 별도로 받는 등)를 찾아야 한다.**
-- entry의 `form` 필드가 불규칙 활용형을 배열로 제공(예: run(v) → `["ran", "running"]`) — MW의 반쯤 자유 텍스트 `ins`보다 구조가 깔끔함. 원시 synset 데이터 자체엔 활용형이 없지만 WNDB 배포판 포맷에 포함된 **Morphy**(형태소 처리기)가 처리 — 사용할 라이브러리가 Morphy를 감싸고 있는지 확인 필요.
+- entry의 `form` 필드가 불규칙 활용형을 배열로 제공(예: run(v) → `["ran", "running"]`) — MW의 반쯤 자유 텍스트 `ins`보다 구조가 깔끔함. ~~원시 synset 데이터 자체엔 활용형이 없지만 WNDB 배포판 포맷에 포함된 Morphy(형태소 처리기)가 처리 — 사용할 라이브러리가 Morphy를 감싸고 있는지 확인 필요~~ → **정정(2026-07-28, 어댑터 구현 중 실측)**: Morphy 자체를 감싸는 라이브러리가 **불필요했다** — `entries-*.json`의 각 표제어 레코드에 이미 `form[]`이 채워져 있어(GitHub Releases JSON 릴리스 기준, WNDB 배포판과 달리 활용형 계산이 끝난 결과물이 그대로 들어있음) 그 필드를 표제어별로 모아 "활용형→원형" 역인덱스만 만들면 됐다(`question/dictionary/oewn.ts` `formIndex`). 형태소 분석기 연동 자체가 스코프에서 사라짐.
 
 **스키마 매핑**:
 
