@@ -298,7 +298,13 @@ function assignPerBlockPronunciations(
     const contentEnd = i + 1 < headings.length ? headings[i + 1].start : section.length
     const content = section.slice(h.end, contentEnd)
 
-    if (h.text === 'Pronunciation') {
+    // zh 는 "===Pronunciation N===" 형태로 번호가 붙는 경우가 있다(ja 의 "===Etymology
+    // N===" 와 대응하는 zh 쪽 관례 — 실측 확인, 2026-07-28, 結實/地方: "Pronunciation 1"/
+    // "Pronunciation 2" 로 발음군이 나뉘고 그 아래 POS 헤더가 옴). 번호 없는 단일
+    // "Pronunciation"(ja 전용, zh 도 발음군이 하나면 번호 없이 옴)도 계속 지원해야 해서
+    // 정규식으로 둘 다 받는다 — exact-match 였을 때는 번호 붙은 케이스를 통째로 놓쳐서
+    // currentPron 이 끝까지 빈 채로 남고 모든 zh 블록이 undefined 가 되는 버그가 있었음.
+    if (/^Pronunciation(\s+\d+)?$/.test(h.text)) {
       currentPron = extractValues(content)
       continue
     }
