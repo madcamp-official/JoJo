@@ -2,7 +2,7 @@ import type { DictionarySourceId, DictionarySourceOption, Language } from '@shar
 
 // 담당 공동 — 사전 어댑터 병렬 구현 중 디버깅용 "소스 선택" 드롭다운의 자동 감지 기반
 // (2026-07-28 임시 도입). en/ja/zh 어댑터가 각자 다른 워크트리에서 병렬로
-// `question/dictionary/{merriamWebster,oewn,kotobank,jmdict,hanyu,moedict,cccedict,wiktionary}.ts`
+// `question/dictionary/{merriamWebster,oewn,daijisen,jmdict,hanyu,guoyuCidian,cccedict,wiktionary}.ts`
 // 파일로 구현되고 있다 — 어느 브랜치가 먼저 머지되든, 이 파일이 재등록 없이도 자동으로
 // 알아채야 하므로 "그 파일이 실제로 존재하는가"를 Vite 의 `import.meta.glob`(빌드 타임에
 // 디렉터리를 스캔, 없는 파일을 나열해도 에러 안 남 — 나중에 파일이 생기면 다음 빌드/
@@ -23,15 +23,15 @@ interface SourceMeta {
 }
 
 /** 파일 베이스네임(확장자 제외) → 소스 메타데이터. 실제 폴백 순서는 en: MW>OEWN,
- *  ja: Kotobank>JMdict, zh-Hans: 汉典>CC-CEDICT, zh-Hant: 萌典>汉典>CC-CEDICT,
- *  공통 최종 폴백 Wiktionary. */
+ *  ja: daijisen(デジタル大辞泉)>JMdict, zh-Hans: 汉典>CC-CEDICT,
+ *  zh-Hant: guoyu-cidian(教育部重編國語辭典)>汉典>CC-CEDICT, 공통 최종 폴백 Wiktionary. */
 const SOURCE_META: Record<string, SourceMeta> = {
   merriamWebster: { id: 'merriam-webster', label: 'Merriam-Webster', priority: { en: 1 } },
   oewn: { id: 'wordnet', label: 'Open English WordNet', priority: { en: 2 } },
-  kotobank: { id: 'kotobank', label: 'Kotobank', priority: { ja: 1 } },
+  daijisen: { id: 'daijisen', label: 'デジタル大辞泉', priority: { ja: 1 } },
   jmdict: { id: 'jmdict', label: 'JMdict', priority: { ja: 2 } },
   hanyu: { id: 'hanyu-dict', label: '汉典', priority: { 'zh-Hans': 1, 'zh-Hant': 2 } },
-  moedict: { id: 'moedict', label: '萌典', priority: { 'zh-Hant': 1 } },
+  guoyuCidian: { id: 'guoyu-cidian', label: '教育部重編國語辭典', priority: { 'zh-Hant': 1 } },
   cccedict: { id: 'cc-cedict', label: 'CC-CEDICT', priority: { 'zh-Hans': 2, 'zh-Hant': 3 } },
   wiktionary: { id: 'wiktionary', label: 'Wiktionary', priority: { en: 3, ja: 3, 'zh-Hans': 3, 'zh-Hant': 4 } },
 }
@@ -44,10 +44,10 @@ const adapterModules = import.meta.glob(
   [
     './merriamWebster.ts',
     './oewn.ts',
-    './kotobank.ts',
+    './daijisen.ts',
     './jmdict.ts',
     './hanyu.ts',
-    './moedict.ts',
+    './guoyuCidian.ts',
     './cccedict.ts',
     './wiktionary.ts',
   ],

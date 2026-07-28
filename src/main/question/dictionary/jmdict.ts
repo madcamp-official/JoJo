@@ -2,7 +2,7 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, SeeAlsoRef, UsageTag, UsageTagKind } from '@shared/types'
 
-// 담당 ja — JMdict 로컬 번들 어댑터 (PLAN.md §5 ja-2, Kotobank 실패 시 폴백 & 품사 판정 1순위 소스)
+// 담당 ja — JMdict 로컬 번들 어댑터 (PLAN.md §5 ja-2, daijisen 실패 시 폴백 & 품사 판정 1순위 소스)
 // TODO.md/DICTIONARY_SOURCES.md 결정(2026-07-28): jisho.org 라이브 API가 아니라
 // jmdict-simplified(scriptin/jmdict-simplified) "full"+"eng" 변형 로컬 JSON 번들로 확정 —
 // jisho.org는 field(전문분야)/misc(사용역)를 tags 하나로 뭉개거나 노출을 안 해서, 원본
@@ -10,7 +10,7 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense,
 // 번들이 필요했다. 번들 생성은 scripts/build-jmdict-bundle.py 참고 — 이 어댑터는
 // resources/jmdict/{words,index,tags}.json 세 파일만 읽는다(네트워크 호출 없음).
 //
-// **활용형 미대응**: JMdict는 Kotobank와 마찬가지로 활용된 형태를 원형으로 자동 변환해
+// **활용형 미대응**: JMdict는 daijisen과 마찬가지로 활용된 형태를 원형으로 자동 변환해
 // 주지 않는다(TODO.md 131번 항목) — 표면형을 그대로 index.json 에 정확히 매칭해서만
 // 조회한다. 基本形 전처리는 이 어댑터의 스코프 밖(main/nlp/japanese.ts 형태소 분석 결과가
 // 조회 전에 이미 적용돼 있어야 함).

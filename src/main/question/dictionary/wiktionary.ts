@@ -206,7 +206,7 @@ async function fetchWikitext(word: string): Promise<string | undefined> {
  *  トンキン 3개) **전부 모아 배열로 채운다**(DictionaryReading.pronunciations 가 배열이라
  *  전부 담을 수 있음 — 첫 번째만 대표로 쓰던 이전 방식에서 2026-07-28 변경, 猫/東京로
  *  재검증). 어느 읽기가 어느 sense에 대응하는지까지는 아직 안 함 — 정확한 매칭은 추후
- *  Kotobank/JMdict 정식 어댑터가 담당. 템플릿 자체가 없으면(드묾, 명사 표제어 일부)
+ *  daijisen/JMdict 정식 어댑터가 담당. 템플릿 자체가 없으면(드묾, 명사 표제어 일부)
  *  빈 배열. */
 async function fetchJaPronunciations(word: string): Promise<string[]> {
   const wikitext = await fetchWikitext(word)

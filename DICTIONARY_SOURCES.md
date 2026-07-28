@@ -1,6 +1,6 @@
 # 사전 소스별 응답 형식 정리
 
-en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌典·CC-CEDICT)가 실제로 어떤 형식으로 응답을 주는지, 그리고 그 원본 필드가 통일 스키마(`src/shared/types.ts`의 `DictionaryEntry`/`DictionaryReading`/`DictionarySense`)의 어느 필드로 매핑되는지 정리한다. 소스 채택 근거·폴백 순서는 [PLAN.md §5](PLAN.md#5-사전-api-구성), 남은 구현 작업은 [TODO.md](TODO.md)의 "사전" 항목 참고.
+en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·daijisen·JMdict·汉典·萌典·CC-CEDICT)가 실제로 어떤 형식으로 응답을 주는지, 그리고 그 원본 필드가 통일 스키마(`src/shared/types.ts`의 `DictionaryEntry`/`DictionaryReading`/`DictionarySense`)의 어느 필드로 매핑되는지 정리한다. 소스 채택 근거·폴백 순서는 [PLAN.md §5](PLAN.md#5-사전-api-구성), 남은 구현 작업은 [TODO.md](TODO.md)의 "사전" 항목 참고.
 
 **실측 이력**: 최초 작성 시점엔 `TODO.md`/`types.ts`에 이미 있던 과거 실측 기록을 소스 기준으로 재배열만 했었다. **2026-07-28에 이 문서 작성자가 직접 재실측**(공개 API 호출 — jisho.org/en.wiktionary.org REST API/dictionaryapi.dev/moedict.tw API, `resources/cedict.u8` 원본 파일 직접 grep, 웹 검색으로 정확한 페이지 URL 확보 후 재스크래핑)해 아래 내용을 갱신했다. 이 재실측으로 **바로잡은 오류**와 **접근 불가로 확인 못 한 부분**은 각 섹션에 `[2026-07-28 재실측]` 표시와 함께 명시한다 — MW(API 키 없음)와 OEWN(JSON 릴리스가 zip 압축이라 이 세션에서 다운로드 못 함)의 세부 필드 구조는 이번에 재검증하지 못해 기존 기록을 그대로 이어받았다.
 
@@ -10,7 +10,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
   - [Merriam-Webster (MW)](#merriam-webster-mw)
   - [OEWN (Open English WordNet)](#oewn-open-english-wordnet)
 - [일본어(ja)](#일본어ja)
-  - [Kotobank](#kotobank)
+  - [daijisen](#daijisen)
   - [JMdict](#jmdict)
 - [중국어(zh)](#중국어zh)
   - [CC-CEDICT](#cc-cedict)
@@ -79,20 +79,22 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 ## 일본어(ja)
 
-### Kotobank
+### daijisen
 
-**접근**: 스크래핑(공식 API 없음). `kotobank.jp/word/{표제어}-{ID}` 형식이라 정확한 URL은 검색을 거쳐야 찾을 수 있음(ID를 짐작해서 URL을 만들면 엉뚱한 페이지가 뜸 — 2026-07-28 재실측 중 실제로 겪은 문제. `花-460388`처럼 잘못 짐작한 ID는 "学振" 같은 전혀 다른 표제어로 연결됐고, 정확한 URL(`花-115580`)은 웹 검색으로 찾아야 했음).
+**소스 식별자 결정(2026-07-28, 리네임)**: 이 ja 소스의 `DictionarySourceId`/파일명/식별자는 원전(原典) 기준 `daijisen`(デジタル大辞泉)으로 확정한다 — 아래 "원본 구조 특징"에서 보듯 하나의 표제어 페이지에 여러 사전이 `<article>`로 동시에 붙는데, kotobank.jp는 그 여러 사전을 서비스하는 **경유 플랫폼**일 뿐이고 실제 뜻풀이 원전은 デジタル大辞泉이다 — 그래서 "kotobank.jp"가 아니라 원전 이름을 소스 식별자·표시 라벨(`デジタル大辞泉`, 로마자 아님)로 쓴다. **精選版日本国語大辞典(nikkokuseisen)은 구조를 실측만 했을 뿐 실제로 채택하지 않았다** — 아래 실측 기록은 참고용으로 남겨두되, 이 앱의 어댑터는 daijisen slug 하나만 쓴다.
+
+**접근**: 스크래핑(공식 API 없음), `kotobank.jp` 경유. `kotobank.jp/word/{표제어}-{ID}` 형식이라 정확한 URL은 검색을 거쳐야 찾을 수 있음(ID를 짐작해서 URL을 만들면 엉뚱한 페이지가 뜸 — 2026-07-28 재실측 중 실제로 겪은 문제. `花-460388`처럼 잘못 짐작한 ID는 "学振" 같은 전혀 다른 표제어로 연결됐고, 정확한 URL(`花-115580`)은 웹 검색으로 찾아야 했음).
 
 **원본 구조 특징** `[2026-07-28, 花 페이지 재실측]`:
-- 한 표제어 페이지에 여러 사전 소스가 `<article>`로 나란히 붙는 구조는 재확인됨. "花" 페이지에서 실제로 확인된 소스는 **daijisen(デジタル大辞泉)/nikkokuseisen(精選版日本国語大辞典)/sekaidaihyakka(改訂新版世界大百科事典)/nipponica(日本大百科全書)/jitsu(普及版字通)/britannica(ブリタニカ国際大百科事典)/mypedia(百科事典マイペディア)/daijisenplus(デジタル大辞泉プラス)/animalsandplants(動植物名よみかた辞典)** 9개 — "138개 사전 통합"은 Kotobank 전체가 보유한 사전 총수이고, 표제어 하나에 실제로 붙는 소스 수는 이보다 훨씬 적다(9개, 표제어 성격에 따라 가변적일 것으로 추정).
-- 국어사전/백과사전/한자어원사전/고유명사·전문용어사전 등 여러 종류가 섞여 있어, 품사 태그 유무만으로는 국어사전식만 못 거른다 — **국어사전식만 쓰려면 slug 화이트리스트**(`daijisen`, `nikkokuseisen`)로 거르는 게 텍스트 파싱보다 안정적이라는 기존 판단 유지.
+- 한 표제어 페이지에 여러 사전 소스가 `<article>`로 나란히 붙는 구조는 재확인됨. "花" 페이지에서 실제로 확인된 소스는 **daijisen(デジタル大辞泉, 채택)/nikkokuseisen(精選版日本国語大辞典, 실측만·미채택)/sekaidaihyakka(改訂新版世界大百科事典)/nipponica(日本大百科全書)/jitsu(普及版字通)/britannica(ブリタニカ国際大百科事典)/mypedia(百科事典マイペディア)/daijisenplus(デジタル大辞泉プラス)/animalsandplants(動植物名よみかた辞典)** 9개 — "138개 사전 통합"은 kotobank.jp 전체가 보유한 사전 총수이고, 표제어 하나에 실제로 붙는 소스 수는 이보다 훨씬 적다(9개, 표제어 성격에 따라 가변적일 것으로 추정).
+- 국어사전/백과사전/한자어원사전/고유명사·전문용어사전 등 여러 종류가 섞여 있어, 품사 태그 유무만으로는 국어사전식만 못 거른다 — **daijisen만 쓰려면 slug 화이트리스트**(`daijisen`)로 거르는 게 텍스트 파싱보다 안정적이라는 기존 판단 유지(nikkokuseisen은 미채택이라 화이트리스트에서 제외).
 - **デジタル大辞泉**: 뜻풀이 번호매김(`<b>１</b>` 등)·유의어(類語) 섹션·같은 article 안 한자 표제어(`か【花】`, 漢字項目) 3가지는 재확인됨.
-- **精選版日本国語大辞典**: `[ 一 ]`→`①②③`→`(イ)(ロ)` 다단 번호매김은 재확인됨. **단, "精選版엔 類語 섹션이 없다"는 기존 기록은 이번 재실측으로 틀린 것으로 확인됨** `[정정, 2026-07-28]` — 花 페이지에서는 daijisen뿐 아니라 nikkokuseisen에도 類語 섹션이 나타났다. 표제어에 따라 있고 없고가 갈릴 가능성이 있어(花는 있음, 원래 기록의 근거였던 단어는 달랐을 수 있음) 완전히 없다고 단정하지 말고 **"사전마다가 아니라 표제어마다 있을 수도 없을 수도 있다"로 정정**.
+- **精選版日本国語大辞典**(참고, 미채택): `[ 一 ]`→`①②③`→`(イ)(ロ)` 다단 번호매김은 재확인됨. **단, "精選版엔 類語 섹션이 없다"는 기존 기록은 이번 재실측으로 틀린 것으로 확인됨** `[정정, 2026-07-28]` — 花 페이지에서는 daijisen뿐 아니라 nikkokuseisen에도 類語 섹션이 나타났다. 표제어에 따라 있고 없고가 갈릴 가능성이 있어(花는 있음, 원래 기록의 근거였던 단어는 달랐을 수 있음) 완전히 없다고 단정하지 말고 **"사전마다가 아니라 표제어마다 있을 수도 없을 수도 있다"로 정정**.
 - 품사 마커(`<span class="hinshi">`)의 불일치 사례(동사/형용사 태그 결합 방식 차이, 명사 무표시, とても가 `連語`로 나오는 것)는 기존 기록 유지(이번 재실측 대상은 아님) — 여전히 **품사 판정은 JMdict 1순위** 방침 유지.
 - 활용형 자동 원형 변환이 안 되는 점(형태소 분석 전처리 필요)은 기존 기록 유지.
 - `慣用句`(4자성어 이외의 일반 관용구) 태그 유무 확인 — 실제 관용구 페이지("猫の手も借りたい")를 스크래핑해보니 그런 카테고리 라벨 자체가 페이지에 없음(4자성어 전용 `四字熟語` 라벨과 달리, 일반 관용구는 평문 정의만 있고 별도 태그가 없음). `isIdiom` 판정은 이 소스에 기대지 않고 JMdict(`exp`/"Yojijukugo")·MW(`fl:"phrase"`) 위주로 확정.
 
-**스키마 매핑**: (daijisen 기준) 番号 뜻풀이 → `gloss[]`, 類語 → `synonyms`. (精選版 기준) `〘 品詞 〙` → `posRaw`/`pos`, `[初出の実例]` → `examples[]`, (있는 경우) 類語 → `synonyms`.
+**스키마 매핑**: (daijisen 기준, 실제 채택) 番号 뜻풀이 → `gloss[]`, 類語 → `synonyms`. **(精選版 기준, 참고·미채택)** `〘 品詞 〙` → `posRaw`/`pos`, `[初出の実例]` → `examples[]`, (있는 경우) 類語 → `synonyms`.
 
 ### JMdict
 
@@ -101,9 +103,9 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 **구현 완료(2026-07-28)**: TODO.md 결정대로 jisho.org API가 아니라 jmdict-simplified `eng`(full) 변형 로컬 JSON 번들로 구현됨 — `scripts/build-jmdict-bundle.py`(GitHub Releases 원본 117MB → `resources/jmdict/{words,index,tags}.json` 3파일, 약 62MB로 트리밍) + `question/dictionary/jmdict.ts`(조회 어댑터, 네트워크 호출 없음). 실측(一人/高い/らしい/薔薇/レジスター/しどい)으로 아래 스키마 매핑 전부 검증 완료. 원본 misc 코드 기준 register/convention 분류는 다음 두 집합으로 확정: **register** = `sl`/`m-sl`/`net-sl`/`derog`/`col`/`hon`/`hum`/`pol`/`arch`/`obs`/`dated`/`rare`/`joc`/`vulg`/`sens`/`fam`/`poet`/`form`/`euph`/`male`/`fem`/`chn`/`hist`, **convention** = `uk`/`abbr`, 나머지(`yoji`/`proverb`/`id`/이름류 태그 등)는 `other`. `dialect` 필드는 misc와 별도라 `usageTags`에 `kind: 'dialect'`로 바로 매핑(원본 방언 코드는 `tags.json` 룩업으로 사람이 읽는 문자열로 변환). `conjugationClass`는 `v1`/`v5*`/`v2*-k`/`v2*-s`/`adj-i`/`adj-na` 등 활용 코드를 정규식+룩업 테이블로 디코딩(예: `v5k`→"五段(く)", `v2g-k`→"上二段(g행, 고어)"). `isIdiom`은 `partOfSpeech`에 `exp` 또는 `misc`에 `yoji`가 있으면 true. 가나만 있는 표제어(예: らしい)는 `headword`를 가나 배열로 대체, 같은 표기가 여러 word 엔트리로 갈리는 동형이의어는 `DictionaryEntry[]` 배열로 전부 반환.
 
 **원본 구조 특징**(jisho.org API 실측 기준, 원본은 jmdict-simplified 스키마):
-- 활용형을 원형으로 자동 변환해주지 않음(Kotobank와 동일) — 형태소 분석 전처리 필요.
-- 품사 판정이 Kotobank보다 훨씬 안정적 — `parts_of_speech` 배열에 일관되게 나옴(명사도 명시적으로 "Noun") → **품사 판정 1순위 소스로 확정**.
-- **sense 배열을 인덱스로 매칭해 Kotobank gloss + JMdict pos를 섞으면 안 됨** — 두 소스가 sense를 나누는 기준 자체가 다름.
+- 활용형을 원형으로 자동 변환해주지 않음(daijisen과 동일) — 형태소 분석 전처리 필요.
+- 품사 판정이 daijisen보다 훨씬 안정적 — `parts_of_speech` 배열에 일관되게 나옴(명사도 명시적으로 "Noun") → **품사 판정 1순위 소스로 확정**.
+- **sense 배열을 인덱스로 매칭해 daijisen gloss + JMdict pos를 섞으면 안 됨** — 두 소스가 sense를 나누는 기준 자체가 다름.
 - 한 sense 안에 품사가 2개 동시에 붙는 경우 있음(실측: 元気/自由 → `["Na-adjective (keiyodoshi)", "Noun"]` 동시 태깅) — `pos`는 단일값이라 더 대표적인 쪽 하나만, 원본 조합은 `posRaw`에 보존.
 - `らしい` 재확인 결과: sense1 `parts_of_speech: ["I-adjective (keiyoushi)", "Auxiliary adjective"]`, `info: "after the plain form of a verb or adjective, or a noun; expresses judgement based on evidence, reason or trustworthy hearsay"` / sense2 `parts_of_speech: ["Suffix", "I-adjective (keiyoushi)"]`, `info: "after a noun, adverb or adj. stem"` — 조동사/접미사 성격이 `info`에 문장으로 풀어 설명돼 있음을 재확인, `conjugationClass`에 이런 취지를 요약해 넣는 기존 방침 유지.
 - `is_common`이 entry(reading 그룹) 최상위에만 있고 sense들이 공유하는 구조는 기존 기록대로.
@@ -213,7 +215,9 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 ### 萌典 (zh-Hant)
 
-**접근**: `moedict.tw` — 스크래핑이 아니라 **공개 JSON API**(`https://www.moedict.tw/uni/{글자}` 또는 `/a/{글자}.json`)로 확인됨, 대만 교육부 편찬(번체 네이티브, 대만식 표준 어휘는 汉典보다 강함 — 실측: 捷運 등 대만 인프라 용어).
+**소스 식별자 결정(2026-07-28, 리네임)**: 이 소스의 `DictionarySourceId`/파일명/식별자는 원전(原典) 기준 `guoyu-cidian`(教育部重編國語辭典)으로 확정한다 — moedict.tw(萌典)는 이 사전을 서비스하는 **경유 플랫폼**일 뿐이고 실제 뜻풀이 원전은 教育部重編國語辭典이라, "moedict"가 아니라 원전 이름을 소스 식별자·표시 라벨(`教育部重編國語辭典`, 로마자 아님)로 쓴다.
+
+**접근**: `moedict.tw` 경유 — 스크래핑이 아니라 **공개 JSON API**(`https://www.moedict.tw/uni/{글자}` 또는 `/a/{글자}.json`)로 확인됨, 대만 교육부 편찬(번체 네이티브, 대만식 표준 어휘는 汉典보다 강함 — 실측: 捷運 등 대만 인프라 용어).
 
 **원본 구조 특징** `[2026-07-28, 行/蟑螂 API 직접 호출로 재실측]`:
 - `definitions[].type` 필드로 품사 제공(名/動/形 재확인, 副/連/介/代/助/歎 나머지는 초기 조사만 있고 이번엔 재확인 안 함). 양사(量詞)는 별도 type 값이 없고 `名`(명사) 안에 "量詞："라는 평문으로만 표시되는 것도 기존 기록 유지(이번 재확인 대상 아님).
@@ -246,7 +250,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 항목) 이 어댑터가 만드는 `DictionaryReading.pronunciations`는 기본적으로 전부 undefined다. 이를 언어별로 별도 보강한다. **찾은 값은 전부 배열로 채운다**(`DictionaryReading.pronunciations`가 원래 배열 스키마인데도 처음엔 첫 번째 값만 쓰고 있었음 — 2026-07-28 수정, 아래 각 언어 항목의 실측 예시가 이제 전부 그 대상):
 
 - **en**: dictionaryapi.dev(위 2번 항목)를 추가 호출해 `phonetic`(최상위)과 `phonetics[].text`(개별 값) 전부를 중복 제거해 모은 뒤 그 단어의 모든 reading에 동일하게 채운다. 실측 확인(`run`): 발음이 meaning(품사)별이 아니라 entry 최상위 하나뿐이라(`phonetics[]`가 품사 구분 없이 공유) 품사별로 나눠 붙일 수가 없음 — MW가 hom 간 발음을 상속하는 것과 같은 단순화. `run`(중복 제거 후 `/ɹʊn/`·`/ɹʌn/` 2개)·`ate`(`/eɪt/` 1개)로 검증.
-- **ja**: raw wikitext(`action=parse`, `prop=wikitext`)의 `{{ja-pron|よみ|...}}` 첫 위치 인자(히라가나 읽기)를 정규식으로 전부 뽑아 en과 동일하게 모든 reading에 채운다. 실측(走る→はしる, 美しい→うつくしい, 東京→とうきょう, 食べる→たべる) 확인. 한 표제어에 읽기가 여러 개인 경우(**猫**→ねこ/ねこま 2개, **東京**→とうきょう/とうけい/トンキン 3개 실측 확인) **전부 배열로 채운다** — 어느 읽기가 어느 sense에 대응하는지까지는 아직 안 함(정확한 매칭은 추후 Kotobank/JMdict 정식 어댑터가 담당).
+- **ja**: raw wikitext(`action=parse`, `prop=wikitext`)의 `{{ja-pron|よみ|...}}` 첫 위치 인자(히라가나 읽기)를 정규식으로 전부 뽑아 en과 동일하게 모든 reading에 채운다. 실측(走る→はしる, 美しい→うつくしい, 東京→とうきょう, 食べる→たべる) 확인. 한 표제어에 읽기가 여러 개인 경우(**猫**→ねこ/ねこま 2개, **東京**→とうきょう/とうけい/トンキン 3개 실측 확인) **전부 배열로 채운다** — 어느 읽기가 어느 sense에 대응하는지까지는 아직 안 함(정확한 매칭은 추후 daijisen/JMdict 정식 어댑터가 담당).
 - **zh**: 같은 raw wikitext 경로에서 `{{zh-pron|m=병음|...}}`의 `m=` 파라미터만 뽑는다(다른 방언 파라미터는 버림, 위 방침 그대로). 실측(11개 표제어: 你好/中國/一/打/謝謝/打算/水/的/了/麼/嗎 wikitext 직접 조회)으로 이 파라미터의 함정 두 가지를 새로 확인:
   1. 값이 콤마로 여러 개 이어질 때 일부는 병음이 아니라 콤마로 덧붙는 수식 플래그다 — `打算`→`m=dǎsuàn,tl=y`(tl=톤 산디), `水`→`m=shuǐ,er=y`(er=얼화), `的`→`m=de,dì,2tl=y,1nb=unstressed,2nb=stressed`(앞 2개는 실제 복수 병음 — "de"/"dì" 둘 다 채택, 나머지는 번호 붙은 플래그). `=`가 포함된 세그먼트만 걸러내고 남는 건 전부 채택한다.
   2. 일부 블록은 `m=` 값 자체가 병음이 아니라 조회한 한자 그대로다(실측: `一`/`打`의 일부 zh-pron 블록 → `m=一`/`m=打`, 정확한 의미는 불명 — 다른 항목을 보라는 플레이스홀더로 추정). CJK 통합 한자 포함 여부로 걸러낸다.
@@ -270,13 +274,13 @@ REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 
 - ~~판별 유니온(discriminated union) 대신 공통 베이스+옵셔널 확장 필드 방식을 의도적으로 채택 — 언어 전용 필드가 2~3개 규모에서는 유니온이 과한 복잡도로 판단~~ → **번복(2026-07-28)**: 실제로 세어보니 언어 전용 필드가 이미 ja 3개(`conjugationClass`/`isCommon`/`appliesToHeadwords`)·en 1개(`irregularForms`)·zh 1개(`classifiers`)로(`transitive`는 en/ja 공유라 어느 쪽 전용 개수에도 안 넣음) "2~3개 규모"를 이미 넘어서 있었음(en 불규칙 동사 활용 등 확인 예정 항목까지 감안하면 더 늘 것). **"최상위(entry)만 판별 + 나머지는 제네릭으로 연동"** 방식으로 전환 — `DictionaryEntry<L extends Language = Language>`가 `language: L` 하나만 판별 필드로 갖고, `readings`/`senses`는 같은 `L`을 제네릭으로 물려받아(`DictionaryReading<L>`/`DictionarySense<L>`) `entry.language`로 좁히면 안쪽 언어 전용 필드까지 자동으로 좁혀진다(`src/shared/types.ts` 실제 구현 + 격리된 타입체크 파일로 좁히기/미좁히기 양쪽 다 tsc로 검증 완료). **트레이드오프**: sense/reading 자체엔 판별 필드를 안 뒀기 때문에, entry와 분리된 채 `sense: DictionarySense<Language>` 하나만 받는 함수는 `'classifiers' in sense`처럼 속성 존재 여부로 좁혀야 한다(entry를 거쳐 좁힌 경우보다 번거로움). `usageTags`/`domain`/`seeAlso` 등 실제로 여러 언어가 공유하는 필드는 그대로 `DictionarySenseBase`(공통 베이스)에 남겨뒀고, 언어 전용 필드만 `DictionarySenseExt<L>`로 분리했다.
 - `usageTags`를 `string[]`에서 `UsageTag[]`(`{ text, kind?: 'register'|'convention'|'dialect'|'other' }`)로 구조화(2026-07-28) — 격식(MW `sls`, CC-CEDICT `(coll.)`/`(slang)` 등)과 격식 무관 표기 관례(MW `lbs`, JMdict "가나로만 씀")가 문자열 하나에 섞여 있으면, PLAN §3 "격식·객관 표현 여부" 자주 쓰는 질문 기능이 격식 판단에 무관한 태그까지 LLM에 같이 넣어 판단을 오염시킬 수 있음을 뒤늦게 발견해 정정. 소스별 라벨의 `kind` 분류는 위 MW/JMdict/CC-CEDICT 각 섹션 참고 — 분류가 애매한 라벨(CC-CEDICT `(loanword)`/`(bound form)`)은 `other`로 남겨 억지로 분류하지 않는다.
 - 같은 이유로 `seeAlso`도 `string[]`에서 `SeeAlsoRef[]`(`{ text, kind?: 'variant'|'dialectVariant'|'abbreviation'|'usedIn'|'related' }`)로 구조화(2026-07-28) — CC-CEDICT 교차참조가 `variant of`(표기 변이)/`abbr. for`(줄임말↔원말)/`used in`(복합어 구성 성분)/`see also`(느슨한 관련어)로 관계 성격이 다 다른데 문자열 하나에 뭉쳐 있었음. **`usageTags`와 합치는 방안은 검토 후 기각** — `usageTags`는 이 뜻 자체의 성질을 나타내는 라벨이고 `seeAlso`는 다른 표제어를 가리키는 포인터라 성격이 근본적으로 달라서(나중에 "클릭해서 재조회" 같은 기능이 붙을 수 있는 것도 포인터 쪽), 합치면 `kind` 종류만 7개로 늘어나 오히려 지금 고치려던 문제를 재현하게 됨. `classifiers`(CC-CEDICT 양사)는 같은 검토를 거쳤으나 **배열 원소가 전부 "양사"라는 동일 개념이라 이 문제에 해당하지 않음** — 다만 원본 표기(`個|个[ge4]` 같은 파이프·대괄호)가 그대로 문자열에 남는 별개 문제가 있어 구조화(`{ hanzi, pinyin? }`)를 검토했으나 **하지 않기로 결정(2026-07-28)** — 원본 세그먼트 그대로 두는 현 방침 유지.
-- `DictionarySense.parentIndex?: number` 신설(2026-07-28) — MW `sdsense`(위 MW 섹션의 "photosynthesis" 하위 정의 참고)와 Kotobank 精選版日本国語大辞典의 `[一]`→`①②③`→`(イ)(ロ)` 다단 번호매김(위 Kotobank 섹션 참고)이 둘 다 "병렬 대안 뜻"이 아니라 "상위 뜻의 더 좁은 하위 구분"이라는 계층 구조인데, `gloss: string[]`(OEWN의 병렬 대안 정의용으로 설계됨)는 이 부모-자식 관계를 평면화해버림. en/ja 두 무관한 소스에서 독립적으로 같은 패턴이 나와 zh(汉典 인용 포함 뜻풀이)까지 결국 마주칠 문제로 예상했으나, **이후 실측(2026-07-28, 위 汉典 섹션 참고) 결과 汉典은 다단계 구조가 없는 것으로 확인돼 이 예상은 기각됨** — 현재 이 필드가 실제로 필요한 소스는 en(MW)/ja(Kotobank 精選版) 둘뿐. 같은 `DictionaryReading.senses` 배열 안에서 직속 부모 sense 의 인덱스(0-based)를 가리키는 필드를 추가해 트리 구조를 재구성할 수 있게 함(다단이면 부모의 parentIndex 를 따라 조상까지 거슬러 올라감). 계층 없는 소스는 항상 undefined. **이 값을 실제로 채우는 어댑터 파싱 로직(MW 완료, 아래 참고)과, LLM 프롬프트가 이 정보를 활용하는 부분(`NumberedSense.parentIndex`, 아래 "LLM이 실제로 쓸 수 있게 연결" 항목 참고)은 이후 완료됨 — UI 상 들여쓰기 표시는 아직 미구현.**
-- `gloss`를 `parentIndex`가 없을 때만 필수로 정정(2026-07-28) — 위 `parentIndex` 신설 직후 설계 재검토 중 발견: Kotobank 精選版의 `[一]` 같은 최상위 그룹은 실측 기록상 자기 자신의 뜻풀이 없이 하위(`①②③`)를 묶기만 하는 "그룹 헤더" 역할일 가능성이 높은데, `gloss: string[]`가 무조건 필수라 이런 그룹 헤더 sense도 값을 채워야 했음. 이러면 어댑터마다 "하위 sense의 첫 gloss를 복제" 또는 "빈 문자열" 같은 서로 다른 임기응변을 택할 위험이 있고, LLM 프롬프트/UI 쪽에서도 그 gloss가 "진짜 뜻"인지 "임기응변으로 채운 값"인지 구분할 방법이 없었음. `gloss`/`parentIndex`를 하나의 유니온(`DictionarySenseGloss`, `src/shared/types.ts`)으로 묶어 `parentIndex`가 없으면 `gloss` 필수, 있으면 선택으로 변경 — Kotobank 精選版의 `①②③`처럼 하위이면서도 실제 뜻풀이가 있는 sense는 어댑터가 그대로 `gloss`를 채우면 되고, `[一]` 같은 순수 그룹 헤더만 생략하면 됨.
+- `DictionarySense.parentIndex?: number` 신설(2026-07-28) — MW `sdsense`(위 MW 섹션의 "photosynthesis" 하위 정의 참고)와 daijisen(デジタル大辞泉, 위 daijisen 섹션 참고)의 `①②③`→`㋐㋑㋒` 번호매김이 둘 다 "병렬 대안 뜻"이 아니라 "상위 뜻의 더 좁은 하위 구분"이라는 계층 구조인데, `gloss: string[]`(OEWN의 병렬 대안 정의용으로 설계됨)는 이 부모-자식 관계를 평면화해버림. `[정정, 리네임과 함께]`: 최초 설계 당시엔 이 예시가 精選版日本国語大辞典(nikkokuseisen)의 `[一]`→`①②③`→`(イ)(ロ)` 3단 번호매김이었으나, 이후 ja 소스를 daijisen 하나로 채택 확정하면서(精選版은 실측만 하고 미채택, 위 daijisen 섹션 참고) 이 필드의 실제 근거도 daijisen 자체의 번호매김으로 정정한다 — "상위 뜻의 더 좁은 하위 구분"이라는 계층 구조라는 결론 자체는 동일. en/ja 두 무관한 소스에서 독립적으로 같은 패턴이 나와 zh(汉典 인용 포함 뜻풀이)까지 결국 마주칠 문제로 예상했으나, **이후 실측(2026-07-28, 위 汉典 섹션 참고) 결과 汉典은 다단계 구조가 없는 것으로 확인돼 이 예상은 기각됨** — 현재 이 필드가 실제로 필요한 소스는 en(MW)/ja(daijisen) 둘뿐. 같은 `DictionaryReading.senses` 배열 안에서 직속 부모 sense 의 인덱스(0-based)를 가리키는 필드를 추가해 트리 구조를 재구성할 수 있게 함(다단이면 부모의 parentIndex 를 따라 조상까지 거슬러 올라감). 계층 없는 소스는 항상 undefined. **이 값을 실제로 채우는 어댑터 파싱 로직(MW 완료, 아래 참고)과, LLM 프롬프트가 이 정보를 활용하는 부분(`NumberedSense.parentIndex`, 아래 "LLM이 실제로 쓸 수 있게 연결" 항목 참고)은 이후 완료됨 — UI 상 들여쓰기 표시는 아직 미구현.**
+- `gloss`를 `parentIndex`가 없을 때만 필수로 정정(2026-07-28) — 위 `parentIndex` 신설 직후 설계 재검토 중 발견: daijisen의 `①②③` 같은 최상위 그룹은 자기 자신의 뜻풀이 없이 하위(`㋐㋑㋒`)를 묶기만 하는 "그룹 헤더" 역할일 수 있는데, `gloss: string[]`가 무조건 필수라 이런 그룹 헤더 sense도 값을 채워야 했음. 이러면 어댑터마다 "자식 gloss 복제" 또는 "빈 문자열" 같은 서로 다른 임기응변을 택할 위험이 있고, LLM 프롬프트/UI 쪽에서도 그 gloss가 "진짜 뜻"인지 "임기응변으로 채운 값"인지 구분할 방법이 없었음. `gloss`/`parentIndex`를 하나의 유니온(`DictionarySenseGloss`, `src/shared/types.ts`)으로 묶어 `parentIndex`가 없으면 `gloss` 필수, 있으면 선택으로 변경 — daijisen의 `㋐㋑㋒`처럼 하위이면서도 실제 뜻풀이가 있는 sense는 어댑터가 그대로 `gloss`를 채우면 되고, `①②③` 같은 순수 그룹 헤더만 생략하면 됨.
 - 최종 검토(2026-07-28)에서 발견한 사소한 이슈 2개도 정리:
   - `transitive`가 en/ja 확장 타입 양쪽에 각각 선언돼 있어 설명 주석도 두 곳에 나뉘어 있었고, 서로 "반대쪽 참고"라고 써놔서 한쪽만 고치고 다른 쪽을 놓칠 위험이 있었음 → `TransitiveExt` 공통 타입 하나로 뽑아 en/ja 확장 타입이 인터섹션(`&`)으로 물려받게 정리(설명도 한 곳에만).
   - `CanonicalPos`에 언어 전용 값(`article`=en, `particle`=ja/zh, `classifier`=zh, `adnominal`=ja)이 섞여 있어서, en 어댑터가 실수로 `pos: 'classifier'`를 넣어도 컴파일러가 못 잡는 문제가 있었음 → `DictionaryEntry<L>`과 같은 방식으로 `CanonicalPos<L extends Language = Language>` 제네릭화(공통 품사는 `CanonicalPosCommon`으로 뽑고 언어별로 전용 품사를 더함). `DictionarySenseBase`도 `<L>`을 받아 `pos?: CanonicalPos<L>`로 연동. 격리된 타입체크로 각 언어가 실제로 자기 언어에 없는 품사 값을 못 넣는 것까지 tsc 로 검증 완료.
 - `DictionarySenseCommon.pos`를 단일값(`CanonicalPos<L>`)에서 배열(`CanonicalPos<L>[]`)로 변경(2026-07-28) — sense 하나가 품사 코드를 2개 이상 동시에 갖는 실제 사례 발견: JMdict 실측 "らしい" sense2 → `partOfSpeech: ["suf", "adj-i"]`(접미사이면서 い형용사), "元気" sense1 → `["Na-adjective (keiyodoshi)", "Noun"]`(な형용사이면서 명사). 기존엔 어댑터의 `mapPos`가 배열을 순회하다 "other가 아닌 첫 코드"에서 멈추고 대표 하나만 반환해(`jmdict.ts`), 나머지는 `posRaw`(원본 문자열, LLM에 미전달)에만 남아 정보가 손실됐음 — LLM 프롬프트/UI가 실제로는 형용사+접미사인 sense를 형용사 하나로만 인식하는 문제. `pos`가 "이 sense에 해당하는 품사 전부"를 담도록 배열로 바꿔 해결(원소 1개 이상, 빈 배열 대신 undefined로 통일). MW(`fl`)/OEWN(synset pos)/Wiktionary(`partOfSpeech`)/萌典(`definitions[].type`)/汉典(`gy-pos__badge`)처럼 소스가 원래 코드 하나만 주는 경우는 매핑된 값을 `[value]`로 감싸기만 함 — 실질적으로 배열 확장이 의미 있는 소스는 JMdict뿐.
-- **정식 폴백 오케스트레이션 구현(2026-07-28)** — `question/dictionary.ts`의 `FALLBACK_CHAINS`가 언어별 확정 순서(en `merriam-webster→wordnet→wiktionary`, ja `jmdict→wiktionary`, zh-Hans `hanyu-dict→cc-cedict→wiktionary`, zh-Hant `moedict→hanyu-dict→cc-cedict→wiktionary`)대로 앞 소스가 못 찾거나(entries 없음) 실패(네트워크 에러 등)하면 조용히 다음으로 넘어간다. kotobank는 아직 다른 세션에서 구현 중이라 ja 체인에서 빠져 있음 — 머지되면 배열 맨 앞에 추가만 하면 된다. 소스별 조회를 `fetchSourceEntries` 하나로 통합해 폴백 체인과 기존 `forceSource` 디버깅 경로(팝업 "직접 선택" 토글, 기본값은 켜짐으로 변경됨 2026-07-28)가 공유하도록 정리 — 부수 효과로 JMdict/汉典/萌典도 forceSource 강제 호출을 지원하게 됨(이전엔 MW/OEWN/Wiktionary/CC-CEDICT만 연결돼 있었음).
+- **정식 폴백 오케스트레이션 구현(2026-07-28)** — `question/dictionary.ts`의 `FALLBACK_CHAINS`가 언어별 확정 순서(en `merriam-webster→wordnet→wiktionary`, ja `jmdict→wiktionary`, zh-Hans `hanyu-dict→cc-cedict→wiktionary`, zh-Hant `guoyu-cidian→hanyu-dict→cc-cedict→wiktionary`)대로 앞 소스가 못 찾거나(entries 없음) 실패(네트워크 에러 등)하면 조용히 다음으로 넘어간다. daijisen는 아직 다른 세션에서 구현 중이라 ja 체인에서 빠져 있음 — 머지되면 배열 맨 앞에 추가만 하면 된다. 소스별 조회를 `fetchSourceEntries` 하나로 통합해 폴백 체인과 기존 `forceSource` 디버깅 경로(팝업 "직접 선택" 토글, 기본값은 켜짐으로 변경됨 2026-07-28)가 공유하도록 정리 — 부수 효과로 JMdict/汉典/教育部重編國語辭典도 forceSource 강제 호출을 지원하게 됨(이전엔 MW/OEWN/Wiktionary/CC-CEDICT만 연결돼 있었음).
 - **`DictionarySense.parentIndex`를 LLM이 실제로 쓸 수 있게 연결(2026-07-28)** — 위 `parentIndex` 신설 노트엔 "LLM 프롬프트가 이 정보를 어떻게 활용할지는 미룸"이라 적혀 있었는데, 실제로 `numberSenses`(senseSelect.ts)가 평평한 번호 목록을 만들면서 이 관계를 그냥 버리고 있었다(MW sdsense가 그냥 "또 다른 뜻 하나"로 보임). `NumberedSense.parentIndex`를 추가해 원본 `DictionarySense.parentIndex`(같은 reading.senses 배열 안에서의 원본 위치)를 `numberSenses`가 새로 매긴 평면 index로 변환해 담고, `buildSenseListText`가 후보 목록에 `"4. (3번의 더 좁은 의미) ..."`처럼 표시한다 — 부모가 gloss 없는 그룹 헤더라 목록에서 빠졌으면 조용히 undefined로 생략된다.
 
 **아직 미확인 항목** (실측 필요, 확인되는 대로 위 해당 섹션에 반영):

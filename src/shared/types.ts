@@ -128,7 +128,7 @@ export interface QuestionResult {
 }
 
 // ---- 사전(Dictionary) 통일 스키마 --------------------------------------------
-// PLAN.md §5 — en(MW/WordNet/Wiktionary)·ja(Kotobank/JMdict)·zh(汉典/萌典/CC-CEDICT)
+// PLAN.md §5 — en(MW/WordNet/Wiktionary)·ja(daijisen/JMdict)·zh(汉典/萌典/CC-CEDICT)
 // 8개 소스가 전부 다른 응답 형식(JMdict의 'v1'/'vt' 같은 약어 코드, MW의 sseq/dt/vis
 // 중첩 구조, CC-CEDICT의 슬래시 구분 평문 등)을 가지므로, 각 어댑터가 원본을 파싱해
 // 이 공통 타입으로 변환한 뒤에만 LLM 프롬프트에 들어가게 한다(llm/adapter.ts 가
@@ -282,21 +282,21 @@ interface DictionarySenseCommon<L extends Language = Language> {
  *
  *  **parentIndex**: 이 sense 가 다른 sense 의 더 좁은 하위 구분일 때, 그 부모 sense 를 가리키는
  *  인덱스(같은 `DictionaryReading.senses` 배열 안에서의 위치, 0-based) — 2026-07-28 신설. MW
- *  `sdsense`(예: "photosynthesis" 주 정의 아래 "especially: ..." 하위 정의)와 Kotobank
- *  精選版日本国語大辞典의 `[一]`→`①②③`→`(イ)(ロ)` 다단 번호매김(예: "花"는 대분류 5개 아래
- *  세부 뜻 30개 이상)이 둘 다 "병렬 대안 뜻"이 아니라 "상위 뜻의 더 좁은 하위 구분"이라는 계층
- *  구조인데, 이 배열 자체는 평면이라 그냥 순서대로 넣으면 이 관계가 사라진다 — 어댑터가 하위
- *  sense 를 만들 때 그 직속 부모의 배열 인덱스를 채워 넣어 트리 구조를 재구성할 수 있게 한다
- *  (다단이면 부모의 parentIndex 를 따라가며 조상까지 거슬러 올라감). 계층이 없는 소스(en
- *  OEWN/Wiktionary, zh CC-CEDICT 등)는 항상 undefined. LLM 프롬프트/UI 가 이 정보를 어떻게
- *  실제로 활용할지(들여쓰기 표시 등)는 아직 미정 — 어댑터 구현 시점에 정하기로 함(우선 필드만
- *  마련).
+ *  `sdsense`(예: "photosynthesis" 주 정의 아래 "especially: ..." 하위 정의)와 daijisen(デジタル
+ *  大辞泉, kotobank.jp 경유)의 `①②③`→`㋐㋑㋒` 번호매김이 둘 다 "병렬 대안 뜻"이 아니라 "상위 뜻의
+ *  더 좁은 하위 구분"이라는 계층 구조인데, 이 배열 자체는 평면이라 그냥 순서대로 넣으면 이 관계가
+ *  사라진다 — 어댑터가 하위 sense 를 만들 때 그 직속 부모의 배열 인덱스를 채워 넣어 트리 구조를
+ *  재구성할 수 있게 한다(다단이면 부모의 parentIndex 를 따라가며 조상까지 거슬러 올라감). 계층이
+ *  없는 소스(en OEWN/Wiktionary, zh CC-CEDICT 등)는 항상 undefined. **LLM 프롬프트가 이 정보를
+ *  활용하는 부분은 구현 완료(2026-07-28)** — `NumberedSense.parentIndex`(senseSelect.ts)가 이
+ *  값을 평면화된 번호로 변환해 후보 목록에 "N번의 더 좁은 의미"로 노출한다. UI 들여쓰기 표시는
+ *  아직 미정.
  *
  *  **gloss 필수 여부(2026-07-28 신설)**: `parentIndex`가 없는(=최상위) sense 는 지금까지처럼
  *  `gloss`가 필수다. 반면 `parentIndex`가 있는(=누군가의 하위 구분인) sense 는 두 경우가 섞여
- *  있을 수 있다 — Kotobank 精選版의 `①②③`처럼 실제 뜻풀이를 가진 리프 sense도 있지만, `[一]`
- *  처럼 그 자체론 뜻풀이 없이 하위 항목을 묶기만 하는 "그룹 헤더" sense도 있다(실측 기록상
- *  `[一]` 레벨은 자체 정의 없이 分類 역할만 하는 경우가 흔함). 그룹 헤더까지 `gloss`를 억지로
+ *  있을 수 있다 — daijisen의 `㋐㋑㋒`처럼 실제 뜻풀이를 가진 리프 sense도 있지만, `①②③`
+ *  처럼 그 자체론 뜻풀이 없이 하위 항목을 묶기만 하는 "그룹 헤더" sense도 있을 수 있다. 그룹
+ *  헤더까지 `gloss`를 억지로
  *  채우게 하면 어댑터마다 "자식 gloss 복제" 또는 "빈 문자열" 같은 임기응변이 갈릴 위험이 있어,
  *  `parentIndex`가 있을 때만 `gloss`를 선택적으로 풀어준다 — 실제 하위 뜻풀이가 있는 sense는
  *  어댑터가 그대로 채우면 되고, 순수 그룹 헤더만 생략하면 된다. */
@@ -377,10 +377,10 @@ export type DictionarySourceId =
   | 'merriam-webster'
   | 'wordnet'
   | 'wiktionary'
-  | 'kotobank'
+  | 'daijisen' // デジタル大辞泉(kotobank.jp 경유)
   | 'jmdict'
   | 'hanyu-dict' // 汉典
-  | 'moedict' // 萌典
+  | 'guoyu-cidian' // 教育部重編國語辭典(萌典, moedict.tw 경유)
   | 'cc-cedict'
 
 /** 사전 소스별 어댑터가 en/ja/zh 각자 다른 워크트리에서 병렬 구현 중이라(2026-07-28),
