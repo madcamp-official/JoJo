@@ -331,14 +331,28 @@ export async function fetchMerriamWebsterEntry(word: string, apiKey: string): Pr
     else groups.set(headword, [entry])
   }
 
-  const resultEntries: DictionaryEntry[] = []
+  const built: BuiltEntry[] = []
   for (const [headword, groupEntries] of groups) {
-    const entry = await buildEntryForHeadword(headword, groupEntries, word, apiKey)
-    if (entry) resultEntries.push(entry)
+    const result = await buildEntryForHeadword(headword, groupEntries, word, apiKey)
+    if (result) built.push(result)
   }
+
+  // cxs 포인터("was/were는 be의 과거형이다" 같은 문법 설명)는 진짜 뜻풀이가 하나도 없을
+  // 때만 의미가 있다 — 다른 entry(예: "be")에 진짜 뜻풀이가 있으면 그 안에 이미 실질적인
+  // 내용이 다 들어있어서, 포인터 후보까지 LLM 판정 목록에 끼워 넣는 건 노이즈만 늘린다
+  // (실측 확인, 2026-07-28: "were" 조회 시 후보 1번이 항상 이 포인터였음). 진짜 뜻풀이가
+  // 하나도 없을 때(예: "colour" → cxs 뿐)는 그거라도 보여주는 게 나아 그대로 둔다.
+  const hasRealDefinition = built.some((b) => !b.isCxsOnly)
+  const resultEntries = (hasRealDefinition ? built.filter((b) => !b.isCxsOnly) : built).map((b) => b.entry)
 
   if (!resultEntries.length) return {}
   return { entries: resultEntries }
+}
+
+interface BuiltEntry {
+  entry: DictionaryEntry
+  /** 이 entry의 모든 sense가 cxs 포인터에서만 나왔는지(진짜 뜻풀이가 하나도 없는지) */
+  isCxsOnly: boolean
 }
 
 /** 표제어 하나에 속한 MW entry(들, 보통 hom 별)를 모아 DictionaryEntry 하나로 만든다. */
@@ -347,9 +361,10 @@ async function buildEntryForHeadword(
   groupEntries: MerriamWebsterEntry[],
   word: string,
   apiKey: string,
-): Promise<DictionaryEntry | null> {
+): Promise<BuiltEntry | null> {
   const readings: DictionaryReading[] = []
   let isIdiom = false
+  let isCxsOnly = true
   let lastPronunciations: DictionaryReading['pronunciations']
 
   for (const entry of groupEntries) {
@@ -375,6 +390,7 @@ async function buildEntryForHeadword(
 
     const reading = entryToReading(entry, word, lastPronunciations)
     if (reading) {
+      isCxsOnly = false
       readings.push(reading)
       if (reading.pronunciations?.length) lastPronunciations = reading.pronunciations
     }
@@ -396,10 +412,13 @@ async function buildEntryForHeadword(
   }
 
   return {
-    headword: [headword],
-    isIdiom: isIdiom || undefined,
-    readings,
-    source: 'merriam-webster',
+    entry: {
+      headword: [headword],
+      isIdiom: isIdiom || undefined,
+      readings,
+      source: 'merriam-webster',
+    },
+    isCxsOnly,
   }
 }
 
