@@ -18,6 +18,12 @@ export function seedApiKeysFromEnv(): void {
     }
   }
 
+  // 사전 API(MW) 키도 동일하게 시드
+  const mwKey = import.meta.env.MAIN_VITE_MW_COLLEGIATE_KEY
+  if (mwKey && mwKey.trim()) {
+    setApiKey('mw', mwKey.trim())
+  }
+
   // 활성 provider 지정(선택). 예: MAIN_VITE_ACTIVE_PROVIDER=gpt
   const active = import.meta.env.MAIN_VITE_ACTIVE_PROVIDER as LlmProvider | undefined
   if (active && getApiKey(active)) {

@@ -11,20 +11,33 @@ export function createGptClient(config: LlmConfig): LlmClient {
       const system = req.cacheableContext
         ? `${req.system}\n\n[문맥]\n${req.cacheableContext}`
         : req.system
+      const messages = [{ role: 'system', content: system }, ...req.messages]
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: req.model,
-          stream: true,
-          temperature: req.temperature,
-          messages: [{ role: 'system', content: system }, ...req.messages],
-        }),
-      })
+      const requestChatCompletion = (includeTemperature: boolean): Promise<Response> =>
+        fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: req.model,
+            stream: true,
+            ...(includeTemperature ? { temperature: req.temperature } : {}),
+            messages,
+          }),
+        })
+
+      let res = await requestChatCompletion(true)
+      if (!res.ok && res.status === 400) {
+        const detail = await res.clone().text()
+        // 실측 확인(2026-07-28, "gpt-5.6-sol"): 추론형(reasoning) 모델은 temperature 를
+        // 기본값(1) 외로 못 받는다 — "Unsupported value: 'temperature' does not support
+        // 0.2 with this model." 이 경우에만 temperature 없이 한 번 더 시도한다.
+        if (detail.includes('temperature') && detail.includes('unsupported_value')) {
+          res = await requestChatCompletion(false)
+        }
+      }
       await ensureOk(res, 'GPT')
 
       let full = ''

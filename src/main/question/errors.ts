@@ -13,6 +13,8 @@ const MESSAGES: Record<QuestionErrorCode, (provider?: LlmProvider) => string> = 
   insufficient_credit: (p) =>
     `${p ?? 'LLM'} 계정의 사용 한도(크레딧)가 부족합니다. 결제 정보를 확인해 주세요.`,
   rate_limited: (p) => `${p ?? 'LLM'} 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.`,
+  invalid_model: (p) =>
+    `설정에서 선택한 ${p ?? 'LLM'} 모델을 찾을 수 없습니다(단종되었거나 이름이 바뀌었을 수 있습니다). 설정에서 다른 모델을 선택해 주세요.`,
   network_error: () => '네트워크 연결에 문제가 있어 요청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.',
   unknown: () => '알 수 없는 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
 }

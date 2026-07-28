@@ -8,6 +8,9 @@ import type { QuestionErrorCode } from '@shared/types'
 //  - Gemini  크레딧 소진 → 429 + "quota"/"billing" (RESOURCE_EXHAUSTED)
 //  - Claude  크레딧 소진 → 400(!) invalid_request_error + "credit balance is too low"
 //            (402 를 쓰지 않으므로 402 단독 판별에 기대면 안 됨)
+// 실측(2026-07-28): GPT 존재하지 않는 모델("gpt-5.3-pro", 세대교체로 단종) → 404 +
+//  "model_not_found"(설정 화면이 예전에 캐싱해둔 모델 목록을 계속 보여줘서 발생) —
+//  이전엔 404가 분류표에 없어 unknown으로 뭉개졌다.
 
 export class LlmHttpError extends Error {
   constructor(
@@ -29,6 +32,7 @@ export function classifyLlmError(err: unknown): QuestionErrorCode {
     const lower = body.toLowerCase()
     if (status === 401 || status === 403) return 'invalid_api_key'
     if (status === 402) return 'insufficient_credit'
+    if (status === 404) return 'invalid_model'
     // Claude 는 크레딧 소진도 400(invalid_request_error)으로 온다. 다른 400은 대부분
     // 요청 형식 오류라 무조건 insufficient_credit 으로 단정하지 않고 키워드로만 구분한다.
     if (status === 400 && hasCreditHint(lower)) return 'insufficient_credit'

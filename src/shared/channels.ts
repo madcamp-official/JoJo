@@ -64,6 +64,10 @@ export const IPC = {
   APIKEY_SET: 'apikey:set',
   APIKEY_DELETE: 'apikey:delete',
   PROVIDER_VALIDATE: 'provider:validate',
+  // 모델 드롭다운에서 특정 모델을 고를 때 실제로 동작하는지 최소 비용(토큰 1개)으로
+  // 실제 채팅 호출 1회를 해보는 검증 — /v1/models 목록엔 있어도 이미 단종됐거나
+  // temperature 등 파라미터 제약이 있는 모델을 선택 시점에 걸러내기 위함.
+  PROVIDER_TEST_MODEL: 'provider:testModel',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

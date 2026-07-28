@@ -294,8 +294,12 @@ button:disabled { cursor: not-allowed; }
   font-size: 14px; color: #64748b; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
-.popup-header .close {
+.popup-header .esc-hint {
   margin-left: auto; -webkit-app-region: no-drag;
+  font-size: 11px; color: #a0a7b4; letter-spacing: 0.02em; user-select: none;
+}
+.popup-header .close {
+  -webkit-app-region: no-drag;
   background: none; border: none; color: #64748b; font-size: 16px; cursor: pointer;
 }
 .popup-header .close:hover { color: #1e2230; }
@@ -419,6 +423,10 @@ button:disabled { cursor: not-allowed; }
   margin: 0 0 6px; padding-left: 8px; border-left: 2px solid currentColor; opacity: 0.85;
 }
 .bubble .md a { color: inherit; text-decoration: underline; }
+/* 사전 답변 맨 끝 "_출처: ..._" 줄 — formatDictionaryAnswer 가 항상 마지막 줄에 붙이는
+   이탤릭이라 마크다운 안의 마지막 em 을 골라 작게 표시한다(usageTags 도 이탤릭을 쓰지만
+   출처 줄이 항상 더 뒤에 옴). */
+.bubble .md em:last-of-type { font-size: 0.85em; }
 .bubble .md hr { border: none; border-top: 1px solid currentColor; opacity: 0.2; margin: 8px 0; }
 .bubble .md table { border-collapse: collapse; margin: 0 0 6px; font-size: 0.95em; }
 .bubble .md th, .bubble .md td { border: 1px solid currentColor; padding: 3px 6px; opacity: 0.95; }

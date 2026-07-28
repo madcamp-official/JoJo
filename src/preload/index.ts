@@ -11,6 +11,7 @@ import type {
   Language,
   LlmProvider,
   ProviderValidation,
+  QuestionErrorCode,
   QuestionRequest,
   QuestionResult,
   Rect,
@@ -135,6 +136,9 @@ const api = {
 
   validateProvider: (provider: LlmProvider, apiKey: string): Promise<ProviderValidation> =>
     ipcRenderer.invoke(IPC.PROVIDER_VALIDATE, provider, apiKey),
+
+  testModel: (provider: LlmProvider, apiKey: string, model: string): Promise<QuestionErrorCode | null> =>
+    ipcRenderer.invoke(IPC.PROVIDER_TEST_MODEL, provider, apiKey, model),
 
   // 팝업 (담당 B)
   openPopup: (demo?: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_POPUP, demo),

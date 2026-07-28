@@ -150,6 +150,8 @@ function validationMessage(code?: QuestionErrorCode): string {
       return '요청이 많아 확인에 실패했습니다. 잠시 후 다시 시도하세요.'
     case 'network_error':
       return '네트워크 오류로 확인하지 못했습니다.'
+    case 'invalid_model':
+      return '이 모델을 찾을 수 없습니다(단종되었거나 이름이 바뀌었을 수 있습니다).'
     default:
       return '키를 확인하지 못했습니다.'
   }
@@ -226,6 +228,9 @@ export function SettingsScreen() {
   // 현재 provider 의 키 검증 결과(유효성 + 사용 가능 모델). 무과금 GET 기반.
   const [validation, setValidation] = useState<ProviderValidation | null>(null)
   const [validating, setValidating] = useState(false)
+  // 모델 드롭다운에서 실제 선택을 확정하기 전 1회 실호출로 동작 여부 확인(유과금, 토큰 1개).
+  const [modelTesting, setModelTesting] = useState(false)
+  const [modelTestError, setModelTestError] = useState<string | null>(null)
 
   // Merriam-Webster 사전 API 키 — LLM 과 별개 키(provider 선택 개념이 없어 항상 'mw' 고정).
   const [mwApiKey, setMwApiKeyState] = useState('')
@@ -253,6 +258,7 @@ export function SettingsScreen() {
     setKeyEditing(false)
     setKeyVisible(false)
     setValidation(null) // provider 가 바뀌면 이전 검증 결과 무효화
+    setModelTestError(null) // 모델 검증 에러도 같이 초기화(다른 provider 의 메시지가 남지 않게)
     // llm 이 바뀔 때만 다시 조회하면 된다(의도적으로 settings 전체가 아닌 llm 만 의존).
   }, [settings?.llm])
 
@@ -279,6 +285,16 @@ export function SettingsScreen() {
       clearTimeout(t)
     }
   }, [settings?.llm, apiKey])
+
+  // Esc → 메인 화면으로(WindowPickerScreen 과 동일 패턴). 단축키 녹화 중(recording)엔
+  // Esc 가 "녹화 취소" 의미로 이미 따로 처리되고 있어(위 useEffect) 그동안엔 건너뛴다.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !recording) goto('main')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [recording])
 
   // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 미리보기가 처음 뜰 때 1회만.
   // (바이트 값을 바꿀 때는 스크롤을 건드리지 않아 사용자가 보던 위치를 유지한다.)
@@ -317,6 +333,26 @@ export function SettingsScreen() {
   async function patch(p: Partial<AppSettings>) {
     const next = await window.nuance.setSettings(p)
     setSettingsState(next)
+  }
+
+  /** 모델 드롭다운 선택 확정 — /v1/models 등 목록 조회는 무과금이라 "이름이 존재한다"만
+   *  보장하고 "실제로 된다"는 안 보장한다(단종·파라미터 제약 등) — 실제로 저장하기 전에
+   *  최소 비용(토큰 1개) 실호출로 한 번 검증한다. Default 는 우리가 고른 안정적인 값이라
+   *  검증 없이 바로 저장한다. */
+  async function selectModel(value: string) {
+    setModelTestError(null)
+    if (!value) {
+      await patch({ models: { ...settings!.models, [settings!.llm!]: value } })
+      return
+    }
+    setModelTesting(true)
+    const error = await window.nuance.testModel(settings!.llm!, apiKey.trim(), value)
+    setModelTesting(false)
+    if (error) {
+      setModelTestError(`"${value}" 모델을 사용할 수 없습니다 — ${validationMessage(error)}`)
+      return
+    }
+    await patch({ models: { ...settings!.models, [settings!.llm!]: value } })
   }
 
   async function saveKey() {
@@ -472,11 +508,8 @@ export function SettingsScreen() {
                   <span>사용 모델</span>
                   <select
                     value={settings.models[settings.llm] ?? ''}
-                    onChange={(e) =>
-                      void patch({
-                        models: { ...settings.models, [settings.llm!]: e.target.value },
-                      })
-                    }
+                    disabled={modelTesting}
+                    onChange={(e) => void selectModel(e.target.value)}
                   >
                     <option value="">Default ({DEFAULT_MODELS[settings.llm]})</option>
                     {currentValidation.models.map((m) => (
@@ -486,6 +519,12 @@ export function SettingsScreen() {
                     ))}
                   </select>
                 </label>
+                {modelTesting && <span className="muted">선택한 모델이 실제로 동작하는지 확인 중…</span>}
+                {modelTestError && (
+                  <span className="err">
+                    <WarnIcon /> {modelTestError}
+                  </span>
+                )}
               </>
             ) : currentValidation ? (
               <span className="err">

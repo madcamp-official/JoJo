@@ -86,6 +86,8 @@ function errorTitle(code: string): string {
       return '사용 한도 부족'
     case 'rate_limited':
       return '요청 과다'
+    case 'invalid_model':
+      return '모델을 찾을 수 없음'
     case 'network_error':
       return '네트워크 오류'
     default:

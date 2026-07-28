@@ -38,7 +38,7 @@ import { getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
-import { validateProvider } from './question/llm/validate'
+import { validateProvider, testModel } from './question/llm/validate'
 import { googleImageUrl, googlePronunciationUrl } from './question/google'
 import { naverDictionaryUrl } from './question/naver'
 import { openUrlInNewWindow } from './question/browser'
@@ -176,6 +176,14 @@ export function registerIpc(): void {
     IPC.PROVIDER_VALIDATE,
     async (_e, provider: LlmProvider, apiKey: string): Promise<ProviderValidation> => {
       return validateProvider(provider, apiKey)
+    },
+  )
+
+  // 담당 B: 모델 드롭다운에서 특정 모델을 고를 때 실제 호출 1회로 동작 여부 검증(validate.ts)
+  ipcMain.handle(
+    IPC.PROVIDER_TEST_MODEL,
+    async (_e, provider: LlmProvider, apiKey: string, model: string) => {
+      return testModel(provider, apiKey, model)
     },
   )
 
