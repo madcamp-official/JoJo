@@ -101,6 +101,11 @@ export type QuestionErrorCode =
   | 'invalid_api_key'
   | 'insufficient_credit'
   | 'rate_limited'
+  /** 설정에 선택된 모델이 provider 에 더 이상 없음(단종/오타 등) — HTTP 404 model_not_found
+   *  실측 확인(2026-07-28, "gpt-5.3-pro": 한때 있었으나 세대교체로 없어진 모델을 설정 화면이
+   *  캐싱해둔 목록에서 계속 보여주고 있었던 사례). 이전엔 이 케이스가 전부 unknown 으로
+   *  뭉뚱그려져 원인 파악이 안 됐다. */
+  | 'invalid_model'
   | 'network_error'
   | 'unknown'
 
