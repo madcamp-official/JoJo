@@ -116,9 +116,13 @@ export function PopupScreen() {
     }
   }, [baseCtx.language, displayText])
 
+  // ja/zh 전용 "글자 단위" 선택 토글(2026-07-28) — 기본은 단어 단위(false), 켜면 한자를
+  // 한 글자씩 개별 선택할 수 있게 한다(selection.ts buildSelectionModel/tokenizeAtoms 참고).
+  // en 등 다른 언어에선 Toolbar 가 토글 자체를 숨긴다.
+  const [charLevel, setCharLevel] = useState(false)
   const model = useMemo(
-    () => buildSelectionModel(baseCtx, jaResult, zhWords),
-    [baseCtx, jaResult, zhWords],
+    () => buildSelectionModel(baseCtx, jaResult, zhWords, charLevel),
+    [baseCtx, jaResult, zhWords, charLevel],
   )
   const [range, setRange] = useState({ from: model.initialFrom, to: model.initialTo })
 
@@ -296,6 +300,9 @@ export function PopupScreen() {
           onSelectSource={setSelectedSource}
           forceSource={forceSource}
           onToggleForceSource={setForceSource}
+          showCharLevelToggle={baseCtx.language !== 'en'}
+          charLevel={charLevel}
+          onToggleCharLevel={setCharLevel}
         />
 
         <Chat messages={messages} onSend={ask} busy={busy} />

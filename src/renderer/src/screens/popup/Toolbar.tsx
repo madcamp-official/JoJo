@@ -14,6 +14,11 @@ import type { DictionarySourceId, DictionarySourceOption } from '@shared/types'
 // 위 드롭다운에서 고른 소스 하나만 강제로 호출한다(디버깅/비교용). 드롭다운 자체는
 // 항상 보여주되(토글과 무관하게 다음 소스 목록 확인용), 토글이 꺼져 있을 땐 disabled 로
 // "지금은 이 선택이 반영 안 됨"을 시각적으로 알린다.
+//
+// showCharLevelToggle/charLevel/onToggleCharLevel: ja/zh 전용 "글자 단위" 선택 토글
+// (2026-07-28) — 한자 하나하나의 뜻이 궁금할 수 있어, 팝업 범위 지정 단위를 기본
+// 단어 단위에서 한 글자씩으로 바꿔볼 수 있게 한다(selection.ts 참고). en 은 애초에
+// 단어 단위 개념만 있어 showCharLevelToggle=false 로 토글 자체를 숨긴다.
 
 interface Props {
   onPron: () => void
@@ -26,6 +31,9 @@ interface Props {
   onSelectSource: (id: DictionarySourceId) => void
   forceSource: boolean
   onToggleForceSource: (value: boolean) => void
+  showCharLevelToggle: boolean
+  charLevel: boolean
+  onToggleCharLevel: (value: boolean) => void
 }
 
 function GoogleIcon() {
@@ -71,6 +79,9 @@ export function Toolbar({
   onSelectSource,
   forceSource,
   onToggleForceSource,
+  showCharLevelToggle,
+  charLevel,
+  onToggleCharLevel,
 }: Props) {
   return (
     <div className="toolbar">
@@ -90,6 +101,18 @@ export function Toolbar({
       <button className="tb-btn" onClick={onNaverDict}>
         사전
       </button>
+
+      {showCharLevelToggle && (
+        <label className="char-level-toggle" title="켜면 범위 지정 시 한자를 한 글자씩 개별 선택할 수 있음(기본은 단어 단위)">
+          <input
+            type="checkbox"
+            checked={charLevel}
+            disabled={disabled}
+            onChange={(e) => onToggleCharLevel(e.target.checked)}
+          />
+          글자 단위
+        </label>
+      )}
 
       <span className="tb-spacer" />
 

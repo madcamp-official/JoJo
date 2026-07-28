@@ -381,6 +381,13 @@ button:disabled { cursor: not-allowed; }
 }
 .dict-force-toggle input { cursor: pointer; }
 
+/* ja/zh 전용 "글자 단위" 선택 토글(2026-07-28) — 네이버 사전 버튼 옆, 위 토글과 톤을 맞춤 */
+.char-level-toggle {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 12px; color: #6b7280; cursor: pointer; user-select: none;
+}
+.char-level-toggle input { cursor: pointer; }
+
 /* 채팅 */
 .chat {
   flex: 1; min-height: 0;

@@ -205,16 +205,21 @@ function buildZhWordLookup(zhWords: ZhWord[]): (pos: number) => number | undefin
   return (pos: number) => endByStart.get(pos)
 }
 
-// 팝업 내 일본어 선택 단위 전략.
-//  - 'wordMerge'(현재 기본): OCR 단어 클릭(main/nlp/japanese.ts segmentJapaneseWords)과
+// 팝업 내 ja/zh 선택 단위 — 기본은 단어 단위(charLevel=false), 사용자가 팝업 툴바의
+// "글자 단위" 토글(Toolbar.tsx/PopupScreen.tsx, 2026-07-28)을 켜면 한자를 한 글자씩
+// 개별 선택할 수 있게 charLevel=true 로 전환한다(한자 하나하나의 뜻이 궁금할 수 있어서).
+//  - ja, charLevel=false(기본): OCR 단어 클릭(main/nlp/japanese.ts segmentJapaneseWords)과
 //    동일하게 활성 엔진(jaResult.engine)에 맞는 병합 함수 결과를 그대로 atom 으로 쓴다 —
 //    한자+가나가 붙어 하나의 문절 단위로 선택된다.
-//  - 'charLevel': 원래 계획대로 한자는 한 글자씩 별도 atom 으로 유지하고, 가나 조각만
-//    품사로 병합한다(아래 tokenizeAtoms 의 KANJI_CHAR_RE/segmentKanaRunWithTokens 분기,
-//    jaTokens 가 없을 때의 기존 폴백과 동일한 코드 경로). 나중에 되돌릴 때는 이 값만
-//    바꾸면 된다. IPADIC 엔진(lindera) 기준으로 짜여 있어 UniDic(Sudachi) 로
-//    바꿨을 때 이 경로를 쓰려면 segmentKanaRunWithTokens 의 '助動詞' 판정도 다시 봐야 함.
-const JA_ATOM_STRATEGY: 'wordMerge' | 'charLevel' = 'wordMerge'
+//  - ja, charLevel=true: 한자는 한 글자씩 별도 atom 으로 유지하고, 가나 조각만 품사로
+//    병합한다(아래 tokenizeAtoms 의 KANJI_CHAR_RE/segmentKanaRunWithTokens 분기, jaTokens
+//    가 없을 때의 기존 폴백과 동일한 코드 경로). IPADIC 엔진(lindera) 기준으로 짜여 있어
+//    UniDic(Sudachi) 로 바꿨을 때 이 경로를 쓰려면 segmentKanaRunWithTokens 의 '助動詞'
+//    판정도 다시 봐야 함.
+//  - zh, charLevel=false(기본): main/nlp/chinese.ts 가 정한 단어 경계(zhWords)를 그대로
+//    atom 으로 쓴다.
+//  - zh, charLevel=true: zhWords 를 아예 참조하지 않아 KANJI_CHAR_RE 분기로 떨어지고,
+//    한자 한 글자가 곧 atom 하나가 된다.
 
 // 병합된 토큰 중 순수 기호·공백뿐인 토큰(문장부호 등)은 atom 으로 만들지 않는다 —
 // tokenizeAtoms 의 기존 LATIN/KANA/KANJI 루프가 그런 문자를 건너뛰던 것과 동일한 기준.
@@ -237,13 +242,13 @@ function atomsFromMergedTokens(jaResult: JaTokenizeResult): Atom[] {
   return atoms
 }
 
-function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWord[]): Atom[] {
-  if (jaResult && jaResult.tokens.length > 0 && JA_ATOM_STRATEGY === 'wordMerge') {
+function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWord[], charLevel?: boolean): Atom[] {
+  if (jaResult && jaResult.tokens.length > 0 && !charLevel) {
     return atomsFromMergedTokens(jaResult)
   }
   const jaTokens = jaResult?.tokens
   const tokenAt = jaTokens ? buildTokenLookup(jaTokens) : null
-  const zhWordEndAt = zhWords && zhWords.length > 0 ? buildZhWordLookup(zhWords) : null
+  const zhWordEndAt = !charLevel && zhWords && zhWords.length > 0 ? buildZhWordLookup(zhWords) : null
   const atoms: Atom[] = []
   let i = 0
   while (i < text.length) {
@@ -329,15 +334,17 @@ export function buildDisplayText(extracted: ExtractedSelection): DisplayText {
  * ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. jaResult 를 주면
  * 일본어 가나 조각을 활성 엔진(jaResult.engine) 품사 기반으로 병합하고(없으면 즉석 대체
  * 규칙으로 근사), zhWords 를 주면 중국어 한자를 segmentit 단어 경계 기준으로 묶는다(없으면
- * 글자 단위).
+ * 글자 단위). charLevel=true 면 ja/zh 둘 다 병합/단어 묶기를 건너뛰고 한자를 한 글자씩
+ * 개별 atom 으로 만든다(팝업 툴바 "글자 단위" 토글, 2026-07-28).
  */
 export function buildSelectionModel(
   extracted: ExtractedSelection,
   jaResult?: JaTokenizeResult,
   zhWords?: ZhWord[],
+  charLevel?: boolean,
 ): PopupSelectionModel {
   const { displayText, selStart, selEnd, windowStart, insertions } = buildDisplayText(extracted)
-  const atoms = tokenizeAtoms(displayText, jaResult, zhWords)
+  const atoms = tokenizeAtoms(displayText, jaResult, zhWords, charLevel)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.
   let initialFrom = atoms.findIndex((a) => a.end > selStart && a.start < selEnd)
