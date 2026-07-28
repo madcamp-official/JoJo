@@ -159,20 +159,31 @@ const SOURCE_LABELS: Record<DictionarySourceId, string> = {
 }
 
 /** CC/오픈 라이선스로 배포되는 소스는 출처 표기에 라이선스도 함께 밝힌다(2026-07-28) —
- *  Wiktionary는 CC BY-SA 4.0(+ GFDL 이중 라이선스)이라 저작자 표시 의무가 있음. 나머지
- *  소스는 상업 API(MW)·자체 저작권 사전(Kotobank/汉典/萌典)·명확한 CC 조건이 이 앱
- *  기준 아직 검토 전(OEWN도 CC BY 4.0이나 별도 검토 필요)이라 이번엔 Wiktionary만
- *  추가 — 나머지는 필요해지면 그때 채운다. */
+ *  Wiktionary는 CC BY-SA 4.0(+ GFDL 이중 라이선스), OEWN은 CC BY 4.0(DICTIONARY_SOURCES.md
+ *  OEWN 절 참고 — 원본 Princeton WordNet 대신 이 커뮤니티 후속판을 채택한 이유이기도 함)
+ *  이라 둘 다 저작자 표시 의무가 있음. 나머지 소스는 상업 API(MW)·자체 저작권 사전
+ *  (Kotobank/汉典/萌典)이라 이 앱 기준 별도 라이선스 표기 대상이 아님 — 필요해지면
+ *  그때 채운다. */
 const SOURCE_LICENSE: Partial<Record<DictionarySourceId, string>> = {
   wiktionary: 'CC BY-SA 4.0',
+  wordnet: 'CC BY 4.0',
 }
 
-/** Wiktionary 표제어 페이지 URL — 라이선스 요건상 "출처(source)"는 표기 문구뿐 아니라
- *  원문을 찾아갈 수 있는 링크까지 포함하는 게 안전하다. wiktionary.ts 가 조회에 쓰는
- *  표제어(queryWord)와 en.wiktionary.org 페이지 타이틀이 같다는 전제(어댑터가 word 를
- *  그대로 페이지 타이틀로 씀)로 만든다. */
-function wiktionaryPageUrl(word: string): string {
-  return `https://en.wiktionary.org/wiki/${encodeURIComponent(word)}`
+/** 라이선스 있는 소스의 "원문을 찾아갈 수 있는 링크" — 저작자 표시 요건상 표기 문구뿐
+ *  아니라 원문 링크까지 포함하는 게 안전하다(2026-07-28). 소스별로 원문 도달 방식이
+ *  달라 링크 빌더를 소스 id 로 분기한다 — 링크를 못 만드는(또는 안전하게 못 만드는)
+ *  소스는 이 맵에 없으면 formatDictionaryAnswer 가 자동으로 링크 없이 라이선스명만 표기.
+ *
+ *  - wiktionary: wiktionary.ts 가 조회에 쓰는 표제어(queryWord)와 en.wiktionary.org
+ *    페이지 타이틀이 같다는 전제(어댑터가 word 를 그대로 페이지 타이틀로 씀)로 표제어별
+ *    딥링크 생성 가능.
+ *  - wordnet(OEWN): 표제어별 딥링크가 없다 — 조회 API(en-word.net)가 DICTIONARY_SOURCES.md
+ *    실측대로 503으로 불안정해 죽은 링크로 안내할 위험이 있고, 이 어댑터는 애초에 그
+ *    라이브 API 를 쓰지 않고 GitHub Releases 데이터 파일을 로컬 번들로 쓴다(oewn.ts) —
+ *    조회 결과와 무관하게 항상 살아있는 공식 프로젝트 페이지(GitHub 저장소)로 대신 연결한다. */
+const SOURCE_URL: Partial<Record<DictionarySourceId, (word: string) => string>> = {
+  wiktionary: (word) => `https://en.wiktionary.org/wiki/${encodeURIComponent(word)}`,
+  wordnet: () => 'https://github.com/globalwordnet/english-wordnet',
 }
 
 const POS_KO: Partial<Record<CanonicalPos, string>> = {
@@ -253,13 +264,11 @@ export function formatDictionaryAnswer(
     lines.push('')
   }
 
-  // 라이선스가 있는 소스(현재 Wiktionary만)는 원문 링크 + 라이선스명을 함께 표기해
-  // CC BY-SA 4.0 저작자 표시 요건을 최소한으로 충족한다.
+  // 라이선스가 있는 소스(Wiktionary/OEWN)는 원문 링크 + 라이선스명을 함께 표기해
+  // 저작자 표시 요건을 최소한으로 충족한다 — 링크 빌더가 없는 소스는 라이선스명만.
   const license = SOURCE_LICENSE[source]
-  const sourceLabel =
-    source === 'wiktionary'
-      ? `[${SOURCE_LABELS[source]}](${wiktionaryPageUrl(queryWord)})`
-      : SOURCE_LABELS[source]
+  const urlBuilder = SOURCE_URL[source]
+  const sourceLabel = urlBuilder ? `[${SOURCE_LABELS[source]}](${urlBuilder(queryWord)})` : SOURCE_LABELS[source]
   const licenseSuffix = license ? ` (${license})` : ''
   lines.push(`_출처: ${sourceLabel}${licenseSuffix}_`)
   // 마크다운은 줄바꿈 하나(\n)만으론 같은 문단으로 합쳐 렌더링하므로(예: 원문/번역이
