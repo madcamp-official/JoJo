@@ -98,9 +98,19 @@ export function extractSubtitleSnapshot(): SubtitleSnapshot | null {
     }
   }
   if (lines.length === 0) return null
+  // 브라우저 창 좌상단 → 뷰포트 좌상단 오프셋(CSS px). 세로는 툴바+탭바(outer-inner),
+  // 가로는 좌우 테두리 절반. 전체화면/극장모드에선 크롬이 없어 0 에 수렴한다.
+  const chromeTop = Math.max(0, window.outerHeight - window.innerHeight)
+  const chromeLeft = Math.max(0, Math.round((window.outerWidth - window.innerWidth) / 2))
   return {
     lines,
-    viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio || 1 },
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      dpr: window.devicePixelRatio || 1,
+      chromeLeft,
+      chromeTop,
+    },
     currentTime: videoCurrentTime(),
   }
 }

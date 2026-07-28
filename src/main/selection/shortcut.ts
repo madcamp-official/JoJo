@@ -10,6 +10,8 @@ import {
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
+import { decideExtraction, type ExtractionDecision } from './decideOcr'
+import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
 
 // 담당 A — 모드 전환 전역 단축키 (PLAN.md §3, 기본 macOS: Option+Q / Windows: Alt+Q)
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
@@ -30,6 +32,8 @@ let resizeSettleTimer: NodeJS.Timeout | null = null
 // 드래그 모드로 들어간다(오버레이가 배너를 먼저 잠깐 보여준 뒤 드래그 안내로 전환).
 onWindowResized(() => {
   if (mode !== 'select') return
+  // 자막 경로는 확장이 실시간 좌표를 주므로 창 리사이즈 시 OCR 영역 재선택이 필요 없다.
+  if (isSubtitleModeActive()) return
   clearRegion()
   invalidateExtractionCache() // 이전 영역 기준 캐시/단어를 비움(오버레이에도 빈 배열 통지돼 박스가 사라짐)
   stopChangeWatcher() // 영역이 무효화됐으니 그 영역 기준 변화 감지도 멈춘다(재선택 후 다시 시작)
@@ -46,14 +50,39 @@ function toggleMode(): void {
   setOverlayMode(mode) // 오버레이 테두리 색(일반=파랑/선택=보라) 갱신 + MODE_CHANGED 통지
   if (mode !== 'select') {
     stopChangeWatcher()
+    stopSubtitleMode()
     return
   }
+  void enterSelectMode()
+}
 
+/**
+ * 선택 모드 진입 — 추출 방식을 판정해(브라우저 유튜브/넷플릭스면 자막, 그 외 OCR)
+ * 알맞은 경로로 분기한다. 판정은 비동기(언어 감지 등)라 진입 후 적용한다.
+ */
+async function enterSelectMode(): Promise<void> {
+  const decision = await decideExtraction()
+  if (mode !== 'select') return // 그 사이 빠르게 토글로 빠져나갔으면 무시
+  applyExtractionDecision(decision)
+}
+
+/**
+ * 판정 결과를 실제 파이프라인에 적용한다. 선택 모드 진입 시, 그리고 선택 모드를 유지한
+ * 채 탭/URL 이 바뀌어 재판정(reevaluate.ts)될 때 호출된다.
+ */
+export function applyExtractionDecision(decision: ExtractionDecision): void {
+  if (mode !== 'select') return
+  if (decision.mode === 'subtitle') {
+    // 자막 경로 — OCR 영역 선택/캡처/변화감지를 전부 중단하고 확장 자막을 쓴다.
+    stopChangeWatcher()
+    startSubtitleMode()
+    return
+  }
+  // OCR/direct 경로 — 자막 모드였으면 중단하고 기존 영역/OCR 흐름으로.
+  stopSubtitleMode()
   if (getRegion()) {
-    // 이전에 지정해둔 영역 재사용 — 클릭 시 매번 새로 돌리면 느려서, 모드 진입 시
-    // 미리 캡처+추출해 캐시를 채워둔다(extractionCache.ts).
     refreshExtractionCache()
-    startChangeWatcher() // 영역이 이미 있으니 바로 변화 감지 시작(changeWatcher.ts)
+    startChangeWatcher()
   } else {
     void acquireRegionAutomaticallyOrAskDrag()
   }

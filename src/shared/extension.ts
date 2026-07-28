@@ -45,7 +45,16 @@ export interface SubtitleContext {
 // 현재 화면에 떠 있는 자막 한 프레임 + 좌표.
 export interface SubtitleSnapshot {
   lines: SubLine[]
-  viewport: { width: number; height: number; dpr: number }
+  viewport: {
+    width: number
+    height: number
+    dpr: number
+    // 브라우저 창 좌상단 → 뷰포트(콘텐츠 영역) 좌상단 오프셋(CSS px). 오버레이가 창에
+    // 정렬돼 있으므로 뷰포트 좌표에 이 값만 더하면 오버레이 로컬 좌표가 된다.
+    // 전체화면/극장모드에선 크롬이 사라져 0 에 수렴한다.
+    chromeLeft: number
+    chromeTop: number
+  }
   currentTime: number // 영상 재생 위치(초) — timedtext 버퍼에서 앞뒤 자막을 찾는 기준
   context?: SubtitleContext // timedtext 로딩이 끝났으면 앞뒤 범위 자막 문맥
 }
