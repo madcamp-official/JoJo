@@ -272,7 +272,7 @@ export function clusterVerticalLinesIntoColumns<T extends Rect>(lines: T[]): T[]
 const LINE_PADDING_X = 0
 const LINE_PADDING_Y = 6
 
-function padLine(line: Rect): Rect {
+export function padLine(line: Rect): Rect {
   return {
     x: line.x - LINE_PADDING_X,
     y: line.y - LINE_PADDING_Y,
@@ -319,7 +319,7 @@ function padLine(line: Rect): Rect {
 // 밑에 밀림"으로 확인).
 const DIGIT_RE = /[0-9]/
 
-function computeSlotWeights(codepoints: string[]): number[] {
+export function computeSlotWeights(codepoints: string[]): number[] {
   const weights = new Array(codepoints.length).fill(1)
   let i = 0
   while (i < codepoints.length) {
@@ -347,9 +347,9 @@ export async function groupCjkCharsGrid(
 ): Promise<Word[]> {
   const codepoints = [...text]
   if (codepoints.length === 0) return []
-  const boundaries = [...(language === 'ja' ? await segmentJapaneseWords(text) : segmentChineseWords(text))].sort(
-    (a, b) => a.start - b.start,
-  )
+  const boundaries = [
+    ...(language === 'ja' ? await segmentJapaneseWords(text) : await segmentChineseWords(text, language)),
+  ].sort((a, b) => a.start - b.start)
   const weights = computeSlotWeights(codepoints)
   const cumulative: number[] = [0]
   for (const w of weights) cumulative.push(cumulative[cumulative.length - 1]! + w)
@@ -475,9 +475,12 @@ export function estimateCellSizeFromIndent(lines: Rect[]): number | null {
   if (baseline === null) return null
   const diffs = bodyLines.map((l) => l.y - baseline).filter((d) => d > 5)
   if (diffs.length === 0) return null
-  // 중앙값 대신 최빈값을 쓴다 — 실측 확인 결과 들여쓰기 차이값들이 검출 노이즈로
-  // 두 무리 정도로 흩어질 때(예: 15~17 vs 19~21) 중앙값이 그 사이 애매한 값으로 나와
-  // 오히려 부정확했다. 2px 단위로 반올림해 가장 많이 겹치는 값을 고른다.
+  // 평균을 실제로 테스트해보니(직접 확인) diff 값들이 뚜렷이 다른 두 무리로 갈렸다 —
+  // 진짜 "문단 들여쓰기 1칸"(17~22 근방)과, 대시 등 미검출 구간 때문에 훨씬 더 밀린
+  // 열(50~53 근방, 3칸 가까이)이 섞여 있어서 평균을 내면 어느 쪽도 아닌 애매한 값
+  // (예: 1칸도 3칸도 아닌 1.7칸어치)이 나왔다. 최빈값(2px 단위로 반올림해 가장 많이
+  // 겹치는 값)을 쓰면 이런 소수의 이상치 무리에 안 끌려가고 실제로 더 많이 나타나는
+  // "진짜" 들여쓰기 값을 그대로 찾아낸다.
   const roundedDiffs = diffs.map((d) => Math.round(d / 2) * 2)
   const diffCounts = new Map<number, number>()
   for (const d of roundedDiffs) diffCounts.set(d, (diffCounts.get(d) ?? 0) + 1)
@@ -498,7 +501,7 @@ export function estimateCellSizeFromIndent(lines: Rect[]): number | null {
 // 정확히 맞히는 게 오히려 오류를 늘린다는 게 확인돼서(사용자 판단) — 정확한 기호를
 // 추정하려 들지 않고 "여기 뭔가 있었는데 못 읽었다"는 사실만 통일된 표시(게타 마크,
 // 일본어 문헌에서 미판독 글자를 표시하는 관례)로 팝업 본문에 남긴다.
-export const UNKNOWN_GAP_PLACEHOLDER = '□'
+export const UNKNOWN_GAP_PLACEHOLDER = '〓'
 
 /**
  * 세로쓰기 일본어 소설에서 문장 시작/전환에 쓰이는 대시(―)나 그 밖의 몇 칸짜리 기호는
@@ -536,6 +539,51 @@ export const GAP_RATIO_THRESHOLD = 1.5
 // 경우까지 전부 자리표자로 채우면 이미 망가진 인식 결과를 더 이상하게 만든다.
 export const MAX_GAP_RATIO = 3
 
+/**
+ * 줄 하나 안에서, 인식된 원시 단위(글자/조각, bbox 있는 것만)들 사이의 y 간격을 보고
+ * 미검출 구간에 자리표자를 끼워 넣은 텍스트를 만든다 — insertUndetectedMarks(여러
+ * 줄을 한 번에 처리, 자체적으로 typicalCellSize 를 추정)의 단일 줄 버전. ocrYomitoku.ts
+ * 가 Yomitoku 결과 중 줄 끝/중간에 미검출 구간이 의심되는 줄만 PaddleOCR 로 다시 인식해
+ * (글자 단위 좌표를 얻어) 이 함수로 정확한 위치에 자리표자를 넣는 데도 재사용한다 —
+ * 그때는 이미 페이지 전체에서 구한 typicalCellSize 를 그대로 넘겨써서(이 줄 하나로
+ * 다시 추정하면 노이즈가 큼) 다른 줄들과 격자가 어긋나지 않게 한다.
+ */
+export function insertGapPlaceholdersForLine(line: Rect, units: Word[], text: string, typicalCellSize: number): string {
+  if (units.length === 0) return text
+
+  // gaps: [원시 단위 배열상 삽입 위치(문자 오프셋), 끼워 넣을 자리표자 개수][]
+  const gaps: [number, number][] = []
+  const countAt = (upTo: number) => [...units.slice(0, upTo).map((u) => u.text).join('')].length
+
+  const inRange = (gap: number) =>
+    gap >= typicalCellSize * GAP_RATIO_THRESHOLD && gap <= typicalCellSize * MAX_GAP_RATIO
+
+  const leadingGap = units[0]!.bbox!.y - line.y
+  if (inRange(leadingGap)) {
+    gaps.push([0, Math.round(leadingGap / typicalCellSize)])
+  }
+  for (let k = 1; k < units.length; k++) {
+    const prev = units[k - 1]!
+    const gap = units[k]!.bbox!.y - (prev.bbox!.y + prev.bbox!.height)
+    if (inRange(gap)) {
+      gaps.push([countAt(k), Math.round(gap / typicalCellSize)])
+    }
+  }
+  const last = units[units.length - 1]!
+  const trailingGap = line.y + line.height - (last.bbox!.y + last.bbox!.height)
+  if (inRange(trailingGap)) {
+    gaps.push([countAt(units.length), Math.round(trailingGap / typicalCellSize)])
+  }
+  if (gaps.length === 0) return text
+
+  // 뒤에서부터 끼워 넣어야 앞쪽 삽입이 뒤쪽 삽입 위치(문자 오프셋)를 안 밀리게 한다.
+  const codepoints = [...text]
+  for (const [idx, count] of [...gaps].sort((a, b) => b[0] - a[0])) {
+    codepoints.splice(idx, 0, ...Array(count).fill(UNKNOWN_GAP_PLACEHOLDER))
+  }
+  return codepoints.join('')
+}
+
 async function insertUndetectedMarks(
   lines: Rect[],
   perLine: Word[][],
@@ -552,41 +600,8 @@ async function insertUndetectedMarks(
   if (!typicalCellSize) return { texts, typicalCellSize: null }
 
   const newTexts = lines.map((line, i) => {
-    const text = texts[i]!
     const units = perLine[i]!.filter((w) => w.bbox)
-    if (units.length === 0) return text
-
-    // gaps: [원시 단위 배열상 삽입 위치(문자 오프셋), 끼워 넣을 자리표자 개수][]
-    const gaps: [number, number][] = []
-    const countAt = (upTo: number) => [...units.slice(0, upTo).map((u) => u.text).join('')].length
-
-    const inRange = (gap: number) =>
-      gap >= typicalCellSize * GAP_RATIO_THRESHOLD && gap <= typicalCellSize * MAX_GAP_RATIO
-
-    const leadingGap = units[0]!.bbox!.y - line.y
-    if (inRange(leadingGap)) {
-      gaps.push([0, Math.round(leadingGap / typicalCellSize)])
-    }
-    for (let k = 1; k < units.length; k++) {
-      const prev = units[k - 1]!
-      const gap = units[k]!.bbox!.y - (prev.bbox!.y + prev.bbox!.height)
-      if (inRange(gap)) {
-        gaps.push([countAt(k), Math.round(gap / typicalCellSize)])
-      }
-    }
-    const last = units[units.length - 1]!
-    const trailingGap = line.y + line.height - (last.bbox!.y + last.bbox!.height)
-    if (inRange(trailingGap)) {
-      gaps.push([countAt(units.length), Math.round(trailingGap / typicalCellSize)])
-    }
-    if (gaps.length === 0) return text
-
-    // 뒤에서부터 끼워 넣어야 앞쪽 삽입이 뒤쪽 삽입 위치(문자 오프셋)를 안 밀리게 한다.
-    const codepoints = [...text]
-    for (const [idx, count] of [...gaps].sort((a, b) => b[0] - a[0])) {
-      codepoints.splice(idx, 0, ...Array(count).fill(UNKNOWN_GAP_PLACEHOLDER))
-    }
-    return codepoints.join('')
+    return insertGapPlaceholdersForLine(line, units, texts[i]!, typicalCellSize)
   })
   return { texts: newTexts, typicalCellSize }
 }

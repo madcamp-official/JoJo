@@ -7,11 +7,15 @@ import { createPythonServer, TINY_PNG } from './pythonServer'
 import {
   clusterVerticalLinesIntoColumns,
   computeBaseline,
+  computeSlotWeights,
   estimateCellSizeFromIndent,
   excludeFurigana,
   groupCjkCharsGrid,
+  insertGapPlaceholdersForLine,
   median,
   MIN_BODY_LINE_HEIGHT,
+  padLine,
+  recognizeWithPaddle,
   UNKNOWN_GAP_PLACEHOLDER,
 } from './ocrPaddle'
 
@@ -72,43 +76,114 @@ interface LineCandidate extends Rect {
 const SNAP_RESIDUAL_RATIO = 0.35
 const UNKNOWN_GAP_MIN_MULTIPLE = 2
 
-function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | null): LineCandidate[] {
-  if (!typicalCellSize) return lines
+// leading 쪽에서 실측 확인된 편향(대시 2개인 줄들의 측정값이 항상 실제보다 1칸 크게
+// 나옴 — Yomitoku 가 줄 경계를 실제 내용보다 매번 비슷한 만큼 여유 있게 잡는 경향)을
+// trailing(줄 끝) 쪽에도 그대로 적용한다 — 같은 검출 메커니즘이 아래쪽 경계에도 대칭
+//적으로 작용할 것으로 보고 적용한 것으로, trailing 전용 실측 검증은 아직 못 했다
+// (필요해지면 DEBUG_OCR_DUMP 로 확인 후 조정).
+const DETECTION_PADDING_BIAS = 1
+
+interface AlignedLine extends LineCandidate {
+  // 줄 끝(또는 중간, 구분 불가) 어딘가에 미검출 구간이 있는 것으로 의심되는 줄 —
+  // Yomitoku 의 bbox+텍스트만으로는 그 구간이 정확히 어디인지 알 수 없어(글자 단위
+  // 좌표가 없음), recognizeVerticalColumnWithYomitoku 가 이 줄만 PaddleOCR 로 다시
+  // 인식해(글자 단위 좌표를 얻어) 정확한 위치를 찾는다. 여기서는 위치를 못 찾으니
+  // 자리표자를 아직 안 넣고, PaddleOCR 폴백도 실패할 경우에 대비해 대략적인 개수만
+  // blindTrailingCount 에 남겨둔다(최후 수단으로 줄 끝에 뭉텅이로 붙임).
+  suspiciousTrailingGap: boolean
+  blindTrailingCount: number
+}
+
+function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | null): AlignedLine[] {
+  if (!typicalCellSize) return lines.map((line) => ({ ...line, suspiciousTrailingGap: false, blindTrailingCount: 0 }))
   // estimateCellSizeFromIndent(ocrPaddle.ts)와 동일하게 짧은 잡음 줄(후리가나 잔재 등,
   // "だが。" 같은 진짜로 짧은 본문 줄도 포함해 걸러짐)을 뺀 뒤 기준선을 잡는다 — 그 필터
   // 없이 전체 줄로 기준선을 구하면(직접 확인) 짧은 줄들이 최빈값을 살짝 흔들어서 판정이
   // 흔들린다.
   const baseline = computeBaseline(lines.filter((l) => l.height >= MIN_BODY_LINE_HEIGHT))
-  if (baseline === null) return lines
-  return lines.map((line) => {
+  if (baseline === null) return lines.map((line) => ({ ...line, suspiciousTrailingGap: false, blindTrailingCount: 0 }))
+  const slotCount = (text: string): number => computeSlotWeights([...text]).reduce((a, b) => a + b, 0)
+
+  return lines.map((line): AlignedLine => {
+    const originalBottom = line.y + line.height
+    let newY = line.y
+    let text = line.text
+
+    // 줄 시작(맨 앞) 미검출 구간 — 다른 열들이 공유하는 기준선과 비교해 이 줄의 시작
+    // 위치가 정수 칸 배수만큼 아래에 있는지 본다. 이건 위치가 확실하니(줄의 맨 앞)
+    // 바로 자리표자를 넣는다 — PaddleOCR 폴백 대상이 아니다.
     const rawOffset = line.y - baseline
     const nearestMultiple = Math.round(rawOffset / typicalCellSize)
     const residual = rawOffset - nearestMultiple * typicalCellSize
-    if (Math.abs(residual) > typicalCellSize * SNAP_RESIDUAL_RATIO) return line
-    if (nearestMultiple < UNKNOWN_GAP_MIN_MULTIPLE) {
-      // 0칸(기준선 그대로) 또는 1칸(문단 들여쓰기) — 자리표자 없이 시작 위치만 보정.
-      const correctedY = baseline + nearestMultiple * typicalCellSize
-      return { ...line, y: correctedY }
+    if (Math.abs(residual) <= typicalCellSize * SNAP_RESIDUAL_RATIO) {
+      if (nearestMultiple < UNKNOWN_GAP_MIN_MULTIPLE) {
+        // 0칸(기준선 그대로) 또는 1칸(문단 들여쓰기) — 자리표자 없이 시작 위치만 보정.
+        newY = baseline + nearestMultiple * typicalCellSize
+      } else {
+        // 미검출 구간(대시 등) — 자리표자 개수를 고정값으로 두지 않는다. 몇 칸짜리
+        // 기호인지는 실제로 페이지마다 다를 수 있다(실사용 중 확인: "――"(대시 2개)
+        // 뿐 아니라 3칸을 차지하는 다른 기호도 봤다는 보고) — 대신 측정값에서 검출
+        // 여백만큼의 고정 편향을 뺀 값을 쓴다.
+        const count = nearestMultiple - DETECTION_PADDING_BIAS
+        newY = baseline + DETECTION_PADDING_BIAS * typicalCellSize
+        text = UNKNOWN_GAP_PLACEHOLDER.repeat(count) + text
+      }
     }
-    // 미검출 구간(대시 등) — 자리표자 개수를 고정값으로 두지 않는다. 몇 칸짜리 기호인지는
-    // 실제로 페이지마다 다를 수 있다(실사용 중 확인: "――"(대시 2개)뿐 아니라 3칸을
-    // 차지하는 다른 기호도 봤다는 보고) — 대신 Yomitoku 의 측정값(nearestMultiple)에서
-    // 검출 여백만큼의 고정 편향을 뺀 값을 쓴다. 이 편향은 몇 칸짜리 기호든 항상 거의
-    // 같게(실측: 대시 2개인 줄들의 측정값이 항상 실제보다 1칸 크게 나옴) 나타나는데,
-    // Yomitoku 가 줄 bbox 상단을 실제 내용 시작보다 매번 비슷한 만큼 여유 있게 잡는
-    // 경향 때문으로 보인다(내용이 몇 칸짜리든 이 여백 자체는 검출 방식의 특성이라
-    // 일정할 것으로 예상됨) — 그래서 "측정값 - 1"이 몇 칸짜리 기호든 실제 칸수에
-    // 더 가깝다.
-    const DETECTION_PADDING_BIAS = 1
-    const count = nearestMultiple - DETECTION_PADDING_BIAS
-    const newY = baseline + DETECTION_PADDING_BIAS * typicalCellSize
+
+    // 줄 끝(또는 중간) 미검출 구간 — 위에서 구한 시작 위치(newY)와 지금까지의 텍스트
+    // (자리표자 포함)만으로 "여기까지 인식됐다면 몇 번째 칸에서 끝나야 하는지"
+    // (expectedBottom)를 계산할 수 있고, Yomitoku 가 실제로 검출한 줄의 아래쪽 경계
+    // (originalBottom)와 비교하면 그 차이만큼 어딘가에 미검출 구간이 있었다는 뜻이다.
+    // 다만 이 총량만으로는 그게 줄 "끝"인지 "중간"인지 구분이 안 되므로(둘 다 같은
+    // 총량 차이를 만듦), 여기선 바로 텍스트에 붙이지 않고 의심 표시만 해둔다 —
+    // 정확한 위치는 recognizeVerticalColumnWithYomitoku 가 PaddleOCR 재인식으로 찾는다.
+    const expectedBottom = newY + slotCount(text) * typicalCellSize
+    const trailingGap = originalBottom - expectedBottom
+    const trailingMultiple = Math.round(trailingGap / typicalCellSize)
+    const trailingResidual = trailingGap - trailingMultiple * typicalCellSize
+    const suspicious =
+      trailingMultiple >= UNKNOWN_GAP_MIN_MULTIPLE && Math.abs(trailingResidual) <= typicalCellSize * SNAP_RESIDUAL_RATIO
+    const blindTrailingCount = suspicious ? Math.max(0, trailingMultiple - DETECTION_PADDING_BIAS) : 0
+
     return {
       ...line,
       y: newY,
-      height: line.y + line.height - newY,
-      text: UNKNOWN_GAP_PLACEHOLDER.repeat(count) + line.text,
+      height: originalBottom - newY,
+      text,
+      suspiciousTrailingGap: suspicious,
+      blindTrailingCount,
     }
   })
+}
+
+/**
+ * suspiciousTrailingGap 로 표시된 줄만 PaddleOCR 로 다시 인식해(글자 단위 좌표를 얻어)
+ * insertGapPlaceholdersForLine 으로 정확한 위치에 자리표자를 넣는다 — Yomitoku 는 줄
+ * 전체를 한 bbox 로만 주기 때문에 이 정밀도가 아예 없다. PaddleOCR 도 이 시점엔 검출/
+ * 인식 정확도가 완벽하지 않을 수 있지만(실사용 중 여러 번 확인된 한계), 적어도 글자
+ * 단위 위치 정보는 있어서 "어디에 구멍이 있는지"는 Yomitoku 보다 훨씬 정확히 찾는다 —
+ * 대신 이 한 줄에 한해서는 텍스트 자체(내용)도 PaddleOCR 결과로 통째로 교체한다(Yomitoku
+ * 인식이 대체로 더 정확하지만, 이 줄은 애초에 위치가 안 맞는 걸 감수하느니 정확한 위치를
+ * 얻는 쪽을 택함). PaddleOCR 마저 실패하면(Python 환경 없음 등) 위치를 모르니 최후
+ * 수단으로 줄 끝에 뭉텅이로 자리표자를 붙인다(alignColumnStarts 가 미리 구해둔 개수).
+ */
+async function resolveSuspiciousLines(
+  image: Buffer,
+  lines: AlignedLine[],
+  typicalCellSize: number,
+): Promise<LineCandidate[]> {
+  return Promise.all(
+    lines.map(async (line): Promise<LineCandidate> => {
+      if (!line.suspiciousTrailingGap) return line
+      const rawWords = await recognizeWithPaddle(image, 'ja', padLine(line))
+      const units = rawWords?.filter((w) => w.bbox) ?? []
+      if (units.length === 0) {
+        return { ...line, text: line.text + UNKNOWN_GAP_PLACEHOLDER.repeat(line.blindTrailingCount) }
+      }
+      const paddleText = units.map((u) => u.text).join('')
+      return { ...line, text: insertGapPlaceholdersForLine(line, units, paddleText, typicalCellSize) }
+    }),
+  )
 }
 
 /**
@@ -179,27 +254,66 @@ export async function recognizeVerticalColumnWithYomitoku(image: Buffer, columnB
   // 오른쪽 열부터, 열 안에서는 위→아래로 순서 재정렬.
   const ordered = clusterVerticalLinesIntoColumns(bodyCandidates)
 
-  // typicalCellSize: ocrPaddle.ts 의 estimateCellSizeFromIndent 를 그대로 재사용한다
-  // (들여쓰기 관례 기반 — alignColumnStarts 의 baseline 판정과 같은 기준을 공유해야
-  // 격자 스냅이 어긋나지 않는다, 직접 확인). 들여쓰기된 줄이 하나도 없어 못 구하면
-  // (글자 수 기반) median 폴백 — 줄 전체 텍스트가 이미 정확하므로 "글자 수" 자체를 못
-  // 믿을 이유가 PaddleOCR 때보다 적다.
+  // typicalCellSize: 충분히 긴 줄들의 (검출 높이 ÷ 칸 수) 중앙값을 쓴다. 글자 수가
+  // 많을수록 줄 위/아래 경계의 검출 오차(고정된 몇 px)가 더 많은 글자에 나눠져서 글자당
+  // 오차가 작아진다 — 실측 확인: 짧은 줄까지 다 포함해서 평균 내면(예전 방식) 오차가
+  // 커서 값이 실제보다 작게 나왔고, 대신 열 폭(가로=세로인 정사각형 칸 가정)을 썼을
+  // 땐 실제보다 살짝(약 3%) 크게 나왔다 — 반면 글자 수 40개가 넘는 줄들만 골라 높이÷
+  // 칸수를 재보니 서로 오차 범위 안에서 일치했다(약 17.2~17.6, 표준적인 "긴 줄" 측정치).
+  // "칸 수"는 단순 글자 수가 아니라 computeSlotWeights 로 縦中横(정확히 2자리 숫자
+  // 연속은 한 칸으로 압축) 가중치를 반영한 값이다 — 처음엔 그냥 글자 수로 나눴다가
+  // 실사용 중 확인 결과("16" 같은 압축 숫자가 낀 줄에서) 값이 실제보다 작게 나왔다
+  // (분모가 실제 칸 수보다 크게 잡혀서). 짧은 줄(LONG_LINE_MIN_CHARS 미만)은 여전히
+  // 노이즈가 커서 이 계산에서 제외하고, 위치 스냅(alignColumnStarts)에만 전체 줄에
+  // 이 공통값을 적용한다.
+  const slotCount = (text: string): number => computeSlotWeights([...text]).reduce((a, b) => a + b, 0)
+  // 문장부호(、。 등)는 칸 수(slotCount)엔 한 칸으로 그대로 잡히지만, 잉크 자체가
+  // 작아서 Yomitoku 가 잡는 검출 높이는 그 칸만큼 다 안 나온다 — 줄 맨 끝이 문장부호면
+  // (줄 안 중간에 있는 건 앞뒤 글자에 가려 경계에 큰 영향 없음, 문제는 줄의 "끝"이라
+  // 그 좁은 잉크가 곧 줄 전체의 아래쪽 경계가 되는 경우) 그만큼 높이÷칸수 값이 실제보다
+  // 작게 나온다(실사용 중 확인). 정확히 얼마나 작게 잡히는지 보정하기보단, 그런 줄은
+  // 아예 이 측정 표본에서 제외한다.
+  const TRAILING_PUNCTUATION_RE = /[、。・！？…]$/
+  const LONG_LINE_MIN_CHARS = 20
+  const cellSizesFromLongLines = ordered
+    .map((l) => {
+      const n = [...l.text].length
+      if (n < LONG_LINE_MIN_CHARS || TRAILING_PUNCTUATION_RE.test(l.text)) return null
+      return l.height / slotCount(l.text)
+    })
+    .filter((v): v is number => v !== null)
+  const cellSizeFromWidth = ordered.length > 0 ? median(ordered.map((l) => l.width)) : null
   const rawCellSizes = ordered
     .map((l) => {
       const n = [...l.text].length
-      return n > 0 ? l.height / n : null
+      return n > 0 ? l.height / slotCount(l.text) : null
     })
     .filter((v): v is number => v !== null)
-  const typicalCellSize = estimateCellSizeFromIndent(ordered) ?? (rawCellSizes.length > 0 ? median(rawCellSizes) : null)
+  // 들여쓰기 기반(estimateCellSizeFromIndent)과 긴 줄 기반(cellSizesFromLongLines)은
+  // 서로 완전히 다른 정보원(하나는 열의 시작 y좌표, 하나는 줄의 검출 높이)에서 나온
+  // 독립적인 추정치다 — 실측 비교 결과(직접 확인) 각각 18과 17.61로 가까웠지만, 단순
+  // 평균(1:1)은 실제값보다 아주 살짝 크게 나왔다(직접 확인) — 긴 줄 기반 쪽이 더 정확한
+  // 값에 가깝다고 보고 2:1 가중치(긴 줄 기반을 더 신뢰)로 내분한다. 하나만 구해지면
+  // 그 값을 그대로 쓰고, 둘 다 없으면 열 폭 → 전체 줄 평균 순으로 폴백한다.
+  const cellSizeFromIndent = estimateCellSizeFromIndent(ordered)
+  const cellSizeFromLongLines = cellSizesFromLongLines.length > 0 ? median(cellSizesFromLongLines) : null
+  const typicalCellSize =
+    cellSizeFromIndent !== null && cellSizeFromLongLines !== null
+      ? (cellSizeFromIndent + 2 * cellSizeFromLongLines) / 3
+      : (cellSizeFromIndent ?? cellSizeFromLongLines ?? cellSizeFromWidth ?? (rawCellSizes.length > 0 ? median(rawCellSizes) : null))
 
-  const withPlaceholder = alignColumnStarts(ordered, typicalCellSize)
+  const aligned = alignColumnStarts(ordered, typicalCellSize)
+  // 줄 끝/중간 어딘가에 미검출 구간이 의심되는 줄만 PaddleOCR 로 다시 인식해 정확한
+  // 위치를 찾는다(resolveSuspiciousLines 주석 참고) — typicalCellSize 가 없으면
+  // alignColumnStarts 가 애초에 아무 줄도 의심 표시를 안 하므로 건너뛴다.
+  const withPlaceholder = typicalCellSize !== null ? await resolveSuspiciousLines(image, aligned, typicalCellSize) : aligned
   if (process.env.DEBUG_OCR_DUMP) {
     const { writeFileSync } = require('node:fs') as typeof import('node:fs')
     const { join } = require('node:path') as typeof import('node:path')
     const baseline = computeBaseline(ordered.filter((l) => l.height >= MIN_BODY_LINE_HEIGHT))
     writeFileSync(
       join(process.env.DEBUG_OCR_DUMP, `yomilines-${Date.now()}.json`),
-      JSON.stringify({ typicalCellSize, baseline, ordered, withPlaceholder }, null, 2),
+      JSON.stringify({ typicalCellSize, baseline, ordered, aligned, withPlaceholder }, null, 2),
     )
   }
 

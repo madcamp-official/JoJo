@@ -13,7 +13,7 @@ import {
   recognizeWithPaddle,
 } from './ocrPaddle'
 import { recognizeVerticalColumnWithYomitoku } from './ocrYomitoku'
-import { getCachedDetection } from './regionSelection'
+import { BODY_LABELS, getCachedDetection } from './regionSelection'
 
 // YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
 // 실측 결과 가로는 줄 끝 단어가 통째로 깨지지 않으려면 50px은 필요했고(10~30px 는
@@ -102,8 +102,22 @@ async function resolveLayout(image: Buffer, region: Rect | undefined): Promise<L
  * 미설치 등) 기존 단일 패스로 폴백한다.
  */
 export async function runOcr(image: Buffer, language: Language, region?: Rect): Promise<Extracted> {
-  const { blocks, vertical: shapeVertical, fallbackLines } = await resolveLayout(image, region)
+  const { blocks: rawBlocks, vertical: shapeVertical, fallbackLines } = await resolveLayout(image, region)
+  // regionSelection.ts(autoDetectRegion)는 본문 영역 경계를 계산할 때 본문 라벨
+  // (BODY_LABELS: doc_title/paragraph_title/text)만 남기고 header/image/aside_text/
+  // number 등은 거르는데, 정작 여기(실제 인식 단계)서는 그 필터가 전혀 적용 안 되고
+  // 있었다(실사용 중 확인: 비본문 블록까지 "열"로 취급돼 순서가 뒤섞이고 그 텍스트까지
+  // 인식 대상이 됨) — 같은 기준으로 여기서도 걸러낸다.
+  const blocks = rawBlocks.filter((b) => BODY_LABELS.has(b.label))
   const columns = mergeIntoColumns(blocks)
+  if (process.env.DEBUG_OCR_DUMP) {
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    writeFileSync(
+      join(process.env.DEBUG_OCR_DUMP, `blocks-${Date.now()}.json`),
+      JSON.stringify({ blocks, columns }, null, 2),
+    )
+  }
 
   // 중국어/일본어는 PaddleOCR을 먼저 시도한다(세로쓰기면 recognizeVerticalColumnWithPaddle,
   // 가로쓰기면 recognizeWithPaddle/recognizeLinesWithPaddle) — 일본어 스캔 파일에서

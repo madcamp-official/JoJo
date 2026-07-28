@@ -148,7 +148,11 @@ export async function submitRegionFromOverlay(dipRect: Rect): Promise<void> {
 // 로 되돌릴 땐 BODY_LABELS = new Set(['title', 'plain text']), NON_TEXT_LABELS = new Set(
 // ['figure','figure_caption','table','table_caption','table_footnote','isolate_formula',
 // 'formula_caption']) 였다.
-const BODY_LABELS = new Set(['doc_title', 'paragraph_title', 'text'])
+// ocr.ts 도 그대로 재사용한다(export) — 원래는 이 파일 안에서 영역(region) 경계를
+// 계산할 때만 썼는데, 정작 실제 인식(ocr.ts: runOcr → mergeIntoColumns)에는 이 필터가
+// 전혀 적용 안 되고 있었다(실사용 중 확인: header/image/aside_text/number 같은 비본문
+// 블록까지 "열"로 취급돼 순서가 뒤섞이고, 그 블록들의 텍스트까지 인식 대상이 됨).
+export const BODY_LABELS = new Set(['doc_title', 'paragraph_title', 'text'])
 
 // 확실히 텍스트가 아닌 라벨 — 본문 라벨이 하나도 없을 때의 폴백(아래 참고)에서도 이것들만은
 // 계속 제외한다. PP-DocLayout_plus-L 의 20개 라벨 중 그림/표/수식/도장처럼 명백히 시각
