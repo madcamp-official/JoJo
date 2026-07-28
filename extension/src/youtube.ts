@@ -132,21 +132,3 @@ export function observeSubtitles(onChange: () => void): () => void {
     document.removeEventListener('fullscreenchange', onView)
   }
 }
-
-const AUTOHIDE_CLASS = 'ytp-autohide'
-
-// 유튜브는 마우스가 잠시 멈추면 컨트롤바를 숨기고(ytp-autohide 클래스 추가), 다시 움직이면
-// 보여주며 자막을 위로 밀어올린다 — 클릭하려고 커서를 자막 쪽으로 옮기는 도중 자막이
-// 계속 움직여 hover/클릭 대상이 어긋나는 원인. 캡처 중엔 그 클래스가 절대 안 붙게 감시해
-// 컨트롤을 항상 "표시된" 위치로 고정한다(사용자 실제 마우스는 페이지가 직접 받으므로,
-// postMessage 등으로는 막을 수 없고 이렇게 DOM 을 직접 붙잡아야 한다).
-export function pinPlayerControlsVisible(): () => void {
-  const root = captionRoot()
-  if (!root) return () => {}
-  root.classList.remove(AUTOHIDE_CLASS)
-  const observer = new MutationObserver(() => {
-    if (root.classList.contains(AUTOHIDE_CLASS)) root.classList.remove(AUTOHIDE_CLASS)
-  })
-  observer.observe(root, { attributes: true, attributeFilter: ['class'] })
-  return () => observer.disconnect()
-}

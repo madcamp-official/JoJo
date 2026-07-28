@@ -1,13 +1,7 @@
 // 담당 B — 확장 content script.
 // 유튜브 화면 자막을 단어별 좌표와 함께 추출해(youtube.ts) background 로 보낸다.
 // background 가 WS 로 앱에 중계한다. 자막 캡처는 앱이 선택 모드일 때만 켜진다(setCapture).
-import {
-  extractSubtitleSnapshot,
-  isYoutubeWatch,
-  observeSubtitles,
-  pinPlayerControlsVisible,
-  videoCurrentTime,
-} from './youtube'
+import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles, videoCurrentTime } from './youtube'
 import { currentVideoId, loadTranscript, subtitleLangHint } from './timedtext'
 import { startHighlight, type WordHit } from './highlight'
 import type { SubLine } from '@shared/extension'
@@ -27,13 +21,18 @@ function setVideoPlayback(play: boolean): void {
 
 let capturing = false
 let stopObserving: (() => void) | null = null
-let stopPinControls: (() => void) | null = null
 let stopHighlightUi: (() => void) | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSent = ''
 let lastDiag = -1
 let transcriptKey: string | null = null // `${videoId}|${langHint}`
-let currentLines: SubLine[] = [] // 하이라이트(highlight.ts)가 참조하는 최신 자막 줄+좌표
+
+// hover/클릭 판정용 자막 줄+좌표를 그 순간 즉석에서 다시 측정한다(캐시 안 씀) — 컨트롤바
+// 자동 표시/숨김으로 자막 위치가 바뀌어도(유튜브가 이때 childList/attribute 변화를 항상
+// 안 내서 폴링 주기까지 지연될 수 있었음) getBoundingClientRect 기반이라 항상 최신이다.
+function liveLines(): SubLine[] {
+  return isYoutubeWatch() ? (extractSubtitleSnapshot()?.lines ?? []) : []
+}
 
 function onWordClicked(hit: WordHit): void {
   chrome.runtime.sendMessage({
@@ -85,7 +84,6 @@ function pushSnapshot(): void {
   if (!capturing) return
   debugCounts()
   const snapshot = isYoutubeWatch() ? extractSubtitleSnapshot() : null
-  currentLines = snapshot?.lines ?? [] // hover 하이라이트(highlight.ts)가 매 이동마다 참조
   if (snapshot) {
     // 화면 자막 언어에 맞는 timedtext 트랙을 (필요 시) 로드해 앱에 보낸다(영상/자막언어 변경 대응).
     ensureTranscript(snapshot.lines.map((l) => l.text).join(' '))
@@ -103,14 +101,12 @@ function startCapture(): void {
   lastSent = ''
   lastDiag = -1
   stopObserving = observeSubtitles(() => pushSnapshot())
-  // MutationObserver 가 자막 등장/좌표 변화를 놓치는 경우를 대비한 폴링 폴백(중복은 dedup 됨).
+  // MutationObserver 가 자막 등장/좌표 변화를 놓치는 경우를 대비한 폴링 폴백(중복은 dedup 됨,
+  // 앱으로 보내는 디버그 스냅샷용 — hover/클릭 자체는 liveLines()로 즉석 측정이라 무관).
   pollTimer = setInterval(() => pushSnapshot(), 300)
-  // 컨트롤바를 항상 표시 상태로 고정 — 클릭하려고 커서를 움직이는 동안 자막이 밀려 올라가
-  // 클릭 대상이 어긋나는 문제 방지(youtube.ts: pinPlayerControlsVisible 참고).
-  stopPinControls = pinPlayerControlsVisible()
-  // hover 하이라이트 박스 + 클릭을 페이지 안에서 직접 처리(highlight.ts) — Electron 오버레이로
-  // 좌표를 릴레이하지 않아 지연·크롬오프셋 보정 문제가 없다.
-  stopHighlightUi = startHighlight(() => currentLines, onWordClicked)
+  // hover 하이라이트 박스 + 클릭을 페이지 안에서 직접 처리(highlight.ts) — 매 이동마다
+  // liveLines()로 즉석 재측정하므로 컨트롤바 표시/숨김으로 자막이 움직여도 항상 정확하다.
+  stopHighlightUi = startHighlight(liveLines, onWordClicked)
   pushSnapshot()
 }
 
@@ -119,11 +115,8 @@ function stopCapture(): void {
   capturing = false
   stopObserving?.()
   stopObserving = null
-  stopPinControls?.()
-  stopPinControls = null
   stopHighlightUi?.()
   stopHighlightUi = null
-  currentLines = []
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null

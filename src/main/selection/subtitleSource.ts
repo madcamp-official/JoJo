@@ -1,7 +1,7 @@
 import type { ExtractedSelection, Language } from '@shared/types'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
-import { createPopupWindow } from '../windows'
+import { createPopupWindow, sendOverlayWords } from '../windows'
 
 // 담당 B — 유튜브/넷플릭스 자막 추출 경로 (OCR 대체).
 // hover 하이라이트와 클릭은 확장이 페이지 안에서 직접 처리한다(extension/src/highlight.ts) —
@@ -22,6 +22,13 @@ export function startSubtitleMode(): void {
   if (active) return
   active = true
   extensionBridge.setSubtitleCapture(true)
+  // 자막 경로는 OCR처럼 시간이 걸리지 않는다(확장이 이미 화면에 있는 자막을 즉시 씀) —
+  // hover 하이라이트도 확장이 페이지 안에서 직접 그린다. 그런데 오버레이(Overlay.tsx)는
+  // 선택 모드 진입 시 기본으로 "텍스트 추출 중…" 배너를 켜고 EXTRACTION_WORDS 가 와야
+  // 끄는 구조라, 자막 경로에선 그 신호를 안 보내 배너가 계속 떠 있었다 — 빈 배열을 보내
+  // 기존 배선을 그대로 재사용해 배너를 즉시 끈다(오버레이가 자체 하이라이트를 그리지
+  // 않게 되는 효과도 겸함 — 자막은 확장이 그리므로 의도한 동작).
+  sendOverlayWords([])
   const handler = (hit: SubtitleClickHit): void => onSubtitleClick(hit)
   extensionBridge.on('subtitleClick', handler)
   unsubscribeClick = () => extensionBridge.off('subtitleClick', handler)
