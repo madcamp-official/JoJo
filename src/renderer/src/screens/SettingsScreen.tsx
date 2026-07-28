@@ -547,7 +547,7 @@ export function SettingsScreen() {
 
       {/* 사전 API 키 (Merriam-Webster) — LLM 과 별개 섹션 (PLAN.md §5) */}
       <section className="settings-section">
-        <h2>사전 API 키 (Merriam-Webster)</h2>
+        <h2>Merriam-Webster 사전 API 키</h2>
         <p className="desc">
           영어 사전 검색에 Merriam-Webster를 사용하려면 API 키를 입력하세요. 반드시{' '}
           <b>Collegiate(Dictionary) 사전</b>으로 발급받은 키여야 합니다(Learner&apos;s 등 다른
