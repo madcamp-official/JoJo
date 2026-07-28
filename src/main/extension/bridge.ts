@@ -34,8 +34,14 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     const wss = new WebSocketServer({ host: EXT_WS_HOST, port: EXT_WS_PORT })
     this.wss = wss
     wss.on('connection', (ws) => this.onConnection(ws))
-    wss.on('error', (err) => console.warn('[ext-bridge] server error:', err.message))
-    console.log(`[ext-bridge] listening on ws://${EXT_WS_HOST}:${EXT_WS_PORT}`)
+    // 실제로 리슨 시작(바인딩 성공)한 시점에만 찍는다 — 실패면 error 가 대신 뜬다.
+    wss.on('listening', () =>
+      console.log(`[ext-bridge] listening on ws://${EXT_WS_HOST}:${EXT_WS_PORT} (확장 접속 대기)`),
+    )
+    wss.on('error', (err: NodeJS.ErrnoException) => {
+      console.error(`[ext-bridge] 서버 시작 실패: ${err.code ?? ''} ${err.message}`)
+      // 포트 충돌(EADDRINUSE) 등은 이전 앱 인스턴스가 안 죽었을 때 잘 난다.
+    })
   }
 
   private onConnection(ws: WebSocket): void {
