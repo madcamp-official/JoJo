@@ -149,7 +149,13 @@ function extractDt(dt: MwDtItem[] | undefined): { gloss: string[]; examples: str
   for (const item of dt ?? []) {
     const [key, value] = item
     if (key === 'text' && typeof value === 'string') {
-      const text = stripMwTokens(value)
+      // {dx}/{dx_def}/{dx_ety} 블록은 정의가 아니라 "다른 표제어도 보라"는 교차참조
+      // 문구다(실측: "go"/"book" 등에서 한 sense의 dt 안에 진짜 정의 text 튜플과
+      // 별개로 "{dx}see also {dxt|go down||}...{/dx}" 만 담긴 text 튜플이 추가로 옴).
+      // 통째로 지우고 남는 게 있을 때만 gloss 로 채택 — 안 지우면 이런 참조 문구가
+      // 마치 별개의 진짜 뜻풀이처럼 gloss 배열에 섞여 LLM 후보 목록을 오염시킨다.
+      const withoutCrossRefBlocks = value.replace(/\{dx[a-z_]*\}[\s\S]*?\{\/dx[a-z_]*\}/g, '')
+      const text = stripMwTokens(withoutCrossRefBlocks)
       if (text) gloss.push(text)
     } else if (key === 'vis' && Array.isArray(value)) {
       for (const v of value as MwVis[]) {
