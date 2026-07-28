@@ -374,6 +374,12 @@ button:disabled { cursor: not-allowed; }
   background: #fff; color: #374151; border: 1px solid #dbe0e6; cursor: pointer;
 }
 .dict-source-select:disabled { opacity: 0.5; cursor: default; }
+/* 폴백 체인/직접 선택 토글(디버깅용 임시, 2026-07-28) — 드롭다운 바로 앞에 붙는 체크박스 */
+.dict-force-toggle {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 12px; color: #6b7280; cursor: pointer; user-select: none;
+}
+.dict-force-toggle input { cursor: pointer; }
 
 /* 채팅 */
 .chat {
