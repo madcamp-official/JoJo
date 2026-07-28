@@ -101,7 +101,8 @@ export function buildSenseListText(senses: NumberedSense[]): string {
       const tag = label ? `[${label}] ` : ''
       const gloss = s.gloss.join('; ')
       const ex = s.examples?.length ? ` (예: ${s.examples.map((e) => `"${e}"`).join(' / ')})` : ''
-      // parentIndex(2026-07-28 신설) — MW sdsense/Kotobank 精選版 다단 번호매김처럼 이
+      // parentIndex(2026-07-28 신설) — MW sdsense/daijisen(デジタル大辞泉) ①②③→㋐㋑㋒
+      // 번호매김처럼 이
       // 뜻이 다른 뜻의 "더 좁은 하위 구분"일 때, 평평한 번호 목록에서도 그 관계가
       // LLM에 그대로 보이게 괄호로 표시한다(부모가 그룹 헤더라 목록에서 빠졌으면 undefined
       // 라 표시 안 함). 이게 없으면 하위 정의가 그냥 "또 다른 뜻 하나"로 보여 LLM이 원래
@@ -171,10 +172,10 @@ const SOURCE_LABELS: Record<DictionarySourceId, string> = {
   'merriam-webster': 'Merriam-Webster',
   wordnet: 'OEWN (Open English WordNet)',
   wiktionary: 'Wiktionary',
-  kotobank: 'Kotobank',
+  daijisen: 'デジタル大辞泉',
   jmdict: 'JMdict',
   'hanyu-dict': '汉典',
-  moedict: '萌典',
+  'guoyu-cidian': '教育部重編國語辭典',
   'cc-cedict': 'CC-CEDICT',
 }
 
@@ -182,8 +183,8 @@ const SOURCE_LABELS: Record<DictionarySourceId, string> = {
  *  Wiktionary는 CC BY-SA 4.0(+ GFDL 이중 라이선스), OEWN은 CC BY 4.0(DICTIONARY_SOURCES.md
  *  OEWN 절 참고 — 원본 Princeton WordNet 대신 이 커뮤니티 후속판을 채택한 이유이기도 함)
  *  이라 둘 다 저작자 표시 의무가 있음. 나머지 소스는 상업 API(MW)·자체 저작권 사전
- *  (Kotobank/汉典/萌典)이라 이 앱 기준 별도 라이선스 표기 대상이 아님 — 필요해지면
- *  그때 채운다. */
+ *  (daijisen/汉典/教育部重編國語辭典)이라 이 앱 기준 별도 라이선스 표기 대상이 아님 —
+ *  필요해지면 그때 채운다. */
 const SOURCE_LICENSE: Partial<Record<DictionarySourceId, string>> = {
   wiktionary: 'CC BY-SA 4.0',
   wordnet: 'CC BY 4.0',

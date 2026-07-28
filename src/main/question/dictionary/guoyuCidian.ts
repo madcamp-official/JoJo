@@ -1,25 +1,25 @@
 import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, SeeAlsoRef } from '@shared/types'
 
-// 담당 B — 萌典(moedict.tw) 어댑터 (PLAN.md §5, zh-Hant 1순위)
+// 담당 B — 教育部重編國語辭典(萌典, moedict.tw 경유) 어댑터 (PLAN.md §5, zh-Hant 1순위)
 // 실측 근거는 DICTIONARY_SOURCES.md "萌典 (zh-Hant)" 절 참고. 스크래핑이 아니라 공개 JSON
 // API(`https://www.moedict.tw/uni/{표제어}`)를 쓴다 — 대만 교육부 편찬(번체 네이티브).
 // 오케스트레이션(폴백 체인 호출·병합)은 이 어댑터의 스코프 밖 — 다른 세션이 담당한다.
 
-const MOEDICT_ENDPOINT = 'https://www.moedict.tw/uni'
+const GUOYU_CIDIAN_ENDPOINT = 'https://www.moedict.tw/uni'
 
-export class MoedictHttpError extends Error {
+export class GuoyuCidianHttpError extends Error {
   constructor(
     public status: number,
     message: string,
   ) {
     super(message)
-    this.name = 'MoedictHttpError'
+    this.name = 'GuoyuCidianHttpError'
   }
 }
 
 // ---- 萌典 API 원본 응답 타입 (실측 기반, 2026-07-28) --------------------------------
 
-interface MoedictDefinition {
+interface GuoyuCidianDefinition {
   def?: string
   type?: string
   /** 현대 용례("如：「...」") — quote(고전 인용)와 별개 필드, 실측 확인. */
@@ -30,17 +30,17 @@ interface MoedictDefinition {
   link?: string[]
 }
 
-interface MoedictHeteronym {
+interface GuoyuCidianHeteronym {
   bopomofo?: string
   /** 표준 한어병음만 채택 — bopomofo/bopomofo2 는 결정(2026-07-28)에 따라 쓰지 않는다. */
   pinyin?: string
   bopomofo2?: string
-  definitions: MoedictDefinition[]
+  definitions: GuoyuCidianDefinition[]
 }
 
-interface MoedictRaw {
+interface GuoyuCidianRaw {
   title: string
-  heteronyms: MoedictHeteronym[]
+  heteronyms: GuoyuCidianHeteronym[]
   // radical/stroke_count/non_radical_stroke_count 는 결정(2026-07-28)에 따라 스키마에 안 담는다.
 }
 
@@ -65,14 +65,14 @@ function mapPos(type: string | undefined): CanonicalPos<'zh-Hant'>[] | undefined
   return mapped ? [mapped] : undefined
 }
 
-// ---- MoedictHeteronym[] → DictionaryReading[] ---------------------------------
+// ---- GuoyuCidianHeteronym[] → DictionaryReading[] -----------------------------
 
 function toSeeAlso(link: string[] | undefined): SeeAlsoRef[] | undefined {
   if (!link?.length) return undefined
   return link.map((text) => ({ text, kind: 'related' as const }))
 }
 
-function heteronymToReading(heteronym: MoedictHeteronym): DictionaryReading<'zh-Hant'> | null {
+function heteronymToReading(heteronym: GuoyuCidianHeteronym): DictionaryReading<'zh-Hant'> | null {
   const senses = heteronym.definitions
     .map((def): DictionarySense<'zh-Hant'> | null => {
       if (!def.def) return null // gloss 는 필수 — 없으면 이 sense 는 버린다
@@ -94,25 +94,25 @@ function heteronymToReading(heteronym: MoedictHeteronym): DictionaryReading<'zh-
   }
 }
 
-export interface MoedictLookupResult {
+export interface GuoyuCidianLookupResult {
   entry?: DictionaryEntry<'zh-Hant'>
 }
 
 /** word 를 moedict.tw JSON API 로 조회한다. 표제어를 못 찾으면(HTTP 404) entry 없이
  *  빈 객체를 반환한다. */
-export async function fetchMoedictEntry(word: string): Promise<MoedictLookupResult> {
-  const url = `${MOEDICT_ENDPOINT}/${encodeURIComponent(word)}`
+export async function fetchGuoyuCidianEntry(word: string): Promise<GuoyuCidianLookupResult> {
+  const url = `${GUOYU_CIDIAN_ENDPOINT}/${encodeURIComponent(word)}`
   const res = await fetch(url, { headers: { 'User-Agent': 'JoJo-dictionary-adapter/1.0' } })
   if (res.status === 404) return {}
   if (!res.ok) {
-    throw new MoedictHttpError(res.status, `萌典 API 요청 실패: HTTP ${res.status}`)
+    throw new GuoyuCidianHttpError(res.status, `萌典 API 요청 실패: HTTP ${res.status}`)
   }
 
-  let raw: MoedictRaw
+  let raw: GuoyuCidianRaw
   try {
     raw = await res.json()
   } catch {
-    throw new MoedictHttpError(res.status, '萌典 응답을 파싱할 수 없습니다.')
+    throw new GuoyuCidianHttpError(res.status, '萌典 응답을 파싱할 수 없습니다.')
   }
 
   const readings = (raw.heteronyms ?? []).map(heteronymToReading).filter((r): r is DictionaryReading<'zh-Hant'> => r !== null)
@@ -122,7 +122,7 @@ export async function fetchMoedictEntry(word: string): Promise<MoedictLookupResu
     language: 'zh-Hant',
     headword: [raw.title ?? word],
     readings,
-    source: 'moedict',
+    source: 'guoyu-cidian',
   }
 
   return { entry }
