@@ -25,21 +25,33 @@ export function currentVideoId(): string | null {
   return m ? m[1] : null
 }
 
-export function loadTranscript(videoId: string): Promise<TranscriptCue[]> {
-  const cached = cache.get(videoId)
+// 화면 자막 텍스트의 스크립트로 트랙 언어 힌트를 잡는다(앱 지원 범위 en/ja/zh).
+// 화면에 뜬 자막과 같은 언어의 timedtext 트랙을 골라 앞뒤 문맥 언어를 일치시키기 위함.
+export function subtitleLangHint(text: string): string | null {
+  if (/[぀-ヿ]/.test(text)) return 'ja'
+  if (/[一-鿿]/.test(text)) return 'zh'
+  if (/[A-Za-z]/.test(text)) return 'en'
+  return null
+}
+
+// videoId + 언어 힌트별로 캐시한다 — 같은 영상이라도 화면 자막 언어가 바뀌면 그 언어
+// 트랙을 새로 받는다.
+export function loadTranscript(videoId: string, langHint: string | null): Promise<TranscriptCue[]> {
+  const key = `${videoId}|${langHint ?? ''}`
+  const cached = cache.get(key)
   if (cached) return cached
-  const p = fetchTranscript(videoId).catch((err) => {
-    cache.delete(videoId) // 실패는 캐시하지 않아 다음 시도에서 재요청
+  const p = fetchTranscript(videoId, langHint).catch((err) => {
+    cache.delete(key) // 실패는 캐시하지 않아 다음 시도에서 재요청
     throw err
   })
-  cache.set(videoId, p)
+  cache.set(key, p)
   return p
 }
 
-async function fetchTranscript(videoId: string): Promise<TranscriptCue[]> {
+async function fetchTranscript(videoId: string, langHint: string | null): Promise<TranscriptCue[]> {
   const tracks = await fetchCaptionTracks(videoId)
   if (tracks.length === 0) return []
-  const track = pickOriginalTrack(tracks)
+  const track = pickTrack(tracks, langHint)
   const url = new URL(track.baseUrl)
   url.searchParams.set('fmt', 'json3')
   const res = await fetch(url.toString(), { credentials: 'include' })
@@ -131,9 +143,14 @@ function sliceBalancedJson(s: string, start: number): string | null {
   return null
 }
 
-// 원어(비번역) 트랙을 고른다. 번역 트랙은 baseUrl 에 tlang 이 붙는데 여기 목록엔 원본만
-// 있으므로, 수동 자막(kind!=='asr')을 우선하고 없으면 자동 생성 자막을 쓴다.
-function pickOriginalTrack(tracks: CaptionTrack[]): CaptionTrack {
+// 화면 자막 언어(langHint)와 같은 언어의 트랙을 고른다 — 앞뒤 문맥이 클릭한 줄과 같은
+// 언어가 되도록. 힌트와 맞는 트랙 중 수동 자막(kind!=='asr')을 우선하고, 없으면 힌트
+// 무관하게 수동 자막, 그것도 없으면 첫 트랙.
+function pickTrack(tracks: CaptionTrack[], langHint: string | null): CaptionTrack {
+  if (langHint) {
+    const matches = tracks.filter((t) => (t.languageCode ?? '').toLowerCase().startsWith(langHint))
+    if (matches.length > 0) return matches.find((t) => t.kind !== 'asr') ?? matches[0]
+  }
   return tracks.find((t) => t.kind !== 'asr') ?? tracks[0]
 }
 
