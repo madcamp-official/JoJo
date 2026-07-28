@@ -42,6 +42,9 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
         <button className="link-btn demo" onClick={() => window.nuance.openPopup('zh-Hans')}>
           🔍 팝업 미리보기 (중국어(간체): 天线)
         </button>
+        <button className="link-btn demo" onClick={() => window.nuance.openPopup('zh-Hant')}>
+          🔍 팝업 미리보기 (중국어(번체): 行)
+        </button>
       </div>
     </div>
   )

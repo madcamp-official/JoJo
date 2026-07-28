@@ -169,3 +169,42 @@ export function mockThreeBodyExtraction(): ExtractedSelection {
     splitWords: splitChineseWords,
   })
 }
+
+// ============================================================================
+// 중국어(번체) 데모 목업 — 직접 작성한 짧은 대만 배경 이야기, "行" 클릭 상황
+// (실존 소설 발췌가 아니다 — ja/zh-Hans 데모처럼 실제 저작물을 정확히 재현할 자신이
+// 없어, 대신 PLAN.md §4.2 "맥락 의존 발음" 절이 이미 예시로 든 `行`(xíng·háng)의
+// 다의어 판정을 직접 겨냥해 새로 썼다). "行"이 한 지문 안에 다섯 번 나오되 뜻/발음이
+// 갈린다: 銀行(은행, háng) → 行員(은행원, háng) → 銀行(은행, háng) → 旅行(여행, xíng)
+// → 行啊(그래/좋아, xíng) — 앞의 세 번은 모두 háng(금융기관 계열), 뒤의 두 번은
+// xíng(가다/괜찮다 계열)으로 자연스럽게 갈려서 문맥에 따른 발음 판정을 시험해보기 좋다.
+// ============================================================================
+
+const TAIPEI_BANK_PARAGRAPHS = [
+  '陳雅婷這天特地請了半天假，因為她約了經理在銀行辦理房貸手續。她提早十分鐘到達，坐在等候區翻著手機，心裡卻始終不太踏實──畢竟這是她第一次獨自處理這麼大筆的貸款。',
+  '輪到她的時候，行員親切地說明了每一項條款，還細心地提醒她哪些欄位一定要填，免得日後補件麻煩。她一邊聽一邊點頭，偶爾提出問題，直到確認每個細節都沒有問題，才放心地在文件上簽了名。',
+  '辦完手續走出銀行，她傳訊息給男友：「終於搞定了！下個月我們是不是該安排一趟旅行慶祝一下？」男友很快回覆：「行啊，妳決定地點，我負責訂機票。」',
+]
+
+/** 위 이야기 원문(문단 사이만 '\n') */
+export const TAIPEI_BANK_TEXT = TAIPEI_BANK_PARAGRAPHS.join('\n')
+
+/** 사용자가 클릭한 표현 — 세 번째 문단 "行啊"(그래/좋아, xíng)의 行. 앞선 銀行/行員/銀行
+ *  (전부 háng)과 대비되는 다섯 번째(0-based 4번째) 등장을 anchor 로 쓴다. */
+export const TAIPEI_BANK_TARGET = '行'
+const TAIPEI_BANK_TARGET_OCCURRENCE = 4
+
+/** 번체도 간체와 마찬가지로 글자 단위 — 공백으로 단어가 안 나뉜다. */
+function splitTraditionalChineseWords(text: string): string[] {
+  return text.match(/[一-鿿㐀-䶿]/g) ?? []
+}
+
+/** 중국어(번체) 데모(팝업 미리보기)가 ctx 없이 열렸을 때 쓰는 목업 추출 결과 */
+export function mockTaipeiBankExtraction(): ExtractedSelection {
+  return buildExtractedSelection(TAIPEI_BANK_TEXT, TAIPEI_BANK_TARGET, {
+    language: 'zh-Hant',
+    source: { kind: 'txt', appName: '銀行辦房貸.txt' },
+    splitWords: splitTraditionalChineseWords,
+    occurrence: TAIPEI_BANK_TARGET_OCCURRENCE,
+  })
+}

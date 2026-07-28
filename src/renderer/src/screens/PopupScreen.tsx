@@ -19,6 +19,7 @@ import {
   mockBankExtraction,
   mockDevotionExtraction,
   mockHobbitExtraction,
+  mockTaipeiBankExtraction,
   mockThreeBodyExtraction,
 } from './popup/mockSelection'
 import { loadFrequent, saveFrequent } from './popup/frequentStore'
@@ -52,6 +53,8 @@ function initialMockExtraction(): ExtractedSelection {
       return mockDevotionExtraction()
     case 'zh-Hans':
       return mockThreeBodyExtraction()
+    case 'zh-Hant':
+      return mockTaipeiBankExtraction()
     case 'en-bank':
       return mockBankExtraction()
     default:
