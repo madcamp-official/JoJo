@@ -145,20 +145,32 @@ function extractEntryBlocks(articleHtml: string): string[] {
   return articleHtml.split('<div class="ex cf">').slice(1)
 }
 
-/** `<h3>` 표기(예: "はな【花／華】", "た・べる【食べる】", "か【花】［漢字項目］")에서
- *  읽기(오쿠리가나 경계 표시 "・"는 제거)와 한자 표기(들)를 분리한다. */
+/** `<h3>` 표기에서 읽기(오쿠리가나 경계 표시 "・"는 제거)와 한자 표기(들)를 분리한다.
+ *  대부분(예: "はな【花／華】", "た・べる【食べる】", "か【花】［漢字項目］")은 읽기+【한자】
+ *  형태지만, **가타카나 외래어는 【】 표기 자체가 없다**(실측: "コンピューター（computer）" —
+ *  원어 병기가 【】가 아니라 전각 괄호 （）로 붙는다, "コンピューター" 단독 조회에서 daijisen
+ *  article이 실제로 있는데도 예전 코드(【】 필수)로는 이 표기를 못 뽑아 entry 전체가
+ *  통째로 드롭되고 있었음). 【】가 없으면 h3 텍스트 자체를 headword로 쓰고(가타카나어는
+ *  표기=읽기라 reading도 동일값), 끝에 붙는 원어 병기 괄호는 headword가 아니라 어원
+ *  표시라 제거한다. */
 function extractHeadwordAndReading(entryHtml: string): { headword: string[]; reading?: string } {
   const h3Match = entryHtml.match(/<h3>([\s\S]*?)<\/h3>/)
   if (!h3Match) return { headword: [] }
   const text = stripDaijisenHtml(h3Match[1])
+
   const bracketMatch = text.match(/【([^】]*)】/)
-  if (!bracketMatch) return { headword: [] }
-  const headword = bracketMatch[1]
-    .split(/[／/]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-  const readingRaw = text.slice(0, bracketMatch.index).replace(/・/g, '').trim()
-  return { headword, reading: readingRaw || undefined }
+  if (bracketMatch) {
+    const headword = bracketMatch[1]
+      .split(/[／/]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const readingRaw = text.slice(0, bracketMatch.index).replace(/・/g, '').trim()
+    return { headword, reading: readingRaw || undefined }
+  }
+
+  const withoutOrigin = text.replace(/[（(][^）)]*[）)]\s*$/, '').trim()
+  const headword = withoutOrigin || text
+  return headword ? { headword: [headword], reading: headword } : { headword: [] }
 }
 
 function extractDescriptionSection(entryHtml: string): string | null {
