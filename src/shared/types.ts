@@ -177,13 +177,15 @@ export interface SeeAlsoRef {
   kind?: SeeAlsoKind
 }
 
-/** 언어 무관 공통 필드 — 8개 소스 전부가 이 축을 갖는다(값이 없으면 undefined일 뿐,
- *  "이 언어엔 이 개념 자체가 없다"는 아님). 언어 전용 필드는 아래 `DictionarySenseExt<L>`에
- *  분리해뒀다(2026-07-28, 판별 유니온 도입 — 이유는 DICTIONARY_SOURCES.md#공통-스키마-결정-사항
- *  참고: `classifiers`(zh)/`conjugationClass`(ja) 등 언어 전용 필드가 계속 늘면서 원래
- *  "공통 베이스+옵셔널"로 버티기로 한 전제(언어 전용 필드 2~3개 규모)가 ja 기준 이미
- *  넘어서 있었음). */
-export interface DictionarySenseBase<L extends Language = Language> {
+/** 언어 무관 공통 필드 중 gloss/parentIndex 를 제외한 나머지 — 8개 소스 전부가 이 축을 갖는다
+ *  (값이 없으면 undefined일 뿐, "이 언어엔 이 개념 자체가 없다"는 아님). 언어 전용 필드는 아래
+ *  `DictionarySenseExt<L>`에 분리해뒀다(2026-07-28, 판별 유니온 도입 — 이유는
+ *  DICTIONARY_SOURCES.md#공통-스키마-결정-사항 참고: `classifiers`(zh)/`conjugationClass`(ja)
+ *  등 언어 전용 필드가 계속 늘면서 원래 "공통 베이스+옵셔널"로 버티기로 한 전제(언어 전용 필드
+ *  2~3개 규모)가 ja 기준 이미 넘어서 있었음). gloss/parentIndex 는 gloss 필수 여부가
+ *  parentIndex 유무에 따라 갈려야 해서(그룹 헤더 sense는 gloss가 없을 수 있음) 아래
+ *  `DictionarySenseGloss`로 별도 분리했다. */
+interface DictionarySenseCommon<L extends Language = Language> {
   /** 표준화된 품사 — CC-CEDICT처럼 품사 필드 자체가 없는 소스만 undefined. **萌典도 품사
    *  필드가 있음**(실측 확인: `definitions[].type` — 名/動/形/副/連/介/代/助/歎, 순서대로
    *  명사/동사/형용사/부사/접속사/전치사/대명사/조사/감탄사에 대응). 단, 양사(量詞)는 별도
@@ -195,25 +197,6 @@ export interface DictionarySenseBase<L extends Language = Language> {
    *  전달 안 하기로 했으므로 "문법 설명에 실제로 쓸 정보"는 반드시 conjugationClass 처럼
    *  별도 필드로 승격해야 한다 — 그러지 않으면 이 필드에 있어도 없는 것과 같다. */
   posRaw?: string
-  /** 뜻풀이 원문(번역하지 않음, 원어 그대로) — 배열인 이유: 대부분 소스는 sense 하나에
-   *  정의가 1개뿐이지만, **OEWN은 한 synset 에 패러프레이즈 대안 정의가 여러 개 붙는
-   *  경우가 실측 확인됨**(예: `81484980-r` synset → ["quickly and without warning",
-   *  "happening unexpectedly", "on impulse; without premeditation"] 3개). 단일
-   *  string 이면 이 중 하나만 남기고 나머지를 버려야 해서 배열로 바꿈 — 다른 소스는
-   *  항상 길이 1인 배열을 채우면 됨. */
-  gloss: string[]
-  /** 이 sense 가 다른 sense 의 더 좁은 하위 구분일 때, 그 부모 sense 를 가리키는 인덱스
-   *  (같은 `DictionaryReading.senses` 배열 안에서의 위치, 0-based) — 2026-07-28 신설.
-   *  MW `sdsense`(예: "photosynthesis" 주 정의 아래 "especially: ..." 하위 정의)와
-   *  Kotobank 精選版日本国語大辞典의 `[一]`→`①②③`→`(イ)(ロ)` 다단 번호매김(예: "花"는
-   *  대분류 5개 아래 세부 뜻 30개 이상)이 둘 다 "병렬 대안 뜻"이 아니라 "상위 뜻의 더 좁은
-   *  하위 구분"이라는 계층 구조인데, 이 배열 자체는 평면이라 그냥 순서대로 넣으면 이 관계가
-   *  사라진다 — 어댑터가 하위 sense 를 만들 때 그 직속 부모의 배열 인덱스를 채워 넣어
-   *  트리 구조를 재구성할 수 있게 한다(다단이면 부모의 parentIndex 를 따라가며 조상까지
-   *  거슬러 올라감). 계층이 없는 소스(en OEWN/Wiktionary, zh CC-CEDICT 등)는 항상
-   *  undefined. LLM 프롬프트/UI 가 이 정보를 어떻게 실제로 활용할지(들여쓰기 표시 등)는
-   *  아직 미정 — 어댑터 구현 시점에 정하기로 함(우선 필드만 마련). */
-  parentIndex?: number
   /** 있는 소스만(JMdict/CC-CEDICT 는 예문 자체가 없는 포맷). **萌典은 있음** — `definitions[].
    *  example`(현대 용례, "如：「...」" 형태) 실측 확인, `DICTIONARY_SOURCES.md` 참고. 단
    *  萌典의 `definitions[].quote`(고전 문헌 인용+출처)는 이 필드로 흡수하지 않고 스키마
@@ -275,6 +258,35 @@ export interface DictionarySenseBase<L extends Language = Language> {
    *  콘텐츠 타입이라 별도 필드로 분리. */
   usageNote?: string
 }
+
+/** gloss(뜻풀이)와 parentIndex(계층 포인터)를 함께 판별하는 부분 — 원래 각각 독립된 필드였으나
+ *  gloss 필수 여부가 parentIndex 유무에 따라 갈려야 해서(아래 설명) 하나의 유니온으로 묶었다.
+ *
+ *  **parentIndex**: 이 sense 가 다른 sense 의 더 좁은 하위 구분일 때, 그 부모 sense 를 가리키는
+ *  인덱스(같은 `DictionaryReading.senses` 배열 안에서의 위치, 0-based) — 2026-07-28 신설. MW
+ *  `sdsense`(예: "photosynthesis" 주 정의 아래 "especially: ..." 하위 정의)와 Kotobank
+ *  精選版日本国語大辞典의 `[一]`→`①②③`→`(イ)(ロ)` 다단 번호매김(예: "花"는 대분류 5개 아래
+ *  세부 뜻 30개 이상)이 둘 다 "병렬 대안 뜻"이 아니라 "상위 뜻의 더 좁은 하위 구분"이라는 계층
+ *  구조인데, 이 배열 자체는 평면이라 그냥 순서대로 넣으면 이 관계가 사라진다 — 어댑터가 하위
+ *  sense 를 만들 때 그 직속 부모의 배열 인덱스를 채워 넣어 트리 구조를 재구성할 수 있게 한다
+ *  (다단이면 부모의 parentIndex 를 따라가며 조상까지 거슬러 올라감). 계층이 없는 소스(en
+ *  OEWN/Wiktionary, zh CC-CEDICT 등)는 항상 undefined. LLM 프롬프트/UI 가 이 정보를 어떻게
+ *  실제로 활용할지(들여쓰기 표시 등)는 아직 미정 — 어댑터 구현 시점에 정하기로 함(우선 필드만
+ *  마련).
+ *
+ *  **gloss 필수 여부(2026-07-28 신설)**: `parentIndex`가 없는(=최상위) sense 는 지금까지처럼
+ *  `gloss`가 필수다. 반면 `parentIndex`가 있는(=누군가의 하위 구분인) sense 는 두 경우가 섞여
+ *  있을 수 있다 — Kotobank 精選版의 `①②③`처럼 실제 뜻풀이를 가진 리프 sense도 있지만, `[一]`
+ *  처럼 그 자체론 뜻풀이 없이 하위 항목을 묶기만 하는 "그룹 헤더" sense도 있다(실측 기록상
+ *  `[一]` 레벨은 자체 정의 없이 分類 역할만 하는 경우가 흔함). 그룹 헤더까지 `gloss`를 억지로
+ *  채우게 하면 어댑터마다 "자식 gloss 복제" 또는 "빈 문자열" 같은 임기응변이 갈릴 위험이 있어,
+ *  `parentIndex`가 있을 때만 `gloss`를 선택적으로 풀어준다 — 실제 하위 뜻풀이가 있는 sense는
+ *  어댑터가 그대로 채우면 되고, 순수 그룹 헤더만 생략하면 된다. */
+type DictionarySenseGloss =
+  | { parentIndex?: undefined; gloss: string[] }
+  | { parentIndex: number; gloss?: string[] }
+
+export type DictionarySenseBase<L extends Language = Language> = DictionarySenseCommon<L> & DictionarySenseGloss
 
 /** 언어 전용 필드 — L 이 구체 언어 하나('en' 등)면 그 언어의 확장 필드만 남고, L 이
  *  Language(유니온) 그대로 들어오면 조건부 타입이 분배(distribute)돼 4개 언어 케이스의
