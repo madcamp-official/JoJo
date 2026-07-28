@@ -37,12 +37,14 @@ function connect(): void {
 
   ws.onopen = () => {
     backoffMs = 1000
+    console.log('[nuance] WS 연결됨 → hello 전송')
     send({ type: 'hello', version: EXT_VERSION })
     void reportActiveTab()
   }
   ws.onmessage = (ev) => onAppMessage(ev.data)
   ws.onclose = () => {
     if (socket === ws) socket = null
+    console.log('[nuance] WS 끊김 → 재접속 예약')
     scheduleReconnect()
   }
   ws.onerror = () => {
@@ -158,3 +160,13 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 })
 
 connect()
+
+// MV3 서비스 워커는 유휴 시 종료되고, setTimeout 재접속 타이머도 함께 사라져 영영 재접속을
+// 못 하는 문제가 있다 — chrome.alarms 로 주기적으로 워커를 깨워 연결을 보장한다(끊겨 있으면
+// 재접속, 이미 연결돼 있으면 no-op). 앱이 확장보다 늦게 켜져도 이걸로 결국 연결된다.
+chrome.alarms.create('nuance-reconnect', { periodInMinutes: 0.5 })
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === 'nuance-reconnect') connect()
+})
+chrome.runtime.onStartup.addListener(() => connect())
+chrome.runtime.onInstalled.addListener(() => connect())

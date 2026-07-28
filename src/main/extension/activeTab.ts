@@ -69,6 +69,7 @@ class ActiveTabTracker extends EventEmitter<Events> {
     // OCR 여부 결정은 그대로라 재판정하지 않는다(자막 내용은 content script 가 알아서 갱신).
     const changed = classKey(this.current) !== classKey(next)
     this.current = next
+    console.log('[activeTab]', next ? `${next.source.kind} media=${next.isMedia} ${next.source.url}` : 'null')
     if (changed) this.emit('change', next)
   }
 
