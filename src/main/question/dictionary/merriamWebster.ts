@@ -360,14 +360,15 @@ async function buildEntryForHeadword(
       if (sense) {
         // 실측 확인(2026-07-28, "was" 조회): cxs 포인터 entry 자체는 hwi.prs 도 fl 도
         // 없다(`{"hwi":{"hw":"was"}}` 뿐) — cxsToSense 가 만든 sense 에 품사도 발음도
-        // 항상 비어 있었다. 이 entry 의 표제어(headword)는 조회어 자신("was")이라 아래
-        // hom=1 폴백(headword !== word 일 때만 재조회)도 안 걸린다. 진짜 정보는 가리키는
-        // 대상 단어(cxt, 예: "be")에 있으므로 그걸 직접 조회해 품사·발음을 채운다.
+        // 항상 비어 있었다. 품사는 가리키는 대상 단어(cxt, 예: "be")에서 가져와도 안전
+        // 하다("was"도 문법적으로 동사이긴 하니까) — 하지만 **발음은 절대 빌려오면 안
+        // 된다**: "was"(불규칙 활용, wesan에서 유래)와 "be"는 실제 발음이 완전히 다른
+        // 단어라(/wʌz/ vs /biː/), be의 발음을 그대로 붙이면 "was"가 "be"처럼 발음된다는
+        // 틀린 정보가 된다. 품사만 빌리고 발음은 계속 비워둔다.
         const target = entry.cxs[0]?.cxtis?.[0]?.cxt
-        const targetInfo = target ? await fetchHeadwordInfo(target, apiKey) : undefined
-        if (targetInfo?.pos) sense.pos = targetInfo.pos
-        readings.push({ pronunciations: targetInfo?.pronunciations, senses: [sense] })
-        if (targetInfo?.pronunciations?.length) lastPronunciations = targetInfo.pronunciations
+        const targetPos = target ? (await fetchHeadwordInfo(target, apiKey)).pos : undefined
+        if (targetPos) sense.pos = targetPos
+        readings.push({ senses: [sense] })
         continue
       }
     }
