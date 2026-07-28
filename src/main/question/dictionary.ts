@@ -203,6 +203,47 @@ async function japaneseWordCandidates(word: string): Promise<string[]> {
   return baseForm && baseForm !== word ? [word, baseForm] : [word]
 }
 
+/** en 전용 — 규칙동사/규칙명사 활용형의 원형 후보를 추측한다(WordNet Morphy 알고리즘의
+ *  detachment rule 일부를 재구현, 별도 라이브러리 없이 접미사 규칙만). MW는 자체
+ *  교차참조(uros/stems)로, OEWN은 formIndex(비정규 활용형 위주)로 각자 활용형을 어느
+ *  정도 처리하지만, **OEWN의 formIndex는 정규 활용(-ed/-ing/-s)을 거의 안 담고 있어서**
+ *  (실측: "close"/"want"/"walk"/"look" 전부 `form: null`) "walked"/"looked" 같은 흔한
+ *  규칙동사 과거형은 OEWN 단독으로 못 찾는다(2026-07-28 확인) — MW 키가 없으면 이
+ *  간극이 그대로 Wiktionary의 얇은 굴절 안내 한 줄("simple past and past participle of
+ *  walk")로 이어진다. 정확한 철자 규칙 판별(사전 대조) 없이 후보를 여러 개 만들어
+ *  전부 시도하는 방식이라(예: "closed" → "clos"/"close"/"clos" 자음축약 등) 틀린
+ *  후보는 각 소스에서 조용히 "못 찾음"으로 끝나 무해하다. */
+function guessEnglishBaseForms(word: string): string[] {
+  const lower = word.toLowerCase()
+  if (lower === word && lower.length < 4) return []
+  const candidates = new Set<string>()
+
+  const maybeUndoubleAndAdd = (stem: string) => {
+    candidates.add(stem)
+    candidates.add(`${stem}e`)
+    const last = stem.at(-1)
+    const secondLast = stem.at(-2)
+    if (last && last === secondLast && !'aeiou'.includes(last)) candidates.add(stem.slice(0, -1))
+  }
+
+  if (lower.endsWith('ied') && lower.length > 4) candidates.add(`${lower.slice(0, -3)}y`)
+  else if (lower.endsWith('ed') && lower.length > 3) maybeUndoubleAndAdd(lower.slice(0, -2))
+
+  if (lower.endsWith('ing') && lower.length > 4) maybeUndoubleAndAdd(lower.slice(0, -3))
+
+  if (lower.endsWith('ies') && lower.length > 4) candidates.add(`${lower.slice(0, -3)}y`)
+  else if (lower.endsWith('es') && lower.length > 3) candidates.add(lower.slice(0, -2))
+  if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 2) candidates.add(lower.slice(0, -1))
+
+  candidates.delete(word)
+  candidates.delete(lower)
+  return [...candidates]
+}
+
+function englishWordCandidates(word: string): string[] {
+  return [word, ...guessEnglishBaseForms(word)]
+}
+
 /** FALLBACK_CHAINS 를 앞에서부터 순서대로 시도해 sense 가 하나라도 있는 첫 소스에서
  *  멈춘다("앞 소스가 못 찾을 때만 다음으로" — TODO.md/DICTIONARY_SOURCES.md 확정 순서).
  *  개별 소스 실패(네트워크 에러 등)도 "여기선 못 찾음"과 동일하게 다음 소스로 넘어간다 —
@@ -214,7 +255,12 @@ async function japaneseWordCandidates(word: string): Promise<string[]> {
  *  전에 daijisen/JMdict 안에서 기본형으로 먼저 구제한다. */
 async function lookupThroughFallbackChain(word: string, ctx: SelectionContext): Promise<ChainLookupResult> {
   const chain = FALLBACK_CHAINS[ctx.language]
-  const candidates = ctx.language === 'ja' ? await japaneseWordCandidates(word) : [word]
+  const candidates =
+    ctx.language === 'ja'
+      ? await japaneseWordCandidates(word)
+      : ctx.language === 'en'
+        ? englishWordCandidates(word)
+        : [word]
   let suggestions: string[] | undefined
   for (const source of chain) {
     for (const candidate of candidates) {
