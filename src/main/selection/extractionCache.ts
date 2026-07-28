@@ -133,11 +133,16 @@ async function alignWordsToOverlay(words: Word[]): Promise<Word[]> {
   )
 }
 
-/** 선택 모드 진입 시 호출 — 백그라운드로 캡처+추출을 시작해 캐시를 채운다(대기 안 함). */
-export function refreshExtractionCache(): void {
+/**
+ * 선택 모드 진입 시 호출 — 백그라운드로 캡처+추출을 시작해 캐시를 채운다(기본적으로
+ * 대기 안 하고 호출부는 반환값을 무시해도 됨). 완료(성공/실패 무관) 시점을 알아야 하는
+ * 호출부(changeWatcher.ts — 겹쳐서 또 시작하지 않게 잠금 해제 타이밍을 잡는 데 씀)를
+ * 위해 Promise 를 반환한다.
+ */
+export function refreshExtractionCache(): Promise<void> {
   const promise = runExtraction()
   inFlight = promise
-  promise
+  return promise
     .then((result) => {
       if (inFlight === promise) {
         cached = result

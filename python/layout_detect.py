@@ -116,12 +116,24 @@ def is_vertical_layout(blocks, text_labels, ratio_threshold=1.4, min_fraction=0.
     길쭉하면) 세로쓰기 페이지로 본다. 그림/표 같은 비텍스트 블록은 텍스트 방향과
     무관해서 판정에서 제외한다(어떤 라벨이 "본문 텍스트"인지는 백엔드마다 달라서
     text_labels 로 받는다 — TEXT_LABELS_BY_BACKEND 참고). 표본이 아예 없으면(본문
-    블록 미검출) 판단 근거가 없으므로 False(가로쓰기 취급 — 기존 동작 유지)."""
+    블록 미검출) 판단 근거가 없으므로 False(가로쓰기 취급 — 기존 동작 유지).
+
+    블록 "개수"가 아니라 블록 "면적"으로 가중 다수결을 한다 — 실사용 중 확인: 러닝
+    헤더/챕터 제목/쪽번호처럼 진짜 본문이 아닌데도 "text" 라벨이 붙는 작은 블록들이
+    페이지에 여러 개(예: 6개) 있으면, 정작 훨씬 큰 진짜 세로쓰기 본문 열(예: 5개,
+    각각 헤더 블록보다 수십 배 큰 면적)이 있어도 단순 개수로는 져서 가로쓰기로
+    잘못 판정됐다. 면적으로 가중하면 압도적으로 큰 본문 열이 작은 장식 블록들에
+    쉽게 묻히지 않는다."""
     text_blocks = [b for b in blocks if b["label"] in text_labels and b["width"] > 0]
     if not text_blocks:
         return False
-    vertical_count = sum(1 for b in text_blocks if b["height"] / b["width"] >= ratio_threshold)
-    return (vertical_count / len(text_blocks)) >= min_fraction
+    total_area = sum(b["width"] * b["height"] for b in text_blocks)
+    if total_area <= 0:
+        return False
+    vertical_area = sum(
+        b["width"] * b["height"] for b in text_blocks if b["height"] / b["width"] >= ratio_threshold
+    )
+    return (vertical_area / total_area) >= min_fraction
 
 
 def order_blocks(blocks, text_labels):
