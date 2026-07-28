@@ -10,6 +10,7 @@ import { getSettings } from '@main/settingsStore'
 import { DEFAULT_MODELS } from '@shared/providers'
 import { LANGUAGES } from '@shared/languages'
 import { fetchCcCedictEntry } from './dictionary/cccedict'
+import { fetchDaijisenEntry, DaijisenHttpError } from './dictionary/daijisen'
 import { fetchHanyuEntry, HanyuHttpError } from './dictionary/hanyu'
 import { fetchJmdictEntry } from './dictionary/jmdict'
 import { fetchGuoyuCidianEntry, GuoyuCidianHttpError } from './dictionary/guoyuCidian'
@@ -48,12 +49,10 @@ const DICTIONARY_JUDGE_MAX_TOKENS = 500
 const MAX_FALLBACK_WORDS = 5
 
 /** 정식 폴백 순서(TODO.md/DICTIONARY_SOURCES.md 에 확정된 순서 그대로) — 앞 소스가
- *  못 찾거나 실패하면 조용히 다음으로 넘어간다. **daijisen.ts(デジタル大辞泉, kotobank.jp
- *  경유)는 아직 다른 세션에서 구현 중이라 ja 체인에서 빠져 있다** — 머지되면 이 배열
- *  맨 앞(`'daijisen'`)만 추가하면 되고, 이 파일 나머지 로직은 안 건드려도 된다. */
+ *  못 찾거나 실패하면 조용히 다음으로 넘어간다. */
 const FALLBACK_CHAINS: Record<Language, DictionarySourceId[]> = {
   en: ['merriam-webster', 'wordnet', 'wiktionary'],
-  ja: ['jmdict', 'wiktionary'],
+  ja: ['daijisen', 'jmdict', 'wiktionary'],
   'zh-Hans': ['hanyu-dict', 'cc-cedict', 'wiktionary'],
   'zh-Hant': ['guoyu-cidian', 'hanyu-dict', 'cc-cedict', 'wiktionary'],
 }
@@ -324,7 +323,7 @@ class UnsupportedLanguageDictionaryError extends Error {
   }
 }
 
-/** 아직 어댑터가 이 디스패치에 안 붙은 소스(현재 daijisen — 다른 세션에서 구현 중). */
+/** 아직 어댑터가 이 디스패치에 안 붙은 소스. */
 class SourceNotImplementedError extends Error {
   constructor(public source: DictionarySourceId) {
     super(`${source}: not implemented`)
@@ -359,6 +358,13 @@ async function fetchSourceEntries(
     }
     case 'wiktionary': {
       const lookup = await fetchWiktionaryEntry(word, ctx.language)
+      return { entries: lookup.entry ? [lookup.entry] : undefined }
+    }
+    case 'daijisen': {
+      if (ctx.language !== 'ja') {
+        throw new UnsupportedLanguageDictionaryError(source, 'daijisen(デジタル大辞泉)은 일본어 전용 사전입니다.')
+      }
+      const lookup = await fetchDaijisenEntry(word)
       return { entries: lookup.entry ? [lookup.entry] : undefined }
     }
     case 'jmdict': {
@@ -426,7 +432,12 @@ function describeSourceError(source: DictionarySourceId, err: unknown): string {
     return 'Merriam-Webster 사전 API 키가 설정되어 있지 않습니다. 설정에서 키를 입력해 주세요.'
   }
   if (err instanceof MerriamWebsterHttpError) return describeMerriamWebsterError(err)
-  if (err instanceof HanyuHttpError || err instanceof GuoyuCidianHttpError || err instanceof WiktionaryHttpError) {
+  if (
+    err instanceof DaijisenHttpError ||
+    err instanceof HanyuHttpError ||
+    err instanceof GuoyuCidianHttpError ||
+    err instanceof WiktionaryHttpError
+  ) {
     if (err.status === 429) return '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.'
     if (err.status >= 500) return '사전 서버에 문제가 있습니다. 잠시 후 다시 시도해 주세요.'
     return '사전 조회에 실패했습니다.'
