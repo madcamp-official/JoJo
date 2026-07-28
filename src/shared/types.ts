@@ -127,23 +127,25 @@ export interface QuestionResult {
 // 이 공통 타입으로 변환한 뒤에만 LLM 프롬프트에 들어가게 한다(llm/adapter.ts 가
 // GPT/Gemini/Claude 를 QuestionResult 하나로 통일하는 것과 동일한 패턴).
 
+/** 3개 언어 전부에 대응 품사가 있는 것들 — CanonicalPos<L> 이 언어별로 여기에 각자의
+ *  전용 품사를 더한다. */
+type CanonicalPosCommon = 'noun' | 'verb' | 'adjective' | 'adverb' | 'pronoun' | 'conjunction' | 'interjection' | 'other'
+
 /** 언어 간 품사 분류를 최대한 겹치게 정리한 것 — 언어마다 없는 품사도 있다(일/중엔
  *  관사가 없고, 영어엔 조사가 없는 등). ja 助詞/zh 助词는 이름은 같지만 실제 기능이
- *  다르다(전자는 격조사 중심, 후자는 상 표지·구조조사 중심) — 세부 차이는 posRaw 로 보존. */
-export type CanonicalPos =
-  | 'noun'
-  | 'verb'
-  | 'adjective'
-  | 'adverb'
-  | 'pronoun'
-  | 'preposition' // en 전치사 / zh 介词(개사)
-  | 'conjunction' // en 접속사 / ja 接続詞 / zh 连词
-  | 'article' // en 전용(a/an/the) — ja/zh 엔 없음
-  | 'particle' // ja 助詞 / zh 助词 — 사전 조회 실패가 잦은 기능어 묶음(LLM이 문법 설명 전담)
-  | 'interjection'
-  | 'classifier' // zh 量词 — 다른 언어엔 대응 품사 없음
-  | 'adnominal' // ja 連体詞(この/あの/いわゆる 등) — 활용 없이 체언 수식만 하는 전용 품사, adjective(い/な형용사)와 달리 서술어로 못 쓰이고 활용형 자체가 없음(실측: JMdict "Pre-noun adjectival (rentaishi)"). 다른 언어엔 대응 품사 없음
-  | 'other'
+ *  다르다(전자는 격조사 중심, 후자는 상 표지·구조조사 중심) — 세부 차이는 posRaw 로 보존.
+ *
+ *  **2026-07-28: `DictionaryEntry<L>` 과 같은 이유로 제네릭화** — `article`(en 전용)/
+ *  `particle`(ja/zh)/`classifier`(zh 전용)/`adnominal`(ja 전용)처럼 언어 전용 값이
+ *  섞여 있으면, en 어댑터가 실수로 `pos: 'classifier'`를 넣어도 컴파일러가 못 잡았다.
+ *  `L` 을 구체 언어로 좁히면 그 언어에 실제로 없는 품사 값은 타입 자체에서 배제된다. */
+export type CanonicalPos<L extends Language = Language> = L extends 'en'
+  ? CanonicalPosCommon | 'preposition' | 'article' // en 전치사, 관사(a/an/the)
+  : L extends 'ja'
+    ? CanonicalPosCommon | 'particle' | 'adnominal' // ja 助詞, 連体詞(この/あの/いわゆる 등 — 활용 없이 체언 수식만, 실측: JMdict "Pre-noun adjectival (rentaishi)")
+    : L extends 'zh-Hans' | 'zh-Hant'
+      ? CanonicalPosCommon | 'preposition' | 'particle' | 'classifier' // zh 介词(개사), 助词, 量词
+      : never
 
 /** usageTags 태그 하나의 성격 — 격식/사용역(register)인지, 격식과 무관한 표기·형태 관례
  *  (convention)인지, 방언 표시(dialect)인지를 최소한으로 구분한다(2026-07-28 신설). 분류가
@@ -179,13 +181,13 @@ export interface SeeAlsoRef {
  *  참고: `classifiers`(zh)/`conjugationClass`(ja) 등 언어 전용 필드가 계속 늘면서 원래
  *  "공통 베이스+옵셔널"로 버티기로 한 전제(언어 전용 필드 2~3개 규모)가 ja 기준 이미
  *  넘어서 있었음). */
-export interface DictionarySenseBase {
+export interface DictionarySenseBase<L extends Language = Language> {
   /** 표준화된 품사 — CC-CEDICT처럼 품사 필드 자체가 없는 소스만 undefined. **萌典도 품사
    *  필드가 있음**(실측 확인: `definitions[].type` — 名/動/形/副/連/介/代/助/歎, 순서대로
    *  명사/동사/형용사/부사/접속사/전치사/대명사/조사/감탄사에 대응). 단, 양사(量詞)는 별도
    *  type 값이 없고 `名`(명사) 안에 "量詞：" 라는 평문으로만 표시돼 있어(예: "隻") classifier
    *  판정은 이 필드만으론 안 되고 gloss 텍스트 파싱이 추가로 필요함. */
-  pos?: CanonicalPos
+  pos?: CanonicalPos<L>
   /** 원본 품사 표기 보존(JMdict 'v1' 등) — 디버깅/검수용, LLM 프롬프트에는 넣지 않음.
    *  CanonicalPos 로 뭉뚱그리며 사라지는 세부 정보 자체는 이 필드에 남아있지만, LLM에
    *  전달 안 하기로 했으므로 "문법 설명에 실제로 쓸 정보"는 반드시 conjugationClass 처럼
@@ -281,6 +283,18 @@ export interface DictionarySenseBase {
  *  등에 바로 접근 가능하지만, entry 와 분리된 채 `sense: DictionarySense<Language>` 하나만
  *  받는 함수는(narrowing 할 discriminant 가 sense 자체엔 없음) `'classifiers' in sense`
  *  같은 속성 존재 체크로 좁혀야 한다 — 판별을 최상위(entry)에만 두기로 한 트레이드오프. */
+/** 타동사/자동사 — en/ja 공유 개념이라 두 언어 확장 타입이 공통으로 물려받는다(2026-07-28,
+ *  설명을 한 곳에만 두도록 정리 — 이전엔 en/ja 양쪽에 각자 적어두고 서로 참고하라고
+ *  써놔서 한쪽만 고치고 다른 쪽을 놓칠 위험이 있었음). MW 는 entry.fl 이 아니라
+ *  `def[].vd`("verb divider")에 "transitive verb"/"intransitive verb"로 옴(실측 확인,
+ *  예: "run"은 def 블록이 2개로 갈려 하나는 intransitive, 하나는 transitive) — `vd`는
+ *  그 def 블록 전체(=여러 sense)에 적용되는 라벨이라, entry 최상위 `lbs`를 모든 sense 에
+ *  복제했던 것과 같은 패턴으로 그 def 안의 senses 전부에 전파해야 함. JMdict 는 sense
+ *  자체에 `vt`/`vi` 태그가 붙어 레벨이 다름(전파 불필요). zh 는 대응 개념 없음. */
+interface TransitiveExt {
+  transitive?: boolean
+}
+
 type DictionarySenseExt<L extends Language> = L extends 'en'
   ? {
       /** 불규칙 활용형(en 전용) — MW 의 `ins`(inflections) 필드 실측 확인(예: run → "ran").
@@ -290,14 +304,7 @@ type DictionarySenseExt<L extends Language> = L extends 'en'
        *  실제로 쓰이는 정보라 LLM에도 전달. Wiktionary 등 다른 en 소스는 이 필드가 비어있을
        *  수 있음. */
       irregularForms?: string[]
-      /** 타동사/자동사 — MW 실측 확인(2026-07-28): entry.fl 이 아니라 `def[].vd`("verb
-       *  divider")에 "transitive verb"/"intransitive verb"로 옴(예: "run"은 def 블록이
-       *  2개로 갈려 하나는 intransitive, 하나는 transitive). `vd`는 그 def 블록 전체(=여러
-       *  sense)에 적용되는 라벨이라, entry 최상위 `lbs`를 모든 sense 에 복제했던 것과 같은
-       *  패턴으로 그 def 안의 senses 전부에 전파해야 함. ja 의 JMdict `vt`/`vi`와 같은
-       *  개념이라 en/ja 양쪽 확장 타입에 공통으로 들어있음(en/ja 공유, zh 는 대응 없음). */
-      transitive?: boolean
-    }
+    } & TransitiveExt
   : L extends 'ja'
     ? {
         /** 활용 분류(ja 전용) — 언어별로 canonical pos 하나로는 못 담는 문법 정보를 사람이
@@ -307,10 +314,7 @@ type DictionarySenseExt<L extends Language> = L extends 'en'
          *  확인 결과(2026-07-28, 汉典 `结婚`/萌典 `見面` 페이지 직접 확인 포함) 汉典·萌典·
          *  CC-CEDICT 어디에도 태깅 안 되어 있어 스키마에 별도 자리를 안 만들기로 함.) */
         conjugationClass?: string
-        /** JMdict `vt`/`vi` — 위 en `transitive` 주석 참고(en/ja 공유 개념, MW 는 `def[].vd`
-         *  로 옴). */
-        transitive?: boolean
-      }
+      } & TransitiveExt
     : L extends 'zh-Hans' | 'zh-Hant'
       ? {
           /** 이 명사(headword)와 함께 쓰는 양사(예: "書"→"本") — CC-CEDICT의 `CL:` 태그로만
@@ -324,7 +328,7 @@ type DictionarySenseExt<L extends Language> = L extends 'en'
         }
       : object
 
-export type DictionarySense<L extends Language = Language> = DictionarySenseBase & DictionarySenseExt<L>
+export type DictionarySense<L extends Language = Language> = DictionarySenseBase<L> & DictionarySenseExt<L>
 
 export type DictionarySourceId =
   | 'merriam-webster'
