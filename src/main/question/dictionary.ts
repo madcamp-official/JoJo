@@ -9,6 +9,7 @@ import { getApiKey } from '@main/keyStore'
 import { getSettings } from '@main/settingsStore'
 import { DEFAULT_MODELS } from '@shared/providers'
 import { LANGUAGES } from '@shared/languages'
+import { fetchCcCedictEntry } from './dictionary/cccedict'
 import { fetchMerriamWebsterEntry, MerriamWebsterHttpError } from './dictionary/merriamWebster'
 import { fetchOewnEntry } from './dictionary/oewn'
 import { fetchWiktionaryEntry } from './dictionary/wiktionary'
@@ -364,6 +365,14 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: SelectionCont
     }
     case 'wiktionary': {
       const lookup = await fetchWiktionaryEntry(word, ctx.language)
+      entries = lookup.entry ? [lookup.entry] : undefined
+      break
+    }
+    case 'cc-cedict': {
+      if (ctx.language !== 'zh-Hans' && ctx.language !== 'zh-Hant') {
+        return { kind: 'dictionary', content: 'CC-CEDICT는 중국어 전용 사전입니다.' }
+      }
+      const lookup = await fetchCcCedictEntry(word, ctx.language)
       entries = lookup.entry ? [lookup.entry] : undefined
       break
     }
