@@ -236,14 +236,19 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 **발음 보강 구현 현황**(2026-07-28, `question/dictionary/wiktionary.ts` 실제 구현 — 연결 어댑터 자체는 완료, 정식 폴백 오케스트레이션 미연동 상태는 위 §전체와 동일):
 
-REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 항목) 이 어댑터가 만드는 `DictionaryReading.pronunciations`는 기본적으로 전부 undefined다. 이를 언어별로 별도 보강한다:
+REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 항목) 이 어댑터가 만드는 `DictionaryReading.pronunciations`는 기본적으로 전부 undefined다. 이를 언어별로 별도 보강한다. **찾은 값은 전부 배열로 채운다**(`DictionaryReading.pronunciations`가 원래 배열 스키마인데도 처음엔 첫 번째 값만 쓰고 있었음 — 2026-07-28 수정, 아래 각 언어 항목의 실측 예시가 이제 전부 그 대상):
 
-- **en**: dictionaryapi.dev(위 2번 항목)를 추가 호출해 `phonetic`(최상위) 또는 `phonetics[].text`(첫 번째 값)를 가져와 그 단어의 모든 reading에 동일하게 채운다. 실측 확인(`run`): 발음이 meaning(품사)별이 아니라 entry 최상위 하나뿐이라(`phonetics[]`가 품사 구분 없이 공유) 품사별로 나눠 붙일 수가 없음 — MW가 hom 간 발음을 상속하는 것과 같은 단순화. `run`(4개 reading 전부 `/ɹʊn/`)·`ate`(`/eɪt/`)로 검증.
-- **ja**: raw wikitext(`action=parse`, `prop=wikitext`)의 `{{ja-pron|よみ|...}}` 첫 위치 인자(히라가나 읽기)를 정규식으로 뽑아 en과 동일하게 모든 reading에 채운다. 실측(走る→はしる, 美しい→うつくしい, 東京→とうきょう, 食べる→たべる) 확인. 한 표제어에 읽기가 여러 개인 경우(**猫**→ねこ/ねこま 2개, **東京**→とうきょう/とうけい/トンキン 3개 실측 확인) 첫 번째만 대표로 채택 — en dictionaryapi.dev와 동일한 단순화 판단.
+- **en**: dictionaryapi.dev(위 2번 항목)를 추가 호출해 `phonetic`(최상위)과 `phonetics[].text`(개별 값) 전부를 중복 제거해 모은 뒤 그 단어의 모든 reading에 동일하게 채운다. 실측 확인(`run`): 발음이 meaning(품사)별이 아니라 entry 최상위 하나뿐이라(`phonetics[]`가 품사 구분 없이 공유) 품사별로 나눠 붙일 수가 없음 — MW가 hom 간 발음을 상속하는 것과 같은 단순화. `run`(중복 제거 후 `/ɹʊn/`·`/ɹʌn/` 2개)·`ate`(`/eɪt/` 1개)로 검증.
+- **ja**: raw wikitext(`action=parse`, `prop=wikitext`)의 `{{ja-pron|よみ|...}}` 첫 위치 인자(히라가나 읽기)를 정규식으로 전부 뽑아 en과 동일하게 모든 reading에 채운다. 실측(走る→はしる, 美しい→うつくしい, 東京→とうきょう, 食べる→たべる) 확인. 한 표제어에 읽기가 여러 개인 경우(**猫**→ねこ/ねこま 2개, **東京**→とうきょう/とうけい/トンキン 3개 실측 확인) **전부 배열로 채운다** — 어느 읽기가 어느 sense에 대응하는지까지는 아직 안 함(정확한 매칭은 추후 Kotobank/JMdict 정식 어댑터가 담당).
 - **zh**: 같은 raw wikitext 경로에서 `{{zh-pron|m=병음|...}}`의 `m=` 파라미터만 뽑는다(다른 방언 파라미터는 버림, 위 방침 그대로). 실측(11개 표제어: 你好/中國/一/打/謝謝/打算/水/的/了/麼/嗎 wikitext 직접 조회)으로 이 파라미터의 함정 두 가지를 새로 확인:
-  1. 값이 콤마로 여러 개 이어질 때 일부는 병음이 아니라 콤마로 덧붙는 수식 플래그다 — `打算`→`m=dǎsuàn,tl=y`(tl=톤 산디), `水`→`m=shuǐ,er=y`(er=얼화), `的`→`m=de,dì,2tl=y,1nb=unstressed,2nb=stressed`(앞 2개만 진짜 복수 병음, 나머지는 번호 붙은 플래그). `=`가 포함된 세그먼트를 필터링해서 걸러야 한다.
+  1. 값이 콤마로 여러 개 이어질 때 일부는 병음이 아니라 콤마로 덧붙는 수식 플래그다 — `打算`→`m=dǎsuàn,tl=y`(tl=톤 산디), `水`→`m=shuǐ,er=y`(er=얼화), `的`→`m=de,dì,2tl=y,1nb=unstressed,2nb=stressed`(앞 2개는 실제 복수 병음 — "de"/"dì" 둘 다 채택, 나머지는 번호 붙은 플래그). `=`가 포함된 세그먼트만 걸러내고 남는 건 전부 채택한다.
   2. 일부 블록은 `m=` 값 자체가 병음이 아니라 조회한 한자 그대로다(실측: `一`/`打`의 일부 zh-pron 블록 → `m=一`/`m=打`, 정확한 의미는 불명 — 다른 항목을 보라는 플레이스홀더로 추정). CJK 통합 한자 포함 여부로 걸러낸다.
   - `捷運`(jiéyùn)·`打算`(dǎsuàn)·`你好`(nǐ hǎo)로 검증. **`水`/`一` 같은 단일 한자 표제어는 이 발음 보강과 무관하게, REST API definition 엔드포인트 자체가 `zh` 언어 블록을 안 줘서(원인 불명 — 페이지 구조 문제로 추정) 뜻풀이 단계에서부터 entry 없음으로 끝난다** — 발음 시도 자체가 안 일어남, 별도 조사 필요(아래 "아직 미확인 항목" 참고).
+
+**부가 보강**(2026-07-28, 사용자 피드백 반영):
+- 발음이 여러 개일 때 `senseSelect.ts`가 첫 번째만 쓰던 것도 함께 고쳐 전부 `[값1, 값2]` 형태로 표시하도록 변경(위 wiktionary.ts 변경이 실제 화면에 드러나려면 이 쪽도 같이 고쳐야 했음).
+- Wikimedia User-Agent 정책(연락 가능한 수단 명시 필수, 이메일이 꼭 아니어도 이슈를 남길 수 있는 저장소 URL이면 충분) 미준수로 개발 중 HTTP 429를 자주 맞아, `WIKTIONARY_USER_AGENT` 상수(`"JoJo-dictionary-adapter/1.0 (저장소 URL)"`)로 en.wiktionary.org REST API·action API·dictionaryapi.dev 요청 전부에 통일 적용.
+- Wiktionary는 CC BY-SA 4.0(+ GFDL) 라이선스라 저작자 표시 의무가 있음 — `senseSelect.ts`의 출처 줄이 Wiktionary일 때만 `[Wiktionary](표제어 페이지 URL) (CC BY-SA 4.0)` 형태로 링크+라이선스명을 함께 표기하도록 변경. OEWN도 CC BY 4.0이라 같은 처리가 필요하나 이번 스코프에서는 제외(별도 검토 필요).
 
 ---
 

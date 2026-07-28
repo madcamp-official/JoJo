@@ -12,7 +12,10 @@ export interface NumberedSense {
   headword: string
   pos?: CanonicalPos[]
   posRaw?: string
-  pronunciation?: string
+  /** 발음 표기(들) — 한 표제어에 발음이 여러 개인 소스가 있어(OEWN 지역별 variety, Wiktionary
+   *  raw wikitext에서 뽑는 ja 이독/zh 이음자 등, 2026-07-28) 배열로 둔다. 첫 값만 쓰던
+   *  이전 방식은 `reading.pronunciations`가 배열인 스키마 설계 의도를 못 살렸었음. */
+  pronunciations?: string[]
   irregularForms?: string[]
   transitive?: boolean
   definite?: boolean
@@ -33,7 +36,8 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
   for (const entry of entries) {
     const headword = entry.headword[0]
     for (const reading of entry.readings) {
-      const pronunciation = reading.pronunciations?.[0]?.value
+      const values = reading.pronunciations?.map((p) => p.value)
+      const pronunciations = values?.length ? values : undefined
       for (const sense of reading.senses) {
         // gloss 없는 sense 는 하위 구분을 위한 그룹 헤더일 뿐 그 자체로는 선택 가능한
         // 뜻풀이가 아니다(shared/types.ts DictionarySenseGloss 참고) — LLM 판정 목록에서 제외한다.
@@ -43,7 +47,7 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
           headword,
           pos: sense.pos,
           posRaw: sense.posRaw,
-          pronunciation,
+          pronunciations,
           irregularForms: 'irregularForms' in sense ? sense.irregularForms : undefined,
           transitive: 'transitive' in sense ? sense.transitive : undefined,
           definite: 'definite' in sense ? sense.definite : undefined,
@@ -154,6 +158,23 @@ const SOURCE_LABELS: Record<DictionarySourceId, string> = {
   'cc-cedict': 'CC-CEDICT',
 }
 
+/** CC/오픈 라이선스로 배포되는 소스는 출처 표기에 라이선스도 함께 밝힌다(2026-07-28) —
+ *  Wiktionary는 CC BY-SA 4.0(+ GFDL 이중 라이선스)이라 저작자 표시 의무가 있음. 나머지
+ *  소스는 상업 API(MW)·자체 저작권 사전(Kotobank/汉典/萌典)·명확한 CC 조건이 이 앱
+ *  기준 아직 검토 전(OEWN도 CC BY 4.0이나 별도 검토 필요)이라 이번엔 Wiktionary만
+ *  추가 — 나머지는 필요해지면 그때 채운다. */
+const SOURCE_LICENSE: Partial<Record<DictionarySourceId, string>> = {
+  wiktionary: 'CC BY-SA 4.0',
+}
+
+/** Wiktionary 표제어 페이지 URL — 라이선스 요건상 "출처(source)"는 표기 문구뿐 아니라
+ *  원문을 찾아갈 수 있는 링크까지 포함하는 게 안전하다. wiktionary.ts 가 조회에 쓰는
+ *  표제어(queryWord)와 en.wiktionary.org 페이지 타이틀이 같다는 전제(어댑터가 word 를
+ *  그대로 페이지 타이틀로 씀)로 만든다. */
+function wiktionaryPageUrl(word: string): string {
+  return `https://en.wiktionary.org/wiki/${encodeURIComponent(word)}`
+}
+
 const POS_KO: Partial<Record<CanonicalPos, string>> = {
   noun: '명사',
   verb: '동사',
@@ -206,11 +227,10 @@ export function formatDictionaryAnswer(
     const posSuffix = label ? ` · ${label}${idiomTag}` : ''
     // MW 는 IPA 가 아니라 자체 표기법이라 표시 직전에 IPA 근사치로 변환한다(merriamWebsterToIpa.ts).
     // 다른 en 소스(OEWN/Wiktionary)는 원래부터 실제 IPA 라 변환하지 않고 그대로 쓴다.
-    const pronunciation =
-      source === 'merriam-webster' && sense.pronunciation
-        ? merriamWebsterToIpa(sense.pronunciation)
-        : sense.pronunciation
-    const pronSuffix = pronunciation ? ` [${pronunciation}]` : ''
+    // 발음이 여러 개(ja 이독, zh 이음자, OEWN 지역별 variety 등)면 전부 쉼표로 나열한다 —
+    // 첫 번째만 보여주면 나머지 읽기가 있다는 사실 자체가 사용자에게 안 보이게 된다.
+    const pronunciations = sense.pronunciations?.map((p) => (source === 'merriam-webster' ? merriamWebsterToIpa(p) : p))
+    const pronSuffix = pronunciations?.length ? ` [${pronunciations.join(', ')}]` : ''
     lines.push(`**${sense.headword}**${pronSuffix}${posSuffix}`)
     // 원문·번역은 같은 뜻을 언어만 달리 적은 동격 정보라 스타일을 다르게 주지 않는다.
     lines.push(sense.gloss.join('; '))
@@ -233,7 +253,15 @@ export function formatDictionaryAnswer(
     lines.push('')
   }
 
-  lines.push(`_출처: ${SOURCE_LABELS[source]}_`)
+  // 라이선스가 있는 소스(현재 Wiktionary만)는 원문 링크 + 라이선스명을 함께 표기해
+  // CC BY-SA 4.0 저작자 표시 요건을 최소한으로 충족한다.
+  const license = SOURCE_LICENSE[source]
+  const sourceLabel =
+    source === 'wiktionary'
+      ? `[${SOURCE_LABELS[source]}](${wiktionaryPageUrl(queryWord)})`
+      : SOURCE_LABELS[source]
+  const licenseSuffix = license ? ` (${license})` : ''
+  lines.push(`_출처: ${sourceLabel}${licenseSuffix}_`)
   // 마크다운은 줄바꿈 하나(\n)만으론 같은 문단으로 합쳐 렌더링하므로(예: 원문/번역이
   // 한 줄로 붙어버림), 줄 끝에 공백 2개를 붙여 강제 줄바꿈(hard break)으로 만든다.
   return lines.join('  \n').trim()
