@@ -139,12 +139,20 @@ export async function lookupDictionary(
   const perWordResults = await Promise.allSettled(
     words.map((w) => lookupSingleWord(w, mwKey, ctx, client, model, cacheableContext)),
   )
+  const outcomes = perWordResults.map((r) => (r.status === 'fulfilled' ? r.value : null))
 
-  const formattedBlocks = perWordResults
-    .map((r) => (r.status === 'fulfilled' ? r.value : null))
-    .filter((v): v is string => v !== null)
+  const formattedBlocks = outcomes
+    .filter((o): o is { formatted: string } => o !== null && 'formatted' in o)
+    .map((o) => o.formatted)
 
   if (!formattedBlocks.length) {
+    // 단어 전부가 사전에 없는 것과, LLM 설정 문제(잘못된 모델 등)로 전부 실패한 것은
+    // 원인이 다르다 — 후자를 "사전에서 못 찾음"으로 뭉개면 사용자가 엉뚱한 곳을 의심하게
+    // 되므로, LLM 에러가 하나라도 있었으면 그걸 그대로 보여준다.
+    const llmError = outcomes.find((o): o is { llmError: unknown } => o !== null && 'llmError' in o)
+    if (llmError) {
+      return emit(onChunk, buildErrorResult('dictionary', classifyLlmError(llmError.llmError), provider))
+    }
     return emit(onChunk, notFoundResult(word, lookup.suggestions))
   }
 
@@ -156,9 +164,11 @@ export async function lookupDictionary(
 }
 
 /** 단어 하나를 MW 조회 → LLM 판정/번역까지 끝내 서식화된 마크다운으로 돌려준다.
- *  폴백 경로 전용 — 못 찾거나 개별 호출이 실패하면(네트워크/LLM 에러 포함) null 을 돌려주고
- *  조용히 건너뛴다(이미 통째 조회 단계에서 네트워크·API 키는 확인이 끝난 상태라, 여기서
- *  나는 실패는 그 단어 하나만의 문제로 본다). */
+ *  폴백 경로 전용 — "사전에 없는 단어"(null)와 "LLM 호출이 실패함"(llmError)을 구분해
+ *  돌려준다. 이미 통째 조회 단계에서 네트워크·API 키는 확인이 끝난 상태라 fetchMwEntry
+ *  실패나 sense 없음은 그 단어 하나만의 문제로 보고 null 처리하지만, LLM 호출 실패(잘못된
+ *  모델 등 설정 문제)는 모든 단어에서 똑같이 날 가능성이 높아 호출부가 원인을 보여줄 수
+ *  있게 구분해서 넘긴다. */
 async function lookupSingleWord(
   word: string,
   mwKey: string,
@@ -166,7 +176,7 @@ async function lookupSingleWord(
   client: ReturnType<typeof createClient>,
   model: string,
   cacheableContext: string,
-): Promise<string | null> {
+): Promise<{ formatted: string } | { llmError: unknown } | null> {
   let lookup
   try {
     lookup = await fetchMwEntry(word, mwKey)
@@ -188,7 +198,7 @@ async function lookupSingleWord(
     model,
     cacheableContext,
   })
-  return outcome.ok ? outcome.formatted : null
+  return outcome.ok ? { formatted: outcome.formatted } : { llmError: outcome.error }
 }
 
 interface JudgeAndFormatArgs {
