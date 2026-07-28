@@ -11,7 +11,6 @@ import {
   EyeIcon,
   EyeOffIcon,
   LockIcon,
-  KeyboardIcon,
   WarnIcon,
   InfoIcon,
 } from './icons'
@@ -214,7 +213,7 @@ function formatAccelerator(accelerator: string): string {
   return accelerator
     .split('+')
     .map((token) => MODIFIER_LABELS[token] ?? KEY_LABELS[token] ?? token)
-    .join('+')
+    .join(' + ')
 }
 
 export function SettingsScreen() {
@@ -409,8 +408,6 @@ export function SettingsScreen() {
     settings.contextBytesBefore,
     settings.contextBytesAfter,
   )
-  const includedBytes = byteLength(PREVIEW_TEXT.slice(range.extStart, range.extEnd))
-
   return (
     <div className="screen settings-screen">
       <div className="settings-header">
@@ -610,7 +607,7 @@ export function SettingsScreen() {
       {/* 단축키 설정 */}
       <section className="settings-section">
         <h2>단축키</h2>
-        <p className="desc">일반 모드와 선택 모드를 전환하는 단축키를 지정하세요.</p>
+        <p className="desc">연필 아이콘을 눌러 원하는 키 조합으로 다시 등록할 수 있습니다.</p>
         <div className="shortcut-row">
           <span className="label">모드 전환 (일반 ↔ 선택)</span>
           <div className="shortcut-control">
@@ -627,9 +624,6 @@ export function SettingsScreen() {
             />
           </div>
         </div>
-        <div className="settings-note">
-          <KeyboardIcon /> 설정한 단축키를 누를 때마다 일반 모드와 선택 모드가 전환됩니다.
-        </div>
         <div className="shortcut-row">
           <span className="label">설정 화면 열기</span>
           <div className="shortcut-control">
@@ -645,9 +639,6 @@ export function SettingsScreen() {
               deleteDisabled={!settings.settingsShortcut}
             />
           </div>
-        </div>
-        <div className="settings-note">
-          <KeyboardIcon /> 어디서든 이 단축키를 누르면 설정 화면이 열립니다.
         </div>
       </section>
 
@@ -713,10 +704,6 @@ export function SettingsScreen() {
           {seg(PREVIEW_TEXT.slice(range.selEnd, range.byteEnd), 'context-span', 'c2')}
           {seg(PREVIEW_TEXT.slice(range.byteEnd, range.extEnd), 'extend-span', 'x2')}
           {seg(PREVIEW_TEXT.slice(range.extEnd), 'excluded', 'e2')}
-        </div>
-        <div className="settings-note">
-          <InfoIcon /> 설정 앞 {settings.contextBytesBefore} · 뒤 {settings.contextBytesAfter} Byte →
-          문장 경계 확장 포함 실제 약 {includedBytes} Byte 가 문맥으로 전달됩니다.
         </div>
         <div className="settings-note">
           <InfoIcon /> 범위를 넓게 잡을수록 AI가 문맥을 더 잘 이해하지만, 전달 텍스트가 늘어 요청

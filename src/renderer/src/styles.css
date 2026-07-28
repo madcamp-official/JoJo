@@ -206,6 +206,7 @@ button:disabled { cursor: not-allowed; }
   background: none; border: none; cursor: pointer; color: #8b93a1; font-size: 15px;
 }
 .shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.shortcut-row + .shortcut-row { margin-top: 14px; }
 .shortcut-row .label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .shortcut-control { display: flex; gap: 8px; align-items: center; }
 .shortcut-keys {
