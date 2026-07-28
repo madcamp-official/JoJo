@@ -100,24 +100,8 @@ export async function lookupDictionary(
   const model = settings.models[provider] || DEFAULT_MODELS[provider]
   const cacheableContext = buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter)
 
-  let whole = await lookupThroughFallbackChain(word, ctx)
-  let lookupWord = word
-  if (!whole.senses.length && ctx.language === 'ja') {
-    // ja(daijisen·JMdict·Wiktionary 전부) 활용형을 원형으로 자동 변환해주지 않는다
-    // (TODO.md 131번 항목) — 통째 표면형 조회가 실패했을 때만(관용구/원형 그대로인
-    // 단어는 위에서 이미 성공해 여기까지 안 옴) 기본형으로 바꿔 **같은 체인 전체**를
-    // 재시도한다(daijisen→jmdict→wiktionary 전부 기본형으로 다시 탐). 표면형을 먼저
-    // 시도하는 이유: "犬も歩けば棒に当たる" 같은 관용구는 활용형 변환 없이 표면형
-    // 그대로가 정답이라, 무조건 먼저 기본형화하면 이런 경우를 깨뜨린다.
-    const baseForm = await toJapaneseDictionaryBaseForm(word).catch(() => null)
-    if (baseForm && baseForm !== word) {
-      const retried = await lookupThroughFallbackChain(baseForm, ctx)
-      if (retried.senses.length) {
-        whole = retried
-        lookupWord = baseForm
-      }
-    }
-  }
+  const whole = await lookupThroughFallbackChain(word, ctx)
+  const lookupWord = whole.matchedWord ?? word
   if (whole.senses.length && whole.sourceId) {
     const outcome = await judgeAndFormat({
       word: lookupWord,
@@ -196,27 +180,61 @@ interface ChainLookupResult {
   senses: ReturnType<typeof numberSenses>
   sourceId?: DictionarySourceId
   suggestions?: string[]
+  /** 실제로 결과를 준 표면형 — ja 는 원래 조회어와 다를 수 있다(활용형→기본형 재시도,
+   *  아래 lookupThroughFallbackChain 참고). undefined 면 원래 조회어 그대로 성공한 것. */
+  matchedWord?: string
   /** TEMP DEBUG(맨 윗줄 entry/reading/sense 개수 표시용) — 제거 시 이 필드도 같이 삭제. */
   entries?: DictionaryEntry<Language>[]
+}
+
+/** ja 전용 — 조회 후보 목록(표면형 + 있으면 활용형 기본형)을 만든다. daijisen·JMdict가
+ *  전부 활용형을 원형으로 자동 변환해주지 않아서(TODO.md 131번 항목), 표면형만으로는
+ *  둘 다 "못 찾음"으로 끝나 버리는데, 이 상태로 다음 소스(Wiktionary)까지 넘어가면
+ *  안 된다 — Wiktionary는 활용형 자체에도 "conjunctive form of 歩く" 같은 한 줄짜리
+ *  굴절 안내 페이지를 갖고 있어(실측: 歩いて/食べた) daijisen/JMdict가 원형으로는
+ *  풍부하게 줄 수 있는 뜻풀이 대신 이 얇은 한 줄로 조용히 만족해버리기 때문. 그래서
+ *  daijisen/JMdict **각각**이 표면형에 이어 기본형까지 시도해보고, 그래도 둘 다 못
+ *  찾을 때만 Wiktionary로 넘어가게 후보를 소스보다 안쪽 루프에 둔다(아래
+ *  lookupThroughFallbackChain 참고). 표면형을 항상 먼저 두는 이유는 "犬も歩けば棒に
+ *  当たる" 같은 관용구는 활용형 변환 없이 표면형 그대로가 정답이라, 기본형을 먼저
+ *  시도하면 이런 경우를 깨뜨리기 때문. */
+async function japaneseWordCandidates(word: string): Promise<string[]> {
+  const baseForm = await toJapaneseDictionaryBaseForm(word).catch(() => null)
+  return baseForm && baseForm !== word ? [word, baseForm] : [word]
 }
 
 /** FALLBACK_CHAINS 를 앞에서부터 순서대로 시도해 sense 가 하나라도 있는 첫 소스에서
  *  멈춘다("앞 소스가 못 찾을 때만 다음으로" — TODO.md/DICTIONARY_SOURCES.md 확정 순서).
  *  개별 소스 실패(네트워크 에러 등)도 "여기선 못 찾음"과 동일하게 다음 소스로 넘어간다 —
  *  폴백 체인은 중간 실패를 사용자에게 구구절절 보여주기보다 끝까지 시도해보고 그래도
- *  안 되면 그때 "찾지 못함"으로 뭉뚱그린다(개별 에러는 진단용으로 console.warn 만 남김). */
+ *  안 되면 그때 "찾지 못함"으로 뭉뚱그린다(개별 에러는 진단용으로 console.warn 만 남김).
+ *  ja 는 소스 하나당 여러 후보 표면형(japaneseWordCandidates)을 안쪽에서 전부 시도한
+ *  뒤에야 다음 소스로 넘어간다 — "daijisen/JMdict가 활용형이라 못 찾은 것"과 "이
+ *  단어 자체가 daijisen/JMdict엔 아예 없는 것"을 구분해, 전자면 Wiktionary로 넘어가기
+ *  전에 daijisen/JMdict 안에서 기본형으로 먼저 구제한다. */
 async function lookupThroughFallbackChain(word: string, ctx: SelectionContext): Promise<ChainLookupResult> {
   const chain = FALLBACK_CHAINS[ctx.language]
+  const candidates = ctx.language === 'ja' ? await japaneseWordCandidates(word) : [word]
   let suggestions: string[] | undefined
   for (const source of chain) {
-    try {
-      const result = await fetchSourceEntries(source, ctx, word)
-      suggestions ??= result.suggestions
-      if (!result.entries?.length) continue
-      const senses = numberSenses(result.entries)
-      if (senses.length) return { senses, sourceId: result.entries[0].source, suggestions, entries: result.entries }
-    } catch (err) {
-      console.warn(`[dictionary] ${source} 조회 실패, 다음 소스로 폴백:`, err)
+    for (const candidate of candidates) {
+      try {
+        const result = await fetchSourceEntries(source, ctx, candidate)
+        suggestions ??= result.suggestions
+        if (!result.entries?.length) continue
+        const senses = numberSenses(result.entries)
+        if (senses.length) {
+          return {
+            senses,
+            sourceId: result.entries[0].source,
+            suggestions,
+            entries: result.entries,
+            matchedWord: candidate === word ? undefined : candidate,
+          }
+        }
+      } catch (err) {
+        console.warn(`[dictionary] ${source}(${candidate}) 조회 실패, 다음으로 폴백:`, err)
+      }
     }
   }
   return { senses: [], suggestions }
