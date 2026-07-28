@@ -273,9 +273,13 @@ export interface DictionarySenseBase<L extends Language = Language> {
    *  오염시킬 수 있음을 뒤늦게 발견 — `kind`로 최소 분류해 어댑터/프롬프트 구성 단계에서
    *  걸러 쓸 수 있게 한다. */
   usageTags?: UsageTag[]
-  /** 화용론적 사용법 설명 — MW 의 `uns`(usage note) 실측 확인(예: "ain't hay"→"많은 금액을
-   *  강조할 때 쓴다"는 설명). gloss(뜻풀이)·examples(예문) 어디에도 안 들어가는 제3의
-   *  콘텐츠 타입이라 별도 필드로 분리. */
+  /** 화용론적 사용법 설명 — MW 의 `uns`(usage note) 실측 확인(예: "close"(동사) →
+   *  뜻풀이 "to suspend or stop the operations of" 옆에 별도로 "often used with down"
+   *  설명). gloss(뜻풀이)·examples(예문) 어디에도 안 들어가는 제3의 콘텐츠 타입이라
+   *  별도 필드로 분리. **주의**: `uns`가 `dt`의 유일한 내용(진짜 `text` 튜플이 따로
+   *  없음)인 경우도 있다(실측: "the"/"a" 같은 관사, "ain't hay") — 이때는 `uns` 안
+   *  내용이 보충 설명이 아니라 그 sense의 유일한 뜻풀이이므로 어댑터가 `gloss`로
+   *  승격해야 하고, `usageNote`는 `text`가 실제로 있을 때만 채워야 한다. */
   usageNote?: string
 }
 
@@ -309,6 +313,19 @@ type DictionarySenseExt<L extends Language> = L extends 'en'
        *  실제로 쓰이는 정보라 LLM에도 전달. Wiktionary 등 다른 en 소스는 이 필드가 비어있을
        *  수 있음. */
       irregularForms?: string[]
+      /** 정관사/부정관사 구분(en 전용) — 3개 en 소스 실측 비교(2026-07-28): **MW만** `fl`이
+       *  "definite article"/"indefinite article"로 구조화돼 안전하게 판별 가능(예:
+       *  "the"→definite article, "a"/"an"→indefinite article). **OEWN은 아예 커버리지가
+       *  없음**(GitHub Releases 번들 `entries.json` 직접 확인: "the" 자체가 키로 없고,
+       *  "a"는 명사(알파벳 글자 "a") 뜻만 있고 관사 표제어가 없음 — WordNet류가 원래
+       *  관사 같은 기능어를 안 실음). **Wiktionary REST API도 구조화된 필드가 없음** —
+       *  `partOfSpeech`는 그냥 "Article"이고, "definite"/"indefinite" 구분은 definition
+       *  텍스트 산문 안에 자연어로만 섞여 있어(예: "the" definition 텍스트 안에 "The
+       *  definite grammatical article...") 안정적으로 파싱할 필드가 아님 — 텍스트 패턴
+       *  매칭은 위키 편집자가 표현을 바꾸면 깨지므로 채택 안 함. 그래서 이 필드는 MW만
+       *  채우고, 나머지 두 소스는 항상 undefined로 두어 UI가 자동으로 "관사"로만 표시하게
+       *  한다(사용자 요청: "구분 안되면 그냥 관사로"). */
+      definite?: boolean
     } & TransitiveExt
   : L extends 'ja'
     ? {
