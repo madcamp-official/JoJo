@@ -281,6 +281,16 @@ export function SettingsScreen() {
     }
   }, [settings?.llm, apiKey])
 
+  // Esc → 메인 화면으로(WindowPickerScreen 과 동일 패턴). 단축키 녹화 중(recording)엔
+  // Esc 가 "녹화 취소" 의미로 이미 따로 처리되고 있어(위 useEffect) 그동안엔 건너뛴다.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !recording) goto('main')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [recording])
+
   // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 미리보기가 처음 뜰 때 1회만.
   // (바이트 값을 바꿀 때는 스크롤을 건드리지 않아 사용자가 보던 위치를 유지한다.)
   const previewCenteredRef = useRef(false)
