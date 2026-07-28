@@ -6,3 +6,4 @@ paddlepaddle
 manga-ocr
 sudachipy
 sudachidict_core
+yomitoku

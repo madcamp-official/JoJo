@@ -38,10 +38,12 @@ _engines: dict[str, PaddleOCR] = {}
 _detector: TextDetection | None = None
 
 # 검출은 그대로 medium 을 쓰고(실측 확인: PP-OCRv6_small_det 로 바꾸면 박스 경계가 덜
-# 타이트해져서 특정 줄이 심하게 잘리는 문제가 있었음 — "力"으로 통째로 잘린 사례),
-# 인식만 small 로 바꾼다 — 실측 확인: medium 대비 속도 약 30% 빠르면서 정확도는
-# 동등하거나 오히려 더 나았다(예: "返っていて" 를 medium 은 틀렸는데 small 은 맞음).
-RECOGNITION_MODEL_NAME = "PP-OCRv6_small_rec"
+# 타이트해져서 특정 줄이 심하게 잘리는 문제가 있었음 — "力"으로 통째로 잘린 사례).
+# 인식은 한동안 small 로 썼는데(실측 확인: medium 대비 속도 약 30% 빠르면서 대부분
+# 정확도는 동등하거나 오히려 더 나았음 — 예: "返っていて" 를 medium 은 틀렸는데 small 은
+# 맞음), 세로쓰기 관례로 압축된 작은 숫자(縦中横, 예: "16"을 "10"으로 오독)에서는 small
+# 이 더 취약한 사례가 실사용 중 확인돼 medium 으로 되돌려 실측 비교 중.
+RECOGNITION_MODEL_NAME = "PP-OCRv6_medium_rec"
 
 
 # 워커 프로세스를 6개(POOL_SIZE, ocrPaddle.ts)나 띄우는데, 실사용 중 같은 조건(캐시
@@ -105,6 +107,17 @@ def detect_lines(image_path: str, _language: str) -> list[dict]:
     return lines
 
 
+# PaddleOCR 인식 결과에 아주 가끔 깨진(짝이 안 맞는, lone surrogate) 유니코드 문자가
+# 섞여 나온다(실사용 중 확인 — 원인은 불명확하나 인식 모델/사전 내부 디코딩 문제로
+# 보임). 이런 문자는 UTF-8로 인코딩이 안 돼서 그대로 두면 아래 serve() 의
+# print(json.dumps(...)) 자체가 예외를 던지고, 그 예외를 잡아 에러 응답을 만들려는
+# json.dumps({"error": ...}) 조차 같은 이유로 또 실패해 서버 프로세스가 죽어버린다
+# (실사용 중 "텍스트 상자가 아예 안 뜸"으로 확인 — 그 워커가 죽어서 응답을 영영 못 줌).
+# UTF-8로 왕복 인코딩/디코딩해서 이런 문자를 조용히 제거한다.
+def _strip_lone_surrogates(text: str) -> str:
+    return text.encode("utf-8", "ignore").decode("utf-8")
+
+
 def recognize(image_path: str, language: str) -> list[dict]:
     engine = get_engine(language)
     results = engine.predict(image_path, return_word_box=True)
@@ -117,6 +130,9 @@ def recognize(image_path: str, language: str) -> list[dict]:
         for line_words, line_boxes in zip(text_word, text_word_boxes):
             for w, b in zip(line_words, line_boxes.tolist()):
                 if not w.strip():  # 공백 토큰은 클릭 대상이 아니므로 제외
+                    continue
+                w = _strip_lone_surrogates(w)
+                if not w:  # 깨진 문자만 있던 토큰이면 제거 후 빈 문자열 — 통째로 제외
                     continue
                 x0, y0, x1, y1 = b
                 words.append({"text": w, "x0": float(x0), "y0": float(y0), "x1": float(x1), "y1": float(y1)})
@@ -137,7 +153,10 @@ def serve():
                 words = recognize(req["image_path"], req["language"])
                 print(json.dumps({"words": words}), flush=True)
         except Exception as e:
-            print(json.dumps({"error": str(e)}), flush=True)
+            # 에러 메시지 자체에 깨진 문자가 섞여 있으면 이 print 마저 실패해 서버 프로세스가
+            # 죽는다(실사용 중 확인 — recognize() 안의 _strip_lone_surrogates 로 대부분
+            # 막았지만, 예상 못 한 다른 경로까지 대비한 이중 안전장치).
+            print(json.dumps({"error": _strip_lone_surrogates(str(e))}), flush=True)
 
 
 if __name__ == "__main__":

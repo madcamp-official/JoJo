@@ -26,6 +26,18 @@ def get_tokenizer():
     return _tokenizer
 
 
+# OCR 인식 결과(특히 Yomitoku)에 아주 가끔 깨진(짝이 안 맞는, lone surrogate) 유니코드
+# 문자가 섞여 나온다(ocr_yomitoku.py/ocr_paddle.py 와 동일한 문제 — 원인 불명, 인식
+# 모델/사전 내부 디코딩 문제로 보임). 이 문자는 형태소 분석 입력(text)이나 SudachiDict
+# 자체의 표기/읽기 결과(surface/baseForm)를 통해 여기까지 흘러들 수 있는데, UTF-8 로
+# 인코딩이 안 돼서 그대로 두면 아래 serve() 의 print(json.dumps(...)) 자체가 예외를
+# 던지고, 그 예외를 잡아 에러 응답을 만들려는 json.dumps({"error": ...}) 조차 같은
+# 이유로 또 실패해 서버 프로세스가 죽어버린다(실사용 중 "텍스트 상자가 아예 안 뜸"으로
+# 확인). UTF-8 로 왕복 인코딩/디코딩해서 이런 문자를 조용히 제거한다.
+def _strip_lone_surrogates(text: str) -> str:
+    return text.encode("utf-8", "ignore").decode("utf-8")
+
+
 def tokenize(text: str, mode: str) -> list[dict]:
     split_mode = MODE_MAP.get(mode, SplitMode.B)
     tokens = []
@@ -33,10 +45,10 @@ def tokenize(text: str, mode: str) -> list[dict]:
         pos = m.part_of_speech()
         tokens.append(
             {
-                "surface": m.surface(),
+                "surface": _strip_lone_surrogates(m.surface()),
                 "pos": pos[0],
                 "posDetail1": pos[1],
-                "baseForm": m.normalized_form(),
+                "baseForm": _strip_lone_surrogates(m.normalized_form()),
                 "start": m.begin(),
             }
         )
@@ -50,10 +62,12 @@ def serve():
             continue
         try:
             req = json.loads(line)
-            tokens = tokenize(req["text"], req.get("mode", "B"))
+            tokens = tokenize(_strip_lone_surrogates(req["text"]), req.get("mode", "B"))
             print(json.dumps({"tokens": tokens}, ensure_ascii=False), flush=True)
         except Exception as e:
-            print(json.dumps({"error": str(e)}), flush=True)
+            # 에러 메시지 자체에 깨진 문자가 섞여 있으면 이 print 마저 실패해 서버 프로세스가
+            # 죽는다(ocr_paddle.py 와 동일한 이중 안전장치).
+            print(json.dumps({"error": _strip_lone_surrogates(str(e))}), flush=True)
 
 
 if __name__ == "__main__":

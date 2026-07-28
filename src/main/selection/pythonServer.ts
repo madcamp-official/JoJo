@@ -1,6 +1,9 @@
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, execFileSync, spawn } from 'node:child_process'
+import { cpus } from 'node:os'
 import { createInterface, type Interface } from 'node:readline'
 import { join } from 'node:path'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { app } from 'electron'
 
 // 담당 A — 실험용 브랜치(experiment/doclayout-yolo) 전용.
 // layout_detect.py / ocr_paddle.py / ocr_manga.py 가 전부 같은 상주 서버 패턴(표준
@@ -12,6 +15,29 @@ const PYTHON_BIN = join(
   __dirname,
   process.platform === 'win32' ? '../../python/.venv/Scripts/python.exe' : '../../python/.venv/bin/python',
 )
+
+// 워커 풀 크기(ocrPaddle.ts 의 POOL_SIZE)를 6으로 고정해뒀었는데, 이건 개발 컴퓨터
+// (Intel i7-1165G7, 물리 4코어/논리 8코어) 기준으로 실측 튜닝한 값이라 다른 사용자
+// 환경엔 안 맞을 수 있다 — 코어가 더 많은 컴퓨터에서는 오히려 성능을 다 못 쓰고, 코어가
+// 적은 컴퓨터에서는 지금보다 더 심하게 오버서브스크립션돼서 불안정해진다(실측 확인:
+// 이 컴퓨터도 물리 코어 4개인데 워커 6개라 이미 과다 상태였음). 그래서 실행 중인 기기의
+// 실제 논리 코어 수(`os.cpus().length`, Node 는 물리 코어 수를 직접 못 줌)를 보고 동적
+// 으로 정한다.
+//
+// "코어 수 - 2"로 잡는 이유: 메인 프로세스(Electron)와 OS/다른 프로그램 몫으로 최소
+// 2개는 남겨두기 위함 — 이 컴퓨터(논리 8코어)에서 8-2=6 이 나와서, 그동안 실측으로
+// 튜닝해 검증했던 값(6)과 정확히 일치한다(우연이 아니라, 애초에 그 튜닝이 이 기기의
+// 코어 수에 맞았던 것). 최소 2, 최대 8로 묶어서 극단적으로 적거나(코어 1~2개짜리 저사양
+// 기기에서 풀 자체가 무의미해지는 것 방지) 많은(코어가 아주 많은 서버급 기기에서 워커
+// 수만큼 메모리(워커당 ~700~800MB)가 무한정 늘어나는 것 방지) 기기 모두 안전하게 만든다.
+const MIN_POOL_SIZE = 2
+const MAX_POOL_SIZE = 8
+
+/** 실행 중인 기기의 코어 수 기반으로 적당한 워커 풀 크기를 정한다. */
+export function defaultPoolSize(): number {
+  const logicalCores = cpus().length || 4 // cpus() 가 빈 배열을 줄 수도 있다는 Node 문서상 안내 — 안전한 기본값.
+  return Math.max(MIN_POOL_SIZE, Math.min(MAX_POOL_SIZE, logicalCores - 2))
+}
 
 // 1x1 흰 픽셀 PNG(PIL 로 직접 생성해 바이트를 검증함) — 예열(warmUp) 호출용 최소
 // 이미지. 실제 감지/인식 결과는 안 쓰고(빈 결과가 나와도 상관없음) 그 과정에서 모델이
@@ -37,12 +63,72 @@ export interface PythonServer {
 // before-quit) 일괄 정리한다.
 const activeProcesses = new Set<ChildProcessWithoutNullStreams>()
 
+// venv 의 python.exe 는(Windows) 실제 인터프리터가 아니라 작은 런처 실행 파일이다
+// (pyvenv.cfg 의 home 경로를 찾아 그걸 자식 프로세스로 다시 띄우고 표준입출력을 그대로
+// 이어준다) — 실측 확인: 워커 하나를 스폰하면 프로세스가 항상 2개(런처 + 실제 전역
+// 인터프리터) 뜬다. `proc.kill()`은 직접 자식(런처)만 죽이고 그 밑의 손자 프로세스
+// (실제 인터프리터)까지 자동으로 죽인다는 보장이 없다(Windows 는 부모가 죽어도 자식
+// 트리를 자동 정리 안 함, 이 파일 상단 주석과 같은 문제가 한 단계 더) — 그래서 죽일 때
+// PID 하나만이 아니라 트리 전체(taskkill /T)를 지운다.
+function killProcessTree(pid: number): void {
+  if (process.platform === 'win32') {
+    try {
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
+    } catch {
+      // 이미 죽어있던 PID 등 — 무해하므로 무시.
+    }
+  } else {
+    try {
+      process.kill(pid)
+    } catch {
+      // 이미 죽어있음.
+    }
+  }
+}
+
+// 여기서 스폰한 워커들의 PID 를 앱 데이터 폴더에 파일로 남겨둔다 — before-quit 가
+// 정상적으로 안 불리고 앱이 그냥 죽는 경우(강제 종료, 개발 중 프로세스를 밖에서 직접
+// kill 하는 경우 등, 실사용 중 반복 확인됨: 대화 세션이 끊기면서 그 세션이 띄워둔
+// dev 서버가 안 죽고 계속 쌓임)엔 이번 실행에서는 정리할 기회가 아예 없다. 대신 다음
+// 번 앱 시작 시(index.ts) 이 파일을 읽어서 지난 실행이 남긴 프로세스를 먼저 정리한다
+// — "언젠가 한 번은 정상적으로 앱이 다시 시작된다"는 전제만 있으면 스스로 치유된다.
+const PID_FILE_NAME = 'python-workers.pid'
+
+function pidFilePath(): string {
+  return join(app.getPath('userData'), PID_FILE_NAME)
+}
+
+function persistActivePids(): void {
+  try {
+    const pids = [...activeProcesses].map((p) => p.pid).filter((pid): pid is number => pid !== undefined)
+    writeFileSync(pidFilePath(), JSON.stringify(pids))
+  } catch (err) {
+    console.error('[pythonServer] PID 파일 저장 실패(무시):', err)
+  }
+}
+
+/**
+ * 앱 시작 시(index.ts) 새 워커를 스폰하기 전에 한 번 호출 — 지난 실행이 비정상
+ * 종료돼서 못 지운 python 워커가 있으면 여기서 정리한다. PID 재사용 가능성(아주 드묾
+ * — 재부팅 없이 짧은 시간 안에 우연히 같은 PID 가 재할당돼야 함)은 감수한다: 최악의
+ * 경우도 무관한 프로세스 하나를 잘못 죽이는 것뿐이라 계속 쌓이는 것보다 훨씬 안전하다.
+ */
+export function cleanupOrphanedPythonServers(): void {
+  try {
+    const pids = JSON.parse(readFileSync(pidFilePath(), 'utf-8')) as number[]
+    for (const pid of pids) killProcessTree(pid)
+  } catch {
+    // 파일이 없으면(첫 실행 등) 정리할 게 없다는 뜻 — 무시.
+  }
+}
+
 /** 앱 종료 시(index.ts) 호출 — 지금까지 스폰된 python 서버 프로세스를 전부 죽인다. */
 export function killAllPythonServers(): void {
   for (const proc of activeProcesses) {
-    proc.kill()
+    if (proc.pid !== undefined) killProcessTree(proc.pid)
   }
   activeProcesses.clear()
+  persistActivePids()
 }
 
 /**
@@ -63,8 +149,10 @@ export function createPythonServer(scriptName: string, extraArgs: string[] = [])
     if (proc && !proc.killed) return proc
     const p = spawn(PYTHON_BIN, [scriptPath, ...extraArgs])
     activeProcesses.add(p)
+    persistActivePids() // PID 파일을 항상 "지금 살아있다고 믿는 목록"과 동기화해둔다.
     const reset = () => {
       activeProcesses.delete(p)
+      persistActivePids()
       if (proc === p) {
         proc = null
         rl = null
