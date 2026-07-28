@@ -4,6 +4,7 @@
 import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles, videoCurrentTime } from './youtube'
 import { currentVideoId, loadTranscript, subtitleLangHint } from './timedtext'
 import { startHighlight, type WordHit } from './highlight'
+import { parseAnyCaptionPayload } from './captionParse'
 import type { SubLine } from '@shared/extension'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).
@@ -79,6 +80,31 @@ function ensureTranscript(screenText: string): void {
       console.log('[nuance content] transcript 로드 실패:', err?.message ?? err)
     })
 }
+
+// 페이지 메인 JS 세계(networkHook.ts, manifest.json "world":"MAIN")가 가로챈 자막 관련
+// 네트워크 응답을 postMessage로 받는다. 우리가 직접 만든 fetch(native track/InnerTube)가
+// 전부 막혀도, 플레이어 자신의 요청은 성공하므로(화면에 자막이 실제로 뜸) 그 응답을 그대로
+// 엿들으면 세션/토큰 문제 없이 전체 자막을 확보할 수 있다 — 이게 도착하면 최우선으로 쓴다.
+let lastInterceptedSig = ''
+window.addEventListener('message', (ev) => {
+  if (ev.source !== window) return
+  const data = ev.data as { source?: string; kind?: string; url?: string; text?: string } | undefined
+  if (!data || data.source !== 'nuance-mainworld' || data.kind !== 'captionResponse') return
+  const cues = parseAnyCaptionPayload(data.text ?? '')
+  if (cues.length === 0) return
+  const vid = currentVideoId()
+  if (!vid) return
+  const sig = `${vid}|${cues.length}|${cues[0]?.text ?? ''}`
+  if (sig === lastInterceptedSig) return
+  lastInterceptedSig = sig
+  console.log(`[nuance content] 네트워크 가로채기로 자막 확보: ${cues.length} cues (url=${data.url})`)
+  transcriptKey = `${vid}|intercepted` // ensureTranscript 의 native/InnerTube 재시도를 막음
+  chrome.runtime.sendMessage({
+    kind: 'transcript',
+    videoId: vid,
+    cues: cues.map((c) => ({ start: c.start, text: c.text })),
+  })
+})
 
 function pushSnapshot(): void {
   if (!capturing) return
