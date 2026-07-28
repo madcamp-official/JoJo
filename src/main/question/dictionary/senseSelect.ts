@@ -224,8 +224,11 @@ const SOURCE_LICENSE: Partial<Record<DictionarySourceId, string>> = {
  *    (WIKTIONARY_LANG_NAME 재사용, wiktionary.ts가 언어 블록 필터링에 쓰는 값과 동일).
  *  - wordnet(OEWN): 표제어별 딥링크가 없다 — 조회 API(en-word.net)가 DICTIONARY_SOURCES.md
  *    실측대로 503으로 불안정해 죽은 링크로 안내할 위험이 있고, 이 어댑터는 애초에 그
- *    라이브 API 를 쓰지 않고 GitHub Releases 데이터 파일을 로컬 번들로 쓴다(oewn.ts) —
- *    조회 결과와 무관하게 항상 살아있는 공식 프로젝트 페이지(GitHub 저장소)로 대신 연결한다.
+ *    라이브 API 를 쓰지 않고 GitHub Releases 데이터 파일을 로컬 번들로 쓴다(oewn.ts).
+ *    **링크 없음으로 정정(2026-07-29)**: 예전엔 대신 GitHub 저장소로 연결했으나, 이건
+ *    "사전을 찾아볼 수 있는 웹페이지"가 아니라 소스코드 저장소일 뿐이라 사용자에게
+ *    혼란만 준다 — 이 맵에서 아예 빼서 formatDictionaryAnswer 가 링크 없이 라이선스명만
+ *    표기하도록(SOURCE_URL 위 주석 참고) 되돌린다.
  *  - daijisen: 저작권 있는 상업 사전이라 저작자 표시 의무는 없지만(SOURCE_LICENSE에 없음),
  *    daijisen.ts가 실제로 조회에 쓰는 `kotobank.jp/word/{표제어}` 그대로 링크를 만들면
  *    사용자가 원문(다른 사전 8개·관련어 등)을 바로 볼 수 있다 — ID 없이도 정확한 페이지로
@@ -252,12 +255,12 @@ const SOURCE_LICENSE: Partial<Record<DictionarySourceId, string>> = {
  *    사람이 볼 웹 뷰어는 API 경로가 아니라 `moedict.tw/{표제어}`다(200 OK 실측 확인) —
  *    단일 사전 뷰어라 앵커 불필요.
  *  - cc-cedict: 로컬 데이터 파일(`resources/cedict.u8`)이라 표제어별 페이지 자체가
- *    없다 — wordnet(OEWN)과 같은 이유로 표제어와 무관한 프로젝트 정보 페이지(MDBG의
- *    CC-CEDICT 소개 페이지, 200 OK 실측 확인)로 대신 연결한다. */
+ *    없다. **링크 없음으로 정정(2026-07-29)**: 예전엔 대신 MDBG의 CC-CEDICT 소개
+ *    페이지로 연결했으나, wordnet(OEWN)과 같은 이유로 이것도 "사전을 찾아볼 수 있는
+ *    페이지"가 아니라 프로젝트 소개 페이지일 뿐이라 이 맵에서 뺀다. */
 const SOURCE_URL: Partial<Record<DictionarySourceId, (word: string, language: Language) => string>> = {
   wiktionary: (word, language) =>
     `https://en.wiktionary.org/wiki/${encodeURIComponent(word)}#${WIKTIONARY_LANG_NAME[language]}`,
-  wordnet: () => 'https://github.com/globalwordnet/english-wordnet',
   daijisen: (word) => `https://kotobank.jp/word/${encodeURIComponent(word)}#${kotobankSectionAnchor('デジタル大辞泉')}`,
   'merriam-webster': (word) => `https://www.merriam-webster.com/dictionary/${encodeURIComponent(word)}`,
   jmdict: (word) => `https://jisho.org/word/${encodeURIComponent(word)}`,
@@ -266,7 +269,6 @@ const SOURCE_URL: Partial<Record<DictionarySourceId, (word: string, language: La
     return `${ZDIC_BASE}/${path}/${encodeURIComponent(word)}`
   },
   'guoyu-cidian': (word) => `https://www.moedict.tw/${encodeURIComponent(word)}`,
-  'cc-cedict': () => 'https://www.mdbg.net/chinese/dictionary?page=cc-cedict',
 }
 
 const POS_KO: Partial<Record<CanonicalPos, string>> = {
