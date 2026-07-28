@@ -2,13 +2,16 @@ import type { Language, SelectionSource } from '@shared/types'
 import { readWindowText } from './accessibility'
 import { getSelectedWindowId } from './capture'
 import { detectLanguage } from './langDetect'
+import { getBrowserSource } from '../extension/activeTab'
 
-// 담당 A — OCR 사용 여부 판정 (PLAN.md §4.1 / §7)
+// 담당 A/B — 추출 방식 판정 (PLAN.md §4.1 / §7)
 // 원칙: 직접 추출 먼저 시도, 텍스트가 부족할 때만 OCR fallback.
+// 브라우저(확장 연결)면 활성 탭 URL 로 유튜브/넷플릭스 자막 경로를 우선 분기한다.
 // 판정 시점: 선택 모드 진입 시 1회 + URL 변화 시 재판정 (URL 을 캐시 키로).
 
 export interface ExtractionDecision {
-  mode: 'direct' | 'ocr'
+  // subtitle = 확장으로 원어 자막 추출(유튜브/넷플릭스 미디어 페이지)
+  mode: 'direct' | 'ocr' | 'subtitle'
   source: SelectionSource
   language: Language
 }
@@ -21,6 +24,18 @@ const MIN_DIRECT_TEXT_LENGTH = 20
 
 export async function decideExtraction(): Promise<ExtractionDecision> {
   const language = await detectLanguage()
+
+  // 브라우저면(확장이 활성 탭을 보고 중) URL 로 자막/웹 경로를 먼저 분기한다.
+  // 유튜브 동영상·넷플릭스 에피소드 = 확장으로 원어 자막 추출(subtitle).
+  const browser = getBrowserSource()
+  if (browser) {
+    if (browser.isMedia) {
+      return { mode: 'subtitle', source: browser.source, language }
+    }
+    // 일반 웹페이지: DOM 텍스트 추출은 후속 작업 — 지금은 OCR 로 폴백.
+    // (kind 는 web/youtube/netflix 로 유지해 캐싱·디버깅에 쓴다)
+    return { mode: 'ocr', source: browser.source, language }
+  }
 
   // 표준 텍스트 컨트롤(메모장 등)이면 OCR 없이 바로 정확한 텍스트를 얻을 수 있다 —
   // 브라우저·PDF 뷰어처럼 캔버스에 그리는 앱은 여기서 안 잡히고 OCR 로 자연스럽게 폴백.

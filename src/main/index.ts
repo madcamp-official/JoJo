@@ -3,7 +3,7 @@ import { IPC } from '@shared/channels'
 import { createMainWindow, getMainWindow, setQuitting } from './windows'
 import { createTray } from './tray'
 import { registerIpc } from './ipc'
-import { registerModeShortcut, registerSettingsShortcut } from './selection/shortcut'
+import { applyExtractionDecision, registerModeShortcut, registerSettingsShortcut } from './selection/shortcut'
 import { seedApiKeysFromEnv } from './devSeed'
 import { loadSettings } from './settingsStore'
 import { getApiKey } from './keyStore'
@@ -13,6 +13,9 @@ import { warmJapaneseTokenizer } from './nlp/japanese'
 import { warmChineseSegmenter } from './nlp/chinese'
 import { cleanupOrphanedPythonServers, killAllPythonServers } from './selection/pythonServer'
 import { startWarmUp } from './selection/warmup'
+import { startExtensionBridge } from './extension/bridge'
+import { startActiveTabTracker } from './extension/activeTab'
+import { registerRejudgeOnTabChange, reevaluator } from './extension/reevaluate'
 
 // 앱 진입점 — 윈도우 생성, IPC 등록, 전역 단축키 등록
 app.whenReady().then(() => {
@@ -33,6 +36,10 @@ app.whenReady().then(() => {
   createMainWindow()
   createTray()
   registerIpc()
+  startExtensionBridge() // 크롬 확장이 접속할 로컬 WebSocket 서버 시작
+  startActiveTabTracker() // 확장이 보고하는 활성 탭을 분류(유튜브/넷플릭스/웹)
+  registerRejudgeOnTabChange() // 선택 모드 중 탭/URL 변화 시 추출 방식 재판정
+  reevaluator.on('decision', applyExtractionDecision) // 재판정 결과를 파이프라인에 적용(자막↔OCR 전환)
   registerModeShortcut(settings.modeShortcut)
   registerSettingsShortcut(settings.settingsShortcut)
   warmJapaneseTokenizer() // 일본어 형태소 분석 엔진 로드를 미리 시작 — 첫 사용 시 지연 없게

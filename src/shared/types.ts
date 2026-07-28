@@ -61,6 +61,8 @@ export interface ExtractedSelection {
   words: Word[]
   language: Language
   source: SelectionSource
+  // 자막(유튜브/넷플릭스)도 DOM/timedtext 에서 그대로 가져오는 direct 추출이다 —
+  // 별도 값 없이 source.kind(youtube/netflix)로 자막 경로를 구분한다.
   extraction: 'direct' | 'ocr'
 }
 

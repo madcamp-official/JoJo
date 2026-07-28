@@ -106,7 +106,8 @@ export function registerIpc(): void {
   // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → 팝업(담당 B) 오픈 + 전달
   ipcMain.handle(IPC.SELECTION_EXTRACTED, async (_e, point: { x: number; y: number }) => {
     const extracted: ExtractedSelection = await runSelectionPipeline(point)
-    createPopupWindow(extracted)
+    // 빈 곳 클릭(자막 단어를 못 짚음)이면 빈 팝업을 띄우지 않는다.
+    if (extracted.text.trim()) createPopupWindow(extracted)
     return extracted
   })
 

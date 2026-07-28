@@ -30,6 +30,7 @@ export default defineConfig({
           '@node-rs/jieba',
           '@node-rs/jieba/dict.js', // dict.js 는 서브패스 import 라 위 '@node-rs/jieba' 항목과 별개로 매칭해야 함
           'chinese-tokenizer',
+          'ws', // 네이티브 optional deps(bufferutil/utf-8-validate)를 동적 require 해서 인라인하면 깨짐 — external
         ],
       },
     },
