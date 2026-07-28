@@ -16,6 +16,16 @@ const PYTHON_BIN = join(
   process.platform === 'win32' ? '../../python/.venv/Scripts/python.exe' : '../../python/.venv/bin/python',
 )
 
+// 담당 A — 실험용 브랜치(experiment/ndlocr-lite). ocrNdlocr.ts 전용 — python/.venv
+// 와 별도로 격리한 venv(python/.venv-ndlocr-test)의 인터프리터. 이유는 위 PYTHON_BIN
+// 과 createPythonServer 의 pythonBin 오버라이드 주석 참고.
+export const NDLOCR_PYTHON_BIN = join(
+  __dirname,
+  process.platform === 'win32'
+    ? '../../python/.venv-ndlocr-test/Scripts/python.exe'
+    : '../../python/.venv-ndlocr-test/bin/python',
+)
+
 // 워커 풀 크기(ocrPaddle.ts 의 POOL_SIZE)를 6으로 고정해뒀었는데, 이건 개발 컴퓨터
 // (Intel i7-1165G7, 물리 4코어/논리 8코어) 기준으로 실측 튜닝한 값이라 다른 사용자
 // 환경엔 안 맞을 수 있다 — 코어가 더 많은 컴퓨터에서는 오히려 성능을 다 못 쓰고, 코어가
@@ -137,7 +147,16 @@ export function killAllPythonServers(): void {
  * reject 시킨다(요청 하나 실패해도 서버 프로세스 자체는 계속 살아있음 — 각 스크립트의
  * serve() 가 예외를 잡아서 에러 응답만 보내고 루프를 계속 돎).
  */
-export function createPythonServer(scriptName: string, extraArgs: string[] = []): PythonServer {
+export function createPythonServer(
+  scriptName: string,
+  extraArgs: string[] = [],
+  // 담당 A — 실험용 브랜치(experiment/ndlocr-lite). ndlocr-lite 는 numpy/opencv/
+  // onnxruntime 버전이 공용 venv(PYTHON_BIN)와 충돌해서 별도 venv(python/.venv-
+  // ndlocr-test)에 격리 설치했다 — 그 venv의 인터프리터를 쓰려면 스크립트별로 다른
+  // python 바이너리를 스폰해야 해서 오버라이드를 추가함. 생략하면 기존과 동일하게
+  // 공용 PYTHON_BIN을 쓴다.
+  pythonBin: string = PYTHON_BIN,
+): PythonServer {
   const scriptPath = join(__dirname, '../../python', scriptName)
   let proc: ChildProcessWithoutNullStreams | null = null
   let rl: Interface | null = null
@@ -147,7 +166,15 @@ export function createPythonServer(scriptName: string, extraArgs: string[] = [])
 
   function ensureProcess(): ChildProcessWithoutNullStreams {
     if (proc && !proc.killed) return proc
-    const p = spawn(PYTHON_BIN, [scriptPath, ...extraArgs])
+    const p = spawn(pythonBin, [scriptPath, ...extraArgs])
+    // Node 가 자식 프로세스 stdout 을 기본 인코딩 없이 Buffer 로 주는데, 이걸 그대로
+    // readline.createInterface 에 넘기면(바로 아래) 플랫폼 로캘(한국어 Windows 는
+    // cp949 계열) 기준으로 잘못 디코딩되는 경우가 있다 — 실측 확인: sudachi_tokenize.py
+    // 만 다른 스크립트와 달리 json.dumps(ensure_ascii=False) 로 원문 CJK 문자를 그대로
+    // 내보내는데(다른 스크립트는 기본값 ensure_ascii=True 라 항상 순수 ASCII 라 이 문제를
+    // 우연히 피해감), 그 결과만 엉뚱한 한자로 깨져 들어왔다(예: "細剣" 같은 정상 한자가
+    // "榮" 같은 전혀 무관한 한자로 치환) — UTF-8 로 명시해서 근본 원인을 없앤다.
+    p.stdout.setEncoding('utf8')
     activeProcesses.add(p)
     persistActivePids() // PID 파일을 항상 "지금 살아있다고 믿는 목록"과 동기화해둔다.
     const reset = () => {

@@ -13,6 +13,8 @@ interface Props {
    *  .atom 의 좌우 padding(1px)이 매 글자마다 누적돼 자간이 늘어난 것처럼 보이는 문제가
    *  있어, 이 모드에선 CSS 로 그 padding 을 없앤다(styles.css `.ctx-text.char-level .atom`). */
   charLevel?: boolean
+  /** 언어별 전용 스타일(예: 일본어 전용 폰트, styles.css: .ctx-text.lang-ja) 훅. */
+  className?: string
 }
 
 interface Segment {
@@ -100,7 +102,7 @@ function atomIndexAtPoint(atomEls: Map<number, HTMLSpanElement>, x: number, y: n
   return nearestAtomIndex(atomEls, x, y)
 }
 
-export function ContextView({ model, from, to, onChange, charLevel }: Props) {
+export function ContextView({ model, from, to, onChange, charLevel, className }: Props) {
   const lo = Math.min(from, to)
   const hi = Math.max(from, to)
   const [dragging, setDragging] = useState(false)
@@ -158,7 +160,9 @@ export function ContextView({ model, from, to, onChange, charLevel }: Props) {
 
   return (
     <div
-      className={['ctx-text', dragging && 'dragging', charLevel && 'char-level'].filter(Boolean).join(' ')}
+      className={['ctx-text', dragging && 'dragging', charLevel && 'char-level', className]
+        .filter(Boolean)
+        .join(' ')}
       onMouseDown={(e) => {
         // 세그먼트(atom/gap) 바깥, 박스 자체의 여백(padding)을 직접 눌렀을 때만 처리 —
         // 세그먼트 위에서 눌렀으면 그쪽 onMouseDown 이 이미 처리했고(버블링으로 여기까지

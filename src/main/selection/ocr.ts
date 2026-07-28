@@ -12,7 +12,7 @@ import {
   recognizeVerticalColumnWithPaddle,
   recognizeWithPaddle,
 } from './ocrPaddle'
-import { recognizeVerticalColumnWithYomitoku } from './ocrYomitoku'
+import { recognizeVerticalColumnWithNdlocr } from './ocrNdlocr'
 import { BODY_LABELS, getCachedDetection } from './regionSelection'
 
 // YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
@@ -193,13 +193,14 @@ async function runVerticalOcr(
 ): Promise<Extracted | null> {
   const target = region ?? fullImageRect(image)
   const start = Date.now()
-  // 일본어는 Yomitoku 를 먼저 시도한다 — PaddleOCR 대비 문장부호 누락/숫자 오독/긴
-  // 줄 뭉개짐이 실측으로 사라짐 확인(ocrYomitoku.ts 상단 주석). Yomitoku 는 일본어
-  // 특화 모델이라 zh-Hans/zh-Hant 는 대상이 아니고(중국어 지원 없음), 실패하면(Python
-  // 환경 없음 등) null 이 와서 기존 PaddleOCR 경로로 그대로 폴백한다.
+  // 담당 A — 실험용 브랜치(experiment/ndlocr-lite). 일본어는 원래 Yomitoku 를 먼저
+  // 시도했는데(dev 브랜치), 이 브랜치에서는 NDLOCR-Lite 로 바꿔서 실험한다 — 이유/
+  // 실측 결과는 ocrNdlocr.ts 상단 주석 참고. NDLOCR-Lite 도 일본어 특화(정확히는
+  // 고문서 특화) 모델이라 zh-Hans/zh-Hant 는 대상이 아니고, 실패하면(Python 환경
+  // 없음 등) null 이 와서 기존 PaddleOCR 경로로 그대로 폴백한다.
   const words =
     language === 'ja'
-      ? (await recognizeVerticalColumnWithYomitoku(image, target)) ??
+      ? (await recognizeVerticalColumnWithNdlocr(image, target)) ??
         (await recognizeVerticalColumnWithPaddle(image, language, target, precomputedLines))
       : await recognizeVerticalColumnWithPaddle(image, language, target, precomputedLines)
   console.log(`[timing]   세로쓰기(전체 영역): ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)

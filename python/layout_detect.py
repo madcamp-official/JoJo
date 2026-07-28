@@ -111,11 +111,23 @@ def cluster_columns(blocks, gap_ratio=0.6):
     return columns
 
 
+# 실측 확인(사용자 보고): 브라우저/PDF 뷰어 툴바(메뉴바, 페이지 번호 표시 등)가
+# 낮은 신뢰도로 "text" 라벨을 달고 검출되는 경우가 있다 — 이런 UI 요소는 가로로 넓고
+# 세로로는 짧아서(툴바 한 줄) 세로쓰기 판정에서 "가로쓰기 블록"으로 잘못 세어진다.
+# 신뢰도만으로는 못 거른다(진짜 본문 열도 PP-DocLayout 신뢰도가 낮게(0.3대) 나오는
+# 경우가 실측으로 이미 확인됨 — 신뢰도 임계값을 쓰면 진짜 본문까지 걸러버릴 위험).
+# 대신 절대 높이로 거른다 — 진짜 본문(단락이든 세로쓰기 열이든)은 웬만하면 툴바 한 줄
+# 보다는 훨씬 크고, 툴바/메뉴 항목은 방향과 무관하게 항상 얕다. 캡처 해상도에 따라
+# 딱 맞는 값은 아니지만, 명백한 UI 잡음만 걸러내는 보수적인 하한선이다.
+MIN_TEXT_BLOCK_HEIGHT = 50
+
+
 def is_vertical_layout(blocks, text_labels, ratio_threshold=1.4, min_fraction=0.5):
     """본문/제목 블록 대부분이 폭보다 높이가 `ratio_threshold` 배 이상 크면(좁고
     길쭉하면) 세로쓰기 페이지로 본다. 그림/표 같은 비텍스트 블록은 텍스트 방향과
     무관해서 판정에서 제외한다(어떤 라벨이 "본문 텍스트"인지는 백엔드마다 달라서
-    text_labels 로 받는다 — TEXT_LABELS_BY_BACKEND 참고). 표본이 아예 없으면(본문
+    text_labels 로 받는다 — TEXT_LABELS_BY_BACKEND 참고). 툴바/메뉴 같은 얕은 UI
+    잡음도 제외한다(MIN_TEXT_BLOCK_HEIGHT 주석 참고). 표본이 아예 없으면(본문
     블록 미검출) 판단 근거가 없으므로 False(가로쓰기 취급 — 기존 동작 유지).
 
     블록 "개수"가 아니라 블록 "면적"으로 가중 다수결을 한다 — 실사용 중 확인: 러닝
@@ -124,7 +136,10 @@ def is_vertical_layout(blocks, text_labels, ratio_threshold=1.4, min_fraction=0.
     각각 헤더 블록보다 수십 배 큰 면적)이 있어도 단순 개수로는 져서 가로쓰기로
     잘못 판정됐다. 면적으로 가중하면 압도적으로 큰 본문 열이 작은 장식 블록들에
     쉽게 묻히지 않는다."""
-    text_blocks = [b for b in blocks if b["label"] in text_labels and b["width"] > 0]
+    text_blocks = [
+        b for b in blocks
+        if b["label"] in text_labels and b["width"] > 0 and b["height"] >= MIN_TEXT_BLOCK_HEIGHT
+    ]
     if not text_blocks:
         return False
     total_area = sum(b["width"] * b["height"] for b in text_blocks)

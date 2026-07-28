@@ -319,10 +319,38 @@ export function padLine(line: Rect): Rect {
 // 밑에 밀림"으로 확인).
 const DIGIT_RE = /[0-9]/
 
+// 縦中横 숫자 압축과 정반대 케이스 — 원문의 다시(ダーシ, 대개 "――" 두 칸짜리 가로선)를
+// 인식 엔진이 반각 한 글자로 뭉뚱그려 인식하는 경우가 실측 확인됐다(NDLOCR-Lite: U+2015
+// HORIZONTAL BAR "―" 하나로 나옴 — 사용자 보고로 확인, 어떨 때는 "--"(하이픈 두 개,
+// 이미 2글자라 별도 처리 불필요)로 나오기도 해서 인식 결과가 매번 일정하지 않다). 이런
+// 글자 하나는 실제로는 2칸 높이를 차지하므로 가중치를 2로 잡아야 그 뒤 글자들의 위치가
+// 안 밀린다 — 안 그러면 "16"을 2칸으로 잘못 세는 것의 반대 방향 오차(이번엔 실제보다
+// 한 칸 적게 세어 뒤 글자들이 위로 밀림)가 난다. em dash(—, U+2014)도 같은 용도로
+// 쓰이는 글자라 같이 묶는다 — 반대로 "ー"(가타카나 장음부호, U+30FC)는 진짜 장음부호로
+// 쓰이는 정상적인 1칸짜리 용법이 훨씬 흔해서(포함시키면 그런 단어들이 다 밀림) 넣지
+// 않는다.
+const WIDE_DASH_CHARS = new Set(['―', '—'])
+
 export function computeSlotWeights(codepoints: string[]): number[] {
   const weights = new Array(codepoints.length).fill(1)
   let i = 0
   while (i < codepoints.length) {
+    // 개행(\n)은 ocrNdlocr.ts 가 문단 시작을 표시하려고 끼워 넣는 순수 텍스트 마커라
+    // 실제 잉크(칸)를 하나도 안 차지한다 — 문단 들여쓰기는 이미 그 줄의 Y좌표 자체를
+    // 1칸 내려서(alignColumnStarts) 반영해두는데, 여기서 \n 도 칸을 하나 차지하게 두면
+    // 들여쓰기가 두 번(좌표 이동 + 이 슬롯) 적용돼 실제 글자가 2칸 밀려서 시작한다
+    // (실측 확인). 폭 0으로 둬서 텍스트에는 남아있되(렌더러가 문단 구분에 씀) 위치
+    // 계산에는 전혀 영향을 안 주게 한다.
+    if (codepoints[i] === '\n') {
+      weights[i] = 0
+      i++
+      continue
+    }
+    if (WIDE_DASH_CHARS.has(codepoints[i]!)) {
+      weights[i] = 2
+      i++
+      continue
+    }
     if (!DIGIT_RE.test(codepoints[i]!)) {
       i++
       continue
@@ -350,11 +378,38 @@ export async function groupCjkCharsGrid(
   const boundaries = [
     ...(language === 'ja' ? await segmentJapaneseWords(text) : await segmentChineseWords(text, language)),
   ].sort((a, b) => a.start - b.start)
+  if (process.env.DEBUG_OCR_DUMP) {
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    writeFileSync(
+      join(process.env.DEBUG_OCR_DUMP, `grid-${Date.now()}-${Math.random().toString(36).slice(2)}.json`),
+      JSON.stringify({ text, language, boundariesCount: boundaries.length, boundaries }, null, 2),
+    )
+  }
   const weights = computeSlotWeights(codepoints)
   const cumulative: number[] = [0]
   for (const w of weights) cumulative.push(cumulative[cumulative.length - 1]! + w)
   const totalWeight = cumulative[cumulative.length - 1]!
-  const cellSize = typicalCellSize ?? (vertical ? lineRect.height : lineRect.width) / totalWeight
+  // typicalCellSize 가 없어서(null) 이 줄 자신의 검출 범위 ÷ 칸 수로 칸 크기를 역산할
+  // 때만 해당 — 줄 끝이 문장부호(、。 등)면 잉크 자체가 작아서 검출 높이(lineRect.height/
+  // width)가 그 칸만큼 다 안 나온다(실측 확인, cellSizesFromLongLines 의 같은 필터
+  // 참고). 다른 줄과 비교하는 계산이 아니라 이 줄 안에서만 닫힌 계산이라 보정 안 해도
+  // 겹치거나 어긋나진 않지만(전체가 고르게 살짝 눌릴 뿐), 정밀도를 위해 마지막 글자의
+  // 칸 가중치를 줄여서(검출 높이는 그대로 두고) 칸 크기를 살짝 더 크게 추정한다.
+  // 완전히 0(칸 가중치 통째로 제외)이 아니라 작은 값(TRAILING_PUNCTUATION_WEIGHT)으로
+  // 낮춘다 — 문장부호도 잉크가 아예 없는 건 아니라 어느 정도는 실제로 칸을 차지하므로
+  // (사용자 지적), 완전 제외보다 실측에 더 가깝다.
+  const TRAILING_PUNCTUATION_RE = /[、。・！？…]$/
+  const TRAILING_PUNCTUATION_WEIGHT = 0.4
+  const lastWeight = weights.length > 0 ? weights[weights.length - 1]! : 0
+  const totalWeightForCellSize =
+    typicalCellSize === null &&
+    lastWeight > TRAILING_PUNCTUATION_WEIGHT &&
+    TRAILING_PUNCTUATION_RE.test(text)
+      ? totalWeight - lastWeight + TRAILING_PUNCTUATION_WEIGHT
+      : totalWeight
+  const cellSize =
+    typicalCellSize ?? (vertical ? lineRect.height : lineRect.width) / totalWeightForCellSize
 
   const words: Word[] = []
   let pos = 0
@@ -540,39 +595,53 @@ export const GAP_RATIO_THRESHOLD = 1.5
 export const MAX_GAP_RATIO = 3
 
 /**
- * 줄 하나 안에서, 인식된 원시 단위(글자/조각, bbox 있는 것만)들 사이의 y 간격을 보고
- * 미검출 구간에 자리표자를 끼워 넣은 텍스트를 만든다 — insertUndetectedMarks(여러
- * 줄을 한 번에 처리, 자체적으로 typicalCellSize 를 추정)의 단일 줄 버전. ocrYomitoku.ts
- * 가 Yomitoku 결과 중 줄 끝/중간에 미검출 구간이 의심되는 줄만 PaddleOCR 로 다시 인식해
- * (글자 단위 좌표를 얻어) 이 함수로 정확한 위치에 자리표자를 넣는 데도 재사용한다 —
- * 그때는 이미 페이지 전체에서 구한 typicalCellSize 를 그대로 넘겨써서(이 줄 하나로
- * 다시 추정하면 노이즈가 큼) 다른 줄들과 격자가 어긋나지 않게 한다.
+ * 줄 하나에 대해, PaddleOCR 가 실제로 인식해낸 글자(원시 단위, bbox 있는 것만)들 사이의
+ * y 간격을 기준 칸 크기(typicalCellSize)와 비교해 미검출 구간(기호 등)을 찾고, 그 자리에
+ * UNKNOWN_GAP_PLACEHOLDER 를 끼워 넣은 텍스트를 반환한다 — insertUndetectedMarks(여러 줄을
+ * 한 번에 처리)의 단일 줄 버전. ocrYomitoku.ts/ocrNdlocr.ts 처럼 인식 백엔드가 줄 전체
+ * bbox 만 주고 글자 단위 좌표가 없는 경우, 의심되는 줄만 PaddleOCR 로 다시 인식해(글자
+ * 단위 좌표를 얻어) 이 함수로 정확한 위치를 찾는 데 쓴다.
+ *
+ * paddingBias: ocrNdlocr.ts 실측 확인 — 、《》같은 좁은 문장부호 하나만 빠진 자리도
+ * 그 좌우 여백까지 포함해서 재는 바람에 gap 이 칸 크기의 1.5~2.5배로 측정돼 자리표자가
+ * 2개(실제는 1개) 들어가는 과다 계산이 반복됐다. leading-gap 보정(alignColumnStarts 의
+ * DETECTION_PADDING_BIAS)과 같은 종류의 측정 편향이라 같은 방식(칸 수에서 고정값을 뺌)
+ * 으로 보정한다 — 기존 호출부(insertUndetectedMarks, PaddleOCR 단독 경로)는 이 문제가
+ * 실측된 적 없어서 기본값 0(보정 없음)을 유지하고, ocrNdlocr.ts 만 1을 넘겨 쓴다.
  */
-export function insertGapPlaceholdersForLine(line: Rect, units: Word[], text: string, typicalCellSize: number): string {
-  if (units.length === 0) return text
+export function insertGapPlaceholdersForLine(
+  line: Rect,
+  units: Word[],
+  text: string,
+  typicalCellSize: number,
+  paddingBias = 0,
+): string {
+  const bboxUnits = units.filter((w) => w.bbox)
+  if (bboxUnits.length === 0) return text
 
   // gaps: [원시 단위 배열상 삽입 위치(문자 오프셋), 끼워 넣을 자리표자 개수][]
   const gaps: [number, number][] = []
-  const countAt = (upTo: number) => [...units.slice(0, upTo).map((u) => u.text).join('')].length
+  const countAt = (upTo: number) => [...bboxUnits.slice(0, upTo).map((u) => u.text).join('')].length
+  const gapCount = (gap: number) => Math.max(1, Math.round(gap / typicalCellSize) - paddingBias)
 
   const inRange = (gap: number) =>
     gap >= typicalCellSize * GAP_RATIO_THRESHOLD && gap <= typicalCellSize * MAX_GAP_RATIO
 
-  const leadingGap = units[0]!.bbox!.y - line.y
+  const leadingGap = bboxUnits[0]!.bbox!.y - line.y
   if (inRange(leadingGap)) {
-    gaps.push([0, Math.round(leadingGap / typicalCellSize)])
+    gaps.push([0, gapCount(leadingGap)])
   }
-  for (let k = 1; k < units.length; k++) {
-    const prev = units[k - 1]!
-    const gap = units[k]!.bbox!.y - (prev.bbox!.y + prev.bbox!.height)
+  for (let k = 1; k < bboxUnits.length; k++) {
+    const prev = bboxUnits[k - 1]!
+    const gap = bboxUnits[k]!.bbox!.y - (prev.bbox!.y + prev.bbox!.height)
     if (inRange(gap)) {
-      gaps.push([countAt(k), Math.round(gap / typicalCellSize)])
+      gaps.push([countAt(k), gapCount(gap)])
     }
   }
-  const last = units[units.length - 1]!
+  const last = bboxUnits[bboxUnits.length - 1]!
   const trailingGap = line.y + line.height - (last.bbox!.y + last.bbox!.height)
   if (inRange(trailingGap)) {
-    gaps.push([countAt(units.length), Math.round(trailingGap / typicalCellSize)])
+    gaps.push([countAt(bboxUnits.length), gapCount(trailingGap)])
   }
   if (gaps.length === 0) return text
 
@@ -599,10 +668,7 @@ async function insertUndetectedMarks(
   const typicalCellSize = estimateCellSizeFromIndent(lines) ?? fallbackCellSize
   if (!typicalCellSize) return { texts, typicalCellSize: null }
 
-  const newTexts = lines.map((line, i) => {
-    const units = perLine[i]!.filter((w) => w.bbox)
-    return insertGapPlaceholdersForLine(line, units, texts[i]!, typicalCellSize)
-  })
+  const newTexts = lines.map((line, i) => insertGapPlaceholdersForLine(line, perLine[i]!, texts[i]!, typicalCellSize))
   return { texts: newTexts, typicalCellSize }
 }
 

@@ -32,9 +32,7 @@ export async function runSelectionPipeline(point: {
   const extracted = await getExtraction()
 
   const word = findWordAtPoint(extracted.words, point)
-  const anchor = word
-    ? findWordSpan(extracted.text, extracted.words, extracted.words.indexOf(word))
-    : { start: 0, end: 0 }
+  const anchor = word ? findWordSpan(extracted.words, extracted.words.indexOf(word)) : { start: 0, end: 0 }
 
   return {
     text: extracted.text,
@@ -47,27 +45,20 @@ export async function runSelectionPipeline(point: {
 }
 
 /**
- * words[targetIdx] 가 text 안에서 실제로 위치한 [start, end) 오프셋을 찾는다.
- * 같은 표현이 여러 번 등장할 수 있어(예: "the"), words 배열 상 targetIdx 이전에
- * 나온 동일 텍스트 개수만큼 건너뛰어 올바른 occurrence 를 짚는다.
+ * words[targetIdx] 가 extracted.text 안에서 실제로 위치한 [start, end) 오프셋을
+ * 찾는다. extracted.text 는 항상 `words.map(w => w.text).join('')`(ocr.ts)로 만들어져
+ * words 배열과 정확히 같은 순서 · 같은 문자들이므로, targetIdx 이전 단어들의 글자 수를
+ * 그대로 누적하면 오프셋이 나온다 — 텍스트 검색이 전혀 필요 없다.
+ *
+ * 예전엔 text.indexOf 로 targetIdx 이전에 같은 텍스트가 몇 번 나왔는지 세어 그 순번째
+ * occurrence 를 찾는 방식이었는데, "な" 처럼 흔한 한두 글자가 "そんな" 같은 더 긴 단어의
+ * 부분 문자열로도 등장하면 개수가 안 맞았다(단어 배열 기준 개수 ≠ 텍스트 문자열 기준
+ * 부분 문자열 등장 횟수) — 실측 확인: 클릭한 위치와 다른, 훨씬 앞쪽의 엉뚱한 단어에
+ * 매핑됨. 누적 길이 방식은 애초에 같은 순서로 이어붙인 결과라 이런 모호함 자체가 없다.
  */
-function findWordSpan(
-  text: string,
-  words: Word[],
-  targetIdx: number,
-): { start: number; end: number } {
-  if (targetIdx < 0) return { start: 0, end: 0 }
-  const target = words[targetIdx]!
-  let occurrenceBefore = 0
-  for (let i = 0; i < targetIdx; i++) {
-    if (words[i]!.text === target.text) occurrenceBefore++
-  }
-  let searchFrom = 0
-  for (let i = 0; i <= occurrenceBefore; i++) {
-    const idx = text.indexOf(target.text, searchFrom)
-    if (idx < 0) return { start: 0, end: 0 }
-    if (i === occurrenceBefore) return { start: idx, end: idx + target.text.length }
-    searchFrom = idx + target.text.length
-  }
-  return { start: 0, end: 0 }
+function findWordSpan(words: Word[], targetIdx: number): { start: number; end: number } {
+  if (targetIdx < 0 || targetIdx >= words.length) return { start: 0, end: 0 }
+  let start = 0
+  for (let i = 0; i < targetIdx; i++) start += words[i]!.text.length
+  return { start, end: start + words[targetIdx]!.text.length }
 }

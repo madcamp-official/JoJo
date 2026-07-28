@@ -41,3 +41,11 @@ python/__pycache__/
 # "사전 데이터 준비" 참고).
 resources/
 
+# 실험용 브랜치(experiment/ndlocr-lite) — NDLOCR-Lite 격리 venv(공용 venv와 numpy/
+# opencv/onnxruntime 버전 충돌 있음, ocrNdlocr.ts 상단 주석 참고). 위와 같은 이유로
+# 커밋하지 않는다.
+python/.venv-ndlocr-test/
+
+# DEBUG_OCR_DUMP 로 남긴 인식 결과 디버그 덤프(테스트용, 실험 결과물 아님).
+ocr_debug_dump/
+
