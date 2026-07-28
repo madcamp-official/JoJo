@@ -102,9 +102,12 @@ export function parseJudgeReply(reply: string, senses: NumberedSense[]): Selecte
     const exampleMatch = block.match(/예문\s*번역\s*[:：]\s*(.+)/)
     // 예문이 여러 개면 " / " 로 구분해 한 줄에 담아 달라고 프롬프트에서 요청한다 —
     // sense.examples 와 순서·개수가 같다고 가정하고 그대로 index 로 대응시킨다.
+    // LLM 이 프롬프트 지시를 무시하고 대괄호/따옴표를 붙여서 줄 때가 있어(실측 확인,
+    // 2026-07-28 "this" → `["이 책은 내 것이다" / "오늘 아침 일찍"]`) 세그먼트마다
+    // 감싸는 대괄호·따옴표를 벗겨내는 방어 로직을 둔다.
     const translatedExamples = exampleMatch?.[1]
       ?.split(' / ')
-      .map((s) => s.trim())
+      .map((s) => s.trim().replace(/^[[\]"'“”]+|[[\]"'“”]+$/g, '').trim())
       .filter(Boolean)
     out.push({
       sense,

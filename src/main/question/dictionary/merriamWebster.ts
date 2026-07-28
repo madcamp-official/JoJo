@@ -358,7 +358,16 @@ async function buildEntryForHeadword(
     if (entry.cxs) {
       const sense = cxsToSense(entry)
       if (sense) {
-        readings.push({ senses: [sense] })
+        // 실측 확인(2026-07-28, "was" 조회): cxs 포인터 entry 자체는 hwi.prs 도 fl 도
+        // 없다(`{"hwi":{"hw":"was"}}` 뿐) — cxsToSense 가 만든 sense 에 품사도 발음도
+        // 항상 비어 있었다. 이 entry 의 표제어(headword)는 조회어 자신("was")이라 아래
+        // hom=1 폴백(headword !== word 일 때만 재조회)도 안 걸린다. 진짜 정보는 가리키는
+        // 대상 단어(cxt, 예: "be")에 있으므로 그걸 직접 조회해 품사·발음을 채운다.
+        const target = entry.cxs[0]?.cxtis?.[0]?.cxt
+        const targetInfo = target ? await fetchHeadwordInfo(target, apiKey) : undefined
+        if (targetInfo?.pos) sense.pos = targetInfo.pos
+        readings.push({ pronunciations: targetInfo?.pronunciations, senses: [sense] })
+        if (targetInfo?.pronunciations?.length) lastPronunciations = targetInfo.pronunciations
         continue
       }
     }
@@ -379,9 +388,9 @@ async function buildEntryForHeadword(
   // 못 채운다. 이 경우에만 원래 headword로 한 번 더 조회해 발음을 가져와 채운다(비용은
   // 발음이 진짜 하나도 없을 때만 발생 — 대부분의 직접 조회는 이 분기를 안 탄다).
   if (!lastPronunciations && headword.toLowerCase() !== word.toLowerCase()) {
-    const basePronunciations = await fetchHeadwordPronunciation(headword, apiKey)
-    if (basePronunciations) {
-      for (const r of readings) if (!r.pronunciations?.length) r.pronunciations = basePronunciations
+    const baseInfo = await fetchHeadwordInfo(headword, apiKey)
+    if (baseInfo.pronunciations) {
+      for (const r of readings) if (!r.pronunciations?.length) r.pronunciations = baseInfo.pronunciations
     }
   }
 
@@ -393,24 +402,27 @@ async function buildEntryForHeadword(
   }
 }
 
-/** 위 hom 발음 생략 문제의 폴백 — headword 자체를 다시 조회해 hwi.prs 가 있는 첫
- *  entry의 발음을 가져온다. 실패해도(네트워크 오류 등) 조용히 undefined 반환 —
- *  발음은 부가 정보라 이것 때문에 전체 조회를 실패시키지 않는다. */
-async function fetchHeadwordPronunciation(
+/** 두 가지 폴백이 공유하는 헬퍼 — headword 를 다시 조회해 hwi.prs/fl 이 있는 첫 entry의
+ *  품사·발음을 가져온다: (1) hom=1 발음 생략 문제(headword 로 재조회), (2) cxs 포인터
+ *  entry(품사·발음이 원래 없음, cxs 의 대상 단어로 조회). 실패해도(네트워크 오류 등)
+ *  조용히 빈 객체 반환 — 부가 정보라 이것 때문에 전체 조회를 실패시키지 않는다. */
+async function fetchHeadwordInfo(
   headword: string,
   apiKey: string,
-): Promise<DictionaryReading['pronunciations']> {
+): Promise<{ pos?: CanonicalPos; pronunciations?: DictionaryReading['pronunciations'] }> {
   try {
     const res = await fetch(`${MERRIAM_WEBSTER_ENDPOINT}/${encodeURIComponent(headword)}?key=${apiKey}`)
-    if (!res.ok) return undefined
+    if (!res.ok) return {}
     const raw = (await res.json()) as MerriamWebsterRaw[]
     for (const entry of raw) {
       if (typeof entry === 'string') continue
+      const pos = flToPos(entry.fl)
       const values = entry.hwi.prs?.map((p) => p.mw).filter((v): v is string => !!v)
-      if (values?.length) return values.map((value) => ({ value }))
+      const pronunciations = values?.length ? values.map((value) => ({ value })) : undefined
+      if (pos || pronunciations) return { pos, pronunciations }
     }
   } catch {
-    /* 발음 폴백 실패는 무시 — 나머지 사전 정보는 이미 확보돼 있음 */
+    /* 폴백 실패는 무시 — 나머지 사전 정보는 이미 확보돼 있음 */
   }
-  return undefined
+  return {}
 }
