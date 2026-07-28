@@ -102,19 +102,30 @@ export async function lookupDictionary(
 
   let whole = await lookupThroughFallbackChain(word, ctx)
   let lookupWord = word
-  if (!whole.senses.length && ctx.language === 'ja') {
-    // ja(daijisen·JMdict·Wiktionary 전부) 활용형을 원형으로 자동 변환해주지 않는다
-    // (TODO.md 131번 항목) — 통째 표면형 조회가 실패했을 때만(관용구/원형 그대로인
-    // 단어는 위에서 이미 성공해 여기까지 안 옴) 기본형으로 바꿔 **같은 체인 전체**를
-    // 재시도한다(daijisen→jmdict→wiktionary 전부 기본형으로 다시 탐). 표면형을 먼저
-    // 시도하는 이유: "犬も歩けば棒に当たる" 같은 관용구는 활용형 변환 없이 표면형
-    // 그대로가 정답이라, 무조건 먼저 기본형화하면 이런 경우를 깨뜨린다.
-    const baseForm = await toJapaneseDictionaryBaseForm(word).catch(() => null)
-    if (baseForm && baseForm !== word) {
-      const retried = await lookupThroughFallbackChain(baseForm, ctx)
-      if (retried.senses.length) {
-        whole = retried
-        lookupWord = baseForm
+  if (ctx.language === 'ja') {
+    // ja(daijisen·JMdict 전부) 활용형을 원형으로 자동 변환해주지 않는다(TODO.md 131번
+    // 항목) — 통째 표면형 조회가 daijisen/JMdict 어느 쪽으로도 실패했을 때만(관용구/
+    // 원형 그대로인 단어는 이미 성공해 여기 안 걸림) 기본형으로 바꿔 **같은 체인 전체**를
+    // 재시도한다. 표면형을 먼저 시도하는 이유: "犬も歩けば棒に当たる" 같은 관용구는
+    // 활용형 변환 없이 표면형 그대로가 정답이라, 무조건 먼저 기본형화하면 이런 경우를
+    // 깨뜨린다.
+    //
+    // **Wiktionary만으로 "성공"한 경우도 재시도 대상에 포함**(2026-07-28, 실측으로
+    // 발견) — Wiktionary는 활용형 자체에도 "conjunctive form of 歩く" 같은 한 줄짜리
+    // 굴절 안내 페이지를 갖고 있어(実측: 歩いて/食べた), 원형이면 daijisen/JMdict에서
+    // 풍부하게 나올 뜻풀이가 이 얇은 한 줄로 뭉개진 채 "성공"으로 처리돼 기본형 재시도가
+    // 아예 안 걸리고 있었다. daijisen/JMdict가 못 찾았고(=whole.sourceId==='wiktionary')
+    // 기본형이 있으면, 기본형으로 daijisen/JMdict를 한 번 더 시도해 더 나은 결과가
+    // 있으면 그걸 우선한다(없으면 원래 Wiktionary 결과를 그대로 씀).
+    const onlyThinWiktionaryHit = whole.senses.length > 0 && whole.sourceId === 'wiktionary'
+    if (!whole.senses.length || onlyThinWiktionaryHit) {
+      const baseForm = await toJapaneseDictionaryBaseForm(word).catch(() => null)
+      if (baseForm && baseForm !== word) {
+        const retried = await lookupThroughFallbackChain(baseForm, ctx)
+        if (retried.senses.length) {
+          whole = retried
+          lookupWord = baseForm
+        }
       }
     }
   }
