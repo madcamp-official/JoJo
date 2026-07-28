@@ -2,11 +2,19 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense,
 
 // 담당 B — Wiktionary 어댑터 (PLAN.md §5, en/ja/zh 공용 최종 폴백)
 // 실측 근거는 DICTIONARY_SOURCES.md "Wiktionary (공용 — en/ja/zh 최종 폴백)" 절 참고.
-// en.wiktionary.org 공식 REST API(GET /api/rest_v1/page/definition/{word}, 무료·키 불필요) 하나만
-// 쓴다 — ja.wiktionary.org/zh.wiktionary.org 같은 네이티브판은 커버리지가 더 약해 미채택.
-// raw wikitext(활용표/방언 발음 등)는 이 폴백 소스의 스코프 밖 — REST API가 주는 만큼만 다룬다.
+// en.wiktionary.org 공식 REST API(GET /api/rest_v1/page/definition/{word}, 무료·키 불필요)를
+// 뜻풀이 소스로 쓴다 — ja.wiktionary.org/zh.wiktionary.org 같은 네이티브판은 커버리지가 더
+// 약해 미채택. 이 API 엔 발음(phonetic) 필드가 없어(실측), en 한정으로 dictionaryapi.dev
+// (서드파티, en.wiktionary.org 데이터 재가공, 실제 IPA 제공)를 발음 전용으로 추가 호출해
+// 보강한다 — ja/zh는 이 서드파티도 커버리지가 없어 발음 없는 채로 남는다.
+// raw wikitext(활용표/방언 발음 등)는 이 폴백 소스의 스코프 밖 — 두 API가 주는 만큼만 다룬다.
 
 const WIKTIONARY_ENDPOINT = 'https://en.wiktionary.org/api/rest_v1/page/definition'
+/** en 전용 발음 보강 소스 — en.wiktionary.org REST API(definition 엔드포인트)엔 phonetic
+ *  필드 자체가 없어(DICTIONARY_SOURCES.md 실측) 별도로 붙인다. 서드파티(en.wiktionary.org
+ *  데이터를 재가공)라 무료·키 불필요. ja/zh는 이 API 자체가 커버리지가 없어(en 전용,
+ *  DICTIONARY_SOURCES.md 실측) 보강 대상에서 제외. */
+const DICTIONARYAPI_DEV_ENDPOINT = 'https://api.dictionaryapi.dev/api/v2/entries/en'
 
 export class WiktionaryHttpError extends Error {
   constructor(
@@ -116,10 +124,46 @@ function extractExamples(def: WiktionaryDefinition): string[] {
   return source.map(stripWiktionaryHtml).filter(Boolean)
 }
 
+// ---- dictionaryapi.dev 발음 보강(en 전용) -------------------------------------
+
+interface DictionaryApiDevPhonetic {
+  text?: string
+}
+
+interface DictionaryApiDevEntry {
+  phonetic?: string
+  phonetics?: DictionaryApiDevPhonetic[]
+}
+
+/** dictionaryapi.dev 로 실제 IPA 발음 하나를 가져온다 — 실측 확인(2026-07-28, "run"):
+ *  발음이 meaning(품사)별이 아니라 entry 최상위에만 있어(phonetics[] 가 품사와 무관하게
+ *  하나로 옴) 품사별로 구분해 붙일 수가 없다. 그래서 이 값을 그 word 의 모든 reading에
+ *  동일하게 채운다 — MW가 hom 간 발음을 상속하는 것과 비슷한 단순화. 실패(네트워크
+ *  오류·404 등)해도 조용히 undefined 반환 — 발음은 부가 정보라 이것 때문에 전체 조회를
+ *  실패시키지 않는다. */
+async function fetchEnPronunciation(word: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(`${DICTIONARYAPI_DEV_ENDPOINT}/${encodeURIComponent(word)}`, {
+      headers: { 'User-Agent': 'JoJo-dictionary-adapter/1.0' },
+    })
+    if (!res.ok) return undefined
+    const raw = (await res.json()) as DictionaryApiDevEntry[]
+    for (const entry of raw) {
+      if (entry.phonetic) return entry.phonetic
+      const fromPhonetics = entry.phonetics?.find((p) => p.text)?.text
+      if (fromPhonetics) return fromPhonetics
+    }
+  } catch {
+    /* 폴백 실패는 무시 — 나머지 사전 정보는 이미 확보돼 있음 */
+  }
+  return undefined
+}
+
 // ---- WiktionaryPosBlock[] → DictionaryEntry ----------------------------------
 
 /** REST API 는 발음/homograph 그룹을 안 주므로(DICTIONARY_SOURCES.md 실측: phonetic 필드
- *  자체가 없음), pos 블록 하나당 reading 하나로 대응한다 — pronunciations 는 항상 undefined. */
+ *  자체가 없음), pos 블록 하나당 reading 하나로 대응한다 — pronunciations 는 여기선 항상
+ *  undefined 로 두고(en 은 fetchWiktionaryEntry 가 dictionaryapi.dev 로 보강). */
 function blockToReading<L extends Language>(block: WiktionaryPosBlock, language: L): DictionaryReading<L> | null {
   const pos = mapPos(block.partOfSpeech, language)
   const senses: DictionarySense<L>[] = block.definitions
@@ -175,6 +219,13 @@ export async function fetchWiktionaryEntry<L extends Language>(
     .map((b) => blockToReading(b, language))
     .filter((r): r is DictionaryReading<L> => r !== null)
   if (!readings.length) return {}
+
+  if (language === 'en') {
+    const pronunciation = await fetchEnPronunciation(word)
+    if (pronunciation) {
+      for (const reading of readings) reading.pronunciations = [{ value: pronunciation }]
+    }
+  }
 
   const entry = {
     language,
