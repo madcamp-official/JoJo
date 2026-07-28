@@ -10,6 +10,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   llm: null, // 기본 provider 를 임의 지정하지 않음 — 사용자가 처음 고르기 전엔 미선택
   language: 'auto',
   modeShortcut: 'Alt+Q',
+  // macOS 는 Cmd/Ctrl 을 서로 다른 물리 키로 취급(둘 다 registerModeShortcut 처럼 한 accelerator
+  // 에 뭉뚱그리지 않음) — 관례상 Cmd. Windows 는 Ctrl 밖에 없으니 그대로 Ctrl.
+  settingsShortcut: process.platform === 'darwin' ? 'Command+,' : 'Control+,',
   contextBytesBefore: 1024,
   contextBytesAfter: 1024,
   contextBytesLinked: true,

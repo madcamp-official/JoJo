@@ -3,7 +3,7 @@ import { IPC } from '@shared/channels'
 import { createMainWindow, getMainWindow, setQuitting } from './windows'
 import { createTray } from './tray'
 import { registerIpc } from './ipc'
-import { registerModeShortcut } from './selection/shortcut'
+import { registerModeShortcut, registerSettingsShortcut } from './selection/shortcut'
 import { seedApiKeysFromEnv } from './devSeed'
 import { loadSettings } from './settingsStore'
 import { getApiKey } from './keyStore'
@@ -34,6 +34,7 @@ app.whenReady().then(() => {
   createTray()
   registerIpc()
   registerModeShortcut(settings.modeShortcut)
+  registerSettingsShortcut(settings.settingsShortcut)
   warmJapaneseTokenizer() // 일본어 형태소 분석 엔진 로드를 미리 시작 — 첫 사용 시 지연 없게
   warmChineseSegmenter() // ZH_HANT_ENGINE 이 chinese-tokenizer 면 CC-CEDICT 파싱(~350ms) 예열
 

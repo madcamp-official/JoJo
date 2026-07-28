@@ -1,6 +1,12 @@
 import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
-import { onWindowResized, sendOverlayNotice, sendRegionSelectionNeeded, setOverlayMode } from '../windows'
+import {
+  onWindowResized,
+  openSettingsWindow,
+  sendOverlayNotice,
+  sendRegionSelectionNeeded,
+  setOverlayMode,
+} from '../windows'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
@@ -97,11 +103,13 @@ async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
 }
 
 /**
- * accelerator 에 등록할 실제 조합 목록을 만든다. Electron 의 'CommandOrControl' 은
+ * accelerator 에 등록할 실제 조합 목록을 만든다. Electron 의 'CommandOrControl'은
  * "Cmd 또는 Ctrl 둘 다"가 아니라 macOS 에서는 Cmd, 그 외에서는 Ctrl 로 딱 하나만 고정
- * 매핑된다 — 그래서 macOS 에서 물리 Ctrl 키를 눌러도 반응하지 않는다. macOS 에서
- * 'CommandOrControl' 이 포함된 경우, 'Control' 로 치환한 조합도 함께 등록해 Cmd/Ctrl
- * 둘 다 동작하게 한다.
+ * 매핑된다 — 그래서 macOS 에서 물리 Ctrl 키를 눌러도 반응하지 않는다. **설정 화면(2026-07-28
+ * 이후)은 이제 Cmd/Ctrl 을 서로 다른 물리 키로 취급해 각각 'Command'/'Control'로 따로
+ * 기록**하므로 새로 저장되는 값은 'CommandOrControl'을 안 쓰지만, 과거에 저장된 설정
+ * 값(예: 이전 기본값)과의 호환을 위해 이 치환 로직은 그대로 남겨둔다 — 'CommandOrControl'
+ * 이 포함된 경우 macOS 에서 'Control'로 치환한 조합도 함께 등록해 Cmd/Ctrl 둘 다 동작하게 한다.
  */
 function expandAccelerator(accelerator: string): string[] {
   if (process.platform !== 'darwin' || !accelerator.includes('CommandOrControl')) {
@@ -129,6 +137,24 @@ export function updateModeShortcut(accelerator: string): void {
 
 export function currentMode(): AppMode {
   return mode
+}
+
+// 담당 공동 — "어디서나 설정 화면 열기" 전역 단축키(기본 CommandOrControl+,, macOS
+// 관례상 Cmd+, / 그 외 Ctrl+,). 모드 전환 단축키와 동일한 등록/해제/OS 대응 패턴을 그대로
+// 재사용한다(expandAccelerator 로 macOS 에서 Cmd/Ctrl 둘 다 동작하게).
+let currentSettingsAccelerators: string[] = []
+
+export function registerSettingsShortcut(accelerator = 'CommandOrControl+,'): void {
+  if (!accelerator) return // 빈 문자열 = 단축키 해제 상태(등록 안 함)
+  const accelerators = expandAccelerator(accelerator)
+  accelerators.forEach((a) => globalShortcut.register(a, openSettingsWindow))
+  currentSettingsAccelerators = accelerators
+}
+
+export function updateSettingsShortcut(accelerator: string): void {
+  currentSettingsAccelerators.forEach((a) => globalShortcut.unregister(a))
+  currentSettingsAccelerators = []
+  registerSettingsShortcut(accelerator)
 }
 
 /**

@@ -127,6 +127,12 @@ export function navigateMainWindow(route: MainRoute): void {
   win.webContents.send(IPC.NAVIGATE, route)
 }
 
+/** 트레이 메뉴·전역 단축키(shortcut.ts) 등 "어디서든 설정 화면 열기"가 공유하는 진입점. */
+export function openSettingsWindow(): void {
+  mainWindow?.show()
+  navigateMainWindow('settings')
+}
+
 let overlayWindow: BrowserWindow | null = null
 let overlayMode: AppMode = 'normal'
 let trackedHwnd: bigint | null = null

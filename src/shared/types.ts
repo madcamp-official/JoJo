@@ -91,7 +91,9 @@ export interface ChatTurn {
 
 export type QuestionRequest =
   | { type: 'pronunciation' }
-  | { type: 'dictionary' }
+  // source: 병렬 어댑터 구현 디버깅용 임시 필드(2026-07-28) — 팝업 드롭다운에서 고른
+  // DictionarySourceId. 없으면(undefined) 정식 폴백 순서를 따른다(오케스트레이션 구현 후).
+  | { type: 'dictionary'; source?: DictionarySourceId }
   | { type: 'ask'; prompt: string; history?: ChatTurn[] }
 
 /** API 키 미설정/무효, 사용 한도(크레딧) 소진 등 UI가 구분해 안내해야 하는 실패 종류 */
@@ -340,6 +342,18 @@ export type DictionarySourceId =
   | 'moedict' // 萌典
   | 'cc-cedict'
 
+/** 사전 소스별 어댑터가 en/ja/zh 각자 다른 워크트리에서 병렬 구현 중이라(2026-07-28),
+ *  디버깅용으로 팝업에서 실제 검색에 쓸 소스를 직접 골라볼 수 있게 하는 임시 드롭다운의
+ *  옵션 하나. `priority`가 낮을수록(1이 최우선) 폴백 순위가 높다 — 여러 개면 드롭다운
+ *  기본 선택값은 이 순서로 정렬했을 때 첫 번째. 실제 목록은 main 프로세스가
+ *  `question/dictionary/registry.ts`에서 "그 언어의 어댑터 파일이 실제로 존재하는가"로
+ *  감지해 IPC 로 내려준다(어댑터 구현 완료 시 재등록 없이 자동으로 뜬다). */
+export interface DictionarySourceOption {
+  id: DictionarySourceId
+  label: string
+  priority: number
+}
+
 /** 발음 하나에 딸린 sense 묶음 — 같은 표기라도 발음(따라서 뜻 집합)이 갈리는 경우가
  *  실측으로 확인됨: MW "read"는 hom(homograph) 별로 발음이 다름(동사 hom=1 "ˈrēd" vs
  *  형용사 hom=2 "ˈred"), 萌典 "行"은 heteronyms 4개가 각각 다른 병음(háng/hàng/xíng/xìng)에
@@ -455,6 +469,7 @@ export interface AppSettings {
   llm: LlmProvider | null // 사용자가 아직 고르지 않았으면 null (기본 provider 를 임의로 정하지 않는다)
   language: Language | 'auto'
   modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑). 빈 문자열 = 단축키 해제
+  settingsShortcut: string // 어디서나 설정 화면을 여는 전역 단축키. 기본값: macOS 'Command+,' / 그 외 'Control+,'(settingsStore.ts). 빈 문자열 = 단축키 해제
   // 선택 앞/뒤로 포함할 문맥 바이트 예산(자유 지정). 실제로는 문장 경계까지 확장됨.
   contextBytesBefore: number
   contextBytesAfter: number

@@ -3,7 +3,13 @@ import { IPC } from '@shared/channels'
 import { getSelectedWindowId, setSelectedWindowId } from './selection/capture'
 import { invalidateExtractionCache } from './selection/extractionCache'
 import { clearRegion } from './selection/regionSelection'
-import { getMainWindow, hideSelectionOverlay, navigateMainWindow, resolveIconPath } from './windows'
+import {
+  getMainWindow,
+  hideSelectionOverlay,
+  navigateMainWindow,
+  openSettingsWindow,
+  resolveIconPath,
+} from './windows'
 
 // 담당 A — 백그라운드 실행 + 트레이 아이콘 (PLAN.md §3)
 // 창을 선택하면 메인 창은 숨고(windows.ts: SELECT_WINDOW 핸들러) 트레이 아이콘만 남는다.
@@ -41,13 +47,7 @@ function buildTrayMenu(): Menu {
           { label: '창 선택 전환', click: openWindowPicker },
         ]
       : [{ label: '창 선택', click: openWindowPicker }]),
-    {
-      label: '설정',
-      click: () => {
-        getMainWindow()?.show()
-        navigateMainWindow('settings')
-      },
-    },
+    { label: '설정', click: openSettingsWindow },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
   ])
