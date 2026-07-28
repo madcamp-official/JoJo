@@ -347,9 +347,9 @@ export async function groupCjkCharsGrid(
 ): Promise<Word[]> {
   const codepoints = [...text]
   if (codepoints.length === 0) return []
-  const boundaries = [...(language === 'ja' ? await segmentJapaneseWords(text) : segmentChineseWords(text))].sort(
-    (a, b) => a.start - b.start,
-  )
+  const boundaries = [
+    ...(language === 'ja' ? await segmentJapaneseWords(text) : await segmentChineseWords(text, language)),
+  ].sort((a, b) => a.start - b.start)
   const weights = computeSlotWeights(codepoints)
   const cumulative: number[] = [0]
   for (const w of weights) cumulative.push(cumulative[cumulative.length - 1]! + w)
