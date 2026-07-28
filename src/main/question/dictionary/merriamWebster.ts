@@ -40,8 +40,14 @@ interface MerriamWebsterVis {
 type MerriamWebsterDtItem = ['text', string] | ['vis', MerriamWebsterVis[]] | ['uns', MerriamWebsterDtItem[][]] | [string, unknown]
 
 interface MerriamWebsterSense {
-  dt: MerriamWebsterDtItem[]
+  dt?: MerriamWebsterDtItem[]
   sls?: string[]
+  /** 실측 확인(2026-07-28, "photosynthesis"): 메인 정의(dt)와 별개로 그보다 좁은 하위
+   *  세분 정의가 형제 필드로 붙는 경우가 있다 — "synthesis of chemical compounds with
+   *  the aid of radiant energy and especially light"(메인) 옆에 sdsense로
+   *  `{ sd: "especially", dt: [...formation of carbohydrates...] }`가 따로 옴.
+   *  DictionarySense.parentIndex(2026-07-28 신설)가 정확히 이 구조를 위한 필드. */
+  sdsense?: { sd?: string; dt?: MerriamWebsterDtItem[] }
 }
 
 /** sseq 트리는 'sense'/'pseq'/'bs' 등 태그로 임의 깊이까지 중첩된다 — 실사용 케이스는
@@ -235,11 +241,17 @@ function entryToReading(
   const senseNodes: MerriamWebsterSense[] = []
   for (const def of entry.def ?? []) collectSenseNodes(def.sseq, senseNodes)
 
-  const senses: DictionarySense<'en'>[] = senseNodes
-    .map((node): DictionarySense<'en'> | null => {
-      const { gloss, examples, usageNote } = extractDt(node.dt)
-      if (!gloss.length) return null // MW gloss 는 필수 필드 — 못 뽑으면 이 sense 는 버린다
-      return {
+  // sdsense(하위 세분 정의, 실측: "photosynthesis"의 메인 정의 옆에 형제로 붙는
+  // `{ sd: "especially", dt: [...] }`)를 부모 바로 뒤에 밀어넣고 parentIndex 로 관계를
+  // 남긴다 — .map() 으론 부모의 최종 배열 인덱스를 미리 알 수 없어 순차 push 로 바꿨다.
+  const senses: DictionarySense<'en'>[] = []
+  for (const node of senseNodes) {
+    const { gloss, examples, usageNote } = extractDt(node.dt)
+    let parentIndex: number | undefined
+    if (gloss.length) {
+      // MW gloss 는 필수 필드라 메인 dt 가 비어 있으면(sdsense 만 있는 드문 경우) 메인
+      // sense 자체는 안 만들고, 아래에서 sdsense 를 parentIndex 없이 독립 sense 로 채택한다.
+      senses.push({
         pos,
         posRaw: fl,
         irregularForms: irregularForms.length ? irregularForms : undefined,
@@ -247,9 +259,26 @@ function entryToReading(
         examples: examples.length ? examples : undefined,
         usageTags: mergeUsageTags(node.sls, entry.lbs),
         usageNote,
+      })
+      parentIndex = senses.length - 1
+    }
+    if (node.sdsense) {
+      const sub = extractDt(node.sdsense.dt)
+      if (sub.gloss.length) {
+        const label = node.sdsense.sd
+        senses.push({
+          pos,
+          posRaw: fl,
+          irregularForms: irregularForms.length ? irregularForms : undefined,
+          gloss: label ? sub.gloss.map((g) => `${label} : ${g}`) : sub.gloss,
+          examples: sub.examples.length ? sub.examples : undefined,
+          usageTags: mergeUsageTags(node.sls, entry.lbs),
+          usageNote: sub.usageNote,
+          parentIndex,
+        })
       }
-    })
-    .filter((s): s is DictionarySense<'en'> => s !== null)
+    }
+  }
 
   if (!senses.length) return null
 
