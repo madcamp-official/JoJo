@@ -64,9 +64,12 @@ class ActiveTabTracker extends EventEmitter<Events> {
 
   private onActiveTab(tab: ExtActiveTab | null): void {
     const next = tab ? classifyBrowserUrl(tab.url) : null
-    if (sameSource(this.current, next)) return
+    // url 은 항상 최신으로 유지하되(source.url 메타데이터), 재판정(change)은 추출 방식이
+    // 달라질 수 있는 "분류"가 바뀔 때만 낸다 — 같은 유튜브 안에서 동영상만 바뀌면(분류 동일)
+    // OCR 여부 결정은 그대로라 재판정하지 않는다(자막 내용은 content script 가 알아서 갱신).
+    const changed = classKey(this.current) !== classKey(next)
     this.current = next
-    this.emit('change', next)
+    if (changed) this.emit('change', next)
   }
 
   get(): BrowserSource | null {
@@ -74,10 +77,10 @@ class ActiveTabTracker extends EventEmitter<Events> {
   }
 }
 
-function sameSource(a: BrowserSource | null, b: BrowserSource | null): boolean {
-  if (a === b) return true
-  if (!a || !b) return false
-  return a.source.url === b.source.url && a.isMedia === b.isMedia
+// 추출 방식 판정에 영향을 주는 분류 키 = 사이트 종류(kind) + 자막 대상 미디어 페이지 여부.
+// 같은 kind·isMedia 면 URL(동영상 id 등)이 달라도 같은 분류로 본다.
+function classKey(s: BrowserSource | null): string {
+  return s ? `${s.source.kind}|${s.isMedia}` : 'none'
 }
 
 export const activeTabTracker = new ActiveTabTracker()

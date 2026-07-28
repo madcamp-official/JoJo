@@ -69,22 +69,42 @@ function onAppMessage(raw: unknown): void {
       void reportActiveTab()
       break
     case 'setSubtitleCapture':
-      void setCaptureOnActiveTab(msg.active)
+      captureDesired = msg.active
+      void syncCapture()
       break
     case 'welcome':
       break
   }
 }
 
-// 앱이 선택 모드를 켜고 끌 때, 활성 탭의 content script 에 자막 캡처 on/off 를 전달한다.
-async function setCaptureOnActiveTab(active: boolean): Promise<void> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-  if (tab?.id === undefined) return
+// 자막 캡처는 "현재 활성 탭 하나"에서만 돈다. 탭을 바꾸면(사이트가 같아도) 이전 탭은
+// 끄고 새 활성 탭에 다시 켜줘야 자막이 계속 뜬다 — captureDesired(앱이 원하는 on/off)와
+// capturedTabId(지금 켜둔 탭)를 추적해 활성 탭 변화 때마다 맞춘다.
+let captureDesired = false
+let capturedTabId: number | null = null
+
+async function sendCapture(tabId: number, active: boolean): Promise<void> {
   try {
-    await chrome.tabs.sendMessage(tab.id, { kind: 'setCapture', active })
+    await chrome.tabs.sendMessage(tabId, { kind: 'setCapture', active })
   } catch {
-    // content script 가 아직 없거나(로드 전) 대상 페이지가 아니면 무시.
+    // content script 미로드/비대상 페이지면 무시.
   }
+}
+
+async function syncCapture(): Promise<void> {
+  if (!captureDesired) {
+    if (capturedTabId !== null) {
+      await sendCapture(capturedTabId, false)
+      capturedTabId = null
+    }
+    return
+  }
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  const activeId = tab?.id ?? null
+  if (activeId === capturedTabId) return
+  if (capturedTabId !== null) await sendCapture(capturedTabId, false) // 이전 탭 끄기
+  if (activeId !== null) await sendCapture(activeId, true) // 새 활성 탭 켜기
+  capturedTabId = activeId
 }
 
 // content script → background: 화면 자막 프레임을 받아 앱으로 중계한다.
@@ -117,15 +137,24 @@ function scheduleReport(): void {
   }, 150)
 }
 
-// 탭 전환
-chrome.tabs.onActivated.addListener(() => scheduleReport())
+// 탭 전환 — 앱에 보고(재판정은 앱이 URL 비교로 결정) + 새 활성 탭에 자막 캡처 재동기화.
+chrome.tabs.onActivated.addListener(() => {
+  scheduleReport()
+  void syncCapture()
+})
 // 같은 탭 안에서 URL 이 바뀌는 경우(유튜브 SPA 네비게이션 = /watch 이동 등은 url 갱신으로 잡힘)
 chrome.tabs.onUpdated.addListener((_tabId, info, tab) => {
-  if ((info.url || info.status === 'complete') && tab.active) scheduleReport()
+  if ((info.url || info.status === 'complete') && tab.active) {
+    scheduleReport()
+    void syncCapture()
+  }
 })
 // 브라우저 창 포커스 전환(다른 브라우저 창으로 이동)
 chrome.windows.onFocusChanged.addListener((windowId) => {
-  if (windowId !== chrome.windows.WINDOW_ID_NONE) scheduleReport()
+  if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+    scheduleReport()
+    void syncCapture()
+  }
 })
 
 connect()
