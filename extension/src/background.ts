@@ -85,4 +85,25 @@ async function currentActiveTab(): Promise<ExtActiveTab | null> {
   return { tabId: tab.id, url: tab.url, title: tab.title }
 }
 
+// 탭 변화가 짧은 시간에 여러 번 튀는 경우(activated+updated 동시 등) 마지막 한 번만 보고한다.
+let reportTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleReport(): void {
+  if (reportTimer) clearTimeout(reportTimer)
+  reportTimer = setTimeout(() => {
+    reportTimer = null
+    void reportActiveTab()
+  }, 150)
+}
+
+// 탭 전환
+chrome.tabs.onActivated.addListener(() => scheduleReport())
+// 같은 탭 안에서 URL 이 바뀌는 경우(유튜브 SPA 네비게이션 = /watch 이동 등은 url 갱신으로 잡힘)
+chrome.tabs.onUpdated.addListener((_tabId, info, tab) => {
+  if ((info.url || info.status === 'complete') && tab.active) scheduleReport()
+})
+// 브라우저 창 포커스 전환(다른 브라우저 창으로 이동)
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId !== chrome.windows.WINDOW_ID_NONE) scheduleReport()
+})
+
 connect()
