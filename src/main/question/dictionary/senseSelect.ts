@@ -48,14 +48,16 @@ export function numberSenses(entries: DictionaryEntry[]): NumberedSense[] {
   return out
 }
 
-/** LLM 프롬프트의 사용자 메시지에 넣을, 번호 매긴 뜻풀이 후보 목록(원어 그대로). */
+/** LLM 프롬프트의 사용자 메시지에 넣을, 번호 매긴 뜻풀이 후보 목록(원어 그대로).
+ *  예문이 여러 개인 경우(MW 실측: 한 뜻에 최대 4개까지) 전부 나열한다 — 첫 번째만
+ *  보여주면 LLM 이 나머지 예문의 존재 자체를 몰라 번역 대상에서 빠진다. */
 export function buildSenseListText(senses: NumberedSense[]): string {
   return senses
     .map((s) => {
       const label = s.posRaw ?? s.pos
       const tag = label ? `[${label}] ` : ''
       const gloss = s.gloss.join('; ')
-      const ex = s.examples?.[0] ? ` (예: "${s.examples[0]}")` : ''
+      const ex = s.examples?.length ? ` (예: ${s.examples.map((e) => `"${e}"`).join(' / ')})` : ''
       return `${s.index}. ${tag}${gloss}${ex}`
     })
     .join('\n')
@@ -65,8 +67,8 @@ export interface SelectedSense {
   sense: NumberedSense
   /** LLM 이 문맥에 맞게 자연스러운 한국어로 옮긴 뜻풀이 */
   translatedGloss: string
-  /** 후보에 예문이 있었을 때만 LLM 이 함께 번역한 예문 */
-  translatedExample?: string
+  /** sense.examples 와 같은 순서 · 같은 개수로 대응하는 번역(원문 예문이 있었을 때만) */
+  translatedExamples?: string[]
 }
 
 /** LLM 응답에서 "번호: N\n번역: ...\n예문번역: ..." 블록(들, "---" 로 구분)을 파싱한다.
@@ -98,10 +100,16 @@ export function parseJudgeReply(reply: string, senses: NumberedSense[]): Selecte
     if (!sense) continue
     const counterpartMatch = block.match(/대응어\s*[:：]\s*(.+)/)
     const exampleMatch = block.match(/예문\s*번역\s*[:：]\s*(.+)/)
+    // 예문이 여러 개면 " / " 로 구분해 한 줄에 담아 달라고 프롬프트에서 요청한다 —
+    // sense.examples 와 순서·개수가 같다고 가정하고 그대로 index 로 대응시킨다.
+    const translatedExamples = exampleMatch?.[1]
+      ?.split(' / ')
+      .map((s) => s.trim())
+      .filter(Boolean)
     out.push({
       sense,
       translatedGloss: combineTranslation(counterpartMatch?.[1]?.trim(), glossMatch[1].trim()),
-      translatedExample: exampleMatch?.[1]?.trim(),
+      translatedExamples,
     })
   }
   return out
@@ -150,7 +158,7 @@ export function formatDictionaryAnswer(
 
   // sense 마다 발음·품사가 다를 수 있어(예: bank 명사 vs bank 동사) 표제어 줄 자체를
   // sense 블록 단위로 반복한다 — 선택된 sense 가 하나뿐인 보통의 경우엔 한 줄만 나온다.
-  for (const { sense, translatedGloss, translatedExample } of selected) {
+  for (const { sense, translatedGloss, translatedExamples } of selected) {
     const label = (sense.pos && POS_KO[sense.pos]) ?? sense.posRaw
     const idiomTag = sense.isIdiom ? ' (관용구)' : ''
     const posSuffix = label ? ` · ${label}${idiomTag}` : ''
@@ -165,9 +173,13 @@ export function formatDictionaryAnswer(
     // 원문·번역은 같은 뜻을 언어만 달리 적은 동격 정보라 스타일을 다르게 주지 않는다.
     lines.push(sense.gloss.join('; '))
     lines.push(translatedGloss)
-    if (sense.examples?.[0]) {
-      lines.push(`> ${sense.examples[0]}`)
-      if (translatedExample) lines.push(`> ${translatedExample}`)
+    // 예문이 여러 개면 전부 보여준다(원문 바로 아래 그 예문의 번역, 있는 만큼만) —
+    // translatedExamples 는 개수가 부족할 수 있어(LLM이 일부만 번역한 경우) 인덱스로
+    // 안전하게 대응시키고 없으면 원문만 보여준다.
+    for (const [i, example] of (sense.examples ?? []).entries()) {
+      lines.push(`> ${example}`)
+      const translated = translatedExamples?.[i]
+      if (translated) lines.push(`> ${translated}`)
     }
     // 활용형은 예문 다음, 다른 파트와는 빈 줄로 띄워 구분한다.
     if (sense.irregularForms?.length) {
