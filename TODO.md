@@ -10,12 +10,12 @@
   - [앱 · 윈도우 · 모드](#a-app)
   - [단어 감지 · 좌표 매핑 (오버레이)](#a-coord)
   - [추출 판정 · 실행](#a-extract)
-  - [브라우저 확장 (MV3)](#a-ext)
 - [🅱️ 담당 B — 선택 확정 & 질문 (팝업 후)](#b-담당)
   - [팝업 선택 & 문맥 확정](#b-select)
   - [LLM 어댑터](#b-llm)
   - [질문 기능](#b-feature)
   - [UI · 설정](#b-ui)
+  - [브라우저 확장 · 자막 추출 (MV3)](#b-ext)
 - [🤝 공동](#공동)
 - [⚠️ 미해결 문제](#미해결-문제)
 
@@ -64,16 +64,6 @@
 - [x] ~~좌표 기반 노이즈 제거(제목·페이지번호·메뉴바·상태표시줄)~~ → **위치 휴리스틱 방식은 삭제함**(`ocr.ts: removeNoise` 및 관련 상수/헬퍼 제거). "OCR 대상 영역 지정" 기능이 생기면서 사용자가 드래그로 본문만 감싸면 메뉴바·상태표시줄·페이지 번호는 애초에 캡처/OCR 대상에서 빠지게 됐고, 그러면서 이 휴리스틱은 "주로 걸러내는 로직"이 아니라 오탐 위험을 감수하는 보조 안전망 정도로 위상이 축소됐었음 — 실효성 대비 유지 비용(정확도 낮음, 언어별 단어 목록 관리 필요)이 안 맞아서 코드째로 걷어냄. 필요해지면 그때 다시 붙이거나 아래 반복 기반 방식으로 대체.
 - [ ] 반복 기반 노이즈 제거 — 같은 창을 여러 번 캡처했을 때 같은 위치에 반복되는 텍스트(헤더/워터마크 등)를 찾아 제거하는 방식. 최근 캡처 몇 개를 기억해두는 히스토리 저장소가 새로 필요하고, 첫 캡처에는 비교 대상이 없어 효과가 없음(재진입을 몇 번 해야 누적됨). **우선순위 낮음** — 영역 지정 기능으로 메뉴바/상태바 문제 자체가 대부분 해소돼서, 이 방식이 굳이 필요한 남은 케이스(제목처럼 애매한 텍스트가 지정 영역 안에 반복적으로 딸려오는 경우 등)가 많지 않음. 필요성이 실사용에서 재확인되면 그때 추가.
 - [ ] 페이지 경계 문장 이어붙이기 — 미구현.
-
-<a id="a-ext"></a>
-
-**브라우저 확장 (MV3)**
-- [ ] 확장 번들 설정(vite/esbuild) + native messaging host 등록
-- [ ] DOM 텍스트 추출(태그 제외 · 문단 잇기) + 좌표
-- [ ] 유튜브 원어 자막 추출 (URL / timedtext)
-- [ ] 넷플릭스 원어 자막 추출
-- [ ] 선택 모드 단어 하이라이트 렌더
-- [ ] 탭/URL 변화 감지 → 앱에 재판정 통지
 
 <a id="b-담당"></a>
 
@@ -173,6 +163,25 @@
 - [x] ~~앱 설정 영속화 (파일 저장) — `settingsStore.ts`, `userData/settings.json`~~
 - [x] ~~아이콘/UI 통일 정리 — 이모지(⌨️/ℹ️/💸/⚙️) 를 SVG 아이콘으로 교체, 항목별로 제각각이던 수정/삭제 버튼을 공용 `EditDeleteGroup`(`screens/EditDeleteGroup.tsx`, 연필+휴지통 아이콘 쌍)으로 통일해 자주 쓰는 질문·API 키·단축키에 동일 적용. 연필/휴지통/설정 톱니 아이콘은 손으로 그린 SVG 대신 `lucide-react`(Pencil/Trash2/Settings)로 교체(`screens/icons.tsx`). 눈(EyeOff) 아이콘의 슬래시 방향과 눈 윤곽 틈이 어긋나 구멍처럼 보이던 것도 수정~~
 - [x] ~~팝업 전체 글자 크기 확대(`styles.css` `.popup-screen` 이하 대부분의 `font-size`를 2px씩 상향: 기본 14→16px, 라벨류 12→14px, 채팅/입력 13→15px 등) + 툴바 구글 로고 왼쪽 여백 추가(`.toolbar`에 `padding-left: 8px`)~~
+
+<a id="b-ext"></a>
+
+**브라우저 확장 · 자막 추출 (MV3)**
+
+원래 담당 A(팝업 전) 영역이었으나 **담당 B로 이관**(2026-07-28) — 자막 버퍼(앞뒤 문맥)가 팝업 표시·문맥 구성과 직결돼 B의 문맥 로직과 붙어 있는 게 자연스러워서. 확장은 크롬(MV3)만 우선 대응. 통신은 native messaging 대신 **로컬 WebSocket**(Electron main이 localhost 서버, 확장 background가 클라이언트)으로 결정 — native messaging host의 OS별 매니페스트 등록(레지스트리/plist) 없이 개발·배포가 단순해서. 넷플릭스는 **DOM 우선 + OCR 폴백**, 착수는 **유튜브 먼저**.
+
+**핵심 설계(유튜브)**: 화면 자막 DOM(`.ytp-caption-segment`)에서 `getBoundingClientRect()`로 픽셀 좌표를 얻어 hover 단어 매핑에 쓰고(OCR 불필요), 동시에 **timedtext API**(`youtube.com/api/timedtext`, `ytInitialPlayerResponse`의 caption track URL)로 전체 타임코드 자막을 받아 "클릭한 줄 앞뒤 범위 자막" 문맥 버퍼로 쓴다(Language Reactor도 timedtext 방식). 좌표는 뷰포트 기준이라 브라우저 창 좌표계로 보정 후 기존 오버레이(`Overlay.tsx`/`wordMapping.ts`) 재사용.
+
+- [ ] 확장 번들 파이프라인(크롬 MV3) — `extension/src/*.ts`(background/content) → `*.js` 빌드(vite/esbuild), `chrome://extensions` 로드 가능한 산출물 생성. native messaging host 등록은 WebSocket 채택으로 불필요.
+- [ ] 확장↔앱 WebSocket 통신 계층 — Electron main에 localhost WS 서버, background에 WS 클라이언트 + 재연결. 메시지 프로토콜(탭 변화 통지 / 자막 추출 결과 / 좌표 등) 타입을 `shared`에 정의.
+- [ ] 탭/URL 변화 감지 → 앱에 재판정 통지 — background `chrome.tabs.onUpdated`/`onActivated`로 활성 탭 URL을 앱에 전송, `decideOcr` 재판정(youtube watch = 확장 자막 경로 / 그 외 = 기존 OCR)으로 분기.
+- [ ] 유튜브 자막 DOM 추출 + 좌표 — content script가 watch 페이지의 자막 세그먼트에서 텍스트+bbox 추출, `MutationObserver`로 자막 갱신 추적.
+- [ ] 유튜브 timedtext 전체 자막 버퍼 — 앞뒤 범위 자막 문맥용 전체 타임코드 자막 확보(클릭 줄 기준 앞/뒤 N개 구성).
+- [ ] 좌표 보정 + 오버레이 연동 — 뷰포트 좌표 → 브라우저 창 좌표계 보정, 기존 오버레이 hover 하이라이트/단어 매핑 재사용.
+- [ ] 클릭 → `ExtractedSelection`(앞뒤 자막 포함) → 팝업 — 클릭한 줄 자막 + 앞뒤 범위를 문맥으로 실어 팝업 트리거.
+- [ ] (후속) 넷플릭스 자막 추출 — DOM 우선 + OCR 폴백. 유튜브 경로 완성 후 통신 인프라 재사용해 착수.
+- [ ] (후속) 웹페이지 DOM 텍스트 추출(태그 제외·문단 잇기) + 좌표 — 일반 웹페이지 대상, 유튜브 이후.
+- [ ] 선택 모드 단어 하이라이트 렌더 — 확장 쪽 페이지 위 사각형 하이라이트(오버레이 방식으로 대체 가능한지 함께 검토).
 
 <a id="공동"></a>
 
