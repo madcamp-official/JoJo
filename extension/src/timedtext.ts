@@ -2,13 +2,12 @@
 // 화면 자막 DOM(youtube.ts)은 "지금 이 순간" 한 줄뿐이라, 클릭한 줄의 앞뒤 자막까지
 // 팝업에 보여주려면 영상 전체의 타임코드 자막이 필요하다.
 //
-// 예전엔 ytInitialPlayerResponse 의 captionTracks.baseUrl(timedtext, json3)을 직접 호출했는데,
-// 유튜브가 이 구식 엔드포인트를 최근 정책으로 막아(200 응답에 빈 바디만 줌 — 여러 오픈소스
-// 자막 추출 라이브러리가 2024~2025년 사이 이 문제로 깨졌다) 더 이상 안정적으로 동작하지
-// 않는다. 대신 유튜브 페이지 자체가 "스크립트 표시(Show transcript)" 패널에 쓰는 내부
-// InnerTube `get_transcript` API(Language Reactor 등 현행 도구들이 쓰는 방식)를 그대로 쓴다.
-// watch 페이지 HTML에서 그 패널의 continuation params 를 찾아 같은 오리진(www.youtube.com)
-// 으로 POST 하면 되므로 CORS 문제도 없다.
+// 1순위는 <video> native TextTrack(nativeTrack.ts) — 유튜브가 이미 로드해둔 자막 데이터를
+// 그대로 읽으므로 우리가 네트워크 요청을 만들지 않는다. 예전엔 timedtext(json3) 직접 호출→
+// 200+빈바디로 막힘, 그다음 InnerTube get_transcript 내부 API로 바꿔봤지만 세션 검증
+// (FAILED_PRECONDITION, 400)에 계속 막혀 둘 다 폐기하고 이 방식으로 정착했다. InnerTube
+// 코드는 native track 이 실패할 때(트랙이 아직 안 열린 경우 등)의 폴백으로만 남겨둔다.
+import { loadTranscriptFromVideoTrack } from './nativeTrack'
 
 export interface TranscriptCue {
   start: number // 초
@@ -37,7 +36,7 @@ export function loadTranscript(videoId: string, langHint: string | null): Promis
   const key = `${videoId}|${langHint ?? ''}`
   const cached = cache.get(key)
   if (cached) return cached
-  const p = fetchTranscript(videoId).catch((err) => {
+  const p = fetchTranscript(videoId, langHint).catch((err) => {
     cache.delete(key) // 실패는 캐시하지 않아 다음 시도에서 재요청
     throw err
   })
@@ -54,7 +53,15 @@ async function fetchWatchHtml(videoId: string): Promise<string | null> {
   return res.text()
 }
 
-async function fetchTranscript(videoId: string): Promise<TranscriptCue[]> {
+async function fetchTranscript(videoId: string, langHint: string | null): Promise<TranscriptCue[]> {
+  // 1순위: <video> native TextTrack — 유튜브가 이미 로드해둔 데이터를 그대로 읽으므로
+  // 네트워크 요청 자체가 없고, 세션/토큰 문제(InnerTube 쪽에서 계속 겪던 400)가 없다.
+  const nativeCues = await loadTranscriptFromVideoTrack(langHint)
+  if (nativeCues.length > 0) return nativeCues
+
+  // 폴백: InnerTube get_transcript(위 방식이 실패했을 때만 — 예: 트랙이 아직 안 열렸거나
+  // 브라우저가 TextTrack 을 안 채워주는 경우).
+  console.log('[nuance timedtext] native track 실패 — InnerTube 폴백 시도')
   const html = await fetchWatchHtml(videoId)
   if (!html) return []
   const cues = await fetchViaInnertube(html)
