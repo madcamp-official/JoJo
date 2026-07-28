@@ -96,14 +96,14 @@ export function PopupScreen() {
     }
   }, [baseCtx.language, displayText])
 
-  // 중국어는 segmentit(main/nlp/chinese.ts) 단어 경계를 그대로 atom 으로 쓴다 — OCR 단어
+  // 중국어는 main/nlp/chinese.ts 가 정한 단어 경계를 그대로 atom 으로 쓴다 — OCR 단어
   // 클릭(main/selection/ocr.ts)과 동일한 분석 결과라 병합 규칙 없이 바로 쓸 수 있다.
   const [zhWords, setZhWords] = useState<ZhWord[] | undefined>(undefined)
   useEffect(() => {
     setZhWords(undefined)
     if (baseCtx.language !== 'zh-Hans' && baseCtx.language !== 'zh-Hant') return
     let active = true
-    window.nuance.tokenizeChinese(displayText).then((words) => {
+    window.nuance.tokenizeChinese(displayText, baseCtx.language).then((words) => {
       if (active) setZhWords(words)
     })
     return () => {

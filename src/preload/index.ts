@@ -149,13 +149,14 @@ const api = {
   openNaverDict: (text: string, lang: Language): Promise<void> =>
     ipcRenderer.invoke(IPC.OPEN_NAVER_DICT, { text, lang }),
 
-  // 팝업 원문 문맥의 가나 atom 병합용 kuromoji 형태소 분석 요청
+  // 팝업 원문 문맥의 가나 atom 병합용 일본어 형태소 분석 요청(엔진은 JA_ENGINE 설정값)
   tokenizeJapanese: (text: string): Promise<JaTokenizeResult> =>
     ipcRenderer.invoke(IPC.TOKENIZE_JA, text),
 
-  // 팝업 원문 문맥의 중국어 단어 atom 구성용 segmentit 형태소 분석 요청
-  tokenizeChinese: (text: string): Promise<ZhWord[]> =>
-    ipcRenderer.invoke(IPC.TOKENIZE_ZH, text),
+  // 팝업 원문 문맥의 중국어 단어 atom 구성용 형태소 분석 요청(zh-Hans/zh-Hant 별 엔진은
+  // main/nlp/chinese.ts 가 결정)
+  tokenizeChinese: (text: string, language: 'zh-Hans' | 'zh-Hant'): Promise<ZhWord[]> =>
+    ipcRenderer.invoke(IPC.TOKENIZE_ZH, text, language),
 }
 
 contextBridge.exposeInMainWorld('nuance', api)

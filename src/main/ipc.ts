@@ -205,8 +205,9 @@ export function registerIpc(): void {
     return { engine: JA_ENGINE, tokens: await tokenizeJapanese(text) }
   })
 
-  // 담당 B: 팝업 원문 문맥의 중국어 단어 atom 구성용 segmentit 형태소 분석 (nlp/chinese.ts)
-  ipcMain.handle(IPC.TOKENIZE_ZH, async (_e, text: string) => {
-    return segmentChineseWords(text)
+  // 담당 B: 팝업 원문 문맥의 중국어 단어 atom 구성용 형태소 분석 (nlp/chinese.ts —
+  // zh-Hans 는 jieba 고정, zh-Hant 는 ZH_HANT_ENGINE 스위치)
+  ipcMain.handle(IPC.TOKENIZE_ZH, async (_e, text: string, language: 'zh-Hans' | 'zh-Hant') => {
+    return segmentChineseWords(text, language)
   })
 }

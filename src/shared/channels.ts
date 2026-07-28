@@ -47,9 +47,9 @@ export const IPC = {
   POPUP_GET_CONTEXT: 'popup:getContext',
   OPEN_GOOGLE: 'popup:openGoogle',
   OPEN_NAVER_DICT: 'popup:openNaverDict',
-  // 팝업 원문 문맥의 가나 atom 병합용 — kuromoji 형태소 분석(main/nlp/japanese.ts)
+  // 팝업 원문 문맥의 가나 atom 병합용 — 일본어 형태소 분석(main/nlp/japanese.ts)
   TOKENIZE_JA: 'popup:tokenizeJa',
-  // 팝업 원문 문맥의 중국어 단어 atom 구성용 — segmentit 형태소 분석(main/nlp/chinese.ts)
+  // 팝업 원문 문맥의 중국어 단어 atom 구성용 — 형태소 분석(main/nlp/chinese.ts, zh-Hans/zh-Hant 별 엔진)
   TOKENIZE_ZH: 'popup:tokenizeZh',
 
   // 설정 / API 키 (담당 B)

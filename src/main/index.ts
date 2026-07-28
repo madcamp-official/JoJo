@@ -10,6 +10,7 @@ import { getApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
 import { registerContextMenu } from './contextMenu'
 import { warmJapaneseTokenizer } from './nlp/japanese'
+import { warmChineseSegmenter } from './nlp/chinese'
 import { cleanupOrphanedPythonServers, killAllPythonServers } from './selection/pythonServer'
 import { startWarmUp } from './selection/warmup'
 
@@ -33,7 +34,8 @@ app.whenReady().then(() => {
   createTray()
   registerIpc()
   registerModeShortcut(settings.modeShortcut)
-  warmJapaneseTokenizer() // kuromoji 사전 로드(~1초)를 미리 시작 — 첫 사용 시 지연 없게
+  warmJapaneseTokenizer() // 일본어 형태소 분석 엔진 로드를 미리 시작 — 첫 사용 시 지연 없게
+  warmChineseSegmenter() // ZH_HANT_ENGINE 이 chinese-tokenizer 면 CC-CEDICT 파싱(~350ms) 예열
 
   // 담당 A — 실험용 브랜치(experiment/doclayout-yolo). DocLayout-YOLO/PaddleOCR/
   // manga-ocr 은 Python 서브프로세스라 첫 호출에 모델 로딩만 8~20초씩 걸린다(실측

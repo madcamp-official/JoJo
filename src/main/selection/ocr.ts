@@ -277,7 +277,7 @@ async function recognizeRegion(
     if (clippedLines.has(line)) continue
     if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
       // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
-      // 맞는다 — 줄 전체를 형태소 분석기(일: kuromoji, 중: segmentit)로 다시 분리한다.
+      // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: segmentit)로 다시 분리한다.
       words.push(...(await buildCjkLineWords(line, language, region)))
       continue
     }
@@ -333,7 +333,7 @@ async function buildCjkLineWords(
   for (const run of runs) {
     const text = run.map((s) => s.text).join('')
     const boundaries =
-      language === 'ja' ? await segmentJapaneseWords(text) : segmentChineseWords(text)
+      language === 'ja' ? await segmentJapaneseWords(text) : await segmentChineseWords(text, language)
     for (const b of boundaries) {
       const syms = run.slice(b.start, b.end)
       if (syms.length === 0) continue

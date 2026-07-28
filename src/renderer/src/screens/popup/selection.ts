@@ -51,8 +51,10 @@ const DISPLAY_CONTEXT_BYTES_AFTER = 256
 // 동일한 1칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
 // 없을 때만 넣어서 "있으면 그대로, 없으면 있는 것처럼 보이게" 만든다.
 // 일반 스페이스(U+0020)는 .ctx-text 의 white-space: pre-line 렌더링에서 줄바꿈 직후
-// 공백으로 축약(제거)되어 화면에 안 보인다 — 축약 대상이 아닌 non-breaking space 를 쓴다.
-const PARAGRAPH_INDENT = ' '
+// 공백으로 축약(제거)되어 화면에 안 보인다 — 축약 대상이 아닌 전각 스페이스(U+3000,
+// ideographic space)를 쓴다. 일/중 문단 들여쓰기 관례와 같은 폭이라 시각적으로도
+// 자연스럽고, 반각 NBSP보다 커서 문단 구분이 잘 보인다.
+const PARAGRAPH_INDENT = '　'
 
 /**
  * displayText 의 각 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를 삽입된 만큼 보정해
@@ -117,7 +119,7 @@ const KANJI_CHAR_RE = /[一-鿿㐀-䶿]/
 // 가나(히라가나+가타카나) 한 덩어리 — 아래 segmentKanaRun 이 의미 단위로 재분할한다.
 const KANA_RUN_RE = /[぀-ヿ]+/y
 
-// 助詞(조사) — kuromoji 결과가 아직 없을 때(비동기 로딩 중) 쓰는 즉석 대체 규칙에서만 참조.
+// 助詞(조사) — 형태소 분석 결과가 아직 없을 때(비동기 로딩 중) 쓰는 즉석 대체 규칙에서만 참조.
 const JA_PARTICLES = new Set([
   'は', 'が', 'を', 'に', 'で', 'と', 'も', 'の', 'から', 'まで', 'より', 'へ', 'や',
   'ので', 'のに', 'けど', 'けれど', 'けれども', 'たら', 'なら', 'という', 'とか',
@@ -135,9 +137,9 @@ const kanaSegmenter =
     : null
 
 /**
- * kuromoji 결과(jaTokens)가 아직 도착하지 않은 짧은 순간에만 쓰는 즉석 대체 — 팝업이
+ * 형태소 분석 결과(jaTokens)가 아직 도착하지 않은 짧은 순간에만 쓰는 즉석 대체 — 팝업이
  * 열리자마자 바로 상호작용 가능해야 하므로 Intl.Segmenter 기반 근사치로 우선 렌더링한다
- * (main/nlp/japanese.ts 의 kuromoji 결과가 도착하면 buildSelectionModel 재호출로 대체됨).
+ * (main/nlp/japanese.ts 의 결과가 도착하면 buildSelectionModel 재호출로 대체됨).
  */
 function segmentKanaRunFallback(run: string): Atom[] {
   if (!kanaSegmenter) return [{ start: 0, end: run.length }]
@@ -158,7 +160,7 @@ function segmentKanaRunFallback(run: string): Atom[] {
 }
 
 /**
- * 가나 한 덩어리(run, text 상 절대 오프셋 absoluteStart부터)를 kuromoji 토큰 경계로
+ * 가나 한 덩어리(run, text 상 절대 오프셋 absoluteStart부터)를 형태소 토큰 경계로
  * 쪼갠다 — 조동사(助動詞, 예: た/ます/ない)로 시작하는 토큰만 앞 atom 에 이어붙여 동사
  * 어간+어미를 하나로 취급하고(예: "渡った"의 った), 그 외(助詞·명사·동사 등)는 토큰이
  * 시작할 때마다 새 atom 을 연다 — 조사는 자연히 항상 독립 atom 이 된다.
@@ -210,7 +212,7 @@ function buildZhWordLookup(zhWords: ZhWord[]): (pos: number) => number | undefin
 //  - 'charLevel': 원래 계획대로 한자는 한 글자씩 별도 atom 으로 유지하고, 가나 조각만
 //    품사로 병합한다(아래 tokenizeAtoms 의 KANJI_CHAR_RE/segmentKanaRunWithTokens 분기,
 //    jaTokens 가 없을 때의 기존 폴백과 동일한 코드 경로). 나중에 되돌릴 때는 이 값만
-//    바꾸면 된다. IPADIC 엔진(kuromoji/lindera) 기준으로 짜여 있어 UniDic(Sudachi) 로
+//    바꾸면 된다. IPADIC 엔진(lindera) 기준으로 짜여 있어 UniDic(Sudachi) 로
 //    바꿨을 때 이 경로를 쓰려면 segmentKanaRunWithTokens 의 '助動詞' 판정도 다시 봐야 함.
 const JA_ATOM_STRATEGY: 'wordMerge' | 'charLevel' = 'wordMerge'
 
@@ -218,7 +220,7 @@ const JA_ATOM_STRATEGY: 'wordMerge' | 'charLevel' = 'wordMerge'
 // tokenizeAtoms 의 기존 LATIN/KANA/KANJI 루프가 그런 문자를 건너뛰던 것과 동일한 기준.
 const SELECTABLE_CONTENT_RE = /[A-Za-z0-9一-鿿㐀-䶿぀-ヿ]/
 
-/** jaResult.engine 에 맞는 병합 함수를 고른다 — IPADIC(kuromoji/lindera) vs UniDic(sudachi). */
+/** jaResult.engine 에 맞는 병합 함수를 고른다 — IPADIC(lindera) vs UniDic(sudachi). */
 function mergeJaTokensForEngine(jaResult: JaTokenizeResult): JaToken[] {
   return jaResult.engine.startsWith('sudachi')
     ? mergeJaTokensUnidic(jaResult.tokens)
@@ -292,7 +294,7 @@ interface DisplayText {
 
 /**
  * ExtractedSelection 으로부터 표시 문자열(displayText)과 그 안에서의 선택 오프셋만 계산한다.
- * language 와 무관 — 일본어 kuromoji 토큰(jaTokens)을 요청하려면 이 displayText 가 먼저
+ * language 와 무관 — 일본어 형태소 토큰(jaTokens)을 요청하려면 이 displayText 가 먼저
  * 필요해서(PopupScreen 이 비동기로 IPC 호출) buildSelectionModel 과 분리해 둔다.
  *
  * 이 함수가 만드는 windowedText/displayText 는 어디까지나 화면 표시용이다. LLM 에 넘길
