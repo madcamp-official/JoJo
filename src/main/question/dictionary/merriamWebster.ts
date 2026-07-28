@@ -57,6 +57,10 @@ type MerriamWebsterSseqNode = unknown
 
 interface MerriamWebsterDef {
   sseq: MerriamWebsterSseqNode[][]
+  /** "verb divider" — 타동/자동사 구분(실측: "run"이 intransitive/transitive verb 로
+   *  def 블록이 2개로 갈림). entry.fl 이 아니라 def 블록 단위라, lbs(entry 전체→모든
+   *  sense 복제)와 비슷하게 이 블록 안 sense 전부에 전파해야 한다. */
+  vd?: string
 }
 
 interface MerriamWebsterCxs {
@@ -238,14 +242,23 @@ function entryToReading(
     .map((i) => i.if?.replace(/[·*]/g, ''))
     .filter((v): v is string => !!v)
 
-  const senseNodes: MerriamWebsterSense[] = []
-  for (const def of entry.def ?? []) collectSenseNodes(def.sseq, senseNodes)
+  // def 블록마다 vd(타동/자동사 구분, 실측: "run"이 intransitive/transitive verb 로
+  // 블록이 갈림)가 다를 수 있어 sense 를 def 블록과 묶어서 수집한다(평탄화하면 어느
+  // sense 가 어느 vd 에 속했는지 정보가 사라짐).
+  const senseNodes: { node: MerriamWebsterSense; transitive?: boolean }[] = []
+  for (const def of entry.def ?? []) {
+    const transitive =
+      def.vd === 'transitive verb' ? true : def.vd === 'intransitive verb' ? false : undefined
+    const nodes: MerriamWebsterSense[] = []
+    collectSenseNodes(def.sseq, nodes)
+    for (const node of nodes) senseNodes.push({ node, transitive })
+  }
 
   // sdsense(하위 세분 정의, 실측: "photosynthesis"의 메인 정의 옆에 형제로 붙는
   // `{ sd: "especially", dt: [...] }`)를 부모 바로 뒤에 밀어넣고 parentIndex 로 관계를
   // 남긴다 — .map() 으론 부모의 최종 배열 인덱스를 미리 알 수 없어 순차 push 로 바꿨다.
   const senses: DictionarySense<'en'>[] = []
-  for (const node of senseNodes) {
+  for (const { node, transitive } of senseNodes) {
     const { gloss, examples, usageNote } = extractDt(node.dt)
     let parentIndex: number | undefined
     if (gloss.length) {
@@ -255,6 +268,7 @@ function entryToReading(
         pos,
         posRaw: fl,
         irregularForms: irregularForms.length ? irregularForms : undefined,
+        transitive,
         gloss,
         examples: examples.length ? examples : undefined,
         usageTags: mergeUsageTags(node.sls, entry.lbs),
@@ -270,6 +284,7 @@ function entryToReading(
           pos,
           posRaw: fl,
           irregularForms: irregularForms.length ? irregularForms : undefined,
+          transitive,
           gloss: label ? sub.gloss.map((g) => `${label} : ${g}`) : sub.gloss,
           examples: sub.examples.length ? sub.examples : undefined,
           usageTags: mergeUsageTags(node.sls, entry.lbs),
