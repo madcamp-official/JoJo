@@ -71,6 +71,20 @@ export interface SelectedSense {
 
 /** LLM 응답에서 "번호: N\n번역: ...\n예문번역: ..." 블록(들, "---" 로 구분)을 파싱한다.
  *  "번호: 0"(해당 없음)이나 파싱 실패 블록, 목록에 없는 번호는 조용히 걸러낸다. */
+/** 대응어를 뜻풀이 번역과 나란히 보여줄지 정하는 기준 — 대응어 길이가 뜻풀이 번역
+ *  길이의 이 비율을 넘으면(즉 뜻풀이를 다른 말로 살짝 바꿔 쓴 것에 가까우면) 대응어를
+ *  버리고 뜻풀이 번역만 보여준다. LLM에게 "길이가 비슷하면 생략하라"고 프롬프트로
+ *  지시해봤지만 실측 결과(2026-07-28, "close"(동사) "운영을 중단하다 — 운영을 멈추다"
+ *  사례) 일관되게 지켜지지 않아, 결정론적인 로컬 로직으로 옮겼다. */
+const COUNTERPART_LENGTH_RATIO_THRESHOLD = 0.7
+
+function combineTranslation(counterpart: string | undefined, glossTranslation: string): string {
+  if (!counterpart) return glossTranslation
+  const ratio = counterpart.length / glossTranslation.length
+  if (ratio > COUNTERPART_LENGTH_RATIO_THRESHOLD) return glossTranslation
+  return `${counterpart} — ${glossTranslation}`
+}
+
 export function parseJudgeReply(reply: string, senses: NumberedSense[]): SelectedSense[] {
   const byIndex = new Map(senses.map((s) => [s.index, s]))
   const out: SelectedSense[] = []
@@ -82,10 +96,11 @@ export function parseJudgeReply(reply: string, senses: NumberedSense[]): Selecte
     if (index === 0) continue
     const sense = byIndex.get(index)
     if (!sense) continue
+    const counterpartMatch = block.match(/대응어\s*[:：]\s*(.+)/)
     const exampleMatch = block.match(/예문\s*번역\s*[:：]\s*(.+)/)
     out.push({
       sense,
-      translatedGloss: glossMatch[1].trim(),
+      translatedGloss: combineTranslation(counterpartMatch?.[1]?.trim(), glossMatch[1].trim()),
       translatedExample: exampleMatch?.[1]?.trim(),
     })
   }
