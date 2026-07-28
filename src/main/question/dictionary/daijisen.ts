@@ -324,6 +324,19 @@ export async function fetchDaijisenEntry(word: string): Promise<DaijisenLookupRe
   for (const entryBlock of entryBlocks) {
     const { headword: blockHeadword, reading: readingText } = extractHeadwordAndReading(entryBlock)
     if (!blockHeadword.length) continue
+    // 관련성 확인(2026-07-28 실측 후 추가) — kotobank.jp의 ID 없는 리다이렉트가 항상
+    // 조회어와 관련된 페이지로 가는 게 아니다: 순수 히라가나 상용 동사(예: "なる")가
+    // 전혀 다른 가타카나 표제어("ナル", 발음만 같은 별개 단어로 추정)로 리다이렉트되는
+    // 걸 실측 확인(반면 한자로 "成る"를 조회하면 정상적으로 동사 뜻이 나옴). 이런 경우를
+    // 걸러내지 않으면 완전히 무관한 뜻을 조회어의 뜻인 것처럼 조용히 반환하게 된다(빈
+    // 값을 반환해 다음 폴백으로 넘어가는 것보다 훨씬 나쁨) — MW 어댑터의 `isRelevantEntry`
+    // 와 같은 목적.
+    // **정확히 일치가 아니라 포함 관계로 비교**해야 한다 — 実측(水): もい〔もひ〕【▽水】
+    // 처럼 희귀/방언 읽기를 나타내는 "▽" 마커(`<sup>▽</sup>`)가 브래킷 안에 붙는 표기가
+    // 있는데, 이걸 정확히 일치로 비교하면 "▽水" ≠ "水"라 진짜 水의 이표기까지 잘못
+    // 걸러진다 — 포함 관계("▽水".includes("水"))로 비교하면 이런 마커는 자연히 통과되고,
+    // なる→ナル처럼 문자 자체가 다른 완전 별개 단어는 여전히 걸러진다.
+    if (!blockHeadword.some((h) => h.includes(word)) && readingText !== word) continue
 
     const descriptionHtml = extractDescriptionSection(entryBlock)
     if (!descriptionHtml) continue
