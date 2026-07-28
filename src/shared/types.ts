@@ -198,6 +198,18 @@ export interface DictionarySenseBase {
    *  string 이면 이 중 하나만 남기고 나머지를 버려야 해서 배열로 바꿈 — 다른 소스는
    *  항상 길이 1인 배열을 채우면 됨. */
   gloss: string[]
+  /** 이 sense 가 다른 sense 의 더 좁은 하위 구분일 때, 그 부모 sense 를 가리키는 인덱스
+   *  (같은 `DictionaryReading.senses` 배열 안에서의 위치, 0-based) — 2026-07-28 신설.
+   *  MW `sdsense`(예: "photosynthesis" 주 정의 아래 "especially: ..." 하위 정의)와
+   *  Kotobank 精選版日本国語大辞典의 `[一]`→`①②③`→`(イ)(ロ)` 다단 번호매김(예: "花"는
+   *  대분류 5개 아래 세부 뜻 30개 이상)이 둘 다 "병렬 대안 뜻"이 아니라 "상위 뜻의 더 좁은
+   *  하위 구분"이라는 계층 구조인데, 이 배열 자체는 평면이라 그냥 순서대로 넣으면 이 관계가
+   *  사라진다 — 어댑터가 하위 sense 를 만들 때 그 직속 부모의 배열 인덱스를 채워 넣어
+   *  트리 구조를 재구성할 수 있게 한다(다단이면 부모의 parentIndex 를 따라가며 조상까지
+   *  거슬러 올라감). 계층이 없는 소스(en OEWN/Wiktionary, zh CC-CEDICT 등)는 항상
+   *  undefined. LLM 프롬프트/UI 가 이 정보를 어떻게 실제로 활용할지(들여쓰기 표시 등)는
+   *  아직 미정 — 어댑터 구현 시점에 정하기로 함(우선 필드만 마련). */
+  parentIndex?: number
   /** 있는 소스만(JMdict/CC-CEDICT 는 예문 자체가 없는 포맷). **萌典은 있음** — `definitions[].
    *  example`(현대 용례, "如：「...」" 형태) 실측 확인, `DICTIONARY_SOURCES.md` 참고. 단
    *  萌典의 `definitions[].quote`(고전 문헌 인용+출처)는 이 필드로 흡수하지 않고 스키마
