@@ -112,9 +112,12 @@ const FL_TO_POS: Record<string, CanonicalPos<'en'>> = {
   'indefinite article': 'article',
 }
 
-function flToPos(fl?: string): CanonicalPos<'en'> | undefined {
+/** MW 의 fl 은 entry 당 하나뿐이라 배열이라도 항상 원소 1개 — DictionarySense.pos 가
+ *  배열로 바뀐 것(2026-07-28, shared/types.ts 주석 참고)에 맞춰 감싸서 반환한다. */
+function flToPos(fl?: string): CanonicalPos<'en'>[] | undefined {
   if (!fl) return undefined
-  return FL_TO_POS[fl]
+  const mapped = FL_TO_POS[fl]
+  return mapped ? [mapped] : undefined
 }
 
 // ---- MW 마크업 토큰({bc}/{it}.../{sx|word||} 등) 제거 ---------------------------
@@ -501,7 +504,7 @@ async function buildEntryForHeadword(
 async function fetchHeadwordInfo(
   headword: string,
   apiKey: string,
-): Promise<{ pos?: CanonicalPos<'en'>; pronunciations?: DictionaryReading<'en'>['pronunciations'] }> {
+): Promise<{ pos?: CanonicalPos<'en'>[]; pronunciations?: DictionaryReading<'en'>['pronunciations'] }> {
   try {
     const res = await fetch(`${MERRIAM_WEBSTER_ENDPOINT}/${encodeURIComponent(headword)}?key=${apiKey}`)
     if (!res.ok) return {}

@@ -191,12 +191,21 @@ export interface SeeAlsoRef {
  *  parentIndex 유무에 따라 갈려야 해서(그룹 헤더 sense는 gloss가 없을 수 있음) 아래
  *  `DictionarySenseGloss`로 별도 분리했다. */
 interface DictionarySenseCommon<L extends Language = Language> {
-  /** 표준화된 품사 — CC-CEDICT처럼 품사 필드 자체가 없는 소스만 undefined. **萌典도 품사
+  /** 표준화된 품사(복수 가능) — CC-CEDICT처럼 품사 필드 자체가 없는 소스만 undefined,
+   *  있으면 최소 원소 1개 이상(빈 배열은 안 쓰고 undefined 로 통일). **萌典도 품사
    *  필드가 있음**(실측 확인: `definitions[].type` — 名/動/形/副/連/介/代/助/歎, 순서대로
    *  명사/동사/형용사/부사/접속사/전치사/대명사/조사/감탄사에 대응). 단, 양사(量詞)는 별도
    *  type 값이 없고 `名`(명사) 안에 "量詞：" 라는 평문으로만 표시돼 있어(예: "隻") classifier
-   *  판정은 이 필드만으론 안 되고 gloss 텍스트 파싱이 추가로 필요함. */
-  pos?: CanonicalPos<L>
+   *  판정은 이 필드만으론 안 되고 gloss 텍스트 파싱이 추가로 필요함.
+   *
+   *  **2026-07-28: 단일값(`CanonicalPos<L>`)에서 배열로 변경.** sense 하나가 품사 코드를
+   *  2개 이상 동시에 갖는 실제 사례를 발견 — JMdict 실측: "らしい" sense2 →
+   *  `partOfSpeech: ["suf", "adj-i"]`(접미사이면서 い형용사), "元気" sense1 →
+   *  `["Na-adjective (keiyodoshi)", "Noun"]`(な형용사이면서 명사). 단일값으로는 어댑터가
+   *  "대표 하나"만 골라 넣고 나머지는 `posRaw`(원본 문자열)에만 남겨 정보가 손실됐다
+   *  (LLM 프롬프트/UI가 실제로는 형용사+접미사인 sense를 형용사 하나로만 인식). 이 필드
+   *  자체가 "이 sense에 해당하는 품사 전부"를 담도록 배열로 바꿔 손실을 없앤다. */
+  pos?: CanonicalPos<L>[]
   /** 원본 품사 표기 보존(JMdict 'v1' 등) — 디버깅/검수용, LLM 프롬프트에는 넣지 않음.
    *  CanonicalPos 로 뭉뚱그리며 사라지는 세부 정보 자체는 이 필드에 남아있지만, LLM에
    *  전달 안 하기로 했으므로 "문법 설명에 실제로 쓸 정보"는 반드시 conjugationClass 처럼

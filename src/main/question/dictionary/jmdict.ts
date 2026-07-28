@@ -143,16 +143,19 @@ const POS_TO_CANONICAL: Record<string, CanonicalPos<'ja'>> = {
 // 77개 표 안에 다 늘어놓는 대신 정규식으로 한 번에 매칭.
 const VERB_CODE_RE = /^v(4[a-z]|5[a-z0-9-]+|2[a-z]-[ks])$/
 
-function mapPos(codes: string[]): CanonicalPos<'ja'> | undefined {
-  let fallback: CanonicalPos<'ja'> | undefined
+/** JMdict 의 partOfSpeech 는 sense 하나에 코드가 여러 개 동시에 붙을 수 있다(실측:
+ *  "らしい" sense2 → `["suf", "adj-i"]` — 접미사이면서 い형용사, "元気" sense1 →
+ *  `["Na-adjective (keiyodoshi)", "Noun"]` — な형용사이면서 명사). 예전엔 "other가
+ *  아닌 첫 코드"에서 멈추고 하나만 반환해 이 중복 표시가 사라졌다(2026-07-28 이전) — 이제
+ *  매핑되는 코드 전부를 순서대로 모아 반환한다(같은 canonical 값으로 중복 매핑되면 dedup). */
+function mapPos(codes: string[]): CanonicalPos<'ja'>[] | undefined {
+  const out: CanonicalPos<'ja'>[] = []
   for (const code of codes) {
-    if (VERB_CODE_RE.test(code)) return 'verb'
-    const mapped = POS_TO_CANONICAL[code]
+    const mapped = VERB_CODE_RE.test(code) ? 'verb' : POS_TO_CANONICAL[code]
     if (mapped === undefined) continue
-    if (mapped !== 'other') return mapped
-    if (fallback === undefined) fallback = mapped
+    if (!out.includes(mapped)) out.push(mapped)
   }
-  return fallback
+  return out.length ? out : undefined
 }
 
 // ---- 활용 분류(conjugationClass) — 문법 설명에 실제로 쓰이는 정보라 posRaw 와 별도로 승격 ---

@@ -59,9 +59,10 @@ const POS_MAP: Record<string, CanonicalPos<'zh-Hant'>> = {
   歎: 'interjection',
 }
 
-function mapPos(type: string | undefined): CanonicalPos<'zh-Hant'> | undefined {
+function mapPos(type: string | undefined): CanonicalPos<'zh-Hant'>[] | undefined {
   if (!type) return undefined
-  return POS_MAP[type]
+  const mapped = POS_MAP[type]
+  return mapped ? [mapped] : undefined
 }
 
 // ---- MoedictHeteronym[] → DictionaryReading[] ---------------------------------

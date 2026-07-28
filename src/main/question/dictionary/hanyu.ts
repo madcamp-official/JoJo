@@ -151,7 +151,8 @@ function parseSenseChunk(
     if (block.includes('xxjs-block-label--ant')) antonyms.push(...tags)
   }
 
-  const pos = posRaw ? POS_BADGE_MAP[posRaw] : undefined
+  const mappedPos = posRaw ? POS_BADGE_MAP[posRaw] : undefined
+  const pos = mappedPos ? [mappedPos] : undefined
 
   return {
     pos,

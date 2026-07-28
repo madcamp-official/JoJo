@@ -93,7 +93,7 @@ function synsetToSense(synsetId: string, posKey: string, synsets: OewnBundleSyns
   const synset = synsets[synsetId]
   if (!synset || !synset.definition.length) return null // gloss 는 필수 필드 — 못 채우면 이 sense 는 버린다
   return {
-    pos: WN_POS_TO_CANONICAL[baseWnPos(posKey)],
+    pos: [WN_POS_TO_CANONICAL[baseWnPos(posKey)]],
     posRaw: posKey,
     gloss: synset.definition,
     examples: synset.example?.length ? synset.example : undefined,

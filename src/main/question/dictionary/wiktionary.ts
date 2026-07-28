@@ -239,7 +239,8 @@ async function fetchZhPronunciation(word: string): Promise<string | undefined> {
  *  자체가 없음), pos 블록 하나당 reading 하나로 대응한다 — pronunciations 는 여기선 항상
  *  undefined 로 두고(en 은 fetchWiktionaryEntry 가 dictionaryapi.dev 로 보강). */
 function blockToReading<L extends Language>(block: WiktionaryPosBlock, language: L): DictionaryReading<L> | null {
-  const pos = mapPos(block.partOfSpeech, language)
+  const mapped = mapPos(block.partOfSpeech, language)
+  const pos = mapped ? [mapped] : undefined
   const senses: DictionarySense<L>[] = block.definitions
     .map((def): DictionarySense<L> | null => {
       const gloss = stripWiktionaryHtml(def.definition)

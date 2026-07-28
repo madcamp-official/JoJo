@@ -10,7 +10,7 @@ import { merriamWebsterToIpa } from './merriamWebsterToIpa'
 export interface NumberedSense {
   index: number
   headword: string
-  pos?: CanonicalPos
+  pos?: CanonicalPos[]
   posRaw?: string
   pronunciation?: string
   irregularForms?: string[]
@@ -79,7 +79,7 @@ export function buildSenseListText(senses: NumberedSense[]): string {
               ? '정관사'
               : s.definite === false
                 ? '부정관사'
-                : (s.posRaw ?? s.pos)
+                : (s.posRaw ?? s.pos?.join('/'))
       const tag = label ? `[${label}] ` : ''
       const gloss = s.gloss.join('; ')
       const ex = s.examples?.length ? ` (예: ${s.examples.map((e) => `"${e}"`).join(' / ')})` : ''
@@ -201,7 +201,7 @@ export function formatDictionaryAnswer(
             ? '정관사'
             : sense.definite === false
               ? '부정관사'
-              : ((sense.pos && POS_KO[sense.pos]) ?? sense.posRaw)
+              : (sense.pos?.map((p) => POS_KO[p] ?? p).join('/') ?? sense.posRaw)
     const idiomTag = sense.isIdiom ? ' (관용구)' : ''
     const posSuffix = label ? ` · ${label}${idiomTag}` : ''
     // MW 는 IPA 가 아니라 자체 표기법이라 표시 직전에 IPA 근사치로 변환한다(merriamWebsterToIpa.ts).
