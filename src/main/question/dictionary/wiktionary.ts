@@ -238,14 +238,31 @@ function extractZhMandarinFromWikitext(wikitext: string): string[] {
  *  못 채우면 남는 블록은 undefined로 남긴다 — 예전 방식(구분 없이 페이지 전체 발음을
  *  모든 reading에 똑같이 복제)은 猫/東京처럼 서로 다른 읽기를 가진 표제어에서 부정확한
  *  정보를 자신 있게 보여주는 문제가 있었다(2026-07-28 사용자 피드백으로 발견) — "모른다"가
- *  틀린 값보다 안전하다는 판단. */
+ *  틀린 값보다 안전하다는 판단.
+ *
+ *  **반환값에 groupId 를 같이 준다**(2026-07-28, 안전성 개선) — 처음엔 fetchWiktionaryEntry
+ *  가 "바로 이전 블록과 pronunciations 배열이 레퍼런스로 같은가"를 보고 같은 Pronunciation
+ *  헤더에 속하는지 판단했는데, 이건 "이 함수가 새 Pronunciation 헤더를 만날 때만 새
+ *  배열을 만든다"는 내부 구현 디테일에 호출부가 암묵적으로 의존하는 셈이라, 나중에 이
+ *  함수를 고치면서 그 습관이 깨지면(예: 매번 새 배열을 만들도록 리팩터링) 조용히 병합이
+ *  전부 안 되는 버그로 이어질 수 있었다. Pronunciation 헤더를 새로 만날 때마다 증가하는
+ *  숫자(groupId)를 명시적으로 반환해, 호출부가 배열 레퍼런스가 아니라 이 숫자만 비교하면
+ *  되게 했다 — 값이 같은 값이라도(예: 우연히 같은 발음) groupId 가 다르면 다른 그룹으로
+ *  남는다. */
+interface BlockPronunciation {
+  values: string[] | undefined
+  /** 이 블록이 속한 Pronunciation 헤더 그룹 번호(0-based, 첫 Pronunciation 헤더를
+   *  만나기 전 블록은 -1 — 어차피 values 가 undefined 라 병합 대상이 안 됨). */
+  groupId: number
+}
+
 function assignPerBlockPronunciations(
   wikitext: string,
   languageName: string,
   blocks: WiktionaryPosBlock[],
   extractValues: (content: string) => string[],
-): (string[] | undefined)[] {
-  const results: (string[] | undefined)[] = blocks.map(() => undefined)
+): BlockPronunciation[] {
+  const results: BlockPronunciation[] = blocks.map(() => ({ values: undefined, groupId: -1 }))
 
   const sectionRegex = new RegExp(`==${languageName}==([\\s\\S]*?)(?=\\n==[A-Za-z][^=\\n]*==\\n|$)`)
   const sectionMatch = wikitext.match(sectionRegex)
@@ -260,6 +277,7 @@ function assignPerBlockPronunciations(
   }
 
   let currentPron: string[] = []
+  let currentGroupId = -1
   let blockIdx = 0
   for (let i = 0; i < headings.length && blockIdx < blocks.length; i++) {
     const h = headings[i]
@@ -274,10 +292,11 @@ function assignPerBlockPronunciations(
     // currentPron 이 끝까지 빈 채로 남고 모든 zh 블록이 undefined 가 되는 버그가 있었음.
     if (/^Pronunciation(\s+\d+)?$/.test(h.text)) {
       currentPron = extractValues(content)
+      currentGroupId++
       continue
     }
     if (h.text === blocks[blockIdx].partOfSpeech) {
-      results[blockIdx] = currentPron.length ? currentPron : undefined
+      results[blockIdx] = { values: currentPron.length ? currentPron : undefined, groupId: currentGroupId }
       blockIdx++
     }
   }
@@ -354,14 +373,14 @@ export async function fetchWiktionaryEntry<L extends Language>(
   // assignPerBlockPronunciations 주석 참고) — 페이지 전체에서 긁어 모든 reading 에
   // 뭉뚱그려 넣지 않는다.
   const wikitext = await fetchWikitext(word)
-  const perBlock: (string[] | undefined)[] = wikitext
+  const perBlock: BlockPronunciation[] = wikitext
     ? assignPerBlockPronunciations(
         wikitext,
         langName,
         blocks,
         language === 'en' ? extractEnIpaValues : language === 'ja' ? extractJaPronValues : extractZhMandarinFromWikitext,
       )
-    : blocks.map(() => undefined)
+    : blocks.map(() => ({ values: undefined, groupId: -1 }))
 
   // 같은 Pronunciation 헤더에 딸린 블록들(예: "lead" 금속 뜻의 Noun+Verb, 실측: 둘 다
   // /ˈlɛd/)은 DictionaryReading 이 원래 "발음 하나에 딸린 sense 묶음"으로 설계됐다는
@@ -369,23 +388,24 @@ export async function fetchWiktionaryEntry<L extends Language>(
   // 방향의 같은 원칙)에 맞춰 reading 하나로 합친다 — REST API 블록(품사 단위)과
   // DictionaryReading(발음 단위)이 서로 다른 축이라 기계적으로 1:1 대응시키면 같은
   // 발음이 여러 reading 으로 쪼개지는 문제가 있었다(2026-07-28 사용자 지적).
-  // assignPerBlockPronunciations 가 같은 Pronunciation 헤더 구간에 속한 블록들에 정확히
-  // 같은 배열 레퍼런스를 재사용해 채워주므로(새 Pronunciation 헤더를 만날 때만 새 배열로
-  // 교체), "바로 이전 블록과 배열 레퍼런스가 같은가"만 보면 같은 그룹인지 안전하게 알 수
-  // 있다 — 값(내용)이 우연히 같은 별개 그룹까지 잘못 합치는 걸 막는다. 발음을 못 찾은
-  // 블록(undefined)은 서로 무관할 수 있어 합치지 않고 각자 별도 reading 으로 둔다.
+  // assignPerBlockPronunciations 가 명시적으로 돌려주는 groupId(같은 Pronunciation
+  // 헤더 구간이면 같은 번호)로 그룹을 판별한다 — 배열 레퍼런스 동일성 비교(이전 방식)는
+  // 그 함수의 "새 헤더를 만날 때만 새 배열을 만든다"는 내부 구현 디테일에 암묵적으로
+  // 의존해서, 나중에 그 함수를 리팩터링하다 그 습관이 깨지면 조용히 병합이 전부 안 되는
+  // 버그로 이어질 위험이 있었다(2026-07-28 안전성 개선). groupId 가 -1(발음 못 찾음)인
+  // 블록은 서로 무관할 수 있어 합치지 않고 각자 별도 reading 으로 둔다.
   const readings: DictionaryReading<L>[] = []
-  let lastPron: string[] | undefined
+  let lastGroupId = -1
   for (const { blockIndex, reading } of readingsWithBlockIndex) {
-    const pron = perBlock[blockIndex]
+    const { values, groupId } = perBlock[blockIndex]
     const prev = readings[readings.length - 1]
-    if (pron && prev && pron === lastPron) {
+    if (values && prev && groupId !== -1 && groupId === lastGroupId) {
       prev.senses.push(...reading.senses)
     } else {
-      if (pron?.length) reading.pronunciations = pron.map((value) => ({ value }))
+      if (values?.length) reading.pronunciations = values.map((value) => ({ value }))
       readings.push(reading)
     }
-    lastPron = pron
+    lastGroupId = groupId
   }
 
   const entry = {
