@@ -23,6 +23,27 @@ function MarkdownLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) {
   )
 }
 
+/** react-markdown(정확히는 내부 micromark)의 CommonMark 강조 규칙 때문에, **볼드**의 닫는
+ *  `**` 바로 앞이 닫는 문장부호(）」. 등)이고 바로 뒤에 공백/문장부호 없이 다른 글자가
+ *  바로 이어지면 그 `**`가 "right-flanking"으로 인정되지 않아 볼드로 파싱되지 않고
+ *  별표가 그대로 노출된다(실측: "**清洲（きよす）**는" → 별표 그대로 보임, "**清洲（きよす）**."
+ *  → 정상 렌더 — 뒤에 오는 게 마침표인지 조사인지에 따라 갈림, micromark
+ *  classify-character.js 직접 확인). 이 앱은 일본어/중국어 표제어+읽기를 볼드로 감싼 뒤
+ *  한국어 조사(는/가/을/를 등)를 뒤이어 붙이는 문장이 실제로 자주 나오는데, 조사는 원래
+ *  띄어쓰기 없이 붙는 게 맞는 한국어 문법이라 LLM에 "띄어 써 달라"고 시킬 수도 없다 —
+ *  렌더링 쪽에서 우회한다. 닫는 `**` 바로 뒤에 폭 0인 U+FEFF(ZERO WIDTH NO-BREAK SPACE)를
+ *  끼워 넣는다 — micromark의 공백 판정이 내부적으로 JS 정규식 `\s`를 그대로 쓰는데, 이
+ *  `\s`가 U+FEFF를 공백으로 인식하는 걸 이용한 것(실측 확인: U+200B/U+2060 같은 다른
+ *  zero-width 문자는 이 판정을 통과 못 해 효과 없었음). 화면엔 아무 폭도 없어 보이지
+ *  않는다. **여는** `**` 뒤가 아니라 **닫는** `**` 뒤에만 붙여야 한다 — 여는 쪽에 붙이면
+ *  반대로 그 여는 델리미터가 "left-flanking" 자격을 잃어 볼드 자체가 안 열린다. 굵게
+ *  강조된 문장부호가 나올 일이 거의 없어 볼드 안에 `*`가 없는 가장 흔한 경우만 다룬다
+ *  (안에 `*`가 있는 중첩 강조는 이 정규식에 안 걸려 원래 동작 그대로 — 스코프 밖).  */
+const ZWNBSP = '﻿'
+function fixAmbiguousBoldClosing(text: string): string {
+  return text.replace(/\*\*([^\n*]+?)\*\*/g, (_match, inner: string) => `**${inner}**${ZWNBSP}`)
+}
+
 interface Props {
   messages: ChatMessage[]
   onSend: (prompt: string) => void
@@ -64,7 +85,7 @@ export function Chat({ messages, onSend, busy }: Props) {
             ) : m.role === 'assistant' ? (
               <div className="md">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
-                  {m.content}
+                  {fixAmbiguousBoldClosing(m.content)}
                 </ReactMarkdown>
               </div>
             ) : (

@@ -362,12 +362,21 @@ button:disabled { cursor: not-allowed; }
    선택만 막는다(ContextView.tsx). 네이티브 선택의 파란 하이라이트 박스는 숨기고 아래
    .sel 클래스의 보라색 강조만 보이게 한다. */
 .ctx-text ::selection { background: transparent; }
-.ctx-text .atom { border-radius: 3px; padding: 0 1px; cursor: pointer; }
+/* padding 을 atom 좌우에 두면(구 0 1px) 단어 단위 모드에서도 원문 대비 자간이 미세하게
+   달라 보였다(실측: Chrome headless 스크린샷 비교 — padding 이 있으면 justify 폭 계산이
+   달라져 줄바꿈 위치까지 원문과 어긋남) — "글자 단위로 전환하면 자간이 바뀐다"는 문제의
+   진짜 원인은 char-level 전용이 아니라 이 padding 자체였다(예전엔 char-level 에서만
+   0으로 없앴는데, 단어 단위에 남은 padding과 비교되면서 전환 시 차이가 여전히 보였음).
+   양쪽 모드 모두 padding 을 없애 원문과 자간이 완전히 같게 통일한다. */
+.ctx-text .atom { border-radius: 3px; padding: 0; cursor: pointer; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
-/* ja/zh "글자 단위" 토글(2026-07-28) — 글자 하나하나가 다 atom 이라 위 좌우 padding(1px)이
-   매 글자마다 누적되면 자간이 늘어난 것처럼 보인다. 이 모드에선 padding 을 없애 원문과
-   같은 자간을 유지한다(하이라이트/hover 배경은 그대로 유지됨, border-radius 만 영향받음). */
-.ctx-text.char-level .atom { padding: 0; }
+/* ja/zh "글자 단위" 모드(2026-07-28)는 글자 하나하나가 다 atom 이라 "단어를 고른다"는
+   감각이 아니라 그냥 텍스트를 드래그하는 감각에 가깝다 — hover 마다 연보라 배경이 반짝이고
+   커서가 손가락(pointer)으로 바뀌면 오히려 산만해서, 이 모드에선 일반 텍스트 드래그와
+   동일하게 hover 강조를 끄고 커서도 항상 I자(text)로 고정한다(실제 선택된 글자는 아래
+   .sel 로 여전히 진한 보라 배경으로 보인다 — 선택 결과 표시만 남기고 hover 예고만 뺌). */
+.ctx-text.char-level .atom { cursor: text; }
+.ctx-text.char-level .atom:hover { background: none; }
 /* 드래그 도중엔 어떤 세그먼트(atom/gap) 위에 있든 커서를 텍스트(I-beam) 로 고정 —
    개별 span 의 cursor: pointer/text 로 매 순간 바뀌어 보이는 걸 막는다. */
 .ctx-text.dragging, .ctx-text.dragging * { cursor: text !important; }
