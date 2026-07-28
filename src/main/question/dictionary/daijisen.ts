@@ -18,8 +18,12 @@ import type { DictionaryEntry, DictionaryReading, DictionarySense } from '@share
 //
 // **동형이의 항목 처리**: 한 daijisen article 안에 `<div class="ex cf">`로 나뉘는 여러
 // 하위 항목이 있을 수 있다(실측: "花" 페이지 — ①はな【花／華】(일반 단어) ②か【花】［漢字項目］
-// (한자항목) ③はな【花】［曲名］(가곡 제목) 3개). 이 어댑터는 **첫 번째 항목만** 채택한다 —
-// 단어 뜻풀이 조회가 목적이라 한자항목/고유명사(곡명 등) 부차 항목은 스코프 밖.
+// (한자항목) ③はな【花】［曲名］(가곡 제목) 3개). 어댑터가 미리 관련성을 판단해 걸러내지 않고
+// **전부** 별도 `DictionaryReading`으로 만들어 넘긴다 — 이 앱은 애초에 "사전이 후보 뜻을
+// 여러 개 주면 LLM이 문맥상 맞는 걸 고른다"는 구조라(senseSelect.ts), 한자항목/곡명 같은
+// 부차 항목도 후보 하나로 얹어두면 그만이다(MW 어댑터가 동형이의어(hom)를 전부 별도
+// reading으로 넘기는 것과 동일 패턴). headword는 모든 항목의 한자 표기를 합집합으로 모으고,
+// 각 항목의 읽기(<h3> 대괄호 앞부분)는 그 reading의 pronunciations로 채운다.
 //
 // **활용형 미대응**: JMdict와 마찬가지로 활용된 형태를 원형으로 자동 변환하지 않는다 —
 // 표면형을 그대로 URL에 써서 조회한다(基本形 전처리는 이 어댑터 스코프 밖, main/nlp/
@@ -112,35 +116,49 @@ function splitGlossAndExamples(text: string): { gloss: string; examples: string[
 // ---- daijisen article 잘라내기 --------------------------------------------------
 
 /** `class="dictype cf daijisen"`를 포함하는 최상위 `<article>` 블록 하나를 잘라낸다(다음
- *  `<article class="dictype` 시작 전까지) — hanyu.ts(extractSection)와 동일한 "최상위
- *  섹션끼리 중첩 안 됨" 전제. */
+ *  `<article ... class="dictype` 시작 전까지) — hanyu.ts(extractSection)와 동일한 "최상위
+ *  섹션끼리 중첩 안 됨" 전제. **주의**: 실제 마크업은 `<article itemscope itemtype="..."
+ *  id="..." class="dictype cf daijisen">`처럼 `<article`과 `class=` 사이에 다른 속성이
+ *  끼어 있다 — 다음 article 탐지에 `indexOf('<article class="dictype')` 같은 고정 문자열
+ *  검색을 쓰면 절대 매칭이 안 돼(모든 article이 같은 속성 순서라 항상 실패) 경계를 못 찾고
+ *  daijisen 이후 페이지 전체(다른 사전들+광고+관련어)를 통째로 삼켜버리는 버그가 실제로
+ *  났다(실측: "花" — article 길이가 정상 19458자 대신 228181자, ex-cf 블록이 3개가 아니라
+ *  21개로 잡힘) — 반드시 정규식(`<article[^>]*class="dictype`)으로 속성을 건너뛰어야 한다. */
 function extractDaijisenArticle(html: string): string | null {
   const marker = 'class="dictype cf daijisen"'
   const markerIdx = html.indexOf(marker)
   if (markerIdx === -1) return null
   const articleStart = html.lastIndexOf('<article', markerIdx)
   if (articleStart === -1) return null
-  const nextArticleIdx = html.indexOf('<article class="dictype', markerIdx + marker.length)
+  const nextArticleMatch = html.slice(markerIdx + marker.length).match(/<article[^>]*class="dictype/)
+  const nextArticleIdx = nextArticleMatch?.index !== undefined ? markerIdx + marker.length + nextArticleMatch.index : -1
   return html.slice(articleStart, nextArticleIdx === -1 ? undefined : nextArticleIdx)
 }
 
-/** `<div class="ex cf">`로 나뉘는 동형이의 하위 항목 중 첫 번째만 취한다(위 파일 상단 주석
- *  "동형이의 항목 처리" 참고) — 조각 0번은 `<h2>` 등 article 헤더 잔여물이라 버린다. */
-function extractFirstEntryBlock(articleHtml: string): string | null {
-  const blocks = articleHtml.split('<div class="ex cf">')
-  return blocks.length > 1 ? blocks[1] : null
+/** `<div class="ex cf">`로 나뉘는 동형이의 하위 항목 전부를 잘라낸다(위 파일 상단 주석
+ *  "동형이의 항목 처리" 참고) — 조각 0번은 `<h2>` 등 article 헤더 잔여물이라 버린다.
+ *  한자항목(か【花】［漢字項目］)·곡명(はな【花】［曲名］) 같은 부차 항목을 어댑터가 미리
+ *  판단해 걸러내지 않고 전부 후보로 넘긴다 — 이 앱은 애초에 "사전이 후보를 주면 LLM이
+ *  문맥상 맞는 걸 고른다"는 구조라(senseSelect.ts), MW 어댑터가 동형이의어(hom)를 전부
+ *  별도 reading으로 넘기는 것과 동일한 방침. */
+function extractEntryBlocks(articleHtml: string): string[] {
+  return articleHtml.split('<div class="ex cf">').slice(1)
 }
 
-function extractHeadword(entryHtml: string): string[] {
+/** `<h3>` 표기(예: "はな【花／華】", "た・べる【食べる】", "か【花】［漢字項目］")에서
+ *  읽기(오쿠리가나 경계 표시 "・"는 제거)와 한자 표기(들)를 분리한다. */
+function extractHeadwordAndReading(entryHtml: string): { headword: string[]; reading?: string } {
   const h3Match = entryHtml.match(/<h3>([\s\S]*?)<\/h3>/)
-  if (!h3Match) return []
+  if (!h3Match) return { headword: [] }
   const text = stripDaijisenHtml(h3Match[1])
   const bracketMatch = text.match(/【([^】]*)】/)
-  if (!bracketMatch) return []
-  return bracketMatch[1]
+  if (!bracketMatch) return { headword: [] }
+  const headword = bracketMatch[1]
     .split(/[／/]/)
     .map((s) => s.trim())
     .filter(Boolean)
+  const readingRaw = text.slice(0, bracketMatch.index).replace(/・/g, '').trim()
+  return { headword, reading: readingRaw || undefined }
 }
 
 function extractDescriptionSection(entryHtml: string): string | null {
@@ -285,24 +303,35 @@ export async function fetchDaijisenEntry(word: string): Promise<DaijisenLookupRe
   const article = extractDaijisenArticle(html)
   if (!article) return {}
 
-  const entryBlock = extractFirstEntryBlock(article)
-  if (!entryBlock) return {}
+  const entryBlocks = extractEntryBlocks(article)
+  if (!entryBlocks.length) return {}
 
-  const headword = extractHeadword(entryBlock)
-  if (!headword.length) return {}
+  const headword: string[] = []
+  const readings: DictionaryReading<'ja'>[] = []
 
-  const descriptionHtml = extractDescriptionSection(entryBlock)
-  if (!descriptionHtml) return {}
+  for (const entryBlock of entryBlocks) {
+    const { headword: blockHeadword, reading: readingText } = extractHeadwordAndReading(entryBlock)
+    if (!blockHeadword.length) continue
 
-  const { senses } = parseDaijisenSenses(descriptionHtml)
-  if (!senses.length) return {}
+    const descriptionHtml = extractDescriptionSection(entryBlock)
+    if (!descriptionHtml) continue
 
-  const reading: DictionaryReading<'ja'> = { senses }
+    const { senses } = parseDaijisenSenses(descriptionHtml)
+    if (!senses.length) continue
+
+    for (const h of blockHeadword) if (!headword.includes(h)) headword.push(h)
+    readings.push({
+      pronunciations: readingText ? [{ value: readingText }] : undefined,
+      senses,
+    })
+  }
+
+  if (!headword.length || !readings.length) return {}
 
   const entry: DictionaryEntry<'ja'> = {
     language: 'ja',
     headword,
-    readings: [reading],
+    readings,
     source: 'daijisen',
   }
 
