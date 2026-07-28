@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Nuance Helper",
+  "name": "Nuance",
   "version": "0.0.1",
   "description": "브라우저에서 자막/DOM 텍스트를 추출해 Nuance 데스크톱 앱과 통신한다.",
   "permissions": ["activeTab", "scripting", "tabs"],
