@@ -63,8 +63,17 @@ export type ExtToApp =
   | { type: 'hello'; version: string } // 접속 직후 핸드셰이크
   | { type: 'pong' } // keepalive 응답(서비스 워커 생존 유지 겸)
   | { type: 'activeTab'; tab: ExtActiveTab | null } // 활성 탭 변화(없으면 null)
-  | { type: 'subtitles'; snapshot: SubtitleSnapshot | null } // 화면 자막 프레임 갱신(사라지면 null)
+  | { type: 'subtitles'; snapshot: SubtitleSnapshot | null } // 화면 자막 프레임 갱신(사라지면 null, 디버깅/로깅용)
   | { type: 'transcript'; videoId: string; cues: TranscriptCue[] } // 영상 전체 자막(로드 완료 시 1회)
+  | SubtitleClickMsg // 페이지 안에서 확장이 직접 처리한 자막 단어 클릭(hover 하이라이트도 확장이 그림)
+
+export interface SubtitleClickMsg {
+  type: 'subtitleClick'
+  word: string
+  lineText: string
+  wordOffsetInLine: number
+  currentTime: number
+}
 
 // 앱 → 확장
 export type AppToExt =

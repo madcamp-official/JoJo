@@ -44,11 +44,10 @@ button:disabled { cursor: not-allowed; }
 .overlay-root.mode-select { outline-color: var(--purple); }
 .overlay-root.hovering-word { cursor: pointer; }
 
-/* hover 중인 단어 위에만 그려진다(Overlay.tsx) — 항상 떠 있는 박스는 없음. */
+/* hover 중인 단어 위에만 그려진다(Overlay.tsx) — 항상 떠 있는 박스는 없음.
+   색상/두께는 Overlay.tsx 가 shared/highlightStyle.ts(단일 소스)로 인라인 지정한다. */
 .word-box {
   position: absolute; box-sizing: border-box;
-  border: 2px solid var(--purple);
-  background: rgba(124, 58, 237, 0.18);
   pointer-events: none;
 }
 

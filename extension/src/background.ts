@@ -129,6 +129,14 @@ chrome.runtime.onMessage.addListener((msg) => {
     send({ type: 'subtitles', snapshot: msg.snapshot ?? null })
   } else if (msg?.kind === 'transcript') {
     send({ type: 'transcript', videoId: msg.videoId, cues: msg.cues ?? [] })
+  } else if (msg?.kind === 'subtitleClick') {
+    send({
+      type: 'subtitleClick',
+      word: msg.word,
+      lineText: msg.lineText,
+      wordOffsetInLine: msg.wordOffsetInLine,
+      currentTime: msg.currentTime,
+    })
   }
   return undefined
 })

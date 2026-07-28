@@ -1,21 +1,18 @@
-import type { ExtractedSelection, Language, Word } from '@shared/types'
-import type { SubtitleSnapshot } from '@shared/extension'
+import type { ExtractedSelection, Language } from '@shared/types'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
-import { sendOverlayWords } from '../windows'
+import { createPopupWindow } from '../windows'
 
 // 담당 B — 유튜브/넷플릭스 자막 추출 경로 (OCR 대체).
-// 확장이 보내는 화면 자막 스냅샷(뷰포트 좌표)을 오버레이 로컬 좌표의 Word[] 로 바꿔
-// hover/클릭 판정에 쓰고, 클릭 시 앞뒤 범위 자막을 문맥으로 하는 ExtractedSelection 을 만든다.
-//
-// 좌표 보정: 오버레이는 이미 브라우저 창에 정렬돼 있으므로(windows.ts 추적), 뷰포트 좌표에
-// 크롬 오프셋(창 좌상단→뷰포트 좌상단)만 더하면 오버레이 로컬 좌표가 된다. CSS px 는
-// Electron DIP 와 같은 단위라 배율 보정은 필요 없다. 전체화면/극장모드에선 오프셋이 0 이다.
+// hover 하이라이트와 클릭은 확장이 페이지 안에서 직접 처리한다(extension/src/highlight.ts) —
+// 실제 마우스는 브라우저 페이지가 받으므로, 좌표를 앱(오버레이)으로 릴레이하면 크로스
+// 프로세스 지연 때문에 자막이 조금만 움직여도 hover/클릭이 어긋났다. 페이지 안에서 그리면
+// 지연이 없고 좌표 보정도 필요 없다. 앱은 클릭 이벤트(단어+줄+offset+재생시간)만 받아
+// 전체 자막(timedtext)에서 앞뒤 문맥을 붙인 ExtractedSelection 을 만들어 팝업을 연다.
 
 let active = false
-let latest: SubtitleSnapshot | null = null
-let latestWords: Word[] = []
-let unsubscribe: (() => void) | null = null
+let unsubscribeClick: (() => void) | null = null
+let pausedForPopup = false
 
 export function isSubtitleModeActive(): boolean {
   return active
@@ -25,53 +22,76 @@ export function startSubtitleMode(): void {
   if (active) return
   active = true
   extensionBridge.setSubtitleCapture(true)
-  const handler = (snapshot: SubtitleSnapshot | null): void => onSnapshot(snapshot)
-  extensionBridge.on('subtitles', handler)
-  unsubscribe = () => extensionBridge.off('subtitles', handler)
-  // 이미 받아둔 프레임이 있으면 즉시 반영.
-  onSnapshot(extensionBridge.getSubtitles())
+  const handler = (hit: SubtitleClickHit): void => onSubtitleClick(hit)
+  extensionBridge.on('subtitleClick', handler)
+  unsubscribeClick = () => extensionBridge.off('subtitleClick', handler)
 }
 
 export function stopSubtitleMode(): void {
   if (!active) return
   active = false
-  unsubscribe?.()
-  unsubscribe = null
+  unsubscribeClick?.()
+  unsubscribeClick = null
   extensionBridge.setSubtitleCapture(false)
-  latest = null
-  latestWords = []
-  sendOverlayWords([])
 }
 
-function onSnapshot(snapshot: SubtitleSnapshot | null): void {
-  latest = snapshot
-  latestWords = snapshot ? snapshotToWords(snapshot) : []
-  const first = latestWords[0]
-  console.log(
-    `[subtitle] words=${latestWords.length}`,
-    snapshot ? `chrome=(${snapshot.viewport.chromeLeft},${snapshot.viewport.chromeTop})` : '',
-    first ? `first="${first.text}" bbox=(${Math.round(first.bbox!.x)},${Math.round(first.bbox!.y)},${Math.round(first.bbox!.width)}x${Math.round(first.bbox!.height)})` : '',
-  )
-  sendOverlayWords(latestWords)
+interface SubtitleClickHit {
+  word: string
+  lineText: string
+  wordOffsetInLine: number
+  currentTime: number
 }
 
-function snapshotToWords(snapshot: SubtitleSnapshot): Word[] {
-  const { chromeLeft, chromeTop } = snapshot.viewport
-  const words: Word[] = []
-  for (const line of snapshot.lines) {
-    for (const w of line.words) {
-      words.push({
-        text: w.text,
-        bbox: {
-          x: w.rect.x + chromeLeft,
-          y: w.rect.y + chromeTop,
-          width: w.rect.width,
-          height: w.rect.height,
-        },
-      })
+function onSubtitleClick(hit: SubtitleClickHit): void {
+  const selection = buildSelection(hit)
+  if (!selection.text.trim()) return
+  const win = createPopupWindow(selection)
+  // 팝업 뜨는 동안 영상을 멈추고, 닫히면 다시 재생한다.
+  extensionBridge.setVideoPlayback(false)
+  if (!pausedForPopup) {
+    pausedForPopup = true
+    win.once('closed', () => {
+      pausedForPopup = false
+      extensionBridge.setVideoPlayback(true)
+    })
+  }
+}
+
+function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
+  const source = getBrowserSource()?.source ?? { kind: 'youtube' as const }
+  const transcript = extensionBridge.getTranscript()
+
+  // 전체 자막(timedtext)이 있으면 그걸 통째로 text 로 주고 anchor 만 클릭 단어에 맞춘다 —
+  // 팝업이 설정 바이트(contextBytesBefore/After)만큼 앞뒤를 알아서 보여준다(OCR/텍스트와 동일).
+  if (transcript && transcript.cues.length > 0) {
+    const anchored = anchorInTranscript(
+      transcript.cues,
+      hit.currentTime,
+      hit.lineText,
+      hit.word,
+      hit.wordOffsetInLine,
+    )
+    if (anchored) {
+      return {
+        text: anchored.text,
+        anchor: { start: anchored.start, end: anchored.end },
+        words: [],
+        language: detectSubtitleLanguage(hit.lineText || anchored.text),
+        source,
+        extraction: 'direct',
+      }
     }
   }
-  return words
+
+  // 전체 자막이 아직 없으면(로드 전/트랙 없음) 현재 줄만이라도 보여준다.
+  return {
+    text: hit.lineText,
+    anchor: { start: hit.wordOffsetInLine, end: hit.wordOffsetInLine + hit.word.length },
+    words: [],
+    language: detectSubtitleLanguage(hit.lineText),
+    source,
+    extraction: 'direct',
+  }
 }
 
 // 화면 자막 텍스트로 언어를 추정한다(자막엔 OCR OSD 를 못 쓰므로 유니코드 블록 휴리스틱).
@@ -82,74 +102,6 @@ function detectSubtitleLanguage(text: string): Language {
     return /[们么这来国对时会说无个开关问题东买卖车马语门]/.test(text) ? 'zh-Hans' : 'zh-Hant'
   }
   return 'en'
-}
-
-// 클릭 지점의 자막 단어를 기준으로 ExtractedSelection 을 만든다(팝업 트리거용).
-// 클릭한 줄을 "현재"로 두고 timedtext 앞뒤 범위 자막(context)을 위아래로 이어 붙여
-// 팝업 문맥(text)을 만든다. anchor 는 현재 줄 안의 클릭 단어를 가리킨다.
-export function buildSubtitleSelection(point: { x: number; y: number }): ExtractedSelection | null {
-  if (!latest) return null
-
-  // 클릭한 단어와 그 단어가 속한 줄·줄 내 오프셋을 찾는다.
-  const { chromeLeft, chromeTop } = latest.viewport
-  let clickedWord: Word | null = null
-  let currentLine = ''
-  let wordOffsetInLine = 0
-  for (const line of latest.lines) {
-    let offset = 0
-    for (let i = 0; i < line.words.length; i++) {
-      const w = line.words[i]!
-      const bbox = {
-        x: w.rect.x + chromeLeft,
-        y: w.rect.y + chromeTop,
-        width: w.rect.width,
-        height: w.rect.height,
-      }
-      if (
-        point.x >= bbox.x &&
-        point.x < bbox.x + bbox.width &&
-        point.y >= bbox.y &&
-        point.y < bbox.y + bbox.height
-      ) {
-        clickedWord = { text: w.text, bbox }
-        currentLine = line.text
-        wordOffsetInLine = offset
-        break
-      }
-      offset += w.text.length + 1 // line.text 는 단어를 공백으로 이었으므로 +1
-    }
-    if (clickedWord) break
-  }
-  if (!clickedWord) return null
-
-  const source = getBrowserSource()?.source ?? { kind: 'youtube' as const }
-  const transcript = extensionBridge.getTranscript()
-
-  // 전체 자막(timedtext)이 있으면 그걸 통째로 text 로 주고 anchor 만 클릭 단어에 맞춘다 —
-  // 팝업이 설정 바이트(contextBytesBefore/After)만큼 앞뒤를 알아서 보여준다(OCR/텍스트와 동일).
-  if (transcript && transcript.cues.length > 0) {
-    const anchored = anchorInTranscript(transcript.cues, latest.currentTime, currentLine, clickedWord.text, wordOffsetInLine)
-    if (anchored) {
-      return {
-        text: anchored.text,
-        anchor: { start: anchored.start, end: anchored.end },
-        words: latestWords,
-        language: detectSubtitleLanguage(currentLine || anchored.text),
-        source,
-        extraction: 'direct',
-      }
-    }
-  }
-
-  // 전체 자막이 아직 없으면(로드 전/트랙 없음) 현재 줄만이라도 보여준다.
-  return {
-    text: currentLine,
-    anchor: { start: wordOffsetInLine, end: wordOffsetInLine + clickedWord.text.length },
-    words: latestWords,
-    language: detectSubtitleLanguage(currentLine),
-    source,
-    extraction: 'direct',
-  }
 }
 
 // 전체 자막 cue 들을 이어 붙여 팝업용 text 를 만들고, 클릭 단어의 offset(anchor)을 찾는다.

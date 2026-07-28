@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppMode, Rect, Word } from '@shared/types'
 import { findWordAtPoint } from '@shared/wordMapping'
+import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 
 // 오버레이 (PLAN.md §4.1) — 담당 A
 // 선택된 창과 정확히 같은 자리에 정렬되는 투명·클릭스루 창. 테두리 색으로 현재 모드를
@@ -14,7 +15,6 @@ import { findWordAtPoint } from '@shared/wordMapping'
 // 없으면(처음 선택한 창, 또는 리사이즈로 무효화된 뒤) 메인이 REGION_SELECTION_NEEDED 를
 // 보내고, 여기서 드래그로 사각형을 그려 SUBMIT_REGION 으로 돌려준다.
 
-const WORD_BOX_PADDING = 2 // 박스 테두리가 글자 획과 겹치지 않게 사방으로 두는 여백(px)
 const NOTICE_DURATION_MS = 4000
 const MIN_REGION_SIZE = 8 // 이보다 작은 드래그는 실수 클릭으로 보고 무시
 
@@ -195,10 +195,14 @@ export function Overlay() {
             // L/T/I 처럼 세로획이 끝에 붙은 글자, 오른쪽: 문장부호를 제외하고 나면
             // 마지막 글자의 잉크 픽셀 끝에 딱 붙음, ocr.ts: splitWordBySymbols)에
             // 딱 붙어 있어서 그대로 그리면 테두리가 글자와 겹쳐 보인다.
-            left: hovered.bbox.x - WORD_BOX_PADDING,
+            // 색상/두께/여백은 shared/highlightStyle.ts 단일 소스 — 크롬 확장의 자막
+            // 하이라이트(extension/src/highlight.ts)와 값을 공유해 스타일을 통일한다.
+            left: hovered.bbox.x - WORD_BOX_STYLE.padding,
             top: hovered.bbox.y,
-            width: hovered.bbox.width + WORD_BOX_PADDING * 2,
+            width: hovered.bbox.width + WORD_BOX_STYLE.padding * 2,
             height: hovered.bbox.height,
+            border: `${WORD_BOX_STYLE.borderWidth}px solid ${WORD_BOX_STYLE.borderColor}`,
+            background: WORD_BOX_STYLE.background,
           }}
         />
       )}
