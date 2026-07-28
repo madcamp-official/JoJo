@@ -38,8 +38,14 @@ button:disabled { cursor: not-allowed; }
   box-sizing: border-box; background: transparent;
   /* border 대신 outline — border 는 absolute 자식(.word-box)의 좌표 기준점을 안쪽으로
      밀어서(containing block = padding edge) bbox 와 어긋나게 만든다. outline 은 박스
-     모델에 관여하지 않아 자식 좌표에 영향이 없다. outline-offset 으로 안쪽에 그린다. */
-  outline: 6px solid var(--blue); outline-offset: -6px; border-radius: 6px;
+     모델에 관여하지 않아 자식 좌표에 영향이 없다. outline-offset 으로 안쪽에 그린다.
+     **radius 값 주의(2026-07-29)**: outline 이 둥근 사각형을 그릴 때 안쪽 경계의 실제
+     반지름은 "border-radius − outline-width"다 — 예전엔 둘 다 6px라 안쪽 반지름이
+     0(뾰족한 직각)이 되어 바깥쪽만 둥글고 안쪽은 각져 보였다(사용자 피드백). 두께를
+     3px로 줄인 김에 반지름을 14px로 크게 잡아 안쪽 반지름(14−3=11px)도 뚜렷하게
+     둥글게 보이도록 함께 조정 — 아래 .region-border-topcoat(같은 테두리를 대신
+     그리는 사본)도 반드시 같은 값으로 맞춰야 한다. */
+  outline: 3px solid var(--blue); outline-offset: -3px; border-radius: 14px;
 }
 .overlay-root.mode-select { outline-color: var(--purple); }
 .overlay-root.hovering-word { cursor: pointer; }
@@ -65,10 +71,12 @@ button:disabled { cursor: not-allowed; }
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
 }
 /* region-dim(자식)이 부모(overlay-root)의 outline 을 덮어버려서, 같은 테두리를 DOM
-   순서상 맨 뒤(=항상 맨 위)에 한 번 더 그린다 — 위치를 딱 맞출 필요 없이 덮어씌운다. */
+   순서상 맨 뒤(=항상 맨 위)에 한 번 더 그린다 — 위치를 딱 맞출 필요 없이 덮어씌운다.
+   두께/반지름은 위 .overlay-root 의 outline 과 반드시 같은 값으로 맞춘다(같은 테두리의
+   대체 렌더링이라 어긋나면 드래그 시작 전후로 테두리 두께·모서리가 바뀌어 보인다). */
 .region-border-topcoat {
   position: absolute; inset: 0; box-sizing: border-box;
-  border: 6px solid var(--purple);
+  border: 3px solid var(--purple); border-radius: 14px;
   pointer-events: none;
 }
 
