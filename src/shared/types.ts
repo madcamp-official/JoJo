@@ -159,6 +159,20 @@ export interface UsageTag {
   kind?: UsageTagKind
 }
 
+/** seeAlso 포인터 하나의 관계 성격 — CC-CEDICT 교차참조가 실측상 이렇게 갈렸다(2026-07-28
+ *  신설): `variant` (이형 표기, "variant of"/"also written"), `dialectVariant` (음운
+ *  변이, "erhua variant of" 등 발음만 다른 같은 말), `abbreviation` (줄임말↔원말 — 관계
+ *  방향이 "variant"와 다름: 같은 말의 다른 표기가 아니라 축약 관계), `usedIn` (이 표제어가
+ *  다른 복합어의 구성 성분으로 쓰인다는 표시), `related` (그 외 느슨한 "그냥 참고" 관계,
+ *  JMdict `see_also`/`related`·萌典 `link`가 기본적으로 여기 해당). 분류 안 되면 undefined. */
+export type SeeAlsoKind = 'variant' | 'dialectVariant' | 'abbreviation' | 'usedIn' | 'related'
+
+export interface SeeAlsoRef {
+  /** 원문 그대로(예: "族[zu2]", "一箭双雕", "一人で") — 정규화하지 않음. */
+  text: string
+  kind?: SeeAlsoKind
+}
+
 export interface DictionarySense {
   /** 표준화된 품사 — CC-CEDICT처럼 품사 필드 자체가 없는 소스만 undefined. **萌典도 품사
    *  필드가 있음**(실측 확인: `definitions[].type` — 名/動/形/副/連/介/代/助/歎, 순서대로
@@ -246,8 +260,17 @@ export interface DictionarySense {
    *  `abbr. for`/`see also` 등, 실측: "一族" → "see also 族[zu2]"), 萌典 `link` 필드
    *  (실측: "蟑螂" → "也稱為「蜚蠊」", 완결된 용어가 아니라 문장형이면 usageNote 로 대체
    *  처리) 실측 확인(2026-07-28 신설). synonyms 와 달리 "같은 뜻"이 보장되지 않는
-   *  포인터라 별도 필드로 분리. */
-  seeAlso?: string[]
+   *  포인터라 별도 필드로 분리.
+   *
+   *  **2026-07-28 정정: `string[]`에서 `SeeAlsoRef[]`로 구조화.** CC-CEDICT의 교차참조가
+   *  `variant of`(이형 표기)/`erhua variant of`(음운 변이)/`abbr. for`(줄임말↔원말,
+   *  관계 방향이 다름)/`used in`(다른 복합어의 구성 성분)/`see also`(그냥 느슨한 관련어)로
+   *  관계 성격이 다 다른데 문자열 하나에 뭉쳐 있어서, `usageTags`와 같은 이유로 `kind`를
+   *  추가. **`usageTags`(이 뜻 자체의 성질을 나타내는 라벨)와는 합치지 않기로 결정** —
+   *  `seeAlso`는 다른 표제어를 가리키는 포인터라 성격이 근본적으로 다르고(나중에 "클릭해서
+   *  재조회" 같은 기능이 붙을 수 있는 것도 이쪽), 합치면 kind 종류만 늘어나 오히려 이번에
+   *  고치려던 문제를 재현하게 됨. */
+  seeAlso?: SeeAlsoRef[]
   /** 화용론적 사용법 설명 — MW 의 `uns`(usage note) 실측 확인(예: "ain't hay"→"많은 금액을
    *  강조할 때 쓴다"는 설명). gloss(뜻풀이)·examples(예문) 어디에도 안 들어가는 제3의
    *  콘텐츠 타입이라 별도 필드로 분리. */
