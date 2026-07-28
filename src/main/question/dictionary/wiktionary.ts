@@ -232,45 +232,59 @@ function extractZhMandarinFromWikitext(wikitext: string): string[] {
  *  "REST API가 아예 응답을 안 주는 예외 케이스에서, 단순한 패턴만 처리하는 좁은
  *  fallback"으로 스코프를 한정해 리스크를 낮췄다 — en/ja 전체를 이 방식으로 바꾸자는
  *  얘기가 아니다. */
+/** 한 줄의 뜻풀이 원문(`#`/`##` 제거된 나머지)을 정리한다 — HTML 주석 제거, `{{n-g|...}}`/
+ *  `{{gl|...}}`(nongloss 보조설명 템플릿, 인자 안 위키링크 파이프에 안 잘리게 인자 전체를
+ *  그대로 씀 — 실측: "一" "{{n-g|With the [[verb]] [[modify|modified]] ...}}"를 첫 `|`
+ *  에서 잘라버리는 버그가 있었음), 나머지 템플릿은 통째로 제거(얕은 중첩 대비 2회 반복),
+ *  위키링크 평문화 순으로 처리한다. */
+function cleanZhGlossText(body: string): string {
+  let text = body
+  text = text.replace(/<!--[\s\S]*?-->/g, '')
+  text = text.replace(/\{\{(?:n-g|gl)\|([^{}]*)\}\}/g, '$1')
+  text = text.replace(/\{\{[^{}]*\}\}/g, '')
+  text = text.replace(/\{\{[^{}]*\}\}/g, '')
+  text = text.replace(/\[\[[^\]|]*\|([^\]]*)\]\]/g, '$1') // [[link|표시]] → 표시
+  text = text.replace(/\[\[([^\]]*)\]\]/g, '$1') // [[link]] → link
+  return text
+    .replace(/'''?/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function extractZhDefinitionsGloss(content: string): string[] {
-  const lines: string[] = []
+  // 1차: "# 뜻풀이" 줄만 깊이(#의 개수)와 원문을 보존한 채 모은다 — 예문(#:)·인용(#*)
+  // 줄은 여기서 제외(하위 sense 의 것(##:/##*)도 포함해서 걸러야 한다 — 실측 확인
+  // "一": `/^#[:*]/`(# 정확히 1개)로만 짜면 "##* {{zh-q|...}}" 같은 긴 고문 인용이
+  // 걸러지지 않고 뜻풀이처럼 섞여 들어가는 버그가 있었음).
+  const rawLines: { depth: number; body: string }[] = []
   for (const raw of content.split('\n')) {
-    // 예문(#:)·인용(#*) 줄은 건너뜀 — 뜻풀이 자체가 아님. 실측 확인(2026-07-28, "一"):
-    // 하위 sense(##)의 예문·인용도 "##:"/"##*"로 온다 — `#` 뒤에 바로 `:`/`*` 만 보면
-    // 앞에 `#` 가 몇 개든(1개=최상위, 2개=하위 sense) 다 걸러진다. 처음엔 `/^#[:*]/`
-    // (정확히 #가 1개일 때만)로 짜서 "##:"/"##*"를 놓치는 버그가 있었음 — 그 결과
-    // "##* {{zh-q|...}}" 같은 긴 고문 인용이 뜻풀이인 것처럼 결과에 섞여 들어갔었다.
     if (/^#+[:*]/.test(raw)) continue
-    const m = raw.match(/^#+\s*(.+)$/)
+    const m = raw.match(/^(#+)\s*(.+)$/)
     if (!m) continue
-    let text = m[1]
-    // HTML 주석 제거 — 실측 확인("一" 민난어 방언 블록): 위키 편집 관례상 라벨 템플릿을
-    // 통째로 주석 처리해 감출 때가 있다(`# <!--{{lb|zh|Min}}--> [[one]]`) — 아래 템플릿
-    // 제거 정규식은 `{{...}}` 만 지우므로 이걸 먼저 안 지우면 `<!---->` 빈 주석 태그가
-    // 그대로 결과에 남는다.
-    text = text.replace(/<!--[\s\S]*?-->/g, '')
-    // {{n-g|...}}/{{gl|...}}(nongloss/gloss 보조설명 템플릿) — 실측 확인("一"): "# {{n-g|A
-    // qualifier of certain aforementioned thing.}}"처럼 뜻풀이 문장 전체가 이 템플릿의
-    // 첫 인자 안에 들어있는 경우가 있다. 다른 템플릿(예: {{senseid|...}}/{{zh-mw|...}})
-    // 처럼 통째로 지워버리면 뜻풀이 자체가 통으로 사라지므로, 이 두 템플릿만 인자를
-    // 살려서 남긴다. **인자 안에 파이프가 있는 위키링크(`[[modify|modified]]`)가 섞여
-    // 있을 수 있어 `|`를 인자 구분자로 보고 자르면 안 된다**(실측 확인, "一": "# {{n-g|With
-    // the [[verb]] [[modify|modified]] [[reduplicate]]d, ...}}"를 첫 `|`에서 잘라버려
-    // "With the [[verb]] [[modify"로 잘리는 버그가 있었음) — 이 두 템플릿은 실측상 인자가
-    // 하나뿐이라, `{{...}}` 전체에서 앞의 "n-g|"/"gl|" 만 떼고 닫는 `}}` 앞까지 통째로 쓴다.
-    text = text.replace(/\{\{(?:n-g|gl)\|([^{}]*)\}\}/g, '$1')
-    // 나머지 템플릿({{lb|zh|...}}/{{senseid|...}}/{{zh-mw|...}}/{{syn of|...}} 등)은
-    // 통째로 제거 — 대부분 라벨·메타데이터라 없어도 뜻풀이 자체는 남는다(단, 뜻풀이
-    // 전체가 이런 템플릿 하나뿐인 극소수 sense는 이 라인이 통째로 사라짐 — 실사용 빈도가
-    // 낮아 감수). 얕은 중첩(예: {{lang|mul|{{w|...}}}})까지 대비해 두 번 반복 적용한다.
-    text = text.replace(/\{\{[^{}]*\}\}/g, '')
-    text = text.replace(/\{\{[^{}]*\}\}/g, '')
-    text = text.replace(/\[\[[^\]|]*\|([^\]]*)\]\]/g, '$1') // [[link|표시]] → 표시
-    text = text.replace(/\[\[([^\]]*)\]\]/g, '$1') // [[link]] → link
-    text = text
-      .replace(/'''?/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
+    rawLines.push({ depth: m[1].length, body: m[2] })
+  }
+
+  // 2차: 하위(`##`) sense 를 거느린 "그룹 헤더" 줄을 걸러낸다 — 실측 확인(2026-07-28,
+  // "打"): "# {{n-g|Used as a dummy verb to make a verbal phrase from a noun, including
+  // but not limited to:}}" 아래 "to get; to fetch"/"to buy..." 등 30개 가까운 진짜 뜻이
+  // `##`로 붙는데, 이 헤더 줄 자체는 뜻이 아니라 "다음부터 나오는 뜻들에 공통되는 문법적
+  // 설명"이다. 그런데도 평탄화해서 다른 진짜 뜻과 나란히 보여주면 사용자가 이걸 하나의
+  // 독립된 뜻으로 오해한다(2026-07-28 사용자 피드백). Wiktionary 는 이런 "뜻이 아닌 설명"
+  // 줄을 `{{n-g|...}}`("non-gloss definition") 템플릿으로 명시적으로 표시해두므로, **줄
+  // 전체가 이 템플릿 하나뿐이고 + 바로 다음 줄이 더 깊은 하위 sense 일 때만** 그 줄을
+  // 버리고 하위 sense 만 남긴다. 템플릿으로 안 감싸인 줄(예: "water, one of the five
+  // elements..." 아래 "Wednesday" 하위 sense가 붙는 경우)은 그 자체로 독립된 진짜 뜻이라
+  // 자식이 있어도 그대로 남긴다 — "자식이 있으면 무조건 버린다"는 휴리스틱은 이런 진짜
+  // 계층 사례(MW sdsense 와 같은 축)까지 지워버려서 안 된다. */
+  const isPureNongloss = (body: string) => /^\{\{(?:n-g|gl)\|[^{}]*\}\}$/.test(body.trim())
+
+  const lines: string[] = []
+  for (let i = 0; i < rawLines.length; i++) {
+    const { depth, body } = rawLines[i]
+    const next = rawLines[i + 1]
+    const hasDeeperChild = next !== undefined && next.depth > depth
+    if (hasDeeperChild && isPureNongloss(body)) continue
+    const text = cleanZhGlossText(body)
     if (text) lines.push(text)
   }
   return lines
