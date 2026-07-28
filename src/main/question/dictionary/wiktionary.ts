@@ -213,6 +213,160 @@ function extractZhMandarinFromWikitext(wikitext: string): string[] {
   return dedupe(values)
 }
 
+// ---- zh 단일 한자 REST API 누락 대응(wikitext 직접 파싱 fallback) --------------
+
+/** REST API definition 엔드포인트가 zh 언어 블록 자체를 안 주는 경우(실측: 水/一/打/
+ *  大/小/人/火/山 8개 단일 한자 표제어 전부 재현, DICTIONARY_SOURCES.md "아직 미확인
+ *  항목" 참고) — 이 표제어들은 품사 전용 헤더(`===Noun===` 등) 대신 범용 `====
+ *  Definitions====` 헤더를 쓰는 위키 편집 관례를 따르는데, REST API 가 이 헤더를 못
+ *  알아보고 그 언어 전체를 건너뛰는 것으로 추정된다. `====Definitions====` 안의 "# 뜻풀이"
+ *  줄만 정규식으로 뽑아 최소한의 gloss 라도 채운다.
+ *
+ *  **en 위키텍스트 전체를 직접 파싱하지 않기로 한 결정(위 stripWiktionaryHtml/REST API
+ *  선택 근거 참고: {{lb|...}}/{{ux|...}}/{{cot|...}} 같은 수백 종류 템플릿 확장이 필요해
+ *  리스크가 큼)과 모순돼 보일 수 있지만, 실측(水→"# {{senseid|zh|Q283}} [[water]]
+ *  {{zh-mw|...}}", 一→"# [[one]]", 打→"# to [[hit]]; to [[strike]]", 大→"# of great
+ *  size; [[big]]; [[large]]" 등)해보면 zh 단일 한자의 gloss 줄은 위키링크 나열+세미콜론
+ *  구분 정도로 훨씬 단순하다 — {{senseid|...}}(식별자, 무시)/{{zh-mw|...}}(양사 정보,
+ *  무시) 정도만 나오고 en 처럼 뜻풀이 자체가 복잡한 서식 템플릿에 감싸여 있지 않다. 그래서
+ *  "REST API가 아예 응답을 안 주는 예외 케이스에서, 단순한 패턴만 처리하는 좁은
+ *  fallback"으로 스코프를 한정해 리스크를 낮췄다 — en/ja 전체를 이 방식으로 바꾸자는
+ *  얘기가 아니다. */
+function extractZhDefinitionsGloss(content: string): string[] {
+  const lines: string[] = []
+  for (const raw of content.split('\n')) {
+    // 예문(#:)·인용(#*) 줄은 건너뜀 — 뜻풀이 자체가 아님. 실측 확인(2026-07-28, "一"):
+    // 하위 sense(##)의 예문·인용도 "##:"/"##*"로 온다 — `#` 뒤에 바로 `:`/`*` 만 보면
+    // 앞에 `#` 가 몇 개든(1개=최상위, 2개=하위 sense) 다 걸러진다. 처음엔 `/^#[:*]/`
+    // (정확히 #가 1개일 때만)로 짜서 "##:"/"##*"를 놓치는 버그가 있었음 — 그 결과
+    // "##* {{zh-q|...}}" 같은 긴 고문 인용이 뜻풀이인 것처럼 결과에 섞여 들어갔었다.
+    if (/^#+[:*]/.test(raw)) continue
+    const m = raw.match(/^#+\s*(.+)$/)
+    if (!m) continue
+    let text = m[1]
+    // HTML 주석 제거 — 실측 확인("一" 민난어 방언 블록): 위키 편집 관례상 라벨 템플릿을
+    // 통째로 주석 처리해 감출 때가 있다(`# <!--{{lb|zh|Min}}--> [[one]]`) — 아래 템플릿
+    // 제거 정규식은 `{{...}}` 만 지우므로 이걸 먼저 안 지우면 `<!---->` 빈 주석 태그가
+    // 그대로 결과에 남는다.
+    text = text.replace(/<!--[\s\S]*?-->/g, '')
+    // {{n-g|...}}/{{gl|...}}(nongloss/gloss 보조설명 템플릿) — 실측 확인("一"): "# {{n-g|A
+    // qualifier of certain aforementioned thing.}}"처럼 뜻풀이 문장 전체가 이 템플릿의
+    // 첫 인자 안에 들어있는 경우가 있다. 다른 템플릿(예: {{senseid|...}}/{{zh-mw|...}})
+    // 처럼 통째로 지워버리면 뜻풀이 자체가 통으로 사라지므로, 이 두 템플릿만 인자를
+    // 살려서 남긴다. **인자 안에 파이프가 있는 위키링크(`[[modify|modified]]`)가 섞여
+    // 있을 수 있어 `|`를 인자 구분자로 보고 자르면 안 된다**(실측 확인, "一": "# {{n-g|With
+    // the [[verb]] [[modify|modified]] [[reduplicate]]d, ...}}"를 첫 `|`에서 잘라버려
+    // "With the [[verb]] [[modify"로 잘리는 버그가 있었음) — 이 두 템플릿은 실측상 인자가
+    // 하나뿐이라, `{{...}}` 전체에서 앞의 "n-g|"/"gl|" 만 떼고 닫는 `}}` 앞까지 통째로 쓴다.
+    text = text.replace(/\{\{(?:n-g|gl)\|([^{}]*)\}\}/g, '$1')
+    // 나머지 템플릿({{lb|zh|...}}/{{senseid|...}}/{{zh-mw|...}}/{{syn of|...}} 등)은
+    // 통째로 제거 — 대부분 라벨·메타데이터라 없어도 뜻풀이 자체는 남는다(단, 뜻풀이
+    // 전체가 이런 템플릿 하나뿐인 극소수 sense는 이 라인이 통째로 사라짐 — 실사용 빈도가
+    // 낮아 감수). 얕은 중첩(예: {{lang|mul|{{w|...}}}})까지 대비해 두 번 반복 적용한다.
+    text = text.replace(/\{\{[^{}]*\}\}/g, '')
+    text = text.replace(/\{\{[^{}]*\}\}/g, '')
+    text = text.replace(/\[\[[^\]|]*\|([^\]]*)\]\]/g, '$1') // [[link|표시]] → 표시
+    text = text.replace(/\[\[([^\]]*)\]\]/g, '$1') // [[link]] → link
+    text = text
+      .replace(/'''?/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text) lines.push(text)
+  }
+  return lines
+}
+
+interface FallbackDefinitionsGroup {
+  gloss: string[]
+  pronunciations: string[]
+  groupId: number
+}
+
+/** REST API가 이 언어를 아예 안 줄 때만 타는 경로 — 헤더를 등장 순서대로 걸으며
+ *  Pronunciation(위 assignPerBlockPronunciations 와 같은 zh 명명 규칙)과 Definitions
+ *  헤더를 짝짓는다. REST API 블록이 없으니 그 블록 배열과 순서를 맞출 필요가 없어
+ *  assignPerBlockPronunciations 보다 단순하다 — Definitions 헤더를 만날 때마다 그
+ *  직전 Pronunciation 값을 그대로 붙인다. */
+function extractZhFallbackGroups(wikitext: string, languageName: string): FallbackDefinitionsGroup[] {
+  const sectionRegex = new RegExp(`==${languageName}==([\\s\\S]*?)(?=\\n==[A-Za-z][^=\\n]*==\\n|$)`)
+  const sectionMatch = wikitext.match(sectionRegex)
+  if (!sectionMatch) return []
+  const section = sectionMatch[1]
+
+  const headingRegex = /^(=+)\s*(.+?)\s*\1\s*$/gm
+  const headings: { text: string; start: number; end: number }[] = []
+  for (const m of section.matchAll(headingRegex)) {
+    const start = m.index ?? 0
+    headings.push({ text: m[2].trim(), start, end: start + m[0].length })
+  }
+
+  const groups: FallbackDefinitionsGroup[] = []
+  let currentPron: string[] = []
+  let currentGroupId = -1
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i]
+    const contentEnd = i + 1 < headings.length ? headings[i + 1].start : section.length
+    const content = section.slice(h.end, contentEnd)
+
+    if (/^Pronunciation(\s+\d+)?$/.test(h.text)) {
+      currentPron = extractZhMandarinFromWikitext(content)
+      currentGroupId++
+      continue
+    }
+    if (h.text === 'Definitions') {
+      const gloss = extractZhDefinitionsGloss(content)
+      if (gloss.length) groups.push({ gloss, pronunciations: currentPron, groupId: currentGroupId })
+    }
+  }
+  return groups
+}
+
+/** REST API가 이 표제어에 대해 zh 언어 데이터를 아예 못 줄 때(둘 다 실측 확인,
+ *  2026-07-28) 시도하는 wikitext 직접 파싱 fallback:
+ *  1. definition 엔드포인트가 HTTP 200을 주지만 응답에 zh 키/블록이 없는 경우(水/一/大/
+ *     小/人/火/山 — 위 extractZhDefinitionsGloss 주석의 "Definitions" 헤더 원인).
+ *  2. definition 엔드포인트 자체가 **HTTP 404**(`{"status":404,"type":"Internal error"}`)
+ *     로 응답하는 경우(打 — 실측 확인) — 404 라고 표제어가 실제로 없는 게 아니라, wikitext
+ *     (action=parse)로는 정상 조회되는 걸 확인했다. REST API(Parsoid 렌더링)가 이 특정
+ *     페이지를 렌더링하다 내부 오류를 내는 것으로 추정 — MW 어댑터의 "무효 키인데 200
+ *     응답" 같은 REST API 고유의 함정 케이스. */
+async function tryZhDefinitionsFallback<L extends Language>(
+  word: string,
+  language: L,
+  langName: string,
+): Promise<WiktionaryLookupResult<L>> {
+  const wikitext = await fetchWikitext(word)
+  if (!wikitext) return {}
+  const groups = extractZhFallbackGroups(wikitext, langName)
+  if (!groups.length) return {}
+
+  const fallbackReadings: DictionaryReading<L>[] = []
+  let lastGroupId = -1
+  for (const group of groups) {
+    const senses = group.gloss.map((g) => ({ gloss: [g] }) as DictionarySense<L>)
+    const prev = fallbackReadings[fallbackReadings.length - 1]
+    if (prev && group.groupId === lastGroupId) {
+      prev.senses.push(...senses)
+    } else {
+      fallbackReadings.push({
+        pronunciations: group.pronunciations.length ? group.pronunciations.map((value) => ({ value })) : undefined,
+        senses,
+      })
+    }
+    lastGroupId = group.groupId
+  }
+  if (!fallbackReadings.length) return {}
+
+  return {
+    entry: {
+      language,
+      headword: [word],
+      readings: fallbackReadings,
+      source: 'wiktionary',
+    } as DictionaryEntry<L>,
+  }
+}
+
 // ---- 헤더 트리 순서로 발음을 POS 블록에 정확히 대응 ----------------------------
 
 /** Wiktionary 언어 섹션(`==Japanese==` 등)을 헤더 등장 순서대로 걸어, 각 POS 헤더
@@ -336,14 +490,19 @@ export interface WiktionaryLookupResult<L extends Language = Language> {
 /** word 를 en.wiktionary.org REST API 로 조회한다. 언어별 최상위 키(en/ja/zh)로 먼저
  *  거르고, 그 안에서도 language 필드가 정확히 일치하는 블록만 채택한다(실측: 같은 "en"
  *  키 아래 Translingual 블록이 섞여 옴). 표제어를 못 찾으면(HTTP 404) entry 없이 빈
- *  객체를 반환 — MW 어댑터의 suggestions 같은 부가 정보가 이 API 엔 없다. */
+ *  객체를 반환 — MW 어댑터의 suggestions 같은 부가 정보가 이 API 엔 없다. 단, zh 는
+ *  404/빈 블록이어도 곧바로 포기하지 않고 tryZhDefinitionsFallback 을 시도한다(위 함수
+ *  주석 참고 — 이 두 실패 모양 다 zh 단일 한자 표제어에서 실측 확인됨). */
 export async function fetchWiktionaryEntry<L extends Language>(
   word: string,
   language: L,
 ): Promise<WiktionaryLookupResult<L>> {
+  const isZh = language === 'zh-Hans' || language === 'zh-Hant'
+  const langName = WIKTIONARY_LANG_NAME[language]
+
   const url = `${WIKTIONARY_ENDPOINT}/${encodeURIComponent(word)}`
   const res = await fetch(url, { headers: { 'User-Agent': WIKTIONARY_USER_AGENT } })
-  if (res.status === 404) return {}
+  if (res.status === 404) return isZh ? tryZhDefinitionsFallback(word, language, langName) : {}
   if (!res.ok) {
     throw new WiktionaryHttpError(res.status, `Wiktionary API 요청 실패: HTTP ${res.status}`)
   }
@@ -356,9 +515,8 @@ export async function fetchWiktionaryEntry<L extends Language>(
   }
 
   const langKey = WIKTIONARY_LANG_KEY[language]
-  const langName = WIKTIONARY_LANG_NAME[language]
   const blocks = (raw[langKey] ?? []).filter((b) => b.language === langName)
-  if (!blocks.length) return {}
+  if (!blocks.length) return isZh ? tryZhDefinitionsFallback(word, language, langName) : {}
 
   // blocks 인덱스를 보존한 채 reading 을 만든다 — gloss 가 하나도 안 남아 블록이 통째로
   // 버려지는 경우가 있어(blockToReading 이 null 반환), 아래 발음 매칭이 "원래 REST API
