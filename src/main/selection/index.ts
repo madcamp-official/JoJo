@@ -1,6 +1,7 @@
 import type { ExtractedSelection, Word } from '@shared/types'
 import { findWordAtPoint } from '@shared/wordMapping'
 import { getExtraction } from './extractionCache'
+import { buildSubtitleSelection, isSubtitleModeActive } from './subtitleSource'
 
 // ============================================================================
 // 담당 A — 선택 준비 & 추출 파이프라인 (PLAN.md §4.1 / §8) — 팝업 전까지
@@ -12,6 +13,22 @@ export async function runSelectionPipeline(point: {
   x: number
   y: number
 }): Promise<ExtractedSelection> {
+  // 자막 경로(유튜브/넷플릭스)면 확장 자막에서 앞뒤 범위 문맥과 함께 만든다.
+  if (isSubtitleModeActive()) {
+    const sub = buildSubtitleSelection(point)
+    if (sub) return sub
+    // 클릭 지점에 자막 단어가 없으면(빈 곳 클릭) 빈 선택으로 폴백 — 팝업은 안 띄우는 게
+    // 자연스럽지만 기존 계약이 항상 ExtractedSelection 을 반환하므로 빈 값을 준다.
+    return {
+      text: '',
+      anchor: { start: 0, end: 0 },
+      words: [],
+      language: 'en',
+      source: { kind: 'youtube' },
+      extraction: 'direct',
+    }
+  }
+
   const extracted = await getExtraction()
 
   const word = findWordAtPoint(extracted.words, point)

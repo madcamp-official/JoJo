@@ -1,6 +1,5 @@
 import type { ExtractedSelection, Language, Word } from '@shared/types'
 import type { SubtitleSnapshot } from '@shared/extension'
-import { findWordAtPoint } from '@shared/wordMapping'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
 import { sendOverlayWords } from '../windows'
@@ -80,32 +79,61 @@ function detectSubtitleLanguage(text: string): Language {
 }
 
 // 클릭 지점의 자막 단어를 기준으로 ExtractedSelection 을 만든다(팝업 트리거용).
-// 실제 앞뒤 문맥 텍스트 구성은 task 7 에서 timedtext context 로 채운다 — 여기선 좌표
-// 기반 클릭 대상 판정과 현재 프레임 텍스트까지 담는다.
+// 클릭한 줄을 "현재"로 두고 timedtext 앞뒤 범위 자막(context)을 위아래로 이어 붙여
+// 팝업 문맥(text)을 만든다. anchor 는 현재 줄 안의 클릭 단어를 가리킨다.
 export function buildSubtitleSelection(point: { x: number; y: number }): ExtractedSelection | null {
   if (!latest) return null
-  const word = findWordAtPoint(latestWords, point)
-  if (!word) return null
 
-  // 현재 화면 자막 텍스트(여러 줄이면 공백으로 이음).
-  const lineText = latest.lines.map((l) => l.text).join(' ')
-  const language = detectSubtitleLanguage(lineText)
+  // 클릭한 단어와 그 단어가 속한 줄·줄 내 오프셋을 찾는다.
+  const { chromeLeft, chromeTop } = latest.viewport
+  let clickedWord: Word | null = null
+  let currentLine = ''
+  let wordOffsetInLine = 0
+  for (const line of latest.lines) {
+    let offset = 0
+    for (let i = 0; i < line.words.length; i++) {
+      const w = line.words[i]!
+      const bbox = {
+        x: w.rect.x + chromeLeft,
+        y: w.rect.y + chromeTop,
+        width: w.rect.width,
+        height: w.rect.height,
+      }
+      if (
+        point.x >= bbox.x &&
+        point.x < bbox.x + bbox.width &&
+        point.y >= bbox.y &&
+        point.y < bbox.y + bbox.height
+      ) {
+        clickedWord = { text: w.text, bbox }
+        currentLine = line.text
+        wordOffsetInLine = offset
+        break
+      }
+      offset += w.text.length + 1 // line.text 는 단어를 공백으로 이었으므로 +1
+    }
+    if (clickedWord) break
+  }
+  if (!clickedWord) return null
+
+  // 앞뒤 범위 자막(timedtext)으로 팝업 문맥을 구성. 없으면 현재 줄만.
+  const before = latest.context?.before ?? []
+  const after = latest.context?.after ?? []
+  const parts = [...before, currentLine, ...after]
+  const text = parts.join('\n')
+  const base = before.reduce((n, l) => n + l.length + 1, 0) // 각 줄 뒤 '\n' 만큼 +1
+  const start = base + wordOffsetInLine
+  const end = start + clickedWord.text.length
+
+  const language = detectSubtitleLanguage(text)
   const source = getBrowserSource()?.source ?? { kind: 'youtube' as const }
 
-  // 클릭한 단어의 lineText 내 위치(단순 첫 매칭 — task 7 에서 문맥과 함께 정교화).
-  const start = Math.max(0, lineText.indexOf(word.text))
-  const end = word.text ? start + word.text.length : 0
-
   return {
-    text: lineText,
+    text,
     anchor: { start, end },
     words: latestWords,
     language,
     source, // kind: youtube/netflix 가 자막 경로임을 나타냄
     extraction: 'direct', // 자막도 DOM/timedtext 직접 추출
   }
-}
-
-export function getLatestSubtitleSnapshot(): SubtitleSnapshot | null {
-  return latest
 }
