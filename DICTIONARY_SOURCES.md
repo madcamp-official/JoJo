@@ -33,7 +33,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 - `fl`(functional label)이 품사; `"phrase"`면 관용구 표제어(예: "kick the bucket").
 - `sls`(status label sequence) — 격식/사용역 라벨(예: "ain't" → `["informal"]`).
 - `def[].vd`("verb divider") — 타동사/자동사 구분(실측, 2026-07-28: "arrive" → def 1개, `vd: "intransitive verb"`; "devour" → def 1개, `vd: "transitive verb"`; "run" → **def 2개**로 갈려 하나는 `vd: "intransitive verb"`, 하나는 `vd: "transitive verb"`). `entry.fl`이 아니라 `def` 레벨(=`sseq`와 같은 층)에 있고, 그 def 블록 전체(여러 sense 묶음)에 적용되는 라벨이라 어댑터가 그 안의 모든 sense에 전파해야 함 — `lbs`(entry 최상위 → 모든 sense에 복제)와 같은 패턴.
-- ~~화용론적 사용법 설명 필드명이 `uns`인지 `usages`인지 API 키 없이는 확정 불가~~ → **확정(2026-07-28, `.env`의 실제 API 키로 "ain't hay" 직접 호출)**: sense 레벨 필드명은 **`uns`가 맞다** — `dt` 배열(태그된 튜플 시퀀스, `["text", ...]`/`["vis", [...]]`와 같은 자리) 안에 `["uns", [[["text", "used to say that an amount (of money) is a lot "], ["vis", [...]]]]]` 형태로 옴(예문 실측: "ain't hay" → "used to say that an amount (of money) is a lot"). `usages`(entry 최상위 usage discussion)는 별개의 상위 레벨 필드로 공존 가능 — sense 단위 자유 서술은 `uns`, 어댑터는 이걸 `usageNote`로 매핑.
+- ~~화용론적 사용법 설명 필드명이 `uns`인지 `usages`인지 API 키 없이는 확정 불가~~ → **확정(2026-07-28, `.env`의 실제 API 키로 "ain't hay" 직접 호출)**: sense 레벨 필드명은 **`uns`가 맞다** — `dt` 배열(태그된 튜플 시퀀스, `["text", ...]`/`["vis", [...]]`와 같은 자리) 안에 `["uns", [[["text", "used to say that an amount (of money) is a lot "], ["vis", [...]]]]]` 형태로 옴. `usages`(entry 최상위 usage discussion)는 별개의 상위 레벨 필드로 공존 가능 — sense 단위 자유 서술은 `uns`, 어댑터는 이걸 `usageNote`로 매핑. **정정(2026-07-28, "the"/"a"/"close" 재실측)**: "ain't hay" 예시는 사실 `dt`가 `uns` 블록 하나로만 채워진 경우(같은 dt 안에 진짜 `text` 튜플이 따로 없음)였다 — 이땐 `uns` 안 내용이 "보충 설명"이 아니라 그 sense의 **유일한 뜻풀이**다(같은 패턴이 "the"/"a" 같은 관사 정의에서도 재확인됨: 정관사·부정관사 정의 자체가 `uns`로만 옴). 무조건 `usageNote`로만 흡수하면 이런 sense가 `gloss` 없이 통째로 버려지는 실제 버그로 이어졌었다 — 어댑터는 `dt`에 진짜 `text` 튜플이 있을 때만 `uns`를 `usageNote`로 보충 흡수하고, 없으면 `uns` 내용을 `gloss`/`examples`로 승격해야 한다. **진짜 "보충 설명" 용례**는 `close`(동사)에서 재확인: 뜻풀이 `text`="to suspend or stop the operations of" 옆에 `uns`="often used with down"이 별도로 붙음.
 - `ins`(inflections) — 불규칙 활용형(예: run → "ran"). 반쯤 자유 텍스트.
 - `uros`(Undefined Run-Ons, 파생어 목록) — 조회한 표면형이 파생 접사가 붙은 형태(예: "photosynthesizing")면 **최상위 응답이 항상 원 표제어(예: "photosynthesis")로 돌아온다**(실측 확인). 질의어를 원형으로 미리 바꿔("photosynthesize") 검색해도 동일하게 원 표제어로 돌아옴 — 질의 단계 원형화로는 안 풀림. `uros[]`의 `ure`(파생어 표기, 중점 제거 후 비교)가 조회 표면형과 일치하는 항목을 찾아 그 `fl`/발음으로 보정해야 하고, 뜻풀이는 `uros`에 없으므로 원 표제어의 `def`를 그대로 쓴다.
 - `cxs`(cross-reference) — 변형 철자를 가리키는 포인터 전용 엔트리. 실측: "colour" 조회 시 `def`/`shortdef`가 전부 비어있고 `cxs: [{ "cxl": "chiefly British spelling of", "cxtis": [{ "cxt": "color" }] }]`만 옴. `DictionarySense.gloss`가 필수 필드라 안 거르면 어댑터가 막힌다 — 처리안은 (1) `cxl`+`cxt` 합성해 gloss로 대체(추가 호출 없음) 또는 (2) `cxt`로 재조회해 실제 정의 병합(호출 1회 추가, 더 정확) 둘 중 택1, 스키마 필드 추가는 불필요.
@@ -48,7 +48,9 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 | `fl` (`"phrase"`) | `DictionaryEntry.isIdiom` |
 | `prs.mw` | `DictionaryReading.pronunciations[].value` (variety 없음) |
 | `sls` | `DictionarySense.usageTags[]` (`kind: 'register'`) |
-| `uns` | `DictionarySense.usageNote` |
+| `uns` | `text` 튜플이 dt에 따로 있으면 `DictionarySense.usageNote`, `uns`가 dt의 유일한 내용이면 `DictionarySense.gloss[]`/`examples[]`로 승격 (위 참고) |
+| `def[].vd` | `DictionarySense.transitive` |
+| `fl`(`"definite article"`/`"indefinite article"`, 실측: "the"/"a"/"an") | `DictionarySense.definite` — **en 3개 소스 비교(2026-07-28)**: MW만 이렇게 구조화된 필드로 구분 가능. OEWN은 관사 표제어 자체가 없음(GitHub Releases `entries.json` 확인: "the" 키 없음, "a"는 명사(알파벳) 뜻만 있음). Wiktionary REST API는 `partOfSpeech`가 그냥 "Article"이고 정관사/부정관사 구분이 definition 산문 텍스트에만 자연어로 섞여 있어(예: "the"의 정의 텍스트 안 "The definite grammatical article...") 구조화된 필드가 아님 — 두 소스 다 `definite`를 채우지 않고 undefined 로 두어 UI가 "관사"로만 표시하게 함. |
 | `lbs`(entry 최상위, 실측: "deco" → `["often attributive"]`) | `DictionarySense.usageTags[]` (`kind: 'convention'`) — **레벨이 다름**(entry 전체 vs sense 단위)이라, 어댑터가 entry의 senses 전부에 복제해 `sls`(`kind: 'register'`)와 합쳐 넣는다(값 자체가 드물고 가벼운 표기 관례라 이 정도 단순화로 결정, 2026-07-28). 전문분야(컴퓨터/의학 등) 라벨이 아니므로 `domain`엔 매핑 안 함. |
 | `ins` | `DictionarySense.irregularForms` |
 | `cxs`/`uros` | (파싱 로직에서만 처리, 전용 스키마 필드 없음) |
@@ -95,6 +97,8 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 ### JMdict
 
 **접근**: 로컬 데이터셋 번들(jmdict-simplified 등) 예정, 라이브 조회는 jisho.org API로 대체 검증. **2026-07-28, 아래 항목 전부 jisho.org API를 실제로 호출해 재확인함** — 기존 기록과 전부 일치, 정정 사항 없음.
+
+**구현 완료(2026-07-28)**: TODO.md 결정대로 jisho.org API가 아니라 jmdict-simplified `eng`(full) 변형 로컬 JSON 번들로 구현됨 — `scripts/build-jmdict-bundle.py`(GitHub Releases 원본 117MB → `resources/jmdict/{words,index,tags}.json` 3파일, 약 62MB로 트리밍) + `question/dictionary/jmdict.ts`(조회 어댑터, 네트워크 호출 없음). 실측(一人/高い/らしい/薔薇/レジスター/しどい)으로 아래 스키마 매핑 전부 검증 완료. 원본 misc 코드 기준 register/convention 분류는 다음 두 집합으로 확정: **register** = `sl`/`m-sl`/`net-sl`/`derog`/`col`/`hon`/`hum`/`pol`/`arch`/`obs`/`dated`/`rare`/`joc`/`vulg`/`sens`/`fam`/`poet`/`form`/`euph`/`male`/`fem`/`chn`/`hist`, **convention** = `uk`/`abbr`, 나머지(`yoji`/`proverb`/`id`/이름류 태그 등)는 `other`. `dialect` 필드는 misc와 별도라 `usageTags`에 `kind: 'dialect'`로 바로 매핑(원본 방언 코드는 `tags.json` 룩업으로 사람이 읽는 문자열로 변환). `conjugationClass`는 `v1`/`v5*`/`v2*-k`/`v2*-s`/`adj-i`/`adj-na` 등 활용 코드를 정규식+룩업 테이블로 디코딩(예: `v5k`→"五段(く)", `v2g-k`→"上二段(g행, 고어)"). `isIdiom`은 `partOfSpeech`에 `exp` 또는 `misc`에 `yoji`가 있으면 true. 가나만 있는 표제어(예: らしい)는 `headword`를 가나 배열로 대체, 같은 표기가 여러 word 엔트리로 갈리는 동형이의어는 `DictionaryEntry[]` 배열로 전부 반환.
 
 **원본 구조 특징**(jisho.org API 실측 기준, 원본은 jmdict-simplified 스키마):
 - 활용형을 원형으로 자동 변환해주지 않음(Kotobank와 동일) — 형태소 분석 전처리 필요.

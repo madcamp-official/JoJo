@@ -105,6 +105,11 @@ const FL_TO_POS: Record<string, CanonicalPos<'en'>> = {
   conjunction: 'conjunction',
   interjection: 'interjection',
   article: 'article',
+  // 실측 확인(2026-07-28, "the"/"a"/"an" 직접 호출): MW 는 fl 을 그냥 "article"이 아니라
+  // "definite article"/"indefinite article"로 세분해서 준다 — 이 매핑이 없으면 flToPos 가
+  // undefined 를 반환해 품사 자체가 통째로 비어 있었다.
+  'definite article': 'article',
+  'indefinite article': 'article',
 }
 
 function flToPos(fl?: string): CanonicalPos<'en'> | undefined {
@@ -156,6 +161,9 @@ function extractDt(dt: MerriamWebsterDtItem[] | undefined): { gloss: string[]; e
   const gloss: string[] = []
   const examples: string[] = []
   const usageNotes: string[] = []
+  // uns 블록에서 뽑은 내용은 두 가지 역할을 할 수 있어 별도로 모아둔다 — 아래 참고.
+  const unsGloss: string[] = []
+  const unsExamples: string[] = []
   for (const item of dt ?? []) {
     const [key, value] = item
     if (key === 'text' && typeof value === 'string') {
@@ -173,12 +181,26 @@ function extractDt(dt: MerriamWebsterDtItem[] | undefined): { gloss: string[]; e
         if (text) examples.push(text)
       }
     } else if (key === 'uns' && Array.isArray(value)) {
-      // uns(usage note) 값은 dt 형태의 블록 배열 — 재귀적으로 텍스트만 뽑아 합친다.
+      // uns(usage note) 값은 dt 형태의 블록 배열 — 재귀적으로 텍스트·예문을 뽑는다.
+      // 실측 확인(2026-07-28, "the"/"a" 직접 호출): 관사·전치사 같은 기능어는 dt 가
+      // text 튜플 없이 **uns 블록 하나로만** 채워지는 경우가 있다("the"의 정관사 뜻,
+      // "a"의 "an unspecified example..." 등) — 이 경우 uns 안 내용이 보충 설명이
+      // 아니라 그 sense의 유일한 진짜 뜻풀이다. 무조건 usageNote 로만 흡수하면 이런
+      // sense가 gloss 없이(extractDt 호출부의 `if (gloss.length)`) 통째로 버려진다.
       for (const block of value as MerriamWebsterDtItem[][]) {
         const inner = extractDt(block)
-        usageNotes.push(...inner.gloss)
+        unsGloss.push(...inner.gloss)
+        unsExamples.push(...inner.examples)
       }
     }
+  }
+  // 위 실측 근거대로: 이 dt 에 text 튜플로 온 진짜 gloss 가 이미 있으면 uns 는 그대로
+  // 보충 설명(usageNote)으로 유지하고, 없으면 uns 내용을 gloss/examples 자리로 승격한다.
+  if (gloss.length) {
+    usageNotes.push(...unsGloss)
+  } else {
+    gloss.push(...unsGloss)
+    examples.push(...unsExamples)
   }
   return { gloss, examples, usageNote: usageNotes.length ? usageNotes.join(' ') : undefined }
 }
@@ -237,6 +259,9 @@ function entryToReading(
   const uro = findMatchingUro(entry, queryWord)
   const fl = uro?.fl ?? entry.fl
   const pos = flToPos(fl)
+  // fl 은 vd 와 달리 entry(정확히는 uro 보정 후) 레벨이라 def 블록별로 갈릴 일이 없어,
+  // vd 처럼 블록 단위로 따로 추적할 필요 없이 이 entry의 모든 sense에 그대로 적용한다.
+  const definite = fl === 'definite article' ? true : fl === 'indefinite article' ? false : undefined
   // ins[].if 도 headword 와 같은 '·'(중점) 음절 경계 표기를 씀(실측: "banked, bank·ing, banks").
   const irregularForms = (entry.ins ?? [])
     .map((i) => i.if?.replace(/[·*]/g, ''))
@@ -269,6 +294,7 @@ function entryToReading(
         posRaw: fl,
         irregularForms: irregularForms.length ? irregularForms : undefined,
         transitive,
+        definite,
         gloss,
         examples: examples.length ? examples : undefined,
         usageTags: mergeUsageTags(node.sls, entry.lbs),
@@ -285,6 +311,7 @@ function entryToReading(
           posRaw: fl,
           irregularForms: irregularForms.length ? irregularForms : undefined,
           transitive,
+          definite,
           gloss: label ? sub.gloss.map((g) => `${label} : ${g}`) : sub.gloss,
           examples: sub.examples.length ? sub.examples : undefined,
           usageTags: mergeUsageTags(node.sls, entry.lbs),
