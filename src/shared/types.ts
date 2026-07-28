@@ -173,7 +173,13 @@ export interface SeeAlsoRef {
   kind?: SeeAlsoKind
 }
 
-export interface DictionarySense {
+/** 언어 무관 공통 필드 — 8개 소스 전부가 이 축을 갖는다(값이 없으면 undefined일 뿐,
+ *  "이 언어엔 이 개념 자체가 없다"는 아님). 언어 전용 필드는 아래 `DictionarySenseExt<L>`에
+ *  분리해뒀다(2026-07-28, 판별 유니온 도입 — 이유는 DICTIONARY_SOURCES.md#공통-스키마-결정-사항
+ *  참고: `classifiers`(zh)/`conjugationClass`(ja) 등 언어 전용 필드가 계속 늘면서 원래
+ *  "공통 베이스+옵셔널"로 버티기로 한 전제(언어 전용 필드 2~3개 규모)가 ja 기준 이미
+ *  넘어서 있었음). */
+export interface DictionarySenseBase {
   /** 표준화된 품사 — CC-CEDICT처럼 품사 필드 자체가 없는 소스만 undefined. **萌典도 품사
    *  필드가 있음**(실측 확인: `definitions[].type` — 名/動/形/副/連/介/代/助/歎, 순서대로
    *  명사/동사/형용사/부사/접속사/전치사/대명사/조사/감탄사에 대응). 단, 양사(量詞)는 별도
@@ -185,29 +191,6 @@ export interface DictionarySense {
    *  전달 안 하기로 했으므로 "문법 설명에 실제로 쓸 정보"는 반드시 conjugationClass 처럼
    *  별도 필드로 승격해야 한다 — 그러지 않으면 이 필드에 있어도 없는 것과 같다. */
   posRaw?: string
-  /** 활용 분류(ja 전용) — 언어별로 canonical pos 하나로는 못 담는 문법 정보를 사람이
-   *  읽을 수 있게 디코딩해 보존한다(이 필드는 LLM에도 전달). 예: 동사 "一段"/"五段(う)"/
-   *  "サ変", 형용사 "い형용사"/"な형용사". 활용형(て形·과거형 등) 설명에 실제로 필요한
-   *  정보라 posRaw 와 달리 버리지 않는다. (zh 이합사(离合词)는 실측 확인 결과(2026-07-28,
-   *  汉典 `结婚`/萌典 `見面` 페이지 직접 확인 포함) 汉典·萌典·CC-CEDICT 어디에도 태깅
-   *  안 되어 있어 스키마에 별도 자리를 안 만들기로 함 — 필요하면 LLM 자체 지식으로 설명.) */
-  conjugationClass?: string
-  /** 불규칙 활용형(en 전용) — MW 의 `ins`(inflections) 필드 실측 확인(예: run → "ran").
-   *  **OEWN도 실측 확인**(GitHub 공식 JSON 릴리스 직접 다운로드해 확인) — entry의 `form`
-   *  필드가 배열로 제공(예: run(v) → `["ran", "running"]`), MW의 반쯤 자유 텍스트인 `ins`보다
-   *  오히려 더 깔끔한 구조. ja 의 conjugationClass 와 마찬가지로 문법 설명에 실제로 쓰이는
-   *  정보라 LLM에도 전달. Wiktionary 등 다른 en 소스는 이 필드가 비어있을 수 있음. */
-  irregularForms?: string[]
-  /** 타동사/자동사 — JMdict 의 vt/vi 는 품사가 아니라 별도 축이라 분리 */
-  transitive?: boolean
-  /** 이 명사(headword)와 함께 쓰는 양사(예: "書"→"本") — CC-CEDICT의 `CL:` 태그로만
-   *  구조화돼 실측 확인(2026-07-28). **萌典은 이 정보 자체가 없음**(실측 확인: "書" 조회 시
-   *  이런 매칭이 전혀 없음) — 萌典의 "量詞："는 이것과 다른 축으로, 隻/個 같은 **양사 단어
-   *  자체를 조회했을 때 그 단어의 한 뜻풀이가 "양사로 쓰인다"는 의미**일 뿐이라 `pos`
-   *  판정(CanonicalPos 'classifier') 문제이지 이 필드완 무관(`DictionarySense.pos` 주석 참고).
-   *  汉典도 이런 명사-양사 매칭 정보는 확인 안 됨. en/ja는 대응 문법 범주 자체가 없어 항상
-   *  undefined — 사실상 CC-CEDICT 전용 필드. */
-  classifiers?: string[]
   /** 뜻풀이 원문(번역하지 않음, 원어 그대로) — 배열인 이유: 대부분 소스는 sense 하나에
    *  정의가 1개뿐이지만, **OEWN은 한 synset 에 패러프레이즈 대안 정의가 여러 개 붙는
    *  경우가 실측 확인됨**(예: `81484980-r` synset → ["quickly and without warning",
@@ -277,6 +260,60 @@ export interface DictionarySense {
   usageNote?: string
 }
 
+/** 언어 전용 필드 — L 이 구체 언어 하나('en' 등)면 그 언어의 확장 필드만 남고, L 이
+ *  Language(유니온) 그대로 들어오면 조건부 타입이 분배(distribute)돼 4개 언어 케이스의
+ *  유니온이 된다("언어 안 가리는 공용 sense" 타입이 필요할 때는 이쪽).
+ *
+ *  **주의**: `DictionaryEntry<L>`에서 L 을 구체 언어로 좁힌 뒤(`entry.language === 'ja'`
+ *  같은 판별) 그 entry 안의 sense 를 참조하면 TS 가 제네릭을 타고 내려가 `conjugationClass`
+ *  등에 바로 접근 가능하지만, entry 와 분리된 채 `sense: DictionarySense<Language>` 하나만
+ *  받는 함수는(narrowing 할 discriminant 가 sense 자체엔 없음) `'classifiers' in sense`
+ *  같은 속성 존재 체크로 좁혀야 한다 — 판별을 최상위(entry)에만 두기로 한 트레이드오프. */
+type DictionarySenseExt<L extends Language> = L extends 'en'
+  ? {
+      /** 불규칙 활용형(en 전용) — MW 의 `ins`(inflections) 필드 실측 확인(예: run → "ran").
+       *  **OEWN도 실측 확인**(GitHub 공식 JSON 릴리스 직접 다운로드해 확인) — entry의 `form`
+       *  필드가 배열로 제공(예: run(v) → `["ran", "running"]`), MW의 반쯤 자유 텍스트인
+       *  `ins`보다 오히려 더 깔끔한 구조. ja 의 conjugationClass 와 마찬가지로 문법 설명에
+       *  실제로 쓰이는 정보라 LLM에도 전달. Wiktionary 등 다른 en 소스는 이 필드가 비어있을
+       *  수 있음. */
+      irregularForms?: string[]
+      /** 타동사/자동사 — MW 실측 확인(2026-07-28): entry.fl 이 아니라 `def[].vd`("verb
+       *  divider")에 "transitive verb"/"intransitive verb"로 옴(예: "run"은 def 블록이
+       *  2개로 갈려 하나는 intransitive, 하나는 transitive). `vd`는 그 def 블록 전체(=여러
+       *  sense)에 적용되는 라벨이라, entry 최상위 `lbs`를 모든 sense 에 복제했던 것과 같은
+       *  패턴으로 그 def 안의 senses 전부에 전파해야 함. ja 의 JMdict `vt`/`vi`와 같은
+       *  개념이라 en/ja 양쪽 확장 타입에 공통으로 들어있음(en/ja 공유, zh 는 대응 없음). */
+      transitive?: boolean
+    }
+  : L extends 'ja'
+    ? {
+        /** 활용 분류(ja 전용) — 언어별로 canonical pos 하나로는 못 담는 문법 정보를 사람이
+         *  읽을 수 있게 디코딩해 보존한다(이 필드는 LLM에도 전달). 예: 동사 "一段"/
+         *  "五段(う)"/"サ変", 형용사 "い형용사"/"な형용사". 활용형(て形·과거형 등) 설명에
+         *  실제로 필요한 정보라 posRaw 와 달리 버리지 않는다. (zh 이합사(离合词)는 실측
+         *  확인 결과(2026-07-28, 汉典 `结婚`/萌典 `見面` 페이지 직접 확인 포함) 汉典·萌典·
+         *  CC-CEDICT 어디에도 태깅 안 되어 있어 스키마에 별도 자리를 안 만들기로 함.) */
+        conjugationClass?: string
+        /** JMdict `vt`/`vi` — 위 en `transitive` 주석 참고(en/ja 공유 개념, MW 는 `def[].vd`
+         *  로 옴). */
+        transitive?: boolean
+      }
+    : L extends 'zh-Hans' | 'zh-Hant'
+      ? {
+          /** 이 명사(headword)와 함께 쓰는 양사(예: "書"→"本") — CC-CEDICT의 `CL:` 태그로만
+           *  구조화돼 실측 확인(2026-07-28). **萌典은 이 정보 자체가 없음**(실측 확인: "書"
+           *  조회 시 이런 매칭이 전혀 없음) — 萌典의 "量詞："는 이것과 다른 축으로, 隻/個
+           *  같은 **양사 단어 자체를 조회했을 때 그 단어의 한 뜻풀이가 "양사로 쓰인다"는
+           *  의미**일 뿐이라 `pos` 판정(CanonicalPos 'classifier') 문제이지 이 필드완
+           *  무관(`DictionarySenseBase.pos` 주석 참고). 汉典도 이런 명사-양사 매칭 정보는
+           *  확인 안 됨. 사실상 CC-CEDICT 전용 필드. */
+          classifiers?: string[]
+        }
+      : object
+
+export type DictionarySense<L extends Language = Language> = DictionarySenseBase & DictionarySenseExt<L>
+
 export type DictionarySourceId =
   | 'merriam-webster'
   | 'wordnet'
@@ -302,7 +339,9 @@ export interface DictionaryPronunciation {
   variety?: string
 }
 
-export interface DictionaryReading {
+/** 언어 무관 공통 필드(reading 레벨) — DictionaryReading<L> 이 senses 를 통해 L 을 그대로
+ *  물려준다. */
+export interface DictionaryReadingBase<L extends Language = Language> {
   /** 병음/가나 등 소스 자체의 발음 표기 — 배열인 이유가 위 DictionaryReading 레벨 분리
    *  사유(동음이의/hom)와는 다르다: **OEWN은 같은 sense 집합에 지역별 발음이 여러 개
    *  붙는 구조**(실측: `pronunciation[]`에 원소가 여러 개, 각각 `variety` 태그 — 예를 들어
@@ -320,48 +359,72 @@ export interface DictionaryReading {
    *  이 앱의 발음 기능(IPA 등)은 이 필드가 아니라 question/pronunciation.ts 가 LLM에
    *  직접 요청하는 별도 파이프라인이라 위 불일치와 무관하게 동작한다. */
   pronunciations?: DictionaryPronunciation[]
-  /** JMdict(jisho.org) 전용 — 이 reading 그룹이 흔히 쓰이는지. 필드명을 원본(`is_common`)
-   *  그대로 씀. **sense 가 아니라 reading 레벨에 두는 이유가 실측으로 확인됨**: jisho.org
-   *  API로 "上手" 검색 시 `is_common` 이 sense 배열 안이 아니라 각 entry(result) 최상위에만
-   *  있고, 그 밑 senses(예: じょうず 그룹의 "능숙한"/"아첨" 두 sense)는 전부 같은 값을
-   *  공유함 — 원본 JMdict XML 이 우선도 태그(`ke_pri`/`re_pri`)를 한자/읽기 요소에만 붙이고
-   *  sense 요소엔 안 붙이는 구조라 애초에 sense 단위로 갈릴 수 없다. LLM 프롬프트엔
-   *  넣지 않고, 어댑터가 같은 표기의 여러 reading(DictionaryReading[]) 을 안정 정렬할 때만 씀.
-   *  (당초 함께 뒀던 `DictionarySense.tagCount`(OEWN 전용)는 실제 OEWN JSON 릴리스에 그런
-   *  필드가 없어 폐기함 — 2026-07-28.) */
-  isCommon?: boolean
-  /** 이 reading 이 headword 배열 중 일부 표기에만 적용될 때만 채움(undefined = 전체 적용) —
-   *  jmdict-simplified `Kana.appliesToKanji` 실측 확인(인덱스가 아니라 한자 표기 문자열
-   *  자체로 매칭, 예: "一人" 엔트리에서 いちにん reading 의 appliesToKanji 는 ["一人","１人"]
-   *  뿐이고 "独り"는 빠짐 — 独り는 ひとり로만 읽힘). headword 를 `{text,...}[]` 객체 배열
-   *  대신 `string[]`로 단순화했기 때문에 이 필드도 인덱스가 아니라 headword 배열의 문자열
-   *  값 그대로를 담아 매칭한다. */
-  appliesToHeadwords?: string[]
-  senses: DictionarySense[]
+  senses: DictionarySense<L>[]
 }
 
-export interface DictionaryEntry {
-  /** 이표기(異表記) 전부 — 대부분의 소스는 길이 1인 배열이면 충분하지만, ja(JMdict)는
-   *  한 표제어가 여러 한자로 쓰이는 경우가 실측 확인됨(예: "さびしい/さみしい"→["寂しい",
-   *  "淋しい"]). 순서는 어댑터가 원본 우선도(JMdict `ke_pri`/`Kanji.common` 등)로 정렬해
-   *  `headword[0]`이 대표 표기가 되게 한다. 이표기별 개별 우선도·주석(ateji/구자체 등,
-   *  jmdict-simplified `Kanji.tags`)은 스코프에서 제외 — 이 앱에 표기별 우선순위 UI가
-   *  없어 당장 필요성이 낮음(dialect 필드를 뺀 것과 동일 판단). */
-  headword: string[]
-  /** 이 표제어가 단일 단어가 아니라 여러 단어로 굳어진 관용구/구(句)인지 — 다중 단어
-   *  선택 시 "부분 조합 해석이 아니라 통째로 뜻을 취해야 한다"는 판단에 실제로 쓰임.
-   *  boolean 하나라 크기 부담은 없음(앞서 raw 필드를 크기 문제로 뺀 것과는 별개 사안).
-   *  실측 확인 — MW: `fl`(functional label)이 "phrase"(예: "kick the bucket"). JMdict:
-   *  `partOfSpeech`가 "exp"(Expressions, 예: "一石二鳥"), 세부적으로 "Yojijukugo"(사자성어)
-   *  같은 태그까지 있음. **CC-CEDICT: `(idiom)` 라벨**(실측: 124,732개 항목 중 5,703회) —
-   *  다른 사용역 라벨과 똑같이 `usageTags`로 흘려보내지 않고 이 필드로 승격해야 한다(2026-07-28
-   *  정정, 이전엔 usageTags 로만 매핑되고 있었음). **Wiktionary(dictionaryapi.dev)는 이 표시가
-   *  없음** — "kick the bucket"도 그냥 `partOfSpeech: "verb"`로만 나와 관용구 여부를 알 길이
-   *  없음. 이 소스는 이 필드가 항상 undefined. */
-  isIdiom?: boolean
-  readings: DictionaryReading[]
-  source: DictionarySourceId
-}
+/** 언어 전용 필드(reading 레벨) — 지금은 ja(JMdict) 뿐. */
+type DictionaryReadingExt<L extends Language> = L extends 'ja'
+  ? {
+      /** JMdict(jisho.org) 전용 — 이 reading 그룹이 흔히 쓰이는지. 필드명을 원본(`is_common`)
+       *  그대로 씀. **sense 가 아니라 reading 레벨에 두는 이유가 실측으로 확인됨**: jisho.org
+       *  API로 "上手" 검색 시 `is_common` 이 sense 배열 안이 아니라 각 entry(result) 최상위에만
+       *  있고, 그 밑 senses(예: じょうず 그룹의 "능숙한"/"아첨" 두 sense)는 전부 같은 값을
+       *  공유함 — 원본 JMdict XML 이 우선도 태그(`ke_pri`/`re_pri`)를 한자/읽기 요소에만 붙이고
+       *  sense 요소엔 안 붙이는 구조라 애초에 sense 단위로 갈릴 수 없다. LLM 프롬프트엔
+       *  넣지 않고, 어댑터가 같은 표기의 여러 reading(DictionaryReading[]) 을 안정 정렬할 때만 씀.
+       *  (당초 함께 뒀던 `DictionarySense.tagCount`(OEWN 전용)는 실제 OEWN JSON 릴리스에 그런
+       *  필드가 없어 폐기함 — 2026-07-28.) */
+      isCommon?: boolean
+      /** 이 reading 이 headword 배열 중 일부 표기에만 적용될 때만 채움(undefined = 전체 적용) —
+       *  jmdict-simplified `Kana.appliesToKanji` 실측 확인(인덱스가 아니라 한자 표기 문자열
+       *  자체로 매칭, 예: "一人" 엔트리에서 いちにん reading 의 appliesToKanji 는 ["一人","１人"]
+       *  뿐이고 "独り"는 빠짐 — 独り는 ひとり로만 읽힘). headword 를 `{text,...}[]` 객체 배열
+       *  대신 `string[]`로 단순화했기 때문에 이 필드도 인덱스가 아니라 headword 배열의 문자열
+       *  값 그대로를 담아 매칭한다. */
+      appliesToHeadwords?: string[]
+    }
+  : object
+
+export type DictionaryReading<L extends Language = Language> = DictionaryReadingBase<L> & DictionaryReadingExt<L>
+
+/** `interface DictionaryEntry<L> {...}` 로 뒀더니 `entry.language`로 좁혀도 안쪽
+ *  `readings[].senses[]`까지 타입이 안 좁혀지는 문제가 있었다(2026-07-28 발견) — 제네릭
+ *  인터페이스는 타입 매개변수를 자동으로 분배(distribute)하지 않기 때문. `L extends
+ *  Language ? {...} : never` 형태의 조건부 타입으로 바꿔서, `DictionaryEntry`(L 기본값
+ *  = Language, 즉 유니온)를 실제로 4개 언어별 구체 타입의 유니온으로 만들었다 — 이래야
+ *  `entry.language === 'ja'` 로 좁혔을 때 `entry.readings[].senses[].conjugationClass`
+ *  까지 안전하게 좁혀진다(직접 검증: 임시 파일로 `entry.language` 판별 후 접근/미판별
+ *  접근 두 경우를 tsc 로 확인함). */
+export type DictionaryEntry<L extends Language = Language> = L extends Language
+  ? {
+      /** 이 entry 가 어느 언어 소스에서 왔는지 — 판별 유니온의 유일한 판별 필드(2026-07-28
+       *  신설). `entry.language === 'ja'`처럼 이 필드로 좁히면 TS 가 제네릭 L 을 타고 내려가
+       *  `readings[].senses[].conjugationClass` 같은 언어 전용 필드에 안전하게 접근 가능해진다
+       *  — sense/reading 자체엔 이 판별 필드를 반복해서 두지 않았다(`DictionarySenseExt`
+       *  주석의 트레이드오프 참고). */
+      language: L
+      /** 이표기(異表記) 전부 — 대부분의 소스는 길이 1인 배열이면 충분하지만, ja(JMdict)는
+       *  한 표제어가 여러 한자로 쓰이는 경우가 실측 확인됨(예: "さびしい/さみしい"→["寂しい",
+       *  "淋しい"]). 순서는 어댑터가 원본 우선도(JMdict `ke_pri`/`Kanji.common` 등)로 정렬해
+       *  `headword[0]`이 대표 표기가 되게 한다. 이표기별 개별 우선도·주석(ateji/구자체 등,
+       *  jmdict-simplified `Kanji.tags`)은 스코프에서 제외 — 이 앱에 표기별 우선순위 UI가
+       *  없어 당장 필요성이 낮음(dialect 필드를 뺀 것과 동일 판단). */
+      headword: string[]
+      /** 이 표제어가 단일 단어가 아니라 여러 단어로 굳어진 관용구/구(句)인지 — 다중 단어
+       *  선택 시 "부분 조합 해석이 아니라 통째로 뜻을 취해야 한다"는 판단에 실제로 쓰임.
+       *  boolean 하나라 크기 부담은 없음(앞서 raw 필드를 크기 문제로 뺀 것과는 별개 사안).
+       *  실측 확인 — MW: `fl`(functional label)이 "phrase"(예: "kick the bucket"). JMdict:
+       *  `partOfSpeech`가 "exp"(Expressions, 예: "一石二鳥"), 세부적으로 "Yojijukugo"(사자성어)
+       *  같은 태그까지 있음. **CC-CEDICT: `(idiom)` 라벨**(실측: 124,732개 항목 중 5,703회) —
+       *  다른 사용역 라벨과 똑같이 `usageTags`로 흘려보내지 않고 이 필드로 승격해야 한다(2026-07-28
+       *  정정, 이전엔 usageTags 로만 매핑되고 있었음). **Wiktionary(dictionaryapi.dev)는 이 표시가
+       *  없음** — "kick the bucket"도 그냥 `partOfSpeech: "verb"`로만 나와 관용구 여부를 알 길이
+       *  없음. 이 소스는 이 필드가 항상 undefined. */
+      isIdiom?: boolean
+      readings: DictionaryReading<L>[]
+      source: DictionarySourceId
+    }
+  : never
 
 // ---- 앱 모드/설정 -----------------------------------------------------------
 
