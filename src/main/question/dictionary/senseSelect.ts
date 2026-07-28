@@ -100,6 +100,14 @@ export function buildSenseListText(senses: NumberedSense[]): string {
                 : (s.posRaw ?? s.pos?.join('/'))
       const tag = label ? `[${label}] ` : ''
       const gloss = s.gloss.join('; ')
+      // usageTags(2026-07-28, LLM 판정에도 노출) — 지금까지는 판정 다 끝난 뒤
+      // formatDictionaryAnswer 가 최종 화면에만 붙였는데(LLM은 이 정보를 전혀 못 보고
+      // 판정), 방언/격식 라벨(예: "Cantonese"/"colloquial")이 사실 문맥 판정에도 쓸모가
+      // 있다 — 예: 문맥이 표준중국어인지 광둥어 방언인지 알면 "Cantonese" 라벨 붙은 뜻과
+      // 안 붙은 뜻 중 어느 쪽이 맞는지 LLM이 참고할 수 있다. `kind` 는 아직 프롬프트에서
+      // 안 쓴다(사용자 요청은 "일단 넘기자"였고, register/dialect/convention 구분까지
+      // 활용하는 건 더 큰 프롬프트 설계 작업이라 스코프 밖 — 원문 라벨 텍스트만 노출).
+      const usageTagText = s.usageTags?.length ? ` (${s.usageTags.map((t) => t.text).join(', ')})` : ''
       const ex = s.examples?.length ? ` (예: ${s.examples.map((e) => `"${e}"`).join(' / ')})` : ''
       // parentIndex(2026-07-28 신설) — MW sdsense/daijisen(デジタル大辞泉) ①②③→㋐㋑㋒
       // 번호매김처럼 이
@@ -108,7 +116,7 @@ export function buildSenseListText(senses: NumberedSense[]): string {
       // 라 표시 안 함). 이게 없으면 하위 정의가 그냥 "또 다른 뜻 하나"로 보여 LLM이 원래
       // 뜻과의 좁은/넓은 관계를 알 수 없었다.
       const parentNote = s.parentIndex !== undefined ? `(${s.parentIndex}번의 더 좁은 의미) ` : ''
-      return `${s.index}. ${parentNote}${tag}${gloss}${ex}`
+      return `${s.index}. ${parentNote}${tag}${gloss}${usageTagText}${ex}`
     })
     .join('\n')
 }
