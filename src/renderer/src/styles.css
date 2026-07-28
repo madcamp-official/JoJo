@@ -294,8 +294,12 @@ button:disabled { cursor: not-allowed; }
   font-size: 14px; color: #64748b; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
-.popup-header .close {
+.popup-header .esc-hint {
   margin-left: auto; -webkit-app-region: no-drag;
+  font-size: 11px; color: #a0a7b4; letter-spacing: 0.02em; user-select: none;
+}
+.popup-header .close {
+  -webkit-app-region: no-drag;
   background: none; border: none; color: #64748b; font-size: 16px; cursor: pointer;
 }
 .popup-header .close:hover { color: #1e2230; }

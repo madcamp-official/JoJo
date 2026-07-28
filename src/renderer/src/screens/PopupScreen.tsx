@@ -239,6 +239,7 @@ export function PopupScreen() {
         <span className="src">
           {sourceLabel(baseCtx)} · {LANGUAGE_LABEL[baseCtx.language]}
         </span>
+        <span className="esc-hint">ESC</span>
         <button className="icon-btn close" title="닫기" onClick={() => window.close()}>
           ✕
         </button>
