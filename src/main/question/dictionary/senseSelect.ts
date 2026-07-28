@@ -60,9 +60,11 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
 export function buildSenseListText(senses: NumberedSense[]): string {
   return senses
     .map((s) => {
-      const label = s.posRaw ?? s.pos
-      const transitiveTag = s.transitive === true ? ', 타동사' : s.transitive === false ? ', 자동사' : ''
-      const tag = label ? `[${label}${transitiveTag}] ` : ''
+      // transitive 가 있으면(MW def.vd 실측: "run"처럼 타동/자동사로 def 블록이 갈리는
+      // 경우) 품사 라벨 자체를 "타동사"/"자동사"로 대체한다 — "동사 (타동사)"처럼
+      // 병기하지 않는다(사용자 요청, 2026-07-28).
+      const label = s.transitive === true ? '타동사' : s.transitive === false ? '자동사' : (s.posRaw ?? s.pos)
+      const tag = label ? `[${label}] ` : ''
       const gloss = s.gloss.join('; ')
       const ex = s.examples?.length ? ` (예: ${s.examples.map((e) => `"${e}"`).join(' / ')})` : ''
       return `${s.index}. ${tag}${gloss}${ex}`
@@ -169,14 +171,17 @@ export function formatDictionaryAnswer(
   // sense 마다 발음·품사가 다를 수 있어(예: bank 명사 vs bank 동사) 표제어 줄 자체를
   // sense 블록 단위로 반복한다 — 선택된 sense 가 하나뿐인 보통의 경우엔 한 줄만 나온다.
   for (const { sense, translatedGloss, translatedExamples } of selected) {
-    const label = (sense.pos && POS_KO[sense.pos]) ?? sense.posRaw
-    const idiomTag = sense.isIdiom ? ' (관용구)' : ''
     // MW def[].vd(verb divider) 실측 확인(2026-07-28, "run") — 동사 sense 마다 타동/자동
-    // 여부가 다를 수 있어(intransitive/transitive 로 def 블록 자체가 갈림) pos 라벨
-    // 옆에 별도 표시. undefined(동사가 아니거나 MW 가 vd 를 안 준 경우)면 표시 안 함.
-    const transitiveTag =
-      sense.transitive === true ? ' (타동사)' : sense.transitive === false ? ' (자동사)' : ''
-    const posSuffix = label ? ` · ${label}${transitiveTag}${idiomTag}` : ''
+    // 여부가 다를 수 있어(intransitive/transitive 로 def 블록 자체가 갈림) 있으면 품사
+    // 라벨 자체를 "타동사"/"자동사"로 대체한다(사용자 요청, "동사 (타동사)"처럼 병기 안 함).
+    const label =
+      sense.transitive === true
+        ? '타동사'
+        : sense.transitive === false
+          ? '자동사'
+          : ((sense.pos && POS_KO[sense.pos]) ?? sense.posRaw)
+    const idiomTag = sense.isIdiom ? ' (관용구)' : ''
+    const posSuffix = label ? ` · ${label}${idiomTag}` : ''
     // MW 는 IPA 가 아니라 자체 표기법이라 표시 직전에 IPA 근사치로 변환한다(merriamWebsterToIpa.ts).
     // 다른 en 소스(OEWN/Wiktionary)는 원래부터 실제 IPA 라 변환하지 않고 그대로 쓴다.
     const pronunciation =
