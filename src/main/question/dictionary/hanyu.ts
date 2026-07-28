@@ -20,8 +20,13 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense,
 // 페이지도 404를 반환했지만(문서에 기록된 현상), 일반 브라우저 User-Agent + 리다이렉트 추적
 // (Node `fetch` 기본 동작)만으로 정적 SSR HTML이 200으로 온다.
 
-const ZDIC_BASE = 'https://www.zdic.net'
-const ZDIC_LANG_PATH: Record<'zh-Hans' | 'zh-Hant', string> = {
+export const ZDIC_BASE = 'https://www.zdic.net'
+/** export하는 이유: senseSelect.ts의 출처 링크 빌더가 조회 언어별 경로(hans/hant)를
+ *  그대로 재사용한다 — zdic.net 자체엔 daijisen(kotobank.jp)처럼 페이지 안에 여러
+ *  하위 섹션(#jbjs/#xxjs/#gyjs)이 있지만, 실제로 어느 섹션이 채택됐는지는 이 어댑터
+ *  내부 폴백 순서(파일 상단 주석 참고)에 따라 단어마다 달라 링크 빌더 쪽에서 결정할
+ *  수 없다 — 그래서 섹션 앵커 없이 단어 페이지로만 연결한다. */
+export const ZDIC_LANG_PATH: Record<'zh-Hans' | 'zh-Hant', string> = {
   'zh-Hans': 'hans',
   'zh-Hant': 'hant',
 }

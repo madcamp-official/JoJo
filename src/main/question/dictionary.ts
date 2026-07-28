@@ -6,6 +6,7 @@ import type {
   SelectionContext,
 } from '@shared/types'
 import { getApiKey } from '@main/keyStore'
+import { tokenizeJapanese } from '@main/nlp/japanese'
 import { getSettings } from '@main/settingsStore'
 import { DEFAULT_MODELS } from '@shared/providers'
 import { LANGUAGES } from '@shared/languages'
@@ -99,10 +100,27 @@ export async function lookupDictionary(
   const model = settings.models[provider] || DEFAULT_MODELS[provider]
   const cacheableContext = buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter)
 
-  const whole = await lookupThroughFallbackChain(word, ctx)
+  let whole = await lookupThroughFallbackChain(word, ctx)
+  let lookupWord = word
+  if (!whole.senses.length && ctx.language === 'ja') {
+    // ja(daijisen·JMdict·Wiktionary 전부) 활용형을 원형으로 자동 변환해주지 않는다
+    // (TODO.md 131번 항목) — 통째 표면형 조회가 실패했을 때만(관용구/원형 그대로인
+    // 단어는 위에서 이미 성공해 여기까지 안 옴) 기본형으로 바꿔 **같은 체인 전체**를
+    // 재시도한다(daijisen→jmdict→wiktionary 전부 기본형으로 다시 탐). 표면형을 먼저
+    // 시도하는 이유: "犬も歩けば棒に当たる" 같은 관용구는 활용형 변환 없이 표면형
+    // 그대로가 정답이라, 무조건 먼저 기본형화하면 이런 경우를 깨뜨린다.
+    const baseForm = await toJapaneseDictionaryBaseForm(word).catch(() => null)
+    if (baseForm && baseForm !== word) {
+      const retried = await lookupThroughFallbackChain(baseForm, ctx)
+      if (retried.senses.length) {
+        whole = retried
+        lookupWord = baseForm
+      }
+    }
+  }
   if (whole.senses.length && whole.sourceId) {
     const outcome = await judgeAndFormat({
-      word,
+      word: lookupWord,
       source: whole.sourceId,
       senses: whole.senses,
       ctx,
@@ -264,6 +282,25 @@ async function judgeAndFormat(args: JudgeAndFormatArgs): Promise<JudgeAndFormatR
 
   const selected = parseJudgeReply(reply, senses)
   return { ok: true, formatted: formatDictionaryAnswer(word, source, selected, ctx.language) }
+}
+
+/** ja 활용형(동사/형용사/な형용사+だ, 명사+する 복합동사 등) 표면형 → 사전 기본형 변환
+ *  — 통째 표면형 조회가 실패했을 때만 호출된다(lookupDictionary 참고). 형태소 분석
+ *  (main/nlp/japanese.ts, JA_ENGINE 설정값)의 첫 토큰만 본다 — ja/zh 는 팝업이 이미
+ *  원자 단위로 선택돼 있어 "여러 단어"가 아니라 "하나의 활용된 단어"라는 전제(TODO.md
+ *  131번 항목의 en 다중 단어 폴백과 다른 축).
+ *  - 첫 토큰 자체가 활용됐으면(baseForm ≠ surface, 실측: 歩いた→歩く, 大きかった→大きい,
+ *    静かだ→静か) 그 기본형을 쓴다.
+ *  - 첫 토큰은 안 변했는데 뒤에 토큰이 더 있으면(명사+する 복합동사, 실측: 勉強する→
+ *    勉強+する 2토큰, "勉強する"는 404지만 "勉強" 단독은 정상 조회됨) 첫 토큰의 표면형만
+ *    따로 조회한다 — 뒤에 붙은 する/조사 등을 뗀 값.
+ *  - 토큰이 하나뿐이면(활용 문제가 아님, 이미 원형이거나 명사 등) null. */
+async function toJapaneseDictionaryBaseForm(word: string): Promise<string | null> {
+  const tokens = await tokenizeJapanese(word)
+  if (tokens.length < 2) return null
+  const first = tokens[0]
+  if (first.baseForm && first.baseForm !== first.surface) return first.baseForm
+  return first.surface || null
 }
 
 /** en 폴백용 단어 분리 — 공백·하이픈 기준(팝업 atom 규칙과 동일한 축, 문장부호는 버림).

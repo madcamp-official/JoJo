@@ -220,6 +220,13 @@ export function registerIpc(): void {
     },
   )
 
+  // 담당 B: 채팅창 마크다운 링크(사전 출처 등, senseSelect.ts formatDictionaryAnswer가
+  // 만든 완성된 URL) — 구글/네이버와 똑같이 기본 브라우저 새 창으로 연다. 렌더러가 이미
+  // 완성된 URL을 그대로 넘기므로(위 둘처럼 여기서 URL을 조립하지 않음) payload는 문자열 하나.
+  ipcMain.handle(IPC.OPEN_EXTERNAL_LINK, async (_e, url: string) => {
+    await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
+  })
+
   // 담당 B: 팝업 원문 문맥의 가나 조각 병합용 일본어 형태소 분석 (nlp/japanese.ts).
   // 렌더러가 병합 함수를 고를 수 있도록 engine 태그를 같이 내려준다.
   ipcMain.handle(IPC.TOKENIZE_JA, async (_e, text: string) => {

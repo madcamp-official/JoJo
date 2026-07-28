@@ -159,6 +159,9 @@ const api = {
   openNaverDict: (text: string, lang: Language): Promise<void> =>
     ipcRenderer.invoke(IPC.OPEN_NAVER_DICT, { text, lang }),
 
+  // 채팅창 마크다운 링크(사전 출처 등) 클릭 시 구글/네이버와 동일한 방식으로 열기
+  openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_EXTERNAL_LINK, url),
+
   // 팝업 원문 문맥의 가나 atom 병합용 일본어 형태소 분석 요청(엔진은 JA_ENGINE 설정값)
   tokenizeJapanese: (text: string): Promise<JaTokenizeResult> =>
     ipcRenderer.invoke(IPC.TOKENIZE_JA, text),
