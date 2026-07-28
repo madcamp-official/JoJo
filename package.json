@@ -6,6 +6,7 @@
   "author": "madcamp 26s-w4-c3-07 JoJo",
   "license": "MIT",
   "scripts": {
+    "postinstall": "node scripts/resign-electron.mjs",
     "predev": "bash scripts/ensure-resources.sh",
     "dev": "electron-vite dev",
     "prebuild": "bash scripts/ensure-resources.sh",
