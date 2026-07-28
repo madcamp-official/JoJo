@@ -28,6 +28,7 @@ export async function decideExtraction(): Promise<ExtractionDecision> {
   // 브라우저면(확장이 활성 탭을 보고 중) URL 로 자막/웹 경로를 먼저 분기한다.
   // 유튜브 동영상·넷플릭스 에피소드 = 확장으로 원어 자막 추출(subtitle).
   const browser = getBrowserSource()
+  console.log('[decideExtraction] browserSource =', browser ? `${browser.source.kind} media=${browser.isMedia}` : 'null(확장 미연결/미보고)')
   if (browser) {
     if (browser.isMedia) {
       return { mode: 'subtitle', source: browser.source, language }

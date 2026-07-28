@@ -63,6 +63,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
 
     this.startKeepalive()
     this.emit('connected')
+    console.log('[ext-bridge] 확장 연결됨')
     // 재접속 직후 상태를 맞추기 위해 현재 활성 탭을 다시 보고하도록 요청한다.
     this.send({ type: 'requestActiveTab' })
   }

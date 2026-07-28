@@ -46,6 +46,12 @@ export function stopSubtitleMode(): void {
 function onSnapshot(snapshot: SubtitleSnapshot | null): void {
   latest = snapshot
   latestWords = snapshot ? snapshotToWords(snapshot) : []
+  const first = latestWords[0]
+  console.log(
+    `[subtitle] words=${latestWords.length}`,
+    snapshot ? `chrome=(${snapshot.viewport.chromeLeft},${snapshot.viewport.chromeTop})` : '',
+    first ? `first="${first.text}" bbox=(${Math.round(first.bbox!.x)},${Math.round(first.bbox!.y)},${Math.round(first.bbox!.width)}x${Math.round(first.bbox!.height)})` : '',
+  )
   sendOverlayWords(latestWords)
 }
 
