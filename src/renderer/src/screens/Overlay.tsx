@@ -57,6 +57,10 @@ export function Overlay() {
         setWords(w)
         setHovered(null) // 새 단어 목록엔 이전 hover 대상과 같은 객체가 없어서, 안 지우면 낡은 위치의 박스가 남는다
         setExtracting(false)
+        // 어떤 경로(OCR 성공/빈 결과, 자막 모드의 빈 배열)든 도착했다는 건 더 이상 영역
+        // 선택을 기다릴 필요가 없다는 뜻 — 자막 모드로 전환되기 직전에 REGION_SELECTION_NEEDED
+        // 가 먼저 와 있었던 경우(판정 경합) 그 드래그 안내가 남아있지 않도록 같이 끈다.
+        setNeedsRegion(false)
       }),
     [],
   )
