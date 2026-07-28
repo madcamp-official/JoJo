@@ -6,17 +6,19 @@
   "author": "madcamp 26s-w4-c3-07 JoJo",
   "license": "MIT",
   "scripts": {
+    "predev": "bash scripts/ensure-resources.sh",
     "dev": "electron-vite dev",
+    "prebuild": "bash scripts/ensure-resources.sh",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint . --ext .ts,.tsx",
     "build:ext": "node scripts/build-extension.mjs",
     "watch:ext": "node scripts/build-extension.mjs --watch",
-    "pack:dir": "electron-vite build && electron-builder --dir",
-    "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:win": "electron-vite build && electron-builder --win",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "pack:dir": "npm run build && electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
     "@node-rs/jieba": "^2.0.1",
