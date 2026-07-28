@@ -1,4 +1,5 @@
-import type { LlmProvider, ProviderValidation } from '@shared/types'
+import type { LlmProvider, ProviderValidation, QuestionErrorCode } from '@shared/types'
+import { createClient } from './adapter'
 import { ensureOk } from './sse'
 import { classifyLlmError } from './errors'
 
@@ -69,5 +70,28 @@ export async function validateProvider(
     return { provider, ok: true, models }
   } catch (err) {
     return { provider, ok: false, models: [], error: classifyLlmError(err) }
+  }
+}
+
+/** 모델 하나가 실제로 채팅 생성에 쓸 수 있는지 최소 비용(응답 토큰 1개)으로 실제 호출해
+ *  검증한다. `/v1/models` 등 목록 조회는 무과금이지만 "그 이름이 존재한다"만 보장할 뿐
+ *  실제로 되는지는 안 보장한다(2026-07-28 실측: 목록엔 있지만 단종된 모델이 404를 내는
+ *  경우, 추론형 모델이라 temperature 파라미터를 거부하는 경우 등) — 드롭다운에서 모델을
+ *  고르는 시점에 1회만 호출해 확정 전에 걸러낸다. 실패 사유는 QuestionErrorCode 로,
+ *  성공은 null 로 반환(예외 미전파). */
+export async function testModel(
+  provider: LlmProvider,
+  apiKey: string,
+  model: string,
+): Promise<QuestionErrorCode | null> {
+  try {
+    const client = createClient(provider, { apiKey })
+    await client.stream(
+      { system: '', messages: [{ role: 'user', content: 'hi' }], model, maxTokens: 1 },
+      () => {},
+    )
+    return null
+  } catch (err) {
+    return classifyLlmError(err)
   }
 }
