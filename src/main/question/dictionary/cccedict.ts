@@ -150,38 +150,41 @@ const SEE_ALSO_PREFIXES: [RegExp, SeeAlsoKind][] = [
   [/^see also (.+)$/, 'related'],
 ]
 
-interface ParsedSegments {
-  gloss: string[]
+interface GlossSegment {
+  text: string
   usageTags: { text: string; kind: UsageTagKind }[]
   domain: string[]
+}
+
+interface ParsedLine {
+  /** 세그먼트 하나 = sense 하나(2026-07-28 결정) — "확定"(13개 세그먼트가 사실상 2~3개
+   *  뜻의 근의어 나열인 경우)처럼 과분할되는 소스도 있지만, CC-CEDICT 원본에 세그먼트
+   *  묶음을 판정할 근거(sense 번호 등)가 없어 세그먼트 하나에 여러 뜻을 억지로 모으는
+   *  쪽(구버전)보다 라벨-뜻풀이 매칭 정확도를 우선한다는 방향으로 정리(사용자 결정). */
+  glossSegments: GlossSegment[]
+  /** 이 줄(발음) 전체에 걸리는 교차참조 — 특정 세그먼트가 아니라 표제어/발음 단위의
+   *  포인터라(예: "一族" → "see also 族[zu2]") 아래에서 모든 split sense 에 동일하게
+   *  복제한다(entry 최상위 라벨을 모든 sense 에 전파하는 MW `lbs` 패턴과 같은 방식). */
   seeAlso: { text: string; kind: SeeAlsoKind }[]
-  classifiers: string[]
   /** "Taiwan pr. [...]" 로 뜻풀이 안에 파묻혀 있던 대만식 발음 — pronunciations 에 별도
    *  variety 항목으로 승격한다(문서 결정). */
   pronunciationVarieties: string[]
   isIdiom: boolean
 }
 
-function parseSegments(segments: string[]): ParsedSegments {
-  const gloss: string[] = []
-  const usageTags: { text: string; kind: UsageTagKind }[] = []
-  const domain: string[] = []
+function parseLine(segments: string[]): ParsedLine {
+  const glossSegments: GlossSegment[] = []
   const seeAlso: { text: string; kind: SeeAlsoKind }[] = []
-  const classifiers: string[] = []
   const pronunciationVarieties: string[] = []
   let isIdiom = false
 
   for (const segment of segments) {
-    if (segment.startsWith('CL:')) {
-      classifiers.push(
-        ...segment
-          .slice(3)
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-      )
-      continue
-    }
+    // CL:(양사) 세그먼트는 표제어 전체(주로 명사 뜻 하나)에 걸리는 정보인데, 세그먼트당
+    // sense 하나로 쪼개는 지금 구조에선 여러 split sense 중 어디에 붙일지 원본에 구조적
+    // 근거가 없다 — 억지로 아무 sense 에나 붙이지 않고 그냥 버린다(2026-07-28, `classifiers`
+    // 필드 자체를 스키마에서 제거 — shared/types.ts 참고. 이 필드는 애초에 senseSelect.ts/
+    // 프롬프트 어디서도 안 읽던 미사용 필드였다).
+    if (segment.startsWith('CL:')) continue
 
     const pointer = SEE_ALSO_PREFIXES.find(([re]) => re.test(segment))
     if (pointer) {
@@ -197,6 +200,8 @@ function parseSegments(segments: string[]): ParsedSegments {
       text = text.replace(TAIWAN_PR_RE, '')
     }
 
+    const usageTags: { text: string; kind: UsageTagKind }[] = []
+    const domain: string[] = []
     text = text
       .replace(KNOWN_LABEL_RE, (_, label: string) => {
         if (label === 'idiom') isIdiom = true
@@ -207,55 +212,36 @@ function parseSegments(segments: string[]): ParsedSegments {
       .replace(/\s+/g, ' ')
       .trim()
 
-    if (text) gloss.push(text)
+    // 라벨만 있고 실제 뜻풀이 텍스트가 안 남는 세그먼트는 그 자체로 sense 가 아니므로 버린다.
+    if (text) glossSegments.push({ text, usageTags, domain })
   }
 
-  return {
-    gloss,
-    // CC-CEDICT는 라벨을 세그먼트마다 반복해서 붙인다(예: "行"(hang2) → "(bound form)
-    // row; line/(bound form) line of business; .../..." — 같은 라벨이 뜻풀이 4개에
-    // 나란히 붙음). 세그먼트 단위로 순회하며 뽑다 보면 그대로 중복이 쌓이므로, sense
-    // 하나로 합쳐 반환하기 직전에 한 번만 걸러낸다(2026-07-28).
-    usageTags: dedupBy(usageTags, (t) => `${t.kind}:${t.text}`),
-    domain: [...new Set(domain)],
-    seeAlso,
-    classifiers,
-    pronunciationVarieties,
-    isIdiom,
-  }
-}
-
-function dedupBy<T>(items: T[], key: (item: T) => string): T[] {
-  const seen = new Set<string>()
-  return items.filter((item) => {
-    const k = key(item)
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
+  return { glossSegments, seeAlso, pronunciationVarieties, isIdiom }
 }
 
 // ---- CedictLine → DictionaryReading ---------------------------------------------
 
-/** CC-CEDICT 는 표제어당 sense 번호가 없는 슬래시 평문 목록이라(문서 "스키마 매핑" 절),
- *  한 줄(=한 발음)의 정의 세그먼트 전부를 sense 하나의 gloss 배열로 합친다 — 다른 소스처럼
- *  세그먼트별로 별개 sense 를 만들지 않는다. */
+/** 세그먼트 하나(=하나의 근원어 뜻풀이)를 sense 하나로 대응시킨다(2026-07-28 결정,
+ *  이전엔 한 줄의 세그먼트 전부를 sense 하나에 합쳤었음 — 그러면 세그먼트마다 반복되는
+ *  라벨이 중복 적재되고 라벨이 정확히 어느 뜻풀이에 걸리는지도 알 수 없었다). */
 function lineToReading<L extends Language>(line: CedictLine): { reading: DictionaryReading<L>; isIdiom: boolean } | null {
-  const parsed = parseSegments(line.segments)
-  if (!parsed.gloss.length) return null
+  const parsed = parseLine(line.segments)
+  if (!parsed.glossSegments.length) return null
 
   const pronunciations: DictionaryPronunciation[] = [{ value: line.pinyin }]
   for (const taiwanPinyin of parsed.pronunciationVarieties) pronunciations.push({ value: taiwanPinyin, variety: 'Taiwan' })
 
-  const sense = {
-    gloss: parsed.gloss,
-    usageTags: parsed.usageTags.length ? parsed.usageTags : undefined,
-    domain: parsed.domain.length ? parsed.domain : undefined,
-    seeAlso: parsed.seeAlso.length ? parsed.seeAlso : undefined,
-    classifiers: parsed.classifiers.length ? parsed.classifiers : undefined,
-  } as unknown as DictionarySense<L>
+  const senses = parsed.glossSegments.map(
+    (seg) =>
+      ({
+        gloss: [seg.text],
+        usageTags: seg.usageTags.length ? seg.usageTags : undefined,
+        domain: seg.domain.length ? seg.domain : undefined,
+        seeAlso: parsed.seeAlso.length ? parsed.seeAlso : undefined,
+      }) as unknown as DictionarySense<L>,
+  )
 
-  return { reading: { pronunciations, senses: [sense] }, isIdiom: parsed.isIdiom }
+  return { reading: { pronunciations, senses }, isIdiom: parsed.isIdiom }
 }
 
 export interface CcCedictLookupResult<L extends Language = Language> {

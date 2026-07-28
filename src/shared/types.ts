@@ -313,7 +313,7 @@ export type DictionarySenseBase<L extends Language = Language> = DictionarySense
  *  **주의**: `DictionaryEntry<L>`에서 L 을 구체 언어로 좁힌 뒤(`entry.language === 'ja'`
  *  같은 판별) 그 entry 안의 sense 를 참조하면 TS 가 제네릭을 타고 내려가 `conjugationClass`
  *  등에 바로 접근 가능하지만, entry 와 분리된 채 `sense: DictionarySense<Language>` 하나만
- *  받는 함수는(narrowing 할 discriminant 가 sense 자체엔 없음) `'classifiers' in sense`
+ *  받는 함수는(narrowing 할 discriminant 가 sense 자체엔 없음) `'conjugationClass' in sense`
  *  같은 속성 존재 체크로 좁혀야 한다 — 판별을 최상위(entry)에만 두기로 한 트레이드오프. */
 /** 타동사/자동사 — en/ja 공유 개념이라 두 언어 확장 타입이 공통으로 물려받는다(2026-07-28,
  *  설명을 한 곳에만 두도록 정리 — 이전엔 en/ja 양쪽에 각자 적어두고 서로 참고하라고
@@ -361,16 +361,14 @@ type DictionarySenseExt<L extends Language> = L extends 'en'
         conjugationClass?: string
       } & TransitiveExt
     : L extends 'zh-Hans' | 'zh-Hant'
-      ? {
-          /** 이 명사(headword)와 함께 쓰는 양사(예: "書"→"本") — CC-CEDICT의 `CL:` 태그로만
-           *  구조화돼 실측 확인(2026-07-28). **萌典은 이 정보 자체가 없음**(실측 확인: "書"
-           *  조회 시 이런 매칭이 전혀 없음) — 萌典의 "量詞："는 이것과 다른 축으로, 隻/個
-           *  같은 **양사 단어 자체를 조회했을 때 그 단어의 한 뜻풀이가 "양사로 쓰인다"는
-           *  의미**일 뿐이라 `pos` 판정(CanonicalPos 'classifier') 문제이지 이 필드완
-           *  무관(`DictionarySenseBase.pos` 주석 참고). 汉典도 이런 명사-양사 매칭 정보는
-           *  확인 안 됨. 사실상 CC-CEDICT 전용 필드. */
-          classifiers?: string[]
-        }
+      ? object // 이 명사(headword)와 함께 쓰는 양사(CC-CEDICT `CL:` 태그) 필드를 뒀었으나
+        // (2026-07-28) 어댑터를 "슬래시 세그먼트 하나 = sense 하나"로 쪼개는 방향으로
+        // 바꾸면서(아래 cccedict.ts) CL: 이 특정 세그먼트/sense 하나에만 붙는 게 아니라
+        // 그 표제어 전체(주로 명사 뜻)에 걸쳐 있어 어느 split sense 에 매칭해야 할지
+        // 원본에 구조적 근거가 없어졌다(억지로 마지막 sense 에 붙이는 것도 부정확).
+        // 사실상 CC-CEDICT 1개 소스 전용이었고 `senseSelect.ts`/프롬프트 어디서도 안
+        // 읽던 필드라(즉 지금까지 실사용 자리가 없었음) 스키마에서 제거 — 양사 정보
+        // 자체가 필요해지면 그때 다시 근거를 세워 추가한다.
       : object
 
 export type DictionarySense<L extends Language = Language> = DictionarySenseBase<L> & DictionarySenseExt<L>
