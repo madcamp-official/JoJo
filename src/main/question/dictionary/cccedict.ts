@@ -24,6 +24,78 @@ import type {
 
 const CEDICT_PATH = join(__dirname, '../../resources/cedict.u8')
 
+// ---- 숫자 성조(numbered tone) → 발음 구별 부호(diacritic) 변환 --------------------
+
+/** 한 음절의 성조 표시 모음(a/e/o/i/u/ü)별 1~4성 발음 구별 부호. 5번째 자리(경성)는
+ *  부호 없이 원문자 그대로 — 배열 인덱스를 tone-1 로 바로 쓴다. */
+const TONE_MARKS: Record<string, string> = {
+  a: 'āáǎàa',
+  e: 'ēéěèe',
+  i: 'īíǐìi',
+  o: 'ōóǒòo',
+  u: 'ūúǔùu',
+  ü: 'ǖǘǚǜü',
+}
+
+/** vowel 하나에 성조 부호를 입힌다 — 대소문자는 그 글자 자체의 대소문자를 따른다(고유
+ *  명사가 통째로 대문자로 시작해도(예: "Zhong1guo2") 부호 붙는 모음 자체는 소문자인
+ *  경우가 대부분이라 단어 전체가 아니라 글자 단위로 판단해야 함). */
+function markVowel(vowel: string, toneIndex: number): string {
+  const lower = vowel.toLowerCase()
+  const marks = TONE_MARKS[lower]
+  if (!marks) return vowel
+  const marked = marks[toneIndex] ?? lower
+  return vowel === lower ? marked : marked.toUpperCase()
+}
+
+/** CC-CEDICT 원본 음절 하나(예: "da3", "nu:3", "lu:4")를 성조 부호 표기로 바꾼다.
+ *  **실측 확인(2026-07-28)**: CC-CEDICT는 ü를 "v"가 아니라 **"u:"**로 표기한다
+ *  (`nu:4`=衄, `yi1 lu:4`=一律 등 원본 파일 직접 grep 확인) — 흔히 쓰이는 "v" 표기
+ *  방식의 다른 로마자 입력기와 다르니 혼동 주의. 성조 부호를 놓는 모음 우선순위는
+ *  표준 병음 규칙(a>e>o>나머지 i/u/ü 중 마지막 글자, 단 "iu"/"ui"는 뒤 글자) 그대로
+ *  따른다. **주의(2026-07-28, 실측 재검증 중 발견)**: 'o' 체크를 "ou"부분 문자열
+ *  포함 여부로만 판정하면 "guo2"(国)의 'o'를 못 찾아 대신 'u'에 부호가 붙어버리고
+ *  ("gúo", 틀림), "zhong1"(中)처럼 'o'가 있어도 "ou"가 아니면 아예 부호가 안 붙는
+ *  문제가 있었다 — 'o'는 "ou"에 한정하지 않고 있으면 무조건 e 다음 우선순위로
+ *  잡아야 한다(guó/zhōng 둘 다 이렇게 고쳐서 해결). */
+function convertPinyinSyllable(syllable: string): string {
+  const m = /^([A-Za-z:]+)([1-5])$/.exec(syllable)
+  if (!m) return syllable
+  const [, rawLetters, toneDigit] = m
+  const toneIndex = Number(toneDigit) - 1
+  const letters = rawLetters.replace(/u:/g, 'ü').replace(/U:/g, 'Ü')
+  if (toneIndex === 4) return letters // 경성 — 부호 없음
+
+  const lower = letters.toLowerCase()
+  let targetIdx = -1
+  if (lower.includes('a')) targetIdx = lower.indexOf('a')
+  else if (lower.includes('e')) targetIdx = lower.indexOf('e')
+  else if (lower.includes('o')) targetIdx = lower.indexOf('o')
+  else {
+    for (let i = lower.length - 1; i >= 0; i--) {
+      if ('iuü'.includes(lower[i])) {
+        targetIdx = i
+        break
+      }
+    }
+  }
+  if (targetIdx === -1) return letters
+
+  const chars = [...letters]
+  chars[targetIdx] = markVowel(chars[targetIdx], toneIndex)
+  return chars.join('')
+}
+
+/** 공백으로 이어진 음절 전체(예: "da3 suan4")를 변환한다. 숫자 성조 표기 하나가 아니라
+ *  이미 발음 구별 부호가 붙은 값이 들어와도(다른 소스 재사용 등) 정규식이 매칭 안 돼
+ *  그대로 통과하니 이중 변환 걱정은 없다. */
+export function numberedPinyinToDiacritic(pinyin: string): string {
+  return pinyin
+    .split(' ')
+    .map((syllable) => convertPinyinSyllable(syllable))
+    .join(' ')
+}
+
 interface CedictLine {
   traditional: string
   simplified: string
@@ -228,8 +300,10 @@ function lineToReading<L extends Language>(line: CedictLine): { reading: Diction
   const parsed = parseLine(line.segments)
   if (!parsed.glossSegments.length) return null
 
-  const pronunciations: DictionaryPronunciation[] = [{ value: line.pinyin }]
-  for (const taiwanPinyin of parsed.pronunciationVarieties) pronunciations.push({ value: taiwanPinyin, variety: 'Taiwan' })
+  const pronunciations: DictionaryPronunciation[] = [{ value: numberedPinyinToDiacritic(line.pinyin) }]
+  for (const taiwanPinyin of parsed.pronunciationVarieties) {
+    pronunciations.push({ value: numberedPinyinToDiacritic(taiwanPinyin), variety: 'Taiwan' })
+  }
 
   const senses = parsed.glossSegments.map(
     (seg) =>
