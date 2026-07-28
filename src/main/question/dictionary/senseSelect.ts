@@ -1,4 +1,4 @@
-import type { CanonicalPos, DictionaryEntry, DictionarySourceId } from '@shared/types'
+import type { CanonicalPos, DictionaryEntry, DictionarySourceId, UsageTag } from '@shared/types'
 import { mwToIpa } from './mwToIpa'
 
 // 담당 B — 사전 뜻(sense) 번호 매기기 + LLM 판정/번역 결과 서식화 (PLAN.md §4.2-2)
@@ -16,7 +16,7 @@ export interface NumberedSense {
   irregularForms?: string[]
   gloss: string[]
   examples?: string[]
-  usageTags?: string[]
+  usageTags?: UsageTag[]
   usageNote?: string
   isIdiom?: boolean
 }
@@ -159,7 +159,7 @@ export function formatDictionaryAnswer(
       lines.push('')
       lines.push(`활용형: ${sense.irregularForms.join(', ')}`)
     }
-    if (sense.usageTags?.length) lines.push(`_${sense.usageTags.join(', ')}_`)
+    if (sense.usageTags?.length) lines.push(`_${sense.usageTags.map((t) => t.text).join(', ')}_`)
     if (sense.usageNote) lines.push(sense.usageNote)
     lines.push('')
   }

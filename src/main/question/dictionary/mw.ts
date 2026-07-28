@@ -1,4 +1,4 @@
-import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense } from '@shared/types'
+import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, UsageTag } from '@shared/types'
 
 // 담당 B — Merriam-Webster Collegiate Dictionary API 어댑터 (PLAN.md §5 en-1)
 // 실측 근거는 DICTIONARY_SOURCES.md "Merriam-Webster (MW)" 절 참고.
@@ -170,8 +170,11 @@ function extractDt(dt: MwDtItem[] | undefined): { gloss: string[]; examples: str
 /** sense 레벨 sls 와 entry 최상위 lbs(둘 다 표기 관례/격식 라벨, DICTIONARY_SOURCES.md
  *  실측 확인)를 하나의 usageTags 로 합친다. lbs 는 entry 전체에 적용되는 라벨이라
  *  그 entry의 모든 sense 에 동일하게 복제된다. */
-function mergeUsageTags(sls: string[] | undefined, lbs: string[] | undefined): string[] | undefined {
-  const merged = [...(lbs ?? []), ...(sls ?? [])]
+function mergeUsageTags(sls: string[] | undefined, lbs: string[] | undefined): UsageTag[] | undefined {
+  const merged: UsageTag[] = [
+    ...(lbs ?? []).map((text) => ({ text, kind: 'convention' as const })),
+    ...(sls ?? []).map((text) => ({ text, kind: 'register' as const })),
+  ]
   return merged.length ? merged : undefined
 }
 
