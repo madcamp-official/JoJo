@@ -150,6 +150,20 @@ export type CanonicalPos =
   | 'adnominal' // ja 連体詞(この/あの/いわゆる 등) — 활용 없이 체언 수식만 하는 전용 품사, adjective(い/な형용사)와 달리 서술어로 못 쓰이고 활용형 자체가 없음(실측: JMdict "Pre-noun adjectival (rentaishi)"). 다른 언어엔 대응 품사 없음
   | 'other'
 
+/** usageTags 태그 하나의 성격 — 격식/사용역(register)인지, 격식과 무관한 표기·형태 관례
+ *  (convention)인지, 방언 표시(dialect)인지를 최소한으로 구분한다(2026-07-28 신설). 분류가
+ *  애매한 라벨(예: CC-CEDICT `(loanword)`/`(bound form)` — 어원·형태 결합 제약 표시라
+ *  격식도 방언도 아님)을 억지로 셋 중 하나로 우기지 않고 'other'로 둔다. LLM 프롬프트엔
+ *  `text`만 넣고 `kind`는 어댑터/기능(예: PLAN §3 "격식 여부" 자주 쓰는 질문)이 태그를
+ *  걸러 쓸 때만 사용. */
+export type UsageTagKind = 'register' | 'convention' | 'dialect' | 'other'
+
+export interface UsageTag {
+  /** 원문 라벨 그대로(예: "informal", "often attributive") — 정규화하지 않음. */
+  text: string
+  kind?: UsageTagKind
+}
+
 export interface DictionarySense {
   /** 표준화된 품사 — CC-CEDICT처럼 품사 필드 자체가 없는 소스만 undefined. **萌典도 품사
    *  필드가 있음**(실측 확인: `definitions[].type` — 名/動/形/副/連/介/代/助/歎, 순서대로
@@ -217,8 +231,15 @@ export interface DictionarySense {
    *  "deco" → entry 최상위 `lbs: ["often attributive"]`) — 전문분야 라벨이 아니라 `sls`와
    *  같은 성격의 일반 표기 관례 라벨이라 domain이 아니라 이 필드로 매핑한다. 단 `lbs`는
    *  entry 최상위 필드라 sense 레벨인 이 필드와 위치가 다르므로, 어댑터가 그 entry의 모든
-   *  sense 에 복제해 넣어야 한다. */
-  usageTags?: string[]
+   *  sense 에 복제해 넣어야 한다.
+   *
+   *  **2026-07-28 정정: `string[]`에서 `UsageTag[]`로 구조화.** 격식(register)·표기 관례
+   *  (convention)·방언 표시(dialect)가 전부 문자열 하나에 섞여 있으면, PLAN §3 "격식·객관
+   *  표현 여부" 자주 쓰는 질문 기능이 이 필드로 격식 여부를 판단할 때 격식과 무관한
+   *  태그(예: JMdict "Usually written using kana alone")까지 같이 LLM에 들어가 판단을
+   *  오염시킬 수 있음을 뒤늦게 발견 — `kind`로 최소 분류해 어댑터/프롬프트 구성 단계에서
+   *  걸러 쓸 수 있게 한다. */
+  usageTags?: UsageTag[]
   /** 전문분야/도메인 라벨 — JMdict `field`(jmdict-simplified 원본, 컴퓨터·의학·법률 등)
    *  실측 확인. jisho.org 라이브 API는 이 축을 `misc`(usageTags 대응)와 뭉쳐 `tags`
    *  하나로 노출하지만, 로컬 데이터셋을 직접 번들하는 어댑터는 원본 구분을 살려 이
