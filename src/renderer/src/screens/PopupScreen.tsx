@@ -155,9 +155,10 @@ export function PopupScreen() {
   // registry.ts 가 자동 감지하므로 여기서는 그냥 받아서 보여주기만 하면 된다.
   const [dictSources, setDictSources] = useState<DictionarySourceOption[]>([])
   const [selectedSource, setSelectedSource] = useState<DictionarySourceId | undefined>(undefined)
-  // 기본값은 꺼짐(정식 폴백 체인 사용, dictionary.ts FALLBACK_CHAINS) — 켜면 위 드롭다운에서
-  // 고른 소스 하나만 강제로 호출한다(디버깅/비교용).
-  const [forceSource, setForceSource] = useState(false)
+  // 기본값은 켜짐(직접 선택) — 사용자 요청(2026-07-28)으로 정식 폴백 체인(dictionary.ts
+  // FALLBACK_CHAINS) 대신 위 드롭다운에서 고른 소스를 기본으로 강제 호출한다. 꺼서
+  // 정식 폴백 체인을 다시 켤 수도 있다(디버깅/비교용).
+  const [forceSource, setForceSource] = useState(true)
   useEffect(() => {
     let active = true
     void window.nuance.getDictionarySources(currentCtx.language).then((sources) => {
@@ -286,6 +287,7 @@ export function PopupScreen() {
             from={range.from}
             to={range.to}
             onChange={(from, to) => setRange({ from, to })}
+            charLevel={charLevel}
           />
         </section>
 

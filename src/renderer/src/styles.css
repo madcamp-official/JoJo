@@ -341,6 +341,10 @@ button:disabled { cursor: not-allowed; }
 .ctx-text ::selection { background: transparent; }
 .ctx-text .atom { border-radius: 3px; padding: 0 1px; cursor: pointer; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
+/* ja/zh "글자 단위" 토글(2026-07-28) — 글자 하나하나가 다 atom 이라 위 좌우 padding(1px)이
+   매 글자마다 누적되면 자간이 늘어난 것처럼 보인다. 이 모드에선 padding 을 없애 원문과
+   같은 자간을 유지한다(하이라이트/hover 배경은 그대로 유지됨, border-radius 만 영향받음). */
+.ctx-text.char-level .atom { padding: 0; }
 /* 드래그 도중엔 어떤 세그먼트(atom/gap) 위에 있든 커서를 텍스트(I-beam) 로 고정 —
    개별 span 의 cursor: pointer/text 로 매 순간 바뀌어 보이는 걸 막는다. */
 .ctx-text.dragging, .ctx-text.dragging * { cursor: text !important; }

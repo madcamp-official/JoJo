@@ -10,8 +10,8 @@ import type { DictionarySourceId, DictionarySourceOption } from '@shared/types'
 // 자체를 숨긴다.
 //
 // forceSource/onToggleForceSource: 정식 폴백 오케스트레이션(dictionary.ts FALLBACK_CHAINS)
-// 구현 완료(2026-07-28) 후 추가한 토글 — 기본값은 꺼짐(정식 폴백 체인 사용)이고, 켜면
-// 위 드롭다운에서 고른 소스 하나만 강제로 호출한다(디버깅/비교용). 드롭다운 자체는
+// 구현 완료(2026-07-28) 후 추가한 토글 — 기본값은 켜짐(사용자 요청, 아래 드롭다운에서
+// 고른 소스를 강제 호출), 끄면 정식 폴백 체인을 탄다(디버깅/비교용). 드롭다운 자체는
 // 항상 보여주되(토글과 무관하게 다음 소스 목록 확인용), 토글이 꺼져 있을 땐 disabled 로
 // "지금은 이 선택이 반영 안 됨"을 시각적으로 알린다.
 //

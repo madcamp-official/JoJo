@@ -159,6 +159,16 @@ function segmentKanaRunFallback(run: string): Atom[] {
   return atoms
 }
 
+/** charLevel(글자 단위) 모드에서 가나 한 덩어리를 형태소 분석/품사 병합 없이 글자 하나당
+ *  atom 하나로 그냥 쪼갠다(2026-07-28) — "글자 단위"는 형태소 분석 결과를 참고조차 하지
+ *  않는 순수 문자 단위 분해여야 한다는 요청 반영. 한자는 애초에 KANJI_CHAR_RE 에서 이미
+ *  글자 하나=atom 하나라 별도 처리가 필요 없다. */
+function splitEveryChar(run: string): Atom[] {
+  const atoms: Atom[] = []
+  for (let i = 0; i < run.length; i++) atoms.push({ start: i, end: i + 1 })
+  return atoms
+}
+
 /**
  * 가나 한 덩어리(run, text 상 절대 오프셋 absoluteStart부터)를 형태소 토큰 경계로
  * 쪼갠다 — 조동사(助動詞, 예: た/ます/ない)로 시작하는 토큰만 앞 atom 에 이어붙여 동사
@@ -211,11 +221,10 @@ function buildZhWordLookup(zhWords: ZhWord[]): (pos: number) => number | undefin
 //  - ja, charLevel=false(기본): OCR 단어 클릭(main/nlp/japanese.ts segmentJapaneseWords)과
 //    동일하게 활성 엔진(jaResult.engine)에 맞는 병합 함수 결과를 그대로 atom 으로 쓴다 —
 //    한자+가나가 붙어 하나의 문절 단위로 선택된다.
-//  - ja, charLevel=true: 한자는 한 글자씩 별도 atom 으로 유지하고, 가나 조각만 품사로
-//    병합한다(아래 tokenizeAtoms 의 KANJI_CHAR_RE/segmentKanaRunWithTokens 분기, jaTokens
-//    가 없을 때의 기존 폴백과 동일한 코드 경로). IPADIC 엔진(lindera) 기준으로 짜여 있어
-//    UniDic(Sudachi) 로 바꿨을 때 이 경로를 쓰려면 segmentKanaRunWithTokens 의 '助動詞'
-//    판정도 다시 봐야 함.
+//  - ja, charLevel=true: 형태소 분석 결과(jaTokens)를 아예 참조하지 않는다 — 한자는
+//    KANJI_CHAR_RE 에서 이미 한 글자=atom 하나이고, 가나 조각도 품사 병합 없이
+//    splitEveryChar 로 글자 하나하나를 개별 atom 으로 쪼갠다(2026-07-28, "글자 단위"는
+//    형태소 분석과 무관해야 한다는 요청 반영 — 이전엔 가나만 조사/조동사 병합이 남아있었음).
 //  - zh, charLevel=false(기본): main/nlp/chinese.ts 가 정한 단어 경계(zhWords)를 그대로
 //    atom 으로 쓴다.
 //  - zh, charLevel=true: zhWords 를 아예 참조하지 않아 KANJI_CHAR_RE 분기로 떨어지고,
@@ -232,7 +241,7 @@ function mergeJaTokensForEngine(jaResult: JaTokenizeResult): JaToken[] {
     : mergeJaTokens(jaResult.tokens)
 }
 
-/** JA_ATOM_STRATEGY==='wordMerge' 일 때 — 병합된 토큰 하나를 atom 하나로 그대로 쓴다. */
+/** charLevel=false(기본, 단어 단위)일 때 — 병합된 토큰 하나를 atom 하나로 그대로 쓴다. */
 function atomsFromMergedTokens(jaResult: JaTokenizeResult): Atom[] {
   const atoms: Atom[] = []
   for (const t of mergeJaTokensForEngine(jaResult)) {
@@ -246,7 +255,9 @@ function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWo
   if (jaResult && jaResult.tokens.length > 0 && !charLevel) {
     return atomsFromMergedTokens(jaResult)
   }
-  const jaTokens = jaResult?.tokens
+  // charLevel(글자 단위) 모드는 형태소 분석 결과를 아예 참조하지 않는다 — jaTokens/tokenAt
+  // 을 null 로 둬서 아래 가나 분기가 무조건 splitEveryChar 로 떨어지게 한다.
+  const jaTokens = !charLevel ? jaResult?.tokens : undefined
   const tokenAt = jaTokens ? buildTokenLookup(jaTokens) : null
   const zhWordEndAt = !charLevel && zhWords && zhWords.length > 0 ? buildZhWordLookup(zhWords) : null
   const atoms: Atom[] = []
@@ -270,9 +281,11 @@ function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWo
     KANA_RUN_RE.lastIndex = i
     const kana = KANA_RUN_RE.exec(text)
     if (kana) {
-      const sub = tokenAt
-        ? segmentKanaRunWithTokens(kana[0], i, tokenAt)
-        : segmentKanaRunFallback(kana[0])
+      const sub = charLevel
+        ? splitEveryChar(kana[0])
+        : tokenAt
+          ? segmentKanaRunWithTokens(kana[0], i, tokenAt)
+          : segmentKanaRunFallback(kana[0])
       for (const a of sub) atoms.push({ start: i + a.start, end: i + a.end })
       i += kana[0].length
       continue
