@@ -1,4 +1,5 @@
 import type { CanonicalPos, DictionaryEntry, DictionarySourceId, Language, UsageTag } from '@shared/types'
+import { ZDIC_BASE, ZDIC_LANG_PATH } from './hanyu'
 import { merriamWebsterToIpa } from './merriamWebsterToIpa'
 import { WIKTIONARY_LANG_NAME } from './wiktionary'
 
@@ -231,12 +232,41 @@ const SOURCE_LICENSE: Partial<Record<DictionarySourceId, string>> = {
  *    자동 리다이렉트됨을 실측 확인(daijisen.ts 상단 주석 참고)해 딥링크로 안전하게 씀.
  *    **앵커 추가(2026-07-28)**: `kotobankSectionAnchor('デジタル大辞泉')`로 daijisen
  *    섹션(다른 사전 8개가 앞에 있을 수 있음)으로 바로 스크롤 — 단, 개별 뜻풀이 번호까지는
- *    이 사이트 마크업상 앵커가 없어 안 됨(위 kotobankSectionAnchor 주석 참고). */
+ *    이 사이트 마크업상 앵커가 없어 안 됨(위 kotobankSectionAnchor 주석 참고).
+ *  - merriam-webster: 어댑터가 쓰는 dictionaryapi.com(API 전용, 사람이 볼 페이지가
+ *    아님)이 아니라 일반 소비자용 웹사이트(`merriam-webster.com/dictionary/{표제어}`)로
+ *    연결한다. **주의**: curl로 직접 검증 시 UA를 바꿔도 403이 나옴(2026-07-28) — 이
+ *    사이트가 서버/데이터센터 IP를 차단하는 것으로 추정(실제 브라우저 클릭 시 문제없을
+ *    것으로 판단하나, 자동화 도구로는 최종 확인 못 함). 앵커는 불필요 — 표제어 하나당
+ *    사전 하나만 나오는 단일 사전 사이트라 kotobank.jp 같은 다중 사전 뒤섞임이 없음.
+ *  - jmdict: 로컬 번들(jmdict-simplified) 기반이라 표제어별 딥링크가 없다 — 같은
+ *    JMdict 데이터를 쓰는 공개 사이트 jisho.org(`jisho.org/word/{표제어}`)로 대신
+ *    연결한다(200 OK 실측 확인, 2026-07-28). 앵커 불필요(단일 사전 사이트).
+ *  - hanyu-dict(汉典): 어댑터가 실제 조회에 쓰는 `zdic.net/{hans|hant}/{표제어}` 그대로
+ *    연결(ZDIC_BASE/ZDIC_LANG_PATH, hanyu.ts에서 export해 재사용). **앵커는 안 붙임** —
+ *    이 사이트도 한 페이지에 여러 하위 섹션(#jbjs/#xxjs/#gyjs)이 있지만, 어댑터가 실제로
+ *    어느 섹션을 채택했는지(단어마다 다른 폴백 순서, hanyu.ts 상단 주석 참고)는 이
+ *    링크 빌더 쪽에 안 넘어와 있어 결정할 수 없다 — 잘못된 섹션으로 앵커를 붙이는
+ *    것보다 단어 페이지로만 연결하는 게 안전.
+ *  - guoyu-cidian(萌典): 어댑터는 공개 JSON API(`moedict.tw/uni/{표제어}`)를 쓰지만,
+ *    사람이 볼 웹 뷰어는 API 경로가 아니라 `moedict.tw/{표제어}`다(200 OK 실측 확인) —
+ *    단일 사전 뷰어라 앵커 불필요.
+ *  - cc-cedict: 로컬 데이터 파일(`resources/cedict.u8`)이라 표제어별 페이지 자체가
+ *    없다 — wordnet(OEWN)과 같은 이유로 표제어와 무관한 프로젝트 정보 페이지(MDBG의
+ *    CC-CEDICT 소개 페이지, 200 OK 실측 확인)로 대신 연결한다. */
 const SOURCE_URL: Partial<Record<DictionarySourceId, (word: string, language: Language) => string>> = {
   wiktionary: (word, language) =>
     `https://en.wiktionary.org/wiki/${encodeURIComponent(word)}#${WIKTIONARY_LANG_NAME[language]}`,
   wordnet: () => 'https://github.com/globalwordnet/english-wordnet',
   daijisen: (word) => `https://kotobank.jp/word/${encodeURIComponent(word)}#${kotobankSectionAnchor('デジタル大辞泉')}`,
+  'merriam-webster': (word) => `https://www.merriam-webster.com/dictionary/${encodeURIComponent(word)}`,
+  jmdict: (word) => `https://jisho.org/word/${encodeURIComponent(word)}`,
+  'hanyu-dict': (word, language) => {
+    const path = language === 'zh-Hans' || language === 'zh-Hant' ? ZDIC_LANG_PATH[language] : ZDIC_LANG_PATH['zh-Hans']
+    return `${ZDIC_BASE}/${path}/${encodeURIComponent(word)}`
+  },
+  'guoyu-cidian': (word) => `https://www.moedict.tw/${encodeURIComponent(word)}`,
+  'cc-cedict': () => 'https://www.mdbg.net/chinese/dictionary?page=cc-cedict',
 }
 
 const POS_KO: Partial<Record<CanonicalPos, string>> = {
