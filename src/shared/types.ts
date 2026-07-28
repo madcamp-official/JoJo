@@ -212,6 +212,28 @@ export interface DictionarySenseBase {
   synonyms?: string[]
   /** 반의어 — 위 synonyms 와 동일 근거(실측: JMdict "高い"→"低い"). */
   antonyms?: string[]
+  /** 동의어 보장이 없는 "관련어 참조" — JMdict `see_also`/`related`(jisho.org 실측:
+   *  "一人"의 "being alone" 뜻 → 見よ: 一人で), CC-CEDICT 교차참조 포인터(`variant of`/
+   *  `abbr. for`/`see also` 등, 실측: "一族" → "see also 族[zu2]"), 萌典 `link` 필드
+   *  (실측: "蟑螂" → "也稱為「蜚蠊」", 완결된 용어가 아니라 문장형이면 usageNote 로 대체
+   *  처리) 실측 확인(2026-07-28 신설). synonyms 와 달리 "같은 뜻"이 보장되지 않는
+   *  포인터라 별도 필드로 분리.
+   *
+   *  **2026-07-28 정정: `string[]`에서 `SeeAlsoRef[]`로 구조화.** CC-CEDICT의 교차참조가
+   *  `variant of`(이형 표기)/`erhua variant of`(음운 변이)/`abbr. for`(줄임말↔원말,
+   *  관계 방향이 다름)/`used in`(다른 복합어의 구성 성분)/`see also`(그냥 느슨한 관련어)로
+   *  관계 성격이 다 다른데 문자열 하나에 뭉쳐 있어서, `usageTags`와 같은 이유로 `kind`를
+   *  추가. **`usageTags`(이 뜻 자체의 성질을 나타내는 라벨)와는 합치지 않기로 결정** —
+   *  `seeAlso`는 다른 표제어를 가리키는 포인터라 성격이 근본적으로 다르고(나중에 "클릭해서
+   *  재조회" 같은 기능이 붙을 수 있는 것도 이쪽), 합치면 kind 종류만 늘어나 오히려 이번에
+   *  고치려던 문제를 재현하게 됨. */
+  seeAlso?: SeeAlsoRef[]
+  /** 전문분야/도메인 라벨 — JMdict `field`(jmdict-simplified 원본, 컴퓨터·의학·법률 등)
+   *  실측 확인. jisho.org 라이브 API는 이 축을 `misc`(usageTags 대응)와 뭉쳐 `tags`
+   *  하나로 노출하지만, 로컬 데이터셋을 직접 번들하는 어댑터는 원본 구분을 살려 이
+   *  필드로 분리해 받는다(2026-07-28 신설). CC-CEDICT 전문분야 라벨(`(math.)`/
+   *  `(computing)` 등)도 이 필드로 매핑 가능 — 파싱 시 usageTags 와 구분해서 라우팅. */
+  domain?: string[]
   /** 격식/사용역 + 표기 관례 라벨(복수 가능) — MW 의 `sls`(status label sequence) 필드
    *  실측 확인(예: "ain't"→["informal"]). PLAN.md §3 "자주 쓰는 질문"에 이미 "격식·객관
    *  표현 여부"가 있어 이 앱 기능과 직결되는 정보라 추가 — 사전 API가 이미 판정해주는 걸
@@ -232,28 +254,6 @@ export interface DictionarySenseBase {
    *  오염시킬 수 있음을 뒤늦게 발견 — `kind`로 최소 분류해 어댑터/프롬프트 구성 단계에서
    *  걸러 쓸 수 있게 한다. */
   usageTags?: UsageTag[]
-  /** 전문분야/도메인 라벨 — JMdict `field`(jmdict-simplified 원본, 컴퓨터·의학·법률 등)
-   *  실측 확인. jisho.org 라이브 API는 이 축을 `misc`(usageTags 대응)와 뭉쳐 `tags`
-   *  하나로 노출하지만, 로컬 데이터셋을 직접 번들하는 어댑터는 원본 구분을 살려 이
-   *  필드로 분리해 받는다(2026-07-28 신설). CC-CEDICT 전문분야 라벨(`(math.)`/
-   *  `(computing)` 등)도 이 필드로 매핑 가능 — 파싱 시 usageTags 와 구분해서 라우팅. */
-  domain?: string[]
-  /** 동의어 보장이 없는 "관련어 참조" — JMdict `see_also`/`related`(jisho.org 실측:
-   *  "一人"의 "being alone" 뜻 → 見よ: 一人で), CC-CEDICT 교차참조 포인터(`variant of`/
-   *  `abbr. for`/`see also` 등, 실측: "一族" → "see also 族[zu2]"), 萌典 `link` 필드
-   *  (실측: "蟑螂" → "也稱為「蜚蠊」", 완결된 용어가 아니라 문장형이면 usageNote 로 대체
-   *  처리) 실측 확인(2026-07-28 신설). synonyms 와 달리 "같은 뜻"이 보장되지 않는
-   *  포인터라 별도 필드로 분리.
-   *
-   *  **2026-07-28 정정: `string[]`에서 `SeeAlsoRef[]`로 구조화.** CC-CEDICT의 교차참조가
-   *  `variant of`(이형 표기)/`erhua variant of`(음운 변이)/`abbr. for`(줄임말↔원말,
-   *  관계 방향이 다름)/`used in`(다른 복합어의 구성 성분)/`see also`(그냥 느슨한 관련어)로
-   *  관계 성격이 다 다른데 문자열 하나에 뭉쳐 있어서, `usageTags`와 같은 이유로 `kind`를
-   *  추가. **`usageTags`(이 뜻 자체의 성질을 나타내는 라벨)와는 합치지 않기로 결정** —
-   *  `seeAlso`는 다른 표제어를 가리키는 포인터라 성격이 근본적으로 다르고(나중에 "클릭해서
-   *  재조회" 같은 기능이 붙을 수 있는 것도 이쪽), 합치면 kind 종류만 늘어나 오히려 이번에
-   *  고치려던 문제를 재현하게 됨. */
-  seeAlso?: SeeAlsoRef[]
   /** 화용론적 사용법 설명 — MW 의 `uns`(usage note) 실측 확인(예: "ain't hay"→"많은 금액을
    *  강조할 때 쓴다"는 설명). gloss(뜻풀이)·examples(예문) 어디에도 안 들어가는 제3의
    *  콘텐츠 타입이라 별도 필드로 분리. */
