@@ -111,6 +111,36 @@ const DETECTION_PADDING_BIAS = 1
 // (그 추정 방식은 애초에 못 읽은 구간만큼 NDLOCR 자신의 검출 bbox 도 같이 짧아지는
 // 경우(예: "レベル [숫자]"의 숫자 부분)엔 아예 신호가 안 생겨서 못 잡았다 — 이 경우는
 // 스페이스 마커가 있어야만 잡을 수 있다).
+// 사용자 보고: NDLOCR-Lite 는 원문의 다시(ダーシ, "――" 두 칸짜리 가로선) 기호를 매번
+// 같은 글자로 인식하지 않는다 — 어떤 캡처에서는 U+2015(HORIZONTAL BAR, "―") 한 글자로,
+// 어떤 캡처에서는 반각 하이픈 두 개("--")로 나온다(같은 원문을 다시 캡처해도 결과가
+// 달라지는 인식 비결정성, ocrPaddle.ts 의 WIDE_DASH_CHARS 주석 참고). 실측 확인(추가):
+// PaddleOCR 은 반각 하이픈 "하나"("-")나 엠 대시("—")로 인식하기도 한다 — 세로쓰기
+// 일본어 본문에는 원래 ASCII 하이픈이 나올 일이 없으므로, 길이(1개/2개)나 문자 종류와
+// 무관하게 다 같은 다시 기호로 보고 통일한다. 팝업에 표시될 때 표기가 들쭉날쭉하지
+// 않도록 "―" 한 글자로 정규화한다 — computeSlotWeights 의 WIDE_DASH_CHARS 처리가 이미
+// "―"를 2칸 가중치로 잡아주므로, 여기서 미리 통일해두면(문자 여러 개 → 1개로 줄어도)
+// 위치 계산도 자동으로 맞는다. rawLines 를 받은 직후, 격자 계산 전에 적용해야 한다 —
+// 나중에(글자 수를 이미 센 뒤에) 바꾸면 오히려 어긋난다. NDLOCR 원문뿐 아니라 PaddleOCR
+// 재인식 텍스트를 이어붙이는 모든 지점(fillInterLineGaps/resolveSuspiciousLines)에서도
+// 반드시 이 함수를 거쳐야 한다 — 안 그러면 그 경로로 들어온 텍스트만 정규화가 안 돼서
+// 표기가 다시 섞여 나온다(실측 확인).
+function normalizeDashes(text: string): string {
+  return text.replace(/-{1,2}|—/g, '―')
+}
+
+// 실측 확인(사용자 보고): "HP"(게임 스탯 약자, 라이트노벨 본문에 자주 등장)의 "H"가
+// 한자 "日"로 오인식됐다("アスナの日P" → 원문은 "アスナのHP") — 네모+가로선 모양이
+// 비슷해서 생기는 흔한 OCR 혼동으로 보인다. 일반 일본어 산문에서 한자 바로 뒤에
+// 공백·구두점 없이 대문자 알파벳이 붙는 경우는 사실상 없어서, 그 패턴 자체를 "이
+// 한자는 사실 알파벳이었다"는 신호로 본다 — 알려진 혼동 쌍만 좁게 교정한다(발견되는
+// 대로 표를 늘려간다).
+const KANJI_LATIN_CONFUSION: Record<string, string> = { 日: 'H' }
+const KANJI_BEFORE_UPPERCASE_RE = /[一-鿿](?=[A-Z])/gu
+function fixKanjiLatinConfusion(text: string): string {
+  return text.replace(KANJI_BEFORE_UPPERCASE_RE, (m) => KANJI_LATIN_CONFUSION[m] ?? m)
+}
+
 const GAP_MARKER_RE = / /
 function hasGapMarker(text: string): boolean {
   return GAP_MARKER_RE.test(text)
@@ -120,14 +150,326 @@ interface AlignedLine extends LineCandidate {
   // 스페이스 마커가 있거나(위 주석) 줄 길이 계산상 미검출 구간이 의심되는 줄 —
   // resolveSuspiciousLines 가 이 줄만 PaddleOCR 로 다시 인식해서 마커를 채운다.
   suspicious: boolean
+  // true 면 suspicious 의 원인이 "미검출(내용 부족)"이 아니라 "과다인식(실제보다
+  // 많이 읽음)" 방향이라는 뜻 — resolveSuspiciousLines 가 spliceMissingContent 대신
+  // spliceOverRecognizedContent 를 쓰도록 분기한다(computeInkMismatchFlags 참고).
+  overRecognized: boolean
 }
 
 const slotCount = (text: string): number => computeSlotWeights([...text]).reduce((a, b) => a + b, 0)
 
-function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | null): AlignedLine[] {
-  if (!typicalCellSize) return lines.map((line) => ({ ...line, suspicious: hasGapMarker(line.text) }))
+// 실측 확인(사용자 요청): 높이 비교(sizeMismatchSuspicious)는 NDLOCR-Lite 자신의 검출
+// bbox 가 못 읽은 구간만큼 같이 줄어드는 경우("……" 등)엔 애초에 비교할 "여분의 높이"
+// 자체가 없어서 원리적으로 못 잡는다(실측 확인: 40글자짜리 줄에서 741px÷40=18.53,
+// 공유 기준 18.43 과 사실상 동일 — 이상 신호가 아예 없음). 그래서 OCR 엔진이 뭐라고
+// 보고하든 무시하고, 같은 열 안에서 인접한 두 줄 "사이"의 원본 이미지 픽셀을 직접
+// 봐서 잉크(배경이 아닌 색)가 있는지 확인한다 — 어떤 OCR 엔진의 자기 보고에도 기대지
+// 않는 유일한 방법이라 가장 근본적이다. 잉크가 확인되면 그 자리만 PaddleOCR 로 다시
+// 인식해서 두 줄 사이에 채워 넣는다.
+function computeInkFraction(bitmap: Buffer): number {
+  if (bitmap.length < 4) return 0
+  // BGRA 4바이트당 1픽셀(Electron NativeImage.toBitmap 포맷) — 밝기(luminance)만 본다.
+  const pixelCount = bitmap.length / 4
+  const brightness = new Float64Array(pixelCount)
+  let maxBrightness = 0
+  for (let i = 0, p = 0; i < bitmap.length; i += 4, p++) {
+    const b = bitmap[i]!
+    const g = bitmap[i + 1]!
+    const r = bitmap[i + 2]!
+    const lum = (r * 299 + g * 587 + b * 114) / 1000
+    brightness[p] = lum
+    if (lum > maxBrightness) maxBrightness = lum
+  }
+  // 이 영역 안에서 가장 밝은 픽셀을 배경색 기준으로 삼는다(고정된 "흰 배경" 가정 대신,
+  // 다크 모드 등 다른 배색에도 자연히 대응) — 그보다 뚜렷이 어두운(DARK_DELTA 이상)
+  // 픽셀의 비율을 "잉크 비율"로 본다.
+  const DARK_DELTA = 40
+  let darkCount = 0
+  for (let p = 0; p < brightness.length; p++) {
+    if (maxBrightness - brightness[p]! >= DARK_DELTA) darkCount++
+  }
+  return pixelCount > 0 ? darkCount / pixelCount : 0
+}
+
+const INK_FRACTION_THRESHOLD = 0.015 // 이 비율 이상 어두운 픽셀이 있으면 "잉크 있음"으로 본다.
+
+function hasInkInRegion(image: Buffer, rect: Rect): boolean {
+  const x = Math.max(0, Math.round(rect.x))
+  const y = Math.max(0, Math.round(rect.y))
+  const width = Math.max(1, Math.round(rect.width))
+  const height = Math.max(1, Math.round(rect.height))
+  const bitmap = nativeImage.createFromBuffer(image).crop({ x, y, width, height }).toBitmap()
+  return computeInkFraction(bitmap) >= INK_FRACTION_THRESHOLD
+}
+
+// 실측 확인(사용자 요청, 3차): computeInkMismatchFlags(줄 전체 잉크 합산 비교)는 "…"가
+// 실제보다 하나 더(3번 vs 2번) 겹쳐 나오는 것처럼 반복 구간 안의 한두 글자 차이는 못
+// 잡는다 — 그 차이가 40자짜리 줄 전체 잉크 합계에서 차지하는 비중이 너무 작아서
+// 문턱(0.7배)을 넘길 신호 자체가 안 남는다(실측 확인). 그래서 "줄 끝에 같은 문자가
+// 2번 이상 연속으로 인식됐다"는 조건이 성립하는 줄만, 그 반복 구간의 "마지막 1칸"만
+// 따로 크롭해서 그 칸 자체에 잉크가 있는지 직접 검사한다 — 전체 합산이 아니라 국소
+// (칸 하나 단위) 검사라 반복 구간 안의 단 하나짜리 유령 문자도 그 칸에 잉크가 없다는
+// 사실 자체로 바로 드러난다(비교·평균이 필요 없음).
+/**
+ * 줄 끝(세로쓰기라 텍스트 마지막 글자 = 줄의 물리적 맨 아래)에서 같은 문자가 연속
+ * 반복되는 구간을 찾아, 뒤에서부터 한 칸씩 실제 잉크가 있는지 확인하며 없는 칸만큼
+ * 지운다. 반복 구간 전체가 환각일 가능성은 낮다고 보고 최소 1개는 항상 남긴다
+ * (runLength - 1 까지만 지움) — 안전장치.
+ */
+function trimHallucinatedTrailingRepeats(image: Buffer, lines: LineCandidate[]): LineCandidate[] {
+  return lines.map((line) => {
+    const chars = [...line.text]
+    if (chars.length < 2) return line
+    const last = chars[chars.length - 1]!
+    let runLength = 1
+    while (runLength < chars.length && chars[chars.length - 1 - runLength] === last) runLength++
+    if (runLength < 2) return line
+    const cellSize = line.height / slotCount(line.text)
+    if (!(cellSize > 0)) return line
+
+    // 임시 디버그(사용자 요청, 3번째 열 "………" 과다인식 케이스 육안 확인용) —
+    // DEBUG_OCR_DUMP 가 설정돼 있으면 반복 구간 전체 + 각 칸별 크롭을 PNG 로 저장한다.
+    // 원인 파악되면 지울 임시 코드.
+    if (process.env.DEBUG_OCR_DUMP) {
+      const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+      const { join: joinPath } = require('node:path') as typeof import('node:path')
+      const runTop = line.y + line.height - cellSize * runLength
+      const wholeRunPng = nativeImage
+        .createFromBuffer(image)
+        .crop({
+          x: Math.max(0, Math.round(line.x)),
+          y: Math.max(0, Math.round(runTop)),
+          width: Math.max(1, Math.round(line.width)),
+          height: Math.max(1, Math.round(cellSize * runLength)),
+        })
+        .toPNG()
+      writeFileSync(
+        joinPath(process.env.DEBUG_OCR_DUMP, `trailrun-${Date.now()}-x${Math.round(line.x)}-whole.png`),
+        wholeRunPng,
+      )
+      for (let k = 0; k < runLength; k++) {
+        const cellTop = line.y + line.height - cellSize * (k + 1)
+        const cellPng = nativeImage
+          .createFromBuffer(image)
+          .crop({
+            x: Math.max(0, Math.round(line.x)),
+            y: Math.max(0, Math.round(cellTop)),
+            width: Math.max(1, Math.round(line.width)),
+            height: Math.max(1, Math.round(cellSize)),
+          })
+          .toPNG()
+        writeFileSync(
+          joinPath(process.env.DEBUG_OCR_DUMP, `trailrun-${Date.now()}-x${Math.round(line.x)}-cell${k}.png`),
+          cellPng,
+        )
+      }
+    }
+
+    let removed = 0
+    while (removed < runLength - 1) {
+      const cellTop = line.y + line.height - cellSize * (removed + 1)
+      const rect: Rect = { x: line.x, y: cellTop, width: line.width, height: cellSize }
+      if (hasInkInRegion(image, rect)) break // 잉크가 있으면 실제 글자 — 더 안 지운다
+      removed++
+    }
+    if (removed === 0) return line
+    return {
+      ...line,
+      text: chars.slice(0, chars.length - removed).join(''),
+      height: line.height - cellSize * removed,
+    }
+  })
+}
+
+// 실측 확인(사용자 요청, 2차): fillInterLineGaps(줄과 줄 "사이" 검사)는 이 페이지처럼
+// 열 하나가 줄 하나로 통째로 검출되는 경우("……" 등이 그 줄 자신의 bbox 안에서 빠짐)엔
+// 애초에 비교할 "인접한 두 번째 줄"이 없어서 아예 작동을 안 했다(실측 확인). 그래서
+// 줄 "사이"가 아니라 **줄 자신의 bbox 안에 실제로 잉크가 얼마나 있는지**를 직접 세서,
+// 그 줄의 인식된 글자 수(slotCount)로 기대되는 잉크량과 비교한다 — 다른 줄(글자 수가
+// 확실한 긴 줄들)에서 "글자 하나당 평균 잉크 픽셀 수"를 먼저 구해두고, 이 줄의 실측
+// 잉크 픽셀 수가 그 기대치보다 뚜렷이 많으면 이 줄 안에 인식 못 한 글자가 더 있다는
+// 뜻이다 — 어떤 OCR 엔진의 bbox 판단에도 기대지 않고 원본 이미지에서 직접 재는
+// 유일한 방법이라, "……"처럼 bbox 자체가 못 읽은 구간만큼 같이 줄어드는 경우에도
+// (그 구간 잉크가 이 줄의 크롭 범위 "안"에 남아있는 한) 잡을 수 있다.
+function computeBackgroundBrightness(bitmap: Buffer): number {
+  let max = 0
+  for (let i = 0; i < bitmap.length; i += 4) {
+    const b = bitmap[i]!
+    const g = bitmap[i + 1]!
+    const r = bitmap[i + 2]!
+    const lum = (r * 299 + g * 587 + b * 114) / 1000
+    if (lum > max) max = lum
+  }
+  return max
+}
+
+function countDarkPixels(bitmap: Buffer, backgroundBrightness: number): number {
+  const DARK_DELTA = 40
+  let count = 0
+  for (let i = 0; i < bitmap.length; i += 4) {
+    const b = bitmap[i]!
+    const g = bitmap[i + 1]!
+    const r = bitmap[i + 2]!
+    const lum = (r * 299 + g * 587 + b * 114) / 1000
+    if (backgroundBrightness - lum >= DARK_DELTA) count++
+  }
+  return count
+}
+
+// 타이트한 bbox 밖으로 살짝 삐져나온 잉크도 포함해서 세려고 약간의 여백을 준다.
+const INK_COUNT_PADDING = 4
+
+function countDarkPixelsInRect(image: Buffer, rect: Rect, backgroundBrightness: number): number {
+  const x = Math.max(0, Math.round(rect.x - INK_COUNT_PADDING))
+  const y = Math.max(0, Math.round(rect.y - INK_COUNT_PADDING))
+  const width = Math.max(1, Math.round(rect.width + INK_COUNT_PADDING * 2))
+  const height = Math.max(1, Math.round(rect.height + INK_COUNT_PADDING * 2))
+  const bitmap = nativeImage.createFromBuffer(image).crop({ x, y, width, height }).toBitmap()
+  return countDarkPixels(bitmap, backgroundBrightness)
+}
+
+// cellSizesFromLongLines(recognizeVerticalColumnWithNdlocr 안)와 같은 이유로 표본을
+// 고른다 — 글자 수가 충분히 많고(LONG_LINE_MIN_CHARS) 줄 끝이 문장부호가 아닌 줄만
+// "글자당 잉크 픽셀 수"의 기준으로 신뢰한다(문장부호로 끝나면 그 칸만 잉크가 적어
+// 평균이 실제보다 낮게 잡힘 — 위 typicalCellSize 계산과 동일 근거).
+const INK_TRAILING_PUNCTUATION_RE = /[、。・！？…]$/
+const INK_LONG_LINE_MIN_CHARS = 20
+// 이 비율(줄 자신의 slotCount 로 기대한 잉크량 대비 실측 잉크량) 이상이면 "미검출"
+// 의심(실제 글자가 더 있는데 인식이 놓침). 문장부호/자간 등의 노이즈로 약간 넘치는
+// 건 흔하므로 PER_LINE_RATIO_THRESHOLD(높이 기반, 1.15)보다 여유를 조금 더 둔다 —
+// 잉크 픽셀 카운트는 안티에일리어싱·글자 굵기 차이 등으로 높이 비교보다 표본 분산이
+// 커서, 같은 기준이면 오탐이 더 잦았다.
+const INK_MISMATCH_RATIO_THRESHOLD = 1.3
+// 반대 방향 — 이 비율 이하면 "과다인식" 의심(실측 확인: "…"를 실제보다 많이 반복해서
+// 읽는 등, NDLOCR 이 텍스트로는 더 많은 글자를 보고했는데 그만큼의 잉크가 이미지에
+// 없는 경우). 위쪽(1.3)과 대칭으로 0.7을 쓴다 — 표본 분산이 큰 건 마찬가지라 1에
+// 너무 가까우면 노이즈만으로도 자주 걸린다.
+const INK_OVER_RECOGNITION_RATIO_THRESHOLD = 0.7
+
+/**
+ * 줄 자신의 bbox 안에 실제로 있는 잉크 픽셀 수를, 다른 확실한 줄들에서 구한
+ * "글자 한 칸당 평균 잉크 픽셀 수"로 기대한 값과 비교한다 — OCR 엔진이 보고한 높이나
+ * 텍스트 길이에 전혀 기대지 않고 원본 이미지에서 직접 재므로, bbox 자체가 누락된
+ * 구간만큼 같이 줄어드는 "완전 침묵" 케이스(위 주석 참고)에도 신호가 남는다(잉크는
+ * bbox 밖으로 도망가지 않는 한 그 칸 안에 그대로 있음). 실측보다 기대치가 뚜렷이
+ * 적으면 미검출(missing), 실측이 기대치보다 뚜렷이 적으면 과다인식(over)이다.
+ */
+function computeInkMismatchFlags(
+  image: Buffer,
+  lines: LineCandidate[],
+): { missing: boolean[]; over: boolean[] } {
+  if (lines.length === 0) return { missing: [], over: [] }
+  const fullBitmap = nativeImage.createFromBuffer(image).toBitmap()
+  const backgroundBrightness = computeBackgroundBrightness(fullBitmap)
+
+  const inkCounts = lines.map((l) =>
+    countDarkPixelsInRect(image, { x: l.x, y: l.y, width: l.width, height: l.height }, backgroundBrightness),
+  )
+
+  const perSlotSamples = lines
+    .map((l, i) => {
+      const n = slotCount(l.text)
+      if (n < INK_LONG_LINE_MIN_CHARS || INK_TRAILING_PUNCTUATION_RE.test(l.text)) return null
+      return inkCounts[i]! / n
+    })
+    .filter((v): v is number => v !== null)
+  if (perSlotSamples.length === 0) return { missing: lines.map(() => false), over: lines.map(() => false) }
+  const avgInkPixelsPerSlot = median(perSlotSamples)
+  if (!avgInkPixelsPerSlot) return { missing: lines.map(() => false), over: lines.map(() => false) }
+
+  const missing = lines.map((l, i) => {
+    const n = slotCount(l.text)
+    if (n <= 0) return false
+    const ratio = inkCounts[i]! / (n * avgInkPixelsPerSlot)
+    return ratio >= INK_MISMATCH_RATIO_THRESHOLD
+  })
+  const over = lines.map((l, i) => {
+    const n = slotCount(l.text)
+    if (n <= 0) return false
+    const ratio = inkCounts[i]! / (n * avgInkPixelsPerSlot)
+    return ratio <= INK_OVER_RECOGNITION_RATIO_THRESHOLD
+  })
+  return { missing, over }
+}
+
+// 이 비율(기준 칸 크기 대비) 이상 벌어진 인접 줄 사이 간격만 검사한다 — 정상적인
+// 줄과 줄 사이 여백(자간)까지 매번 픽셀 검사하면 느려지기만 하고 신호도 없다.
+const MIN_SUSPICIOUS_GAP_RATIO = 0.4
+// 같은 열로 볼 x좌표 오차 허용치(px) — clusterVerticalLinesIntoColumns 가 이미 열로
+// 묶어놨으므로 ordered 배열에서 연속된 원소가 x좌표까지 거의 같으면 같은 열이다.
+const SAME_COLUMN_X_TOLERANCE = 4
+
+/**
+ * 같은 열 안에서 인접한 두 줄 사이 간격이 비정상적으로 크고(MIN_SUSPICIOUS_GAP_RATIO)
+ * 그 자리에 실제 잉크가 있으면(hasInkInRegion), PaddleOCR 로 그 구간만 다시 인식해서
+ * 앞 줄의 텍스트 끝에 이어 붙이고 앞 줄의 높이를 뒷 줄 시작까지 늘린다 — 이러면 이후
+ * alignColumnStarts/groupCjkCharsGrid 가 늘어난 높이와 늘어난 텍스트를 자연스럽게
+ * 같이 처리한다(별도 특별 케이스가 필요 없음).
+ */
+// 실측 확인(사용자 요청으로 시도 후 되돌림): 같은 열의 "다음 줄"이 없는 경우(열의
+// 마지막 줄, 또는 열 하나 = 줄 하나)에도 고정 몇 칸까지 아래를 검사해보는 확장을
+// 시도했었는데, 비교할 "다음 줄의 실제 시작 위치"라는 확실한 기준이 없다 보니 열
+// 바깥의 무관한 내용(페이지 하단 쪽번호 등)까지 잉크로 잡혀 엉뚱한 숫자가 본문에
+// 섞여 들어가는 회귀가 실측 확인됐다 — 그래서 다시 "실제 다음 줄이 있는 경우만"
+// 검사하도록 되돌린다. 열 하나 = 줄 하나인 경우의 "완전 침묵" 누락은 이 함수로는
+// 못 잡는 채로 남는다(다른 방법 필요).
+async function fillInterLineGaps(
+  image: Buffer,
+  ordered: LineCandidate[],
+  typicalCellSize: number,
+): Promise<LineCandidate[]> {
+  const result = [...ordered]
+  for (let i = 0; i < result.length - 1; i++) {
+    const cur = result[i]!
+    const next = result[i + 1]!
+    if (Math.abs(cur.x - next.x) > SAME_COLUMN_X_TOLERANCE) continue // 다른 열 — 비교 대상 아님
+    const gapTop = cur.y + cur.height
+    const gapHeight = next.y - gapTop
+    if (gapHeight < typicalCellSize * MIN_SUSPICIOUS_GAP_RATIO) continue // 정상적인 줄 사이 여백 수준
+    const gapRect: Rect = { x: cur.x, y: gapTop, width: cur.width, height: gapHeight }
+    if (!hasInkInRegion(image, gapRect)) continue
+    const rawWords = await recognizeWithPaddle(image, 'ja', padLine(gapRect))
+    const units = rawWords?.filter((w) => w.bbox) ?? []
+    // PaddleOCR 로 재인식한 텍스트는 NDLOCR 원본과 달리 normalizeDashes 를 아직 안 거쳤다
+    // (실측 확인: PaddleOCR 은 다시(―) 를 "--" 가 아니라 반각 하이픈 "-" 한 글자로 인식
+    // 하기도 해서, 정규화 없이 그대로 이어붙이면 팝업에 표기가 섞여 나온다).
+    const recovered = normalizeDashes(units.map((u) => u.text).join(''))
+    if (!recovered) continue
+    result[i] = { ...cur, height: next.y - cur.y, text: cur.text + recovered }
+  }
+  return result
+}
+
+// 실험용 비교 스위치(사용자 요청) — NDLOCR_DISABLE_BASELINE_SNAP=1 이면 열의 시작
+// y좌표만 NDLOCR-Lite 가 검출한 원래 값 그대로 두고(공유 기준선에 스냅 안 함), 마커
+// 판정·자리표자 삽입·문단 개행(\n)은 그대로 다 한다 — "박스 시작점만 통일 안 시켰을 때"
+// 를 비교해볼 수 있는 임시 토글이라 정식 기능은 아니다 — 필요 없어지면 지워도 됨.
+const DISABLE_BASELINE_SNAP = !!process.env.NDLOCR_DISABLE_BASELINE_SNAP
+
+function alignColumnStarts(
+  lines: LineCandidate[],
+  typicalCellSize: number | null,
+  // 줄 인덱스별 잉크 기반 의심 신호(computeInkMismatchFlags 참고) — 옵션이라 안 넘기면
+  // (예: 이미지가 없는 경로) 기존 동작(높이 비교만) 그대로 유지된다.
+  inkMismatch: boolean[] = [],
+  // 위 inkMismatch 의 반대 방향(과다인식) — 같은 이유로 옵션.
+  inkOverRecognized: boolean[] = [],
+): AlignedLine[] {
+  if (!typicalCellSize) {
+    return lines.map((line, i) => ({
+      ...line,
+      suspicious: hasGapMarker(line.text) || !!inkMismatch[i] || !!inkOverRecognized[i],
+      overRecognized: !!inkOverRecognized[i],
+    }))
+  }
   const baseline = computeBaseline(lines.filter((l) => l.height >= MIN_BODY_LINE_HEIGHT))
-  if (baseline === null) return lines.map((line) => ({ ...line, suspicious: hasGapMarker(line.text) }))
+  if (baseline === null) {
+    return lines.map((line, i) => ({
+      ...line,
+      suspicious: hasGapMarker(line.text) || !!inkMismatch[i] || !!inkOverRecognized[i],
+      overRecognized: !!inkOverRecognized[i],
+    }))
+  }
 
   return lines.map((line, i): AlignedLine => {
     const originalBottom = line.y + line.height
@@ -140,8 +482,16 @@ function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | nul
     let paragraphStart = false
 
     // 줄 시작(맨 앞) 미검출 구간 — 위치가 확실하니(줄의 맨 앞) 바로 자리표자를 넣는다.
+    // 1칸(문단 들여쓰기)과 2칸(미검출 구간) 사이 경계는 일반 반올림(1.5배 지점)보다
+    // 1칸 쪽으로 더 관대하게(1.75배 지점) 잡는다 — 문단 들여쓰기가 실제 미검출 leading
+    // 구간보다 훨씬 흔한데, typicalCellSize 측정 오차로 1칸짜리 들여쓰기가 어쩌다
+    // 1.5~1.75배 근처로 재지면 반올림이 2칸(미검출)으로 잘못 넘어가 버렸다(실측 확인:
+    // 자리표자가 하나 끼어들면서 실제 텍스트가 2칸 아래에서 시작하는 것처럼 보임).
     const rawOffset = line.y - baseline
-    const nearestMultiple = Math.round(rawOffset / typicalCellSize)
+    const rawRatio = rawOffset / typicalCellSize
+    const LEADING_ONE_TWO_BOUNDARY = 1.75
+    const nearestMultiple =
+      rawRatio >= 1 && rawRatio < LEADING_ONE_TWO_BOUNDARY ? 1 : Math.round(rawRatio)
     const residual = rawOffset - nearestMultiple * typicalCellSize
     if (Math.abs(residual) <= typicalCellSize * SNAP_RESIDUAL_RATIO) {
       if (nearestMultiple < UNKNOWN_GAP_MIN_MULTIPLE) {
@@ -155,10 +505,10 @@ function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | nul
         // 없고(indentParagraphs 가 firstIsParagraphStart 로 별도 처리), 여기서까지
         // \n 을 붙이면 텍스트 맨 앞에 빈 문단이 하나 더 생긴다.
         if (nearestMultiple === 1 && i > 0) paragraphStart = true
-        newY = baseline + nearestMultiple * typicalCellSize
+        if (!DISABLE_BASELINE_SNAP) newY = baseline + nearestMultiple * typicalCellSize
       } else {
         const count = nearestMultiple - DETECTION_PADDING_BIAS
-        newY = baseline + DETECTION_PADDING_BIAS * typicalCellSize
+        if (!DISABLE_BASELINE_SNAP) newY = baseline + DETECTION_PADDING_BIAS * typicalCellSize
         text = UNKNOWN_GAP_PLACEHOLDER.repeat(count) + text
       }
     }
@@ -167,12 +517,28 @@ function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | nul
     // (expectedBottom)와 실제 검출된 아래쪽 경계(originalBottom)를 비교한다. 스페이스
     // 마커(hasGapMarker)가 없는 줄에 대한 보조 신호일 뿐이다 — 마커가 있으면 이미
     // 위치를 아니까 이 계산과 무관하게 무조건 의심 처리한다.
-    const expectedBottom = newY + slotCount(text) * typicalCellSize
-    const trailingGap = originalBottom - expectedBottom
-    const trailingMultiple = Math.round(trailingGap / typicalCellSize)
-    const trailingResidual = trailingGap - trailingMultiple * typicalCellSize
+    //
+    // 사용자 제안으로 "공유 칸 크기 × 글자수 vs 검출 높이"(정수 칸 배수, 2칸 이상만
+    // 잡음) 대신 "이 줄 자신의 칸 크기(검출 높이 ÷ 글자수) vs 공유 칸 크기"의 비율로
+    // 바꾼다 — 기존 방식은 2칸(typicalCellSize 의 정수 배) 이상 차이가 나야만 걸렸는데,
+    // "……" 처럼 1칸 안팎의 작은 누락은 그 문턱을 못 넘어 못 잡혔다. 이 줄 자신의
+    // 칸 크기가 공유 기준보다 뚜렷이 크면(=이 줄의 글자 수가 검출 높이에 비해 적으면)
+    // 정수 배수가 아니어도 의심 처리한다 — 단, 비율 기준이라 긴 줄일수록 1칸 정도
+    // 누락돼도 상대적으로 작은 비율이 된다(사용자 지적: 20칸짜리 줄에서 1칸 빠지면
+    // 5%뿐이라 15% 기준을 못 넘음). 그렇다고 문턱을 너무 낮추면(실측 확인: 1%까지
+    // 낮춰봤더니) 실제 누락이 없어도 순전히 측정 노이즈만으로 거의 모든 줄이 의심
+    // 처리돼 PaddleOCR 이 사실상 전체 줄에 도는 수준까지 느려졌다(실측 26초+) — 게다가
+    // "……" 처럼 애초에 이 줄 자신의 검출 bbox 조차 그 구간을 포함 안 하는 케이스는
+    // 문턱을 얼마나 낮추든 못 잡는다(비교할 여분의 높이 자체가 없음, fillInterLineGaps
+    // 로 별도 대응 시도 중). 그래서 처음 값(15%)으로 되돌린다 — spliceMissingContent/
+    // spliceOneMarker 가 실제로 새 내용을 못 찾으면 원문을 그대로 두는 안전장치가
+    // 있어서 오탐 자체의 피해는 제한적이지만, 문턱이 너무 낮으면 그 안전장치를 매번
+    // 거치는 PaddleOCR 호출 자체가 병목이 된다.
+    const PER_LINE_RATIO_THRESHOLD = 1.15
+    const lineSlotCount = slotCount(text)
+    const perLineCellSize = lineSlotCount > 0 ? (originalBottom - newY) / lineSlotCount : null
     const sizeMismatchSuspicious =
-      trailingMultiple >= UNKNOWN_GAP_MIN_MULTIPLE && Math.abs(trailingResidual) <= typicalCellSize * SNAP_RESIDUAL_RATIO
+      perLineCellSize !== null && perLineCellSize / typicalCellSize >= PER_LINE_RATIO_THRESHOLD
 
     if (paragraphStart) text = '\n' + text
     return {
@@ -180,7 +546,8 @@ function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | nul
       y: newY,
       height: originalBottom - newY,
       text,
-      suspicious: hasGapMarker(text) || sizeMismatchSuspicious,
+      suspicious: hasGapMarker(text) || sizeMismatchSuspicious || !!inkMismatch[i] || !!inkOverRecognized[i],
+      overRecognized: !!inkOverRecognized[i],
     }
   })
 }
@@ -238,10 +605,72 @@ function spliceOneMarker(ndlocrText: string, paddleText: string, markerIndex: nu
 }
 
 /**
+ * ndlocrText 와 paddleText 의 공통 접두사·접미사를 찾고, 그 사이(서로 갈라지는
+ * "middle" 구간)만 떼어 돌려준다 — spliceMissingContent/spliceOverRecognizedContent
+ * 가 공유하는 diff 로직. paddleText 가 비어있으면 null.
+ */
+function diffMiddle(
+  ndlocrText: string,
+  paddleText: string,
+): { prefix: string; suffix: string; ndlocrMiddle: string; paddleMiddle: string } | null {
+  if (!paddleText) return null
+  const maxPrefix = Math.min(ndlocrText.length, paddleText.length)
+  let prefixLen = 0
+  while (prefixLen < maxPrefix && ndlocrText[prefixLen] === paddleText[prefixLen]) prefixLen++
+  const ndlocrRest = ndlocrText.slice(prefixLen)
+  const paddleRest = paddleText.slice(prefixLen)
+  const maxSuffix = Math.min(ndlocrRest.length, paddleRest.length)
+  let suffixLen = 0
+  while (
+    suffixLen < maxSuffix &&
+    ndlocrRest[ndlocrRest.length - 1 - suffixLen] === paddleRest[paddleRest.length - 1 - suffixLen]
+  ) {
+    suffixLen++
+  }
+  return {
+    prefix: ndlocrText.slice(0, prefixLen),
+    suffix: suffixLen > 0 ? ndlocrText.slice(ndlocrText.length - suffixLen) : '',
+    ndlocrMiddle: ndlocrRest.slice(0, ndlocrRest.length - suffixLen),
+    paddleMiddle: paddleRest.slice(0, paddleRest.length - suffixLen),
+  }
+}
+
+/**
+ * ndlocrText 에 마커가 아예 없는데도(hasGapMarker 없이 sizeMismatchSuspicious/
+ * inkMismatch 만으로 의심된 줄, "……"/숫자가 마커도 없이 통째로 조용히 빠지는 경우)
+ * suspicious 로 표시된 경우 — 어디가 빠졌는지 위치 정보가 전혀 없으니, paddleText 와
+ * 앞/뒤 공통 구간 밖(middle)만 paddleText 로 교체한다. paddleText 쪽이 더 길지 않으면
+ * (=새로 찾은 내용이 없으면) null 을 반환해 원문을 그대로 둔다 — 괜히 바꿔서 나빠지는
+ * 것보다 안전.
+ */
+function spliceMissingContent(ndlocrText: string, paddleText: string): string | null {
+  const diff = diffMiddle(ndlocrText, paddleText)
+  if (!diff) return null
+  if (diff.paddleMiddle.length <= diff.ndlocrMiddle.length) return null
+  return diff.prefix + diff.paddleMiddle + diff.suffix
+}
+
+/**
+ * spliceMissingContent 의 반대 방향 — ndlocrText 가 실제로는 없는 내용을 더 읽은
+ * "과다인식"(예: "…"를 실제보다 많이 반복해서 읽음, 잉크 카운트가 기대보다 뚜렷이
+ * 적은 줄 — computeInkMismatchFlags/INK_OVER_RECOGNITION_RATIO_THRESHOLD 참고) 케이스.
+ * paddleText 쪽 middle 이 더 짧으면(=PaddleOCR 은 더 적게 읽었으면) 그쪽을 신뢰해서
+ * 줄인다. 더 짧지 않으면(=과다인식 근거를 못 찾으면) null 로 원문을 그대로 둔다.
+ */
+function spliceOverRecognizedContent(ndlocrText: string, paddleText: string): string | null {
+  const diff = diffMiddle(ndlocrText, paddleText)
+  if (!diff) return null
+  if (diff.paddleMiddle.length >= diff.ndlocrMiddle.length) return null
+  return diff.prefix + diff.paddleMiddle + diff.suffix
+}
+
+/**
  * suspicious 로 표시된 줄만 PaddleOCR 로 다시 인식해서, 마커(스페이스, 앞쪽 미검출
  * 구간)들을 spliceOneMarker 로 하나씩 실제 내용으로 치환한다(왼쪽부터 순서대로 —
- * 인덱스가 앞쪽 치환으로 밀리지 않게). 어느 경우든 NDLOCR 원문의 나머지 부분(문장부호
- * 등 이미 정확했던 내용)은 전혀 건드리지 않는다.
+ * 인덱스가 앞쪽 치환으로 밀리지 않게). 마커가 하나도 없는데(sizeMismatchSuspicious
+ * 만으로 의심된 "완전 침묵" 케이스) suspicious 면 spliceMissingContent 로 앞/뒤 일치
+ * 구간 밖의 내용을 찾아 채운다. 어느 경우든 NDLOCR 원문의 나머지 부분(문장부호 등
+ * 이미 정확했던 내용)은 전혀 건드리지 않는다.
  *
  * 앵커를 못 찾아 치환 실패한 마커는 자리표자를 넣지 않고 그냥 조용히 지운다(실측 확인
  * 후 변경 — 이전엔 UNKNOWN_GAP_PLACEHOLDER 로 남겼는데, NDLOCR-Lite 의 스페이스 마커
@@ -260,9 +689,11 @@ async function resolveSuspiciousLines(
       if (!line.suspicious) return line
       const rawWords = await recognizeWithPaddle(image, 'ja', padLine(line))
       const units = rawWords?.filter((w) => w.bbox) ?? []
-      const paddleText = units.map((u) => u.text).join('')
+      // normalizeDashes 주석 참고 — PaddleOCR 텍스트는 아직 정규화 전이라 여기서 거친다.
+      const paddleText = normalizeDashes(units.map((u) => u.text).join(''))
 
       let text = line.text
+      const hadMarker = hasGapMarker(text)
       // 왼쪽부터 순서대로 처리 — 매번 현재 text 기준으로 마커 위치를 다시 찾아야
       // 앞선 치환으로 문자 오프셋이 밀린 걸 반영할 수 있다.
       let markerIndex = text.indexOf(' ')
@@ -270,6 +701,11 @@ async function resolveSuspiciousLines(
         const spliced = paddleText ? spliceOneMarker(text, paddleText, markerIndex) : null
         text = spliced ?? text.slice(0, markerIndex) + text.slice(markerIndex + 1)
         markerIndex = text.indexOf(' ')
+      }
+      if (!hadMarker && paddleText) {
+        text = line.overRecognized
+          ? (spliceOverRecognizedContent(text, paddleText) ?? text)
+          : (spliceMissingContent(text, paddleText) ?? text)
       }
       return { ...line, text }
     }),
@@ -313,7 +749,7 @@ export async function recognizeVerticalColumnWithNdlocr(image: Buffer, columnBbo
       y: originY + l.y0,
       width: l.x1 - l.x0,
       height: l.y1 - l.y0,
-      text: l.text,
+      text: fixKanjiLatinConfusion(normalizeDashes(l.text)),
     }))
   if (candidates.length === 0) return []
 
@@ -350,9 +786,24 @@ export async function recognizeVerticalColumnWithNdlocr(image: Buffer, columnBbo
     })
     .filter((v): v is number => v !== null)
   const cellSizeFromWidth = ordered.length > 0 ? median(ordered.map((l) => l.width)) : null
+  // 마지막 폴백도 원시 글자 수가 아니라 slotCount(칸 가중치 반영, "―"/"—" 는 2칸 등)를
+  // 써야 다른 계산들과 일관된다 — 사용자 확인 요청으로 점검하다 발견. 줄 끝이
+  // 문장부호면(TRAILING_PUNCTUATION_RE, cellSizesFromLongLines 와 동일 이유) 그
+  // 글자의 칸 가중치를 완전히 빼지 않고 작은 값(TRAILING_PUNCTUATION_WEIGHT)으로
+  // 낮춰서 보정한다 — 문장부호도 잉크가 아예 없는 게 아니라 어느 정도는 실제로 칸을
+  // 차지하므로(사용자 지적, ocrPaddle.ts 의 groupCjkCharsGrid 와 동일 근거) 완전
+  // 제외보다 실측에 더 가깝다(표본 자체는 버리지 않음 — 이 폴백은 표본이 원래 적을
+  // 수 있는 최후 수단이라 최대한 살려서 쓴다).
+  const TRAILING_PUNCTUATION_WEIGHT = 0.4
   const rawCellSizes = ordered
     .map((l) => {
-      const n = [...l.text].length
+      const weights = computeSlotWeights([...l.text])
+      const lastWeight = weights.length > 0 ? weights[weights.length - 1]! : 0
+      const total = weights.reduce((a, b) => a + b, 0)
+      const n =
+        lastWeight > TRAILING_PUNCTUATION_WEIGHT && TRAILING_PUNCTUATION_RE.test(l.text)
+          ? total - lastWeight + TRAILING_PUNCTUATION_WEIGHT
+          : total
       return n > 0 ? l.height / n : null
     })
     .filter((v): v is number => v !== null)
@@ -363,7 +814,26 @@ export async function recognizeVerticalColumnWithNdlocr(image: Buffer, columnBbo
       ? (cellSizeFromIndent + 2 * cellSizeFromLongLines) / 3
       : (cellSizeFromIndent ?? cellSizeFromLongLines ?? cellSizeFromWidth ?? (rawCellSizes.length > 0 ? median(rawCellSizes) : null))
 
-  const aligned = alignColumnStarts(ordered, typicalCellSize)
+  // 같은 열 안에서 인접한 두 줄 사이에 원본 픽셀로 확인된 잉크(fillInterLineGaps
+  // 주석 참고)가 있으면 그 자리를 PaddleOCR 로 채워 앞 줄에 이어 붙인다 — 높이 비교로는
+  // 신호가 안 남는 "완전 침묵" 누락(사용자 실측 확인: "……" 등)을 잡기 위한 마지막
+  // 안전망이다. typicalCellSize 가 없으면 "비정상적으로 큰 간격"을 판단할 기준이
+  // 없어서 건너뛴다.
+  const gapFilled = typicalCellSize !== null ? await fillInterLineGaps(image, ordered, typicalCellSize) : ordered
+
+  // 줄 끝에 같은 문자가 2번 이상 겹쳐 나온 경우("………" 등) 마지막 반복 칸에 실제
+  // 잉크가 있는지 국소적으로 검사해서 유령 문자를 지운다(trimHallucinatedTrailingRepeats
+  // 주석 참고) — 아래 computeInkMismatchFlags(줄 전체 합산 비교)로는 못 잡는, 반복
+  // 구간 안의 한두 글자 차이를 잡기 위한 별도 국소 검사다.
+  const trimmed = trimHallucinatedTrailingRepeats(image, gapFilled)
+
+  // 줄 자신의 bbox 안 잉크 픽셀 수를 다른 줄과 비교해 "완전 침묵" 누락(missing) 및
+  // 반대 방향인 과다인식(over)을 잡는다(computeInkMismatchFlags 주석 참고) —
+  // fillInterLineGaps 로 못 잡는, 인접 줄 자체가 없거나(열 하나 = 줄 하나) 문제 구간이
+  // 이 줄 자신의 크롭 범위 "안"에 있는 경우의 마지막 보완책이다.
+  const { missing: inkMismatch, over: inkOverRecognized } = computeInkMismatchFlags(image, trimmed)
+
+  const aligned = alignColumnStarts(trimmed, typicalCellSize, inkMismatch, inkOverRecognized)
   // 의심되는 줄만 PaddleOCR 로 대조 인식해서 마커를 실제 내용으로 치환한다
   // (resolveSuspiciousLines 주석 참고).
   const withPlaceholder = await resolveSuspiciousLines(image, aligned)
@@ -373,12 +843,28 @@ export async function recognizeVerticalColumnWithNdlocr(image: Buffer, columnBbo
     const baseline = computeBaseline(ordered.filter((l) => l.height >= MIN_BODY_LINE_HEIGHT))
     writeFileSync(
       join(process.env.DEBUG_OCR_DUMP, `ndlocrlines-${Date.now()}.json`),
-      JSON.stringify({ typicalCellSize, baseline, ordered, aligned, withPlaceholder }, null, 2),
+      JSON.stringify(
+        { typicalCellSize, baseline, ordered, gapFilled, trimmed, aligned, withPlaceholder },
+        null,
+        2,
+      ),
     )
   }
 
+  // 단어 박스 자체는 "이 열의 실제 검출 높이 ÷ 이 열의 글자 수(칸 가중치 반영)"로
+  // 열마다 따로 계산한다(사용자 요청) — groupCjkCharsGrid 에 typicalCellSize 로 null
+  // 을 넘기면 이미 그 폴백(lineRect.height / totalWeight)을 쓴다. 공유 typicalCellSize
+  // (들여쓰기/긴 줄 기반)는 alignColumnStarts 의 열 시작 위치 스냅·미검출 구간 판정
+  // 에만 쓴다 — 그건 "여러 열이 공유하는 하나의 물리적 활자 그리드"라는 전제가 있어야
+  // 성립하는 계산(다른 열들과 비교)이라 공유값이 꼭 필요하지만, 단어 박스 분할은 그
+  // 열 하나 안에서만 상대 위치가 맞으면 되므로 그 열 자신의 실측값이 더 정확하다.
+  // 단점(사용자 지적): 줄 끝이 문장부호(、。 등)면 잉크가 작아 검출 높이가 그만큼 다
+  // 안 나와서 이 열의 계산값이 실제보다 살짝 작게 나올 수 있다 — 다만 그 열 자신의
+  // 글자 수로 나눈 값이라 그 열 안에서는 자체 정합적이라(칸 크기가 줄어드는 만큼 전체
+  // 글자가 고르게 살짝 압축될 뿐 겹치거나 밀리지 않음) 다른 열과 비교하는 계산(공유
+  // typicalCellSize)만큼 위험하지 않다.
   const grouped = await Promise.all(
-    withPlaceholder.map((line) => groupCjkCharsGrid(line, line.text, 'ja', true, typicalCellSize)),
+    withPlaceholder.map((line) => groupCjkCharsGrid(line, line.text, 'ja', true, null)),
   )
   return grouped.flat()
 }

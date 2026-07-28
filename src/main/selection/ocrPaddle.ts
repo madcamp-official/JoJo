@@ -335,6 +335,17 @@ export function computeSlotWeights(codepoints: string[]): number[] {
   const weights = new Array(codepoints.length).fill(1)
   let i = 0
   while (i < codepoints.length) {
+    // 개행(\n)은 ocrNdlocr.ts 가 문단 시작을 표시하려고 끼워 넣는 순수 텍스트 마커라
+    // 실제 잉크(칸)를 하나도 안 차지한다 — 문단 들여쓰기는 이미 그 줄의 Y좌표 자체를
+    // 1칸 내려서(alignColumnStarts) 반영해두는데, 여기서 \n 도 칸을 하나 차지하게 두면
+    // 들여쓰기가 두 번(좌표 이동 + 이 슬롯) 적용돼 실제 글자가 2칸 밀려서 시작한다
+    // (실측 확인). 폭 0으로 둬서 텍스트에는 남아있되(렌더러가 문단 구분에 씀) 위치
+    // 계산에는 전혀 영향을 안 주게 한다.
+    if (codepoints[i] === '\n') {
+      weights[i] = 0
+      i++
+      continue
+    }
     if (WIDE_DASH_CHARS.has(codepoints[i]!)) {
       weights[i] = 2
       i++
@@ -379,7 +390,26 @@ export async function groupCjkCharsGrid(
   const cumulative: number[] = [0]
   for (const w of weights) cumulative.push(cumulative[cumulative.length - 1]! + w)
   const totalWeight = cumulative[cumulative.length - 1]!
-  const cellSize = typicalCellSize ?? (vertical ? lineRect.height : lineRect.width) / totalWeight
+  // typicalCellSize 가 없어서(null) 이 줄 자신의 검출 범위 ÷ 칸 수로 칸 크기를 역산할
+  // 때만 해당 — 줄 끝이 문장부호(、。 등)면 잉크 자체가 작아서 검출 높이(lineRect.height/
+  // width)가 그 칸만큼 다 안 나온다(실측 확인, cellSizesFromLongLines 의 같은 필터
+  // 참고). 다른 줄과 비교하는 계산이 아니라 이 줄 안에서만 닫힌 계산이라 보정 안 해도
+  // 겹치거나 어긋나진 않지만(전체가 고르게 살짝 눌릴 뿐), 정밀도를 위해 마지막 글자의
+  // 칸 가중치를 줄여서(검출 높이는 그대로 두고) 칸 크기를 살짝 더 크게 추정한다.
+  // 완전히 0(칸 가중치 통째로 제외)이 아니라 작은 값(TRAILING_PUNCTUATION_WEIGHT)으로
+  // 낮춘다 — 문장부호도 잉크가 아예 없는 건 아니라 어느 정도는 실제로 칸을 차지하므로
+  // (사용자 지적), 완전 제외보다 실측에 더 가깝다.
+  const TRAILING_PUNCTUATION_RE = /[、。・！？…]$/
+  const TRAILING_PUNCTUATION_WEIGHT = 0.4
+  const lastWeight = weights.length > 0 ? weights[weights.length - 1]! : 0
+  const totalWeightForCellSize =
+    typicalCellSize === null &&
+    lastWeight > TRAILING_PUNCTUATION_WEIGHT &&
+    TRAILING_PUNCTUATION_RE.test(text)
+      ? totalWeight - lastWeight + TRAILING_PUNCTUATION_WEIGHT
+      : totalWeight
+  const cellSize =
+    typicalCellSize ?? (vertical ? lineRect.height : lineRect.width) / totalWeightForCellSize
 
   const words: Word[] = []
   let pos = 0
