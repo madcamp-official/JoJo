@@ -14,6 +14,7 @@ export interface NumberedSense {
   posRaw?: string
   pronunciation?: string
   irregularForms?: string[]
+  transitive?: boolean
   gloss: string[]
   examples?: string[]
   usageTags?: UsageTag[]
@@ -40,6 +41,7 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
           posRaw: sense.posRaw,
           pronunciation,
           irregularForms: 'irregularForms' in sense ? sense.irregularForms : undefined,
+          transitive: 'transitive' in sense ? sense.transitive : undefined,
           gloss: sense.gloss,
           examples: sense.examples,
           usageTags: sense.usageTags,
@@ -59,7 +61,8 @@ export function buildSenseListText(senses: NumberedSense[]): string {
   return senses
     .map((s) => {
       const label = s.posRaw ?? s.pos
-      const tag = label ? `[${label}] ` : ''
+      const transitiveTag = s.transitive === true ? ', 타동사' : s.transitive === false ? ', 자동사' : ''
+      const tag = label ? `[${label}${transitiveTag}] ` : ''
       const gloss = s.gloss.join('; ')
       const ex = s.examples?.length ? ` (예: ${s.examples.map((e) => `"${e}"`).join(' / ')})` : ''
       return `${s.index}. ${tag}${gloss}${ex}`
@@ -168,7 +171,12 @@ export function formatDictionaryAnswer(
   for (const { sense, translatedGloss, translatedExamples } of selected) {
     const label = (sense.pos && POS_KO[sense.pos]) ?? sense.posRaw
     const idiomTag = sense.isIdiom ? ' (관용구)' : ''
-    const posSuffix = label ? ` · ${label}${idiomTag}` : ''
+    // MW def[].vd(verb divider) 실측 확인(2026-07-28, "run") — 동사 sense 마다 타동/자동
+    // 여부가 다를 수 있어(intransitive/transitive 로 def 블록 자체가 갈림) pos 라벨
+    // 옆에 별도 표시. undefined(동사가 아니거나 MW 가 vd 를 안 준 경우)면 표시 안 함.
+    const transitiveTag =
+      sense.transitive === true ? ' (타동사)' : sense.transitive === false ? ' (자동사)' : ''
+    const posSuffix = label ? ` · ${label}${transitiveTag}${idiomTag}` : ''
     // MW 는 IPA 가 아니라 자체 표기법이라 표시 직전에 IPA 근사치로 변환한다(merriamWebsterToIpa.ts).
     // 다른 en 소스(OEWN/Wiktionary)는 원래부터 실제 IPA 라 변환하지 않고 그대로 쓴다.
     const pronunciation =
