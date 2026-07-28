@@ -327,6 +327,29 @@ button:disabled { cursor: not-allowed; }
      자연히 적용된다(단어 사이에서만 I자 커서가 보이던 문제 해결). */
   padding: 0 12px 12px;
 }
+/* 일본어 팝업 본문 전용 폰트 — 기본 font-family(system-ui 등)로는 Chromium 이 글자마다
+   커버하는 폰트가 다른 CJK 문자를 서로 다른 폴백 폰트로 그려서 글자체가 들쭉날쭉해
+   보였다(실사용 중 확인, Windows 에서 재현). Windows(메이리오/유고딕)·macOS(히라기노
+   각고딕) 각 OS 기본 탑재 일본어 폰트를 앞세워 전체 문단이 하나의 일관된 서체로
+   그려지게 한다 — 각 폰트 이름은 그 폰트가 없는 OS에서는 자동으로 다음 폴백으로
+   넘어가므로(Windows 이름은 macOS에 없고, 히라기노는 Windows에 없음), 플랫폼 분기
+   없이 이 font-family 목록 하나로 "OS별로 알맞은 폰트 적용"이 자연히 성립한다.
+   Windows 는 Meiryo 를 Yu Gothic 보다 앞에 둔다 — Yu Gothic(UI)은 글자 사이 간격이
+   빡빡해서 실사용 중 "너무 몰려 보인다"는 피드백이 있었고, Meiryo 는 자간이 더 여유
+   있어 본문 가독성이 낫다. 다만 Meiryo 는 Windows 에 기본 포함이긴 해도 모든 설치에
+   있는 건 아니다(실측 확인: 이 개발 기기엔 Meiryo 가 설치돼 있지 않아 자동으로 Yu
+   Gothic UI 로 떨어짐 — 다른 사용자 기기엔 있을 수 있어 폴백 우선순위는 그대로 둔다).
+   그래서 폰트 자체의 여유만 믿지 않고 letter-spacing/line-height 를 넉넉하게 더해서
+   Meiryo 가 없는 기기(Yu Gothic 계열로 떨어지는 경우)에서도 "몰려 보인다"는 느낌이
+   확실히 나아지게 한다. macOS 는 10.11(El Capitan) 이후 시스템 일본어 폰트가 히라기노
+   산스(Hiragino Sans, 그 이전 이름은 Hiragino Kaku Gothic ProN)로 바뀌었는데, 예전
+   macOS 를 위해 구 이름도 폴백으로 남겨둔다. .lang-ja 는 PopupScreen.tsx 가
+   language === 'ja' 일 때만 붙인다(다른 언어 팝업은 기본 폰트 그대로). */
+.ctx-text.lang-ja {
+  font-family: Meiryo, 'Yu Gothic UI', 'Yu Gothic', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  letter-spacing: 0.09em;
+  line-height: 2;
+}
 /* .ctx-text 어디에도 user-select: none 을 두지 않는다 — Chromium 은 user-select: none
    인 요소의 텍스트를 프로그램상 선택(Selection.addRange, ContextView.tsx
    syncNativeSelection)에 Range 로 포함시켜도 우클릭 메뉴용 텍스트(복사/찾아보기)에서

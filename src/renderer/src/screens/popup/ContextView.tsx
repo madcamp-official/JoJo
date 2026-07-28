@@ -9,6 +9,8 @@ interface Props {
   from: number
   to: number
   onChange: (from: number, to: number) => void
+  /** 언어별 전용 스타일(예: 일본어 전용 폰트, styles.css: .ctx-text.lang-ja) 훅. */
+  className?: string
 }
 
 interface Segment {
@@ -96,7 +98,7 @@ function atomIndexAtPoint(atomEls: Map<number, HTMLSpanElement>, x: number, y: n
   return nearestAtomIndex(atomEls, x, y)
 }
 
-export function ContextView({ model, from, to, onChange }: Props) {
+export function ContextView({ model, from, to, onChange, className }: Props) {
   const lo = Math.min(from, to)
   const hi = Math.max(from, to)
   const [dragging, setDragging] = useState(false)
@@ -154,7 +156,7 @@ export function ContextView({ model, from, to, onChange }: Props) {
 
   return (
     <div
-      className={dragging ? 'ctx-text dragging' : 'ctx-text'}
+      className={['ctx-text', dragging && 'dragging', className].filter(Boolean).join(' ')}
       onMouseDown={(e) => {
         // 세그먼트(atom/gap) 바깥, 박스 자체의 여백(padding)을 직접 눌렀을 때만 처리 —
         // 세그먼트 위에서 눌렀으면 그쪽 onMouseDown 이 이미 처리했고(버블링으로 여기까지

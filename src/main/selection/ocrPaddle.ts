@@ -272,7 +272,7 @@ export function clusterVerticalLinesIntoColumns<T extends Rect>(lines: T[]): T[]
 const LINE_PADDING_X = 0
 const LINE_PADDING_Y = 6
 
-function padLine(line: Rect): Rect {
+export function padLine(line: Rect): Rect {
   return {
     x: line.x - LINE_PADDING_X,
     y: line.y - LINE_PADDING_Y,
@@ -319,10 +319,27 @@ function padLine(line: Rect): Rect {
 // 밑에 밀림"으로 확인).
 const DIGIT_RE = /[0-9]/
 
-function computeSlotWeights(codepoints: string[]): number[] {
+// 縦中横 숫자 압축과 정반대 케이스 — 원문의 다시(ダーシ, 대개 "――" 두 칸짜리 가로선)를
+// 인식 엔진이 반각 한 글자로 뭉뚱그려 인식하는 경우가 실측 확인됐다(NDLOCR-Lite: U+2015
+// HORIZONTAL BAR "―" 하나로 나옴 — 사용자 보고로 확인, 어떨 때는 "--"(하이픈 두 개,
+// 이미 2글자라 별도 처리 불필요)로 나오기도 해서 인식 결과가 매번 일정하지 않다). 이런
+// 글자 하나는 실제로는 2칸 높이를 차지하므로 가중치를 2로 잡아야 그 뒤 글자들의 위치가
+// 안 밀린다 — 안 그러면 "16"을 2칸으로 잘못 세는 것의 반대 방향 오차(이번엔 실제보다
+// 한 칸 적게 세어 뒤 글자들이 위로 밀림)가 난다. em dash(—, U+2014)도 같은 용도로
+// 쓰이는 글자라 같이 묶는다 — 반대로 "ー"(가타카나 장음부호, U+30FC)는 진짜 장음부호로
+// 쓰이는 정상적인 1칸짜리 용법이 훨씬 흔해서(포함시키면 그런 단어들이 다 밀림) 넣지
+// 않는다.
+const WIDE_DASH_CHARS = new Set(['―', '—'])
+
+export function computeSlotWeights(codepoints: string[]): number[] {
   const weights = new Array(codepoints.length).fill(1)
   let i = 0
   while (i < codepoints.length) {
+    if (WIDE_DASH_CHARS.has(codepoints[i]!)) {
+      weights[i] = 2
+      i++
+      continue
+    }
     if (!DIGIT_RE.test(codepoints[i]!)) {
       i++
       continue
@@ -350,6 +367,14 @@ export async function groupCjkCharsGrid(
   const boundaries = [...(language === 'ja' ? await segmentJapaneseWords(text) : segmentChineseWords(text))].sort(
     (a, b) => a.start - b.start,
   )
+  if (process.env.DEBUG_OCR_DUMP) {
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    writeFileSync(
+      join(process.env.DEBUG_OCR_DUMP, `grid-${Date.now()}-${Math.random().toString(36).slice(2)}.json`),
+      JSON.stringify({ text, language, boundariesCount: boundaries.length, boundaries }, null, 2),
+    )
+  }
   const weights = computeSlotWeights(codepoints)
   const cumulative: number[] = [0]
   for (const w of weights) cumulative.push(cumulative[cumulative.length - 1]! + w)
@@ -536,6 +561,65 @@ export const GAP_RATIO_THRESHOLD = 1.5
 // 경우까지 전부 자리표자로 채우면 이미 망가진 인식 결과를 더 이상하게 만든다.
 export const MAX_GAP_RATIO = 3
 
+/**
+ * 줄 하나에 대해, PaddleOCR 가 실제로 인식해낸 글자(원시 단위, bbox 있는 것만)들 사이의
+ * y 간격을 기준 칸 크기(typicalCellSize)와 비교해 미검출 구간(기호 등)을 찾고, 그 자리에
+ * UNKNOWN_GAP_PLACEHOLDER 를 끼워 넣은 텍스트를 반환한다 — insertUndetectedMarks(여러 줄을
+ * 한 번에 처리)의 단일 줄 버전. ocrYomitoku.ts/ocrNdlocr.ts 처럼 인식 백엔드가 줄 전체
+ * bbox 만 주고 글자 단위 좌표가 없는 경우, 의심되는 줄만 PaddleOCR 로 다시 인식해(글자
+ * 단위 좌표를 얻어) 이 함수로 정확한 위치를 찾는 데 쓴다.
+ *
+ * paddingBias: ocrNdlocr.ts 실측 확인 — 、《》같은 좁은 문장부호 하나만 빠진 자리도
+ * 그 좌우 여백까지 포함해서 재는 바람에 gap 이 칸 크기의 1.5~2.5배로 측정돼 자리표자가
+ * 2개(실제는 1개) 들어가는 과다 계산이 반복됐다. leading-gap 보정(alignColumnStarts 의
+ * DETECTION_PADDING_BIAS)과 같은 종류의 측정 편향이라 같은 방식(칸 수에서 고정값을 뺌)
+ * 으로 보정한다 — 기존 호출부(insertUndetectedMarks, PaddleOCR 단독 경로)는 이 문제가
+ * 실측된 적 없어서 기본값 0(보정 없음)을 유지하고, ocrNdlocr.ts 만 1을 넘겨 쓴다.
+ */
+export function insertGapPlaceholdersForLine(
+  line: Rect,
+  units: Word[],
+  text: string,
+  typicalCellSize: number,
+  paddingBias = 0,
+): string {
+  const bboxUnits = units.filter((w) => w.bbox)
+  if (bboxUnits.length === 0) return text
+
+  // gaps: [원시 단위 배열상 삽입 위치(문자 오프셋), 끼워 넣을 자리표자 개수][]
+  const gaps: [number, number][] = []
+  const countAt = (upTo: number) => [...bboxUnits.slice(0, upTo).map((u) => u.text).join('')].length
+  const gapCount = (gap: number) => Math.max(1, Math.round(gap / typicalCellSize) - paddingBias)
+
+  const inRange = (gap: number) =>
+    gap >= typicalCellSize * GAP_RATIO_THRESHOLD && gap <= typicalCellSize * MAX_GAP_RATIO
+
+  const leadingGap = bboxUnits[0]!.bbox!.y - line.y
+  if (inRange(leadingGap)) {
+    gaps.push([0, gapCount(leadingGap)])
+  }
+  for (let k = 1; k < bboxUnits.length; k++) {
+    const prev = bboxUnits[k - 1]!
+    const gap = bboxUnits[k]!.bbox!.y - (prev.bbox!.y + prev.bbox!.height)
+    if (inRange(gap)) {
+      gaps.push([countAt(k), gapCount(gap)])
+    }
+  }
+  const last = bboxUnits[bboxUnits.length - 1]!
+  const trailingGap = line.y + line.height - (last.bbox!.y + last.bbox!.height)
+  if (inRange(trailingGap)) {
+    gaps.push([countAt(bboxUnits.length), gapCount(trailingGap)])
+  }
+  if (gaps.length === 0) return text
+
+  // 뒤에서부터 끼워 넣어야 앞쪽 삽입이 뒤쪽 삽입 위치(문자 오프셋)를 안 밀리게 한다.
+  const codepoints = [...text]
+  for (const [idx, count] of [...gaps].sort((a, b) => b[0] - a[0])) {
+    codepoints.splice(idx, 0, ...Array(count).fill(UNKNOWN_GAP_PLACEHOLDER))
+  }
+  return codepoints.join('')
+}
+
 async function insertUndetectedMarks(
   lines: Rect[],
   perLine: Word[][],
@@ -551,43 +635,7 @@ async function insertUndetectedMarks(
   const typicalCellSize = estimateCellSizeFromIndent(lines) ?? fallbackCellSize
   if (!typicalCellSize) return { texts, typicalCellSize: null }
 
-  const newTexts = lines.map((line, i) => {
-    const text = texts[i]!
-    const units = perLine[i]!.filter((w) => w.bbox)
-    if (units.length === 0) return text
-
-    // gaps: [원시 단위 배열상 삽입 위치(문자 오프셋), 끼워 넣을 자리표자 개수][]
-    const gaps: [number, number][] = []
-    const countAt = (upTo: number) => [...units.slice(0, upTo).map((u) => u.text).join('')].length
-
-    const inRange = (gap: number) =>
-      gap >= typicalCellSize * GAP_RATIO_THRESHOLD && gap <= typicalCellSize * MAX_GAP_RATIO
-
-    const leadingGap = units[0]!.bbox!.y - line.y
-    if (inRange(leadingGap)) {
-      gaps.push([0, Math.round(leadingGap / typicalCellSize)])
-    }
-    for (let k = 1; k < units.length; k++) {
-      const prev = units[k - 1]!
-      const gap = units[k]!.bbox!.y - (prev.bbox!.y + prev.bbox!.height)
-      if (inRange(gap)) {
-        gaps.push([countAt(k), Math.round(gap / typicalCellSize)])
-      }
-    }
-    const last = units[units.length - 1]!
-    const trailingGap = line.y + line.height - (last.bbox!.y + last.bbox!.height)
-    if (inRange(trailingGap)) {
-      gaps.push([countAt(units.length), Math.round(trailingGap / typicalCellSize)])
-    }
-    if (gaps.length === 0) return text
-
-    // 뒤에서부터 끼워 넣어야 앞쪽 삽입이 뒤쪽 삽입 위치(문자 오프셋)를 안 밀리게 한다.
-    const codepoints = [...text]
-    for (const [idx, count] of [...gaps].sort((a, b) => b[0] - a[0])) {
-      codepoints.splice(idx, 0, ...Array(count).fill(UNKNOWN_GAP_PLACEHOLDER))
-    }
-    return codepoints.join('')
-  })
+  const newTexts = lines.map((line, i) => insertGapPlaceholdersForLine(line, perLine[i]!, texts[i]!, typicalCellSize))
   return { texts: newTexts, typicalCellSize }
 }
 
