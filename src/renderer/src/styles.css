@@ -503,7 +503,11 @@ button:disabled { cursor: not-allowed; }
 .bubble .md th, .bubble .md td { border: 1px solid currentColor; padding: 3px 6px; opacity: 0.95; }
 
 .chat-input {
-  display: flex; gap: 8px; padding: 8px; border-top: 1px solid #e6e8ec; flex-shrink: 0;
+  /* 좌우 패딩을 10px(.chat 의 border-radius 와 동일 값)로 둔다 — 8px 이던 시절엔
+     .send-btn(우측 끝에 붙는 보라색 버튼)이 부모 .chat 의 둥근 모서리 곡선 영역
+     (radius 10px) 안쪽에 걸쳐, 버튼 모서리가 그 곡선에 살짝 잘려 보였다(사용자
+     피드백, 2026-07-29). .chat-log 는 원래 패딩이 10px라 이 문제가 없었다. */
+  display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid #e6e8ec; flex-shrink: 0;
 }
 .chat-input textarea {
   flex: 1; resize: none; max-height: 80px;
