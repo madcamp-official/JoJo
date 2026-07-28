@@ -1,9 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
+import type { AnchorHTMLAttributes } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from './types'
 
 // 담당 B — 채팅 영역 (질문/답변 말풍선 + 스트리밍 렌더 + 입력창) — PLAN.md §4.2
+
+// 마크다운 안 링크(사전 출처 등, senseSelect.ts formatDictionaryAnswer 참고) 클릭 시
+// 기본 동작(Electron 렌더러 안에서 그 URL로 그대로 이동해버림 — 팝업 UI가 사라지는
+// 문제)을 막고, 구글/네이버 버튼과 동일한 방식(openUrlInNewWindow, 기본 브라우저의
+// 새 창)으로 열도록 재정의한다. react-markdown이 만드는 <a> 전부에 적용되므로 채팅에
+// 링크가 더 늘어도(예: 다른 사전 소스) 별도 배선 없이 전부 이 경로를 탄다.
+function MarkdownLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  return (
+    <a
+      {...props}
+      onClick={(e) => {
+        e.preventDefault()
+        if (props.href) void window.nuance.openExternalLink(props.href)
+      }}
+    />
+  )
+}
 
 interface Props {
   messages: ChatMessage[]
@@ -45,7 +63,9 @@ export function Chat({ messages, onSend, busy }: Props) {
               </div>
             ) : m.role === 'assistant' ? (
               <div className="md">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
+                  {m.content}
+                </ReactMarkdown>
               </div>
             ) : (
               m.content

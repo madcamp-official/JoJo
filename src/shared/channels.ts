@@ -50,6 +50,9 @@ export const IPC = {
   POPUP_GET_CONTEXT: 'popup:getContext',
   OPEN_GOOGLE: 'popup:openGoogle',
   OPEN_NAVER_DICT: 'popup:openNaverDict',
+  // 채팅창 마크다운 안의 링크(사전 출처 등)를 구글/네이버 버튼과 동일한 방식(기본
+  // 브라우저의 새 창, 팝업과 같은 위치·크기)으로 연다 — 이미 완성된 URL을 그대로 받는다.
+  OPEN_EXTERNAL_LINK: 'popup:openExternalLink',
   // 팝업 원문 문맥의 가나 atom 병합용 — 일본어 형태소 분석(main/nlp/japanese.ts)
   TOKENIZE_JA: 'popup:tokenizeJa',
   // 팝업 원문 문맥의 중국어 단어 atom 구성용 — 형태소 분석(main/nlp/chinese.ts, zh-Hans/zh-Hant 별 엔진)
