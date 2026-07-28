@@ -351,7 +351,21 @@ button:disabled { cursor: not-allowed; }
    language === 'ja' 일 때만 붙인다(다른 언어 팝업은 기본 폰트 그대로). */
 .ctx-text.lang-ja {
   font-family: Meiryo, 'Yu Gothic UI', 'Yu Gothic', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.05em;
+  line-height: 2;
+}
+/* 중국어(zh-Hans/zh-Hant, PopupScreen.tsx)도 위 .lang-ja 와 똑같은 근거로 폰트/자간/줄간격을
+   지정한다 — system-ui 기본 폴백만 쓰면 OS·문자마다 커버하는 폰트가 갈려 글자체가
+   들쭉날쭉해지고, .lang-ja 전용 튜닝만 있고 이쪽엔 없어서 같은 팝업인데 일본어보다
+   중국어 글자가 더 작고 빽빽해 보인다는 문제(2026-07-29 사용자 피드백)가 있었다 —
+   .lang-ja 와 자간(0.05em, 2026-07-29 사용자 피드백으로 0.09em에서 축소)·줄간격(2) 값을
+   맞춰 둘이 시각적으로 통일되게 한다. 폰트는
+   macOS 간체/번체(핑팡)·Windows 간체/번체(마이크로소프트 야헤이/젠헤이)를 모두
+   나열해 어느 스크립트로 조회하든(간체/번체 구분 없이 이 클래스 하나를 공유) 그
+   OS에서 실제로 설치돼 있는 것으로 자연히 떨어지게 한다. */
+.ctx-text.lang-zh {
+  font-family: 'PingFang SC', 'PingFang TC', 'Microsoft YaHei', 'Microsoft JhengHei', 'Heiti SC', 'Heiti TC', sans-serif;
+  letter-spacing: 0.05em;
   line-height: 2;
 }
 /* .ctx-text 어디에도 user-select: none 을 두지 않는다 — Chromium 은 user-select: none

@@ -288,7 +288,13 @@ export function PopupScreen() {
             to={range.to}
             onChange={(from, to) => setRange({ from, to })}
             charLevel={charLevel}
-            className={baseCtx.language === 'ja' ? 'lang-ja' : undefined}
+            className={
+              baseCtx.language === 'ja'
+                ? 'lang-ja'
+                : baseCtx.language === 'zh-Hans' || baseCtx.language === 'zh-Hant'
+                  ? 'lang-zh'
+                  : undefined
+            }
           />
         </section>
 
