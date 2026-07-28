@@ -7,8 +7,8 @@ TODO.md/DICTIONARY_SOURCES.md 결정 사항: jisho.org 라이브 API가 아니�
 jisho.org API는 이걸 tags 하나로 뭉개거나 아예 노출을 안 하기 때문("simplified"는
 데이터 축소가 아니라 포맷 정리일 뿐이라 "full" 변형이 원본과 엔트리 수 동일 — README 확인).
 
-사용법(재생성이 필요할 때만 — 이미 만들어진 resources/jmdict/*.json 은 저장소에 커밋돼
-있어 평소엔 이 스크립트를 돌릴 필요가 없다):
+사용법 — resources/jmdict/*.json 은 재생성 가능한 데이터라 저장소에 커밋하지 않는다
+(.gitignore 처리, 2026-07-28). 새로 clone 했거나 갱신이 필요할 때 아래를 실행:
 
     curl -L -o /tmp/jmdict-eng.json.tgz \\
       https://github.com/scriptin/jmdict-simplified/releases/download/<tag>/jmdict-eng-<tag>.json.tgz

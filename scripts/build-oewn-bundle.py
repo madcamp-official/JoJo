@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """OEWN(Open English WordNet) 원본 JSON 릴리스를 resources/oewn/ 번들 2개로 병합한다.
 
-사용법(재생성이 필요할 때만 — 이미 만들어진 resources/oewn/*.json 은 저장소에 커밋돼
-있어 평소엔 이 스크립트를 돌릴 필요가 없다):
+사용법 — resources/oewn/*.json 은 재생성 가능한 데이터라 저장소에 커밋하지 않는다
+(.gitignore 처리, 2026-07-28). 새로 clone 했거나 갱신이 필요할 때 아래를 실행:
 
     curl -L -o /tmp/oewn.zip \\
       https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025-json.zip

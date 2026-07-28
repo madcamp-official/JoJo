@@ -31,3 +31,10 @@ Thumbs.db
 python/.venv/
 python/__pycache__/
 
+# 로컬 사전 번들(OEWN/JMdict/CC-CEDICT, 총 94MB) — 커밋 대신 스크립트로 재생성한다.
+# 사전 기능을 쓰려면 clone 후 아래 3개를 실행(README.md "사전 데이터 준비" 참고):
+#   curl -L -o /tmp/oewn.zip https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025-json.zip && mkdir /tmp/oewn && unzip -q /tmp/oewn.zip -d /tmp/oewn && python3 scripts/build-oewn-bundle.py /tmp/oewn
+#   curl -L -o /tmp/jmdict-eng.json.tgz https://github.com/scriptin/jmdict-simplified/releases/download/<tag>/jmdict-eng-<tag>.json.tgz && mkdir /tmp/jmdict && tar xzf /tmp/jmdict-eng.json.tgz -C /tmp/jmdict && python3 scripts/build-jmdict-bundle.py /tmp/jmdict/jmdict-eng-*.json
+#   bash scripts/fetch-cedict.sh
+resources/
+
