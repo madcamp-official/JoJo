@@ -3,7 +3,7 @@ import { getApiKey } from '@main/keyStore'
 import { getSettings } from '@main/settingsStore'
 import { DEFAULT_MODELS } from '@shared/providers'
 import { LANGUAGES } from '@shared/languages'
-import { fetchMwEntry, MwHttpError } from './dictionary/mw'
+import { fetchMerriamWebsterEntry, MerriamWebsterHttpError } from './dictionary/merriamWebster'
 import {
   buildSenseListText,
   formatDictionaryAnswer,
@@ -48,8 +48,8 @@ export async function lookupDictionary(
     return emit(onChunk, { kind: 'dictionary', content: '선택된 표현이 없습니다.' })
   }
 
-  const mwKey = getApiKey('mw')
-  if (!mwKey) {
+  const merriamWebsterKey = getApiKey('mw')
+  if (!merriamWebsterKey) {
     return emit(onChunk, {
       kind: 'dictionary',
       content: 'Merriam-Webster 사전 API 키가 설정되어 있지 않습니다. 설정에서 키를 입력해 주세요.',
@@ -58,9 +58,9 @@ export async function lookupDictionary(
 
   let lookup
   try {
-    lookup = await fetchMwEntry(word, mwKey)
+    lookup = await fetchMerriamWebsterEntry(word, merriamWebsterKey)
   } catch (err) {
-    return emit(onChunk, { kind: 'dictionary', content: describeMwError(err) })
+    return emit(onChunk, { kind: 'dictionary', content: describeMerriamWebsterError(err) })
   }
 
   if (lookup.entries?.length) {
@@ -136,7 +136,7 @@ export async function lookupDictionary(
   const cacheableContext = buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter)
 
   const perWordResults = await Promise.allSettled(
-    words.map((w) => lookupSingleWord(w, mwKey, ctx, client, model, cacheableContext)),
+    words.map((w) => lookupSingleWord(w, merriamWebsterKey, ctx, client, model, cacheableContext)),
   )
   const outcomes = perWordResults.map((r) => (r.status === 'fulfilled' ? r.value : null))
 
@@ -152,9 +152,9 @@ export async function lookupDictionary(
     if (llmError) {
       return emit(onChunk, buildErrorResult('dictionary', classifyLlmError(llmError.llmError), provider))
     }
-    const mwError = outcomes.find((o): o is { mwError: unknown } => o !== null && 'mwError' in o)
-    if (mwError) {
-      return emit(onChunk, { kind: 'dictionary', content: describeMwError(mwError.mwError) })
+    const merriamWebsterError = outcomes.find((o): o is { merriamWebsterError: unknown } => o !== null && 'merriamWebsterError' in o)
+    if (merriamWebsterError) {
+      return emit(onChunk, { kind: 'dictionary', content: describeMerriamWebsterError(merriamWebsterError.merriamWebsterError) })
     }
     return emit(onChunk, notFoundResult(word, lookup.suggestions))
   }
@@ -167,7 +167,7 @@ export async function lookupDictionary(
 }
 
 /** 단어 하나를 MW 조회 → LLM 판정/번역까지 끝내 서식화된 마크다운으로 돌려준다.
- *  폴백 경로 전용 — "사전에 없는 단어"(null)와 "MW/LLM 호출 자체가 실패함"(mwError/
+ *  폴백 경로 전용 — "사전에 없는 단어"(null)와 "MW/LLM 호출 자체가 실패함"(merriamWebsterError/
  *  llmError)을 구분해 돌려준다. sense 없음은 그 단어 하나만의 문제로 보고 null 처리하지만,
  *  MW 요청 실패(무효 키 등)나 LLM 호출 실패(잘못된 모델 등)는 모든 단어에서 똑같이 날
  *  가능성이 높아 호출부가 원인을 그대로 보여줄 수 있게 구분해서 넘긴다 — 통째 조회
@@ -175,17 +175,17 @@ export async function lookupDictionary(
  *  조용히 null 처리하면, 그 사이 키가 만료되는 등 드문 케이스에서 원인을 숨기게 된다. */
 async function lookupSingleWord(
   word: string,
-  mwKey: string,
+  merriamWebsterKey: string,
   ctx: SelectionContext,
   client: ReturnType<typeof createClient>,
   model: string,
   cacheableContext: string,
-): Promise<{ formatted: string } | { llmError: unknown } | { mwError: unknown } | null> {
+): Promise<{ formatted: string } | { llmError: unknown } | { merriamWebsterError: unknown } | null> {
   let lookup
   try {
-    lookup = await fetchMwEntry(word, mwKey)
+    lookup = await fetchMerriamWebsterEntry(word, merriamWebsterKey)
   } catch (err) {
-    return { mwError: err }
+    return { merriamWebsterError: err }
   }
   if (!lookup.entries?.length) return null
 
@@ -263,8 +263,8 @@ function splitIntoWords(text: string): string[] {
  *  key. Not subscribed for this reference." 같은 평문만 담아 보낸다(JSON 이 아니라
  *  파싱도 실패함). 이걸 구분 안 하면 죄다 "네트워크 오류"로 뭉뚱그려져 실제로는 키가
  *  잘못된 건데 사용자가 인터넷 연결을 의심하게 된다. */
-function describeMwError(err: unknown): string {
-  if (err instanceof MwHttpError) {
+function describeMerriamWebsterError(err: unknown): string {
+  if (err instanceof MerriamWebsterHttpError) {
     const lower = err.body.toLowerCase()
     if (err.status === 401 || err.status === 403 || lower.includes('invalid api key')) {
       return 'Merriam-Webster API 키가 유효하지 않습니다. 설정에서 키를 다시 확인해 주세요.'

@@ -1,5 +1,5 @@
 import type { CanonicalPos, DictionaryEntry, DictionarySourceId, UsageTag } from '@shared/types'
-import { mwToIpa } from './mwToIpa'
+import { merriamWebsterToIpa } from './merriamWebsterToIpa'
 
 // 담당 B — 사전 뜻(sense) 번호 매기기 + LLM 판정/번역 결과 서식화 (PLAN.md §4.2-2)
 // DictionaryEntry[] 를 LLM 프롬프트에 넣을 번호 매긴 평면 목록으로 바꾸고, LLM 은 문맥에
@@ -162,11 +162,11 @@ export function formatDictionaryAnswer(
     const label = (sense.pos && POS_KO[sense.pos]) ?? sense.posRaw
     const idiomTag = sense.isIdiom ? ' (관용구)' : ''
     const posSuffix = label ? ` · ${label}${idiomTag}` : ''
-    // MW 는 IPA 가 아니라 자체 표기법이라 표시 직전에 IPA 근사치로 변환한다(mwToIpa.ts).
+    // MW 는 IPA 가 아니라 자체 표기법이라 표시 직전에 IPA 근사치로 변환한다(merriamWebsterToIpa.ts).
     // 다른 en 소스(OEWN/Wiktionary)는 원래부터 실제 IPA 라 변환하지 않고 그대로 쓴다.
     const pronunciation =
       source === 'merriam-webster' && sense.pronunciation
-        ? mwToIpa(sense.pronunciation)
+        ? merriamWebsterToIpa(sense.pronunciation)
         : sense.pronunciation
     const pronSuffix = pronunciation ? ` [${pronunciation}]` : ''
     lines.push(`**${sense.headword}**${pronSuffix}${posSuffix}`)

@@ -42,7 +42,7 @@ const SINGLE: Record<string, string> = {
  *  매핑에 없는 문자(자음 대부분, 강세 기호 ˈ/ˌ, 괄호, 공백 등)는 그대로 통과시킨다 —
  *  MW 와 IPA 가 이미 같은 문자를 쓰는 경우가 많아서다(b/d/f/g/h/k/l/m/n/p/r/s/t/v/w/z,
  *  강세 기호, ə, ŋ 등). */
-export function mwToIpa(mw: string): string {
+export function merriamWebsterToIpa(mw: string): string {
   let out = ''
   let i = 0
   outer: while (i < mw.length) {

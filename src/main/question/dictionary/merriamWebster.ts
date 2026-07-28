@@ -5,73 +5,73 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense,
 // 원본 JSON(sseq/dt/vis 중첩 구조, {bc}/{it}/{sx|..} 같은 마크업 토큰)을 파싱해
 // 통일 스키마(DictionaryEntry)로 변환한다.
 
-const MW_ENDPOINT = 'https://www.dictionaryapi.com/api/v3/references/collegiate/json'
+const MERRIAM_WEBSTER_ENDPOINT = 'https://www.dictionaryapi.com/api/v3/references/collegiate/json'
 
 /** MW 요청 실패(HTTP 에러 또는 무효 키의 평문 응답) — llm/errors.ts 의 LlmHttpError 와
  *  같은 모양이지만, MW 는 provider(LlmProvider)가 아니라(ApiKeyId 만) classifyLlmError
  *  대상이 아니라서 별도 클래스로 둔다. */
-export class MwHttpError extends Error {
+export class MerriamWebsterHttpError extends Error {
   constructor(
     public status: number,
     public body: string,
     message: string,
   ) {
     super(message)
-    this.name = 'MwHttpError'
+    this.name = 'MerriamWebsterHttpError'
   }
 }
 
 // ---- MW 원본 응답 타입 (느슨하게 — 공식 스키마 문서가 없어 실측 기반) ----------------
 
-interface MwPr {
+interface MerriamWebsterPr {
   mw?: string
 }
 
-interface MwHwi {
+interface MerriamWebsterHwi {
   hw: string
-  prs?: MwPr[]
+  prs?: MerriamWebsterPr[]
 }
 
-interface MwVis {
+interface MerriamWebsterVis {
   t: string
 }
 
 /** dt(defining text)는 [key, value] 튜플의 배열. key 는 'text'/'vis'/'uns'/'ca' 등. */
-type MwDtItem = ['text', string] | ['vis', MwVis[]] | ['uns', MwDtItem[][]] | [string, unknown]
+type MerriamWebsterDtItem = ['text', string] | ['vis', MerriamWebsterVis[]] | ['uns', MerriamWebsterDtItem[][]] | [string, unknown]
 
-interface MwSense {
-  dt: MwDtItem[]
+interface MerriamWebsterSense {
+  dt: MerriamWebsterDtItem[]
   sls?: string[]
 }
 
 /** sseq 트리는 'sense'/'pseq'/'bs' 등 태그로 임의 깊이까지 중첩된다 — 실사용 케이스는
  *  대부분 'sense' leaf 만 있으면 충분해, 아래 collectSenseNodes 가 트리 모양을 가리지
  *  않고 재귀적으로 'sense' leaf 를 전부 찾아 평탄화한다. */
-type MwSseqNode = unknown
+type MerriamWebsterSseqNode = unknown
 
-interface MwDef {
-  sseq: MwSseqNode[][]
+interface MerriamWebsterDef {
+  sseq: MerriamWebsterSseqNode[][]
 }
 
-interface MwCxs {
+interface MerriamWebsterCxs {
   cxl: string
   cxtis?: { cxt: string }[]
 }
 
-interface MwUro {
+interface MerriamWebsterUro {
   ure: string
   fl?: string
-  prs?: MwPr[]
+  prs?: MerriamWebsterPr[]
 }
 
-interface MwEntry {
+interface MerriamWebsterEntry {
   meta: { id: string; stems?: string[] }
-  hwi: MwHwi
+  hwi: MerriamWebsterHwi
   fl?: string
   ins?: { if?: string }[]
-  def?: MwDef[]
-  cxs?: MwCxs[]
-  uros?: MwUro[]
+  def?: MerriamWebsterDef[]
+  cxs?: MerriamWebsterCxs[]
+  uros?: MerriamWebsterUro[]
   /** 실측 확인(2026-07-28, "deco" → `["often attributive"]`) — 전문분야 라벨이 아니라
    *  sls 와 같은 성격의 일반 표기 관례 라벨. entry 최상위 필드라 sense 레벨인
    *  usageTags 와 위치가 다르므로, 아래에서 그 entry의 모든 sense 에 복제해 합친다. */
@@ -79,7 +79,7 @@ interface MwEntry {
 }
 
 /** 표제어를 못 찾으면 MW 는 유사 단어 제안 문자열 배열을 반환한다(엔트리 객체가 아님). */
-type MwRaw = MwEntry | string
+type MerriamWebsterRaw = MerriamWebsterEntry | string
 
 // ---- fl(functional label) → CanonicalPos --------------------------------------
 
@@ -107,7 +107,7 @@ function flToPos(fl?: string): CanonicalPos | undefined {
 /** MW dt 텍스트 안의 토큰 마크업을 사람이 읽는 평문으로 정리한다. 알려진 토큰만
  *  선별 처리하고, 나머지(태그 목록이 공개돼 있지 않아 전부 알 수 없음)는 통째로
  *  제거해 깨진 토큰이 그대로 gloss/example 에 노출되는 일을 막는다. */
-function stripMwTokens(raw: string): string {
+function stripMerriamWebsterTokens(raw: string): string {
   let s = raw
   // 내용은 유지하고 태그만 제거하는 페어 토큰(이탤릭/볼드/위첨자 등)
   s = s.replace(/\{\/?(?:it|b|sup|inf|phrase|wi|dx|dx_def|dx_ety|ma|parahw)\}/g, '')
@@ -128,21 +128,21 @@ function stripMwTokens(raw: string): string {
 
 // ---- sseq 평탄화 -----------------------------------------------------------
 
-/** sseq 트리(임의 깊이로 중첩된 'sense'/'pseq' 등 태그) 안에서 ['sense', MwSense] 형태의
+/** sseq 트리(임의 깊이로 중첩된 'sense'/'pseq' 등 태그) 안에서 ['sense', MerriamWebsterSense] 형태의
  *  leaf 를 전부 찾아 순서대로 평탄화한다. 'pseq'(구 표제어 하위 구분)처럼 태그+배열 형태는
  *  재귀로 자연스럽게 뚫고 들어가지만, 'bs'(binding substitute, `["bs", {"sense": {...}}]`
  *  처럼 sense 가 튜플이 아니라 객체 프로퍼티로 한 겹 더 감싸인 형태)는 이 재귀가 못 찾아
  *  건너뛴다 — 실사용 빈도가 낮아 우선 스코프에서 제외(TODO: 실측되면 별도 분기 추가). */
-function collectSenseNodes(node: unknown, out: MwSense[]): void {
+function collectSenseNodes(node: unknown, out: MerriamWebsterSense[]): void {
   if (!Array.isArray(node)) return
   if (node.length === 2 && node[0] === 'sense' && typeof node[1] === 'object') {
-    out.push(node[1] as MwSense)
+    out.push(node[1] as MerriamWebsterSense)
     return
   }
   for (const child of node) collectSenseNodes(child, out)
 }
 
-function extractDt(dt: MwDtItem[] | undefined): { gloss: string[]; examples: string[]; usageNote?: string } {
+function extractDt(dt: MerriamWebsterDtItem[] | undefined): { gloss: string[]; examples: string[]; usageNote?: string } {
   const gloss: string[] = []
   const examples: string[] = []
   const usageNotes: string[] = []
@@ -155,16 +155,16 @@ function extractDt(dt: MwDtItem[] | undefined): { gloss: string[]; examples: str
       // 통째로 지우고 남는 게 있을 때만 gloss 로 채택 — 안 지우면 이런 참조 문구가
       // 마치 별개의 진짜 뜻풀이처럼 gloss 배열에 섞여 LLM 후보 목록을 오염시킨다.
       const withoutCrossRefBlocks = value.replace(/\{dx[a-z_]*\}[\s\S]*?\{\/dx[a-z_]*\}/g, '')
-      const text = stripMwTokens(withoutCrossRefBlocks)
+      const text = stripMerriamWebsterTokens(withoutCrossRefBlocks)
       if (text) gloss.push(text)
     } else if (key === 'vis' && Array.isArray(value)) {
-      for (const v of value as MwVis[]) {
-        const text = stripMwTokens(v.t)
+      for (const v of value as MerriamWebsterVis[]) {
+        const text = stripMerriamWebsterTokens(v.t)
         if (text) examples.push(text)
       }
     } else if (key === 'uns' && Array.isArray(value)) {
       // uns(usage note) 값은 dt 형태의 블록 배열 — 재귀적으로 텍스트만 뽑아 합친다.
-      for (const block of value as MwDtItem[][]) {
+      for (const block of value as MerriamWebsterDtItem[][]) {
         const inner = extractDt(block)
         usageNotes.push(...inner.gloss)
       }
@@ -203,7 +203,7 @@ function normalizeForMatch(s: string): string {
  *  등장한다(`catching a break`처럼). 그래서 "조회어가 stems 안에 단독 원소로 있는가"로
  *  거른다 — 조회어 자체가 여러 단어 관용구(예: "kick the bucket")인 경우는 그 표현 자체가
  *  stems 에 단독으로 들어있어 정상적으로 살아남는다. */
-function isRelevantEntry(entry: MwEntry, word: string): boolean {
+function isRelevantEntry(entry: MerriamWebsterEntry, word: string): boolean {
   const target = word.toLowerCase()
   if (entry.meta.stems?.some((s) => s.toLowerCase() === target)) return true
   return entry.hwi.hw.replace(/[·*]/g, '').toLowerCase() === target
@@ -212,15 +212,15 @@ function isRelevantEntry(entry: MwEntry, word: string): boolean {
 /** uros(파생어) 처리 — 조회한 표면형이 파생 접사가 붙은 형태면 최상위 응답이 항상 원
  *  표제어로 돌아온다(DICTIONARY_SOURCES.md 실측). uros[] 에서 조회 표면형과 일치하는
  *  항목을 찾아 그 fl/발음으로 보정한다(뜻풀이는 uros 에 없어 원 표제어 def 를 그대로 씀). */
-function findMatchingUro(entry: MwEntry, queryWord: string): MwUro | undefined {
+function findMatchingUro(entry: MerriamWebsterEntry, queryWord: string): MerriamWebsterUro | undefined {
   const target = normalizeForMatch(queryWord)
   return entry.uros?.find((u) => normalizeForMatch(u.ure) === target)
 }
 
-// ---- MwEntry → DictionaryReading -------------------------------------------
+// ---- MerriamWebsterEntry → DictionaryReading -------------------------------------------
 
 function entryToReading(
-  entry: MwEntry,
+  entry: MerriamWebsterEntry,
   queryWord: string,
   fallbackPronunciations: DictionaryReading['pronunciations'],
 ): DictionaryReading | null {
@@ -232,7 +232,7 @@ function entryToReading(
     .map((i) => i.if?.replace(/[·*]/g, ''))
     .filter((v): v is string => !!v)
 
-  const senseNodes: MwSense[] = []
+  const senseNodes: MerriamWebsterSense[] = []
   for (const def of entry.def ?? []) collectSenseNodes(def.sseq, senseNodes)
 
   const senses: DictionarySense[] = senseNodes
@@ -273,7 +273,7 @@ function entryToReading(
 // 실측: "colour" 조회 시 def/shortdef 가 전부 비어있고 cxs 만 옴. cxl+cxt 를 합성해
 // gloss 로 대체한다(재조회 없음 — DICTIONARY_SOURCES.md 옵션 (1)).
 
-function cxsToSense(entry: MwEntry): DictionarySense | null {
+function cxsToSense(entry: MerriamWebsterEntry): DictionarySense | null {
   const cxs = entry.cxs?.[0]
   if (!cxs) return null
   const targets = cxs.cxtis?.map((t) => t.cxt).join(', ')
@@ -287,34 +287,34 @@ function cxsToSense(entry: MwEntry): DictionarySense | null {
 
 // ---- 진입점 -----------------------------------------------------------------
 
-export interface MwLookupResult {
+export interface MerriamWebsterLookupResult {
   /** MW 가 정확한 표제어를 못 찾고 유사 단어만 제안한 경우 */
   suggestions?: string[]
   entries?: DictionaryEntry[]
 }
 
-export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLookupResult> {
-  const url = `${MW_ENDPOINT}/${encodeURIComponent(word)}?key=${apiKey}`
+export async function fetchMerriamWebsterEntry(word: string, apiKey: string): Promise<MerriamWebsterLookupResult> {
+  const url = `${MERRIAM_WEBSTER_ENDPOINT}/${encodeURIComponent(word)}?key=${apiKey}`
   const res = await fetch(url)
   if (!res.ok) {
-    throw new MwHttpError(res.status, '', `MW API 요청 실패: HTTP ${res.status}`)
+    throw new MerriamWebsterHttpError(res.status, '', `MW API 요청 실패: HTTP ${res.status}`)
   }
   // 실측 확인(2026-07-28, 무효 키로 직접 호출): 키가 무효해도 HTTP 200을 그대로 주고
   // 본문에 JSON 배열 대신 평문("Invalid API key. Not subscribed for this reference.")을
   // 담아 보낸다 — 위 !res.ok 체크로는 절대 못 걸러진다. res.json() 을 바로 부르면
   // SyntaxError 가 나서 호출부가 "네트워크 오류"로 뭉뚱그리게 되므로, 텍스트로 먼저
-  // 받아 파싱 실패 시 그 본문을 실은 MwHttpError 로 명시적으로 구분해 던진다.
+  // 받아 파싱 실패 시 그 본문을 실은 MerriamWebsterHttpError 로 명시적으로 구분해 던진다.
   const text = await res.text()
-  let raw: MwRaw[]
+  let raw: MerriamWebsterRaw[]
   try {
     raw = JSON.parse(text)
   } catch {
-    throw new MwHttpError(res.status, text, `MW 응답을 파싱할 수 없습니다: ${text.slice(0, 200)}`)
+    throw new MerriamWebsterHttpError(res.status, text, `MW 응답을 파싱할 수 없습니다: ${text.slice(0, 200)}`)
   }
   if (raw.length === 0) return {}
   if (typeof raw[0] === 'string') return { suggestions: raw as string[] }
 
-  const entries = raw.filter((r): r is MwEntry => typeof r !== 'string')
+  const entries = raw.filter((r): r is MerriamWebsterEntry => typeof r !== 'string')
 
   // 조회어와 무관한 entry(관용구 구성 성분 등)를 먼저 제외한 뒤, 남은 entry를 실제
   // 표제어(hw)별로 묶는다. 실측 확인(2026-07-28, "closed" 조회): 활용형 하나가 서로
@@ -322,7 +322,7 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
   // 동시에 동사 "close"의 활용형(stems)에도 포함된다. 이걸 하나의 DictionaryEntry로
   // 뭉치면 headword가 하나로 뭉개져서, 실제로 골라진 뜻이 형용사 "closed"인지 동사
   // 원형 "close"인지 표시에서 구분이 안 된다 — 표제어별로 별도 DictionaryEntry를 만든다.
-  const groups = new Map<string, MwEntry[]>()
+  const groups = new Map<string, MerriamWebsterEntry[]>()
   for (const entry of entries) {
     if (!isRelevantEntry(entry, word)) continue
     const headword = entry.hwi.hw.replace(/[·*]/g, '') // MW hw 는 음절 경계를 '·'/'*'로 표시
@@ -344,7 +344,7 @@ export async function fetchMwEntry(word: string, apiKey: string): Promise<MwLook
 /** 표제어 하나에 속한 MW entry(들, 보통 hom 별)를 모아 DictionaryEntry 하나로 만든다. */
 async function buildEntryForHeadword(
   headword: string,
-  groupEntries: MwEntry[],
+  groupEntries: MerriamWebsterEntry[],
   word: string,
   apiKey: string,
 ): Promise<DictionaryEntry | null> {
@@ -401,9 +401,9 @@ async function fetchHeadwordPronunciation(
   apiKey: string,
 ): Promise<DictionaryReading['pronunciations']> {
   try {
-    const res = await fetch(`${MW_ENDPOINT}/${encodeURIComponent(headword)}?key=${apiKey}`)
+    const res = await fetch(`${MERRIAM_WEBSTER_ENDPOINT}/${encodeURIComponent(headword)}?key=${apiKey}`)
     if (!res.ok) return undefined
-    const raw = (await res.json()) as MwRaw[]
+    const raw = (await res.json()) as MerriamWebsterRaw[]
     for (const entry of raw) {
       if (typeof entry === 'string') continue
       const values = entry.hwi.prs?.map((p) => p.mw).filter((v): v is string => !!v)
