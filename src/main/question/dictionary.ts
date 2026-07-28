@@ -263,7 +263,7 @@ async function judgeAndFormat(args: JudgeAndFormatArgs): Promise<JudgeAndFormatR
   }
 
   const selected = parseJudgeReply(reply, senses)
-  return { ok: true, formatted: formatDictionaryAnswer(word, source, selected) }
+  return { ok: true, formatted: formatDictionaryAnswer(word, source, selected, ctx.language) }
 }
 
 /** en 폴백용 단어 분리 — 공백·하이픈 기준(팝업 atom 규칙과 동일한 축, 문장부호는 버림).

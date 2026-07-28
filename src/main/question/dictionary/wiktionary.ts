@@ -81,8 +81,12 @@ const WIKTIONARY_LANG_KEY: Record<Language, string> = {
   'zh-Hant': 'zh',
 }
 
-/** WiktionaryPosBlock.language 필터용 — 이 값과 정확히 일치하는 블록만 채택한다. */
-const WIKTIONARY_LANG_NAME: Record<Language, string> = {
+/** WiktionaryPosBlock.language 필터용 — 이 값과 정확히 일치하는 블록만 채택한다.
+ *  export하는 이유: en.wiktionary.org 페이지는 언어별 `<h2 id="English">` 같은 표준
+ *  MediaWiki 헤딩 id를 쓰므로, 이 이름 그대로 URL에 `#Japanese`처럼 앵커로 붙이면 다른
+ *  언어 섹션을 건너뛰고 바로 스크롤된다(실측 확인) — senseSelect.ts의 출처 링크 빌더가
+ *  같은 맵을 재사용한다. */
+export const WIKTIONARY_LANG_NAME: Record<Language, string> = {
   en: 'English',
   ja: 'Japanese',
   'zh-Hans': 'Chinese',

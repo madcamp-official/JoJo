@@ -1,5 +1,16 @@
 import type { CanonicalPos, DictionaryEntry, DictionarySourceId, Language, UsageTag } from '@shared/types'
 import { merriamWebsterToIpa } from './merriamWebsterToIpa'
+import { WIKTIONARY_LANG_NAME } from './wiktionary'
+
+/** kotobank.jp의 사전 섹션(`<article id="...">`)은 그 사전명(예: "デジタル大辞泉")을 UTF-8
+ *  바이트의 hex를 점(.)으로 이어붙인 값을 id로 쓴다(실측 확인: "花" 페이지의 daijisen
+ *  article id가 정확히 이 인코딩과 일치) — 그대로 URL 뒤에 앵커로 붙이면 그 사전 섹션으로
+ *  바로 스크롤된다(한 표제어 페이지에 daijisen 앞에 다른 사전이 여러 개 있어도 건너뜀).
+ *  개별 뜻풀이 번호(`<b>1</b>` 등)에는 id가 없어 "몇 번 뜻으로 바로 스크롤"까지는 이
+ *  사이트 마크업상 불가능 — 섹션 단위 점프까지만 된다. */
+function kotobankSectionAnchor(sectionLabel: string): string {
+  return [...Buffer.from(sectionLabel, 'utf-8')].map((b) => b.toString(16).toUpperCase().padStart(2, '0')).join('.')
+}
 
 // 담당 B — 사전 뜻(sense) 번호 매기기 + LLM 판정/번역 결과 서식화 (PLAN.md §4.2-2)
 // DictionaryEntry[] 를 LLM 프롬프트에 넣을 번호 매긴 평면 목록으로 바꾸고, LLM 은 문맥에
@@ -197,14 +208,27 @@ const SOURCE_LICENSE: Partial<Record<DictionarySourceId, string>> = {
  *
  *  - wiktionary: wiktionary.ts 가 조회에 쓰는 표제어(queryWord)와 en.wiktionary.org
  *    페이지 타이틀이 같다는 전제(어댑터가 word 를 그대로 페이지 타이틀로 씀)로 표제어별
- *    딥링크 생성 가능.
+ *    딥링크 생성 가능. **앵커 추가(2026-07-28)**: en.wiktionary.org는 언어별
+ *    `<h2 id="Japanese">` 같은 표준 MediaWiki 헤딩 id를 쓰므로(실측 확인: "猫"
+ *    페이지에 `id="Japanese"` 존재), `#Japanese`처럼 조회 언어의 영문명을 앵커로 붙이면
+ *    en/ja/zh 가 한 페이지에 섞여 있어도 관련 언어 섹션으로 바로 스크롤된다
+ *    (WIKTIONARY_LANG_NAME 재사용, wiktionary.ts가 언어 블록 필터링에 쓰는 값과 동일).
  *  - wordnet(OEWN): 표제어별 딥링크가 없다 — 조회 API(en-word.net)가 DICTIONARY_SOURCES.md
  *    실측대로 503으로 불안정해 죽은 링크로 안내할 위험이 있고, 이 어댑터는 애초에 그
  *    라이브 API 를 쓰지 않고 GitHub Releases 데이터 파일을 로컬 번들로 쓴다(oewn.ts) —
- *    조회 결과와 무관하게 항상 살아있는 공식 프로젝트 페이지(GitHub 저장소)로 대신 연결한다. */
-const SOURCE_URL: Partial<Record<DictionarySourceId, (word: string) => string>> = {
-  wiktionary: (word) => `https://en.wiktionary.org/wiki/${encodeURIComponent(word)}`,
+ *    조회 결과와 무관하게 항상 살아있는 공식 프로젝트 페이지(GitHub 저장소)로 대신 연결한다.
+ *  - daijisen: 저작권 있는 상업 사전이라 저작자 표시 의무는 없지만(SOURCE_LICENSE에 없음),
+ *    daijisen.ts가 실제로 조회에 쓰는 `kotobank.jp/word/{표제어}` 그대로 링크를 만들면
+ *    사용자가 원문(다른 사전 8개·관련어 등)을 바로 볼 수 있다 — ID 없이도 정확한 페이지로
+ *    자동 리다이렉트됨을 실측 확인(daijisen.ts 상단 주석 참고)해 딥링크로 안전하게 씀.
+ *    **앵커 추가(2026-07-28)**: `kotobankSectionAnchor('デジタル大辞泉')`로 daijisen
+ *    섹션(다른 사전 8개가 앞에 있을 수 있음)으로 바로 스크롤 — 단, 개별 뜻풀이 번호까지는
+ *    이 사이트 마크업상 앵커가 없어 안 됨(위 kotobankSectionAnchor 주석 참고). */
+const SOURCE_URL: Partial<Record<DictionarySourceId, (word: string, language: Language) => string>> = {
+  wiktionary: (word, language) =>
+    `https://en.wiktionary.org/wiki/${encodeURIComponent(word)}#${WIKTIONARY_LANG_NAME[language]}`,
   wordnet: () => 'https://github.com/globalwordnet/english-wordnet',
+  daijisen: (word) => `https://kotobank.jp/word/${encodeURIComponent(word)}#${kotobankSectionAnchor('デジタル大辞泉')}`,
 }
 
 const POS_KO: Partial<Record<CanonicalPos, string>> = {
@@ -232,6 +256,7 @@ export function formatDictionaryAnswer(
   queryWord: string,
   source: DictionarySourceId,
   selected: SelectedSense[],
+  language: Language,
 ): string {
   if (!selected.length) return `**${queryWord}**\n\n문맥에 맞는 뜻을 찾지 못했습니다.`
 
@@ -289,7 +314,7 @@ export function formatDictionaryAnswer(
   // 저작자 표시 요건을 최소한으로 충족한다 — 링크 빌더가 없는 소스는 라이선스명만.
   const license = SOURCE_LICENSE[source]
   const urlBuilder = SOURCE_URL[source]
-  const sourceLabel = urlBuilder ? `[${SOURCE_LABELS[source]}](${urlBuilder(queryWord)})` : SOURCE_LABELS[source]
+  const sourceLabel = urlBuilder ? `[${SOURCE_LABELS[source]}](${urlBuilder(queryWord, language)})` : SOURCE_LABELS[source]
   const licenseSuffix = license ? ` (${license})` : ''
   lines.push(`_출처: ${sourceLabel}${licenseSuffix}_`)
   // 마크다운은 줄바꿈 하나(\n)만으론 같은 문단으로 합쳐 렌더링하므로(예: 원문/번역이
