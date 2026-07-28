@@ -1,4 +1,4 @@
-import type { DictionaryEntry, DictionaryReading, DictionarySense, Language } from '@shared/types'
+import type { DictionaryEntry, DictionaryReading, DictionarySense, Language, UsageTag } from '@shared/types'
 import { dedupe, fetchWikitext } from './wiktionary'
 import type { WiktionaryLookupResult } from './wiktionary'
 
@@ -77,10 +77,31 @@ export function extractZhMandarinFromWikitext(wikitext: string): string[] {
  *     [[rush]]") — `{{gl|...}}`만 따로 떼어 인자를 괄호로 감싸 넣는다("wave (event); rush").
  *  4. 안전장치 — 위 정리를 다 거쳐도 맨 앞에 콜론만 남는 경우(실측: "# {{lb|zh|classical}}
  *     {{short for|zh|水曜日}}: Wednesday" → 앞의 두 템플릿이 통째로 지워지고 ": Wednesday"만
- *     남음)가 있어, 결과 맨 앞의 `:`(+공백)는 마지막에 한 번 더 잘라낸다. */
+ *     남음)가 있어, 결과 맨 앞의 `:`(+공백)는 마지막에 한 번 더 잘라낸다.
+ *
+ *  **2026-07-28 사용자 피드백으로 정보 손실 3건 추가 보강**:
+ *  1. `{{w|...}}`(위키백과 링크) — 위키링크(`[[...]]`)와 똑같이 표시 텍스트를 살려야
+ *     하는데 지금까진 통째로 지워서 "# {{w|Sui people}}"(뜻풀이 전체가 이 링크 하나뿐인
+ *     sense, 실측: "水"의 "수이족" 뜻) 같은 경우 sense 자체가 통으로 사라졌다. named
+ *     인자(`lang=zh` 등, `=` 포함)는 제외하고 남은 positional 인자 중 마지막 것을 표시
+ *     텍스트로 채택(실측: `{{w|Sui people}}` → "Sui people", `{{w|lang=zh|梁左}}` → "梁左"
+ *     — 후자는 named 인자 뒤에 오는 실제 이름이 표시 대상).
+ *  2. `{{surname|zh}}` — 인자 자체엔 표시 텍스트가 없고 템플릿 이름 자체에 "성씨로 쓰인다"는
+ *     뜻이 고정으로 담겨있어(실측: "水"의 성씨 뜻이 이 템플릿 하나뿐인 sense였음) 고정
+ *     문자열 "surname"으로 대응.
+ *  둘 다 다른 템플릿처럼 나중에 통째로 지워지면 안 되므로, 일반 템플릿 제거보다 먼저
+ *  처리한다. */
 function cleanZhGlossText(body: string): string {
   let text = body
   text = text.replace(/<!--[\s\S]*?-->/g, '')
+  text = text.replace(/\{\{w\|([^{}]*)\}\}/g, (_m, args: string) => {
+    const positional = args
+      .split('|')
+      .map((s) => s.trim())
+      .filter((s) => s && !s.includes('='))
+    return positional[positional.length - 1] ?? ''
+  })
+  text = text.replace(/\{\{surname\|zh\}\}/g, 'surname')
   text = text.replace(/\{\{n-g\|([^{}]*)\}\}/g, '$1')
   text = text.replace(/\{\{gl\|([^{}]*)\}\}/g, '($1)')
   text = text.replace(/\{\{[^{}]*\}\}/g, '')
@@ -95,7 +116,34 @@ function cleanZhGlossText(body: string): string {
   return text.replace(/^:\s*/, '') // 앞선 템플릿이 통째로 사라지고 콜론만 남는 경우
 }
 
-function extractZhDefinitionsGloss(content: string): string[] {
+/** `{{lb|zh|라벨1|라벨2|...}}`(사용역/방언 라벨 템플릿)에서 라벨들을 뽑아 `UsageTag[]`로
+ *  돌려준다 — 실측 확인: "{{lb|zh|Cantonese}} money"(광둥어 방언 전용 속어)처럼 이 라벨이
+ *  없으면 "이 뜻이 표준중국어인지 방언인지" 신호가 통째로 사라진다(스키마에 이미
+ *  `DictionarySense.usageTags` 자리가 있고 JMdict/CC-CEDICT 등 다른 소스는 이미 채우고
+ *  있는데 이 fallback만 안 채우고 있었음). `kind`(register/dialect/...) 분류는 라벨이
+ *  "Cantonese"/"classical"/"mainly"/"Singapore" 처럼 방언명·격식·연결어·지역명이 뒤섞여
+ *  있어(실측: `{{lb|zh|colloquial|mainly|Singapore|Malaysia}}`) 잘못 분류하는 리스크가
+ *  분류 안 하는 것보다 커 보류 — 원문 라벨만 그대로 담는다(다른 소스의 `kind` 분류표처럼
+ *  정식 룩업 테이블이 필요하면 그때 추가). 텍스트 정리(cleanZhGlossText)와 별개 패스로
+ *  동작하므로 `{{lb|...}}` 자체는 거기서 그대로 지워진다(중복 처리 아님 — 값만 여기서
+ *  먼저 뽑아두는 것). */
+function extractZhUsageTags(body: string): UsageTag[] | undefined {
+  const tags: UsageTag[] = []
+  for (const m of body.matchAll(/\{\{lb\|zh\|([^{}]*)\}\}/g)) {
+    for (const raw of m[1].split('|')) {
+      const text = raw.trim()
+      if (text) tags.push({ text })
+    }
+  }
+  return tags.length ? tags : undefined
+}
+
+interface ZhGlossLine {
+  text: string
+  usageTags?: UsageTag[]
+}
+
+function extractZhDefinitionsGloss(content: string): ZhGlossLine[] {
   // 1차: "# 뜻풀이" 줄만 깊이(#의 개수)와 원문을 보존한 채 모은다 — 예문(#:)·인용(#*)
   // 줄은 여기서 제외(하위 sense 의 것(##:/##*)도 포함해서 걸러야 한다 — 실측 확인
   // "一": `/^#[:*]/`(# 정확히 1개)로만 짜면 "##* {{zh-q|...}}" 같은 긴 고문 인용이
@@ -122,20 +170,20 @@ function extractZhDefinitionsGloss(content: string): string[] {
   // 계층 사례(MW sdsense 와 같은 축)까지 지워버려서 안 된다.
   const isPureNongloss = (body: string) => /^\{\{(?:n-g|gl)\|[^{}]*\}\}$/.test(body.trim())
 
-  const lines: string[] = []
+  const lines: ZhGlossLine[] = []
   for (let i = 0; i < rawLines.length; i++) {
     const { depth, body } = rawLines[i]
     const next = rawLines[i + 1]
     const hasDeeperChild = next !== undefined && next.depth > depth
     if (hasDeeperChild && isPureNongloss(body)) continue
     const text = cleanZhGlossText(body)
-    if (text) lines.push(text)
+    if (text) lines.push({ text, usageTags: extractZhUsageTags(body) })
   }
   return lines
 }
 
 interface FallbackDefinitionsGroup {
-  gloss: string[]
+  lines: ZhGlossLine[]
   pronunciations: string[]
   groupId: number
 }
@@ -172,8 +220,8 @@ function extractZhFallbackGroups(wikitext: string, languageName: string): Fallba
       continue
     }
     if (h.text === 'Definitions') {
-      const gloss = extractZhDefinitionsGloss(content)
-      if (gloss.length) groups.push({ gloss, pronunciations: currentPron, groupId: currentGroupId })
+      const lines = extractZhDefinitionsGloss(content)
+      if (lines.length) groups.push({ lines, pronunciations: currentPron, groupId: currentGroupId })
     }
   }
   return groups
@@ -201,7 +249,7 @@ export async function tryZhDefinitionsFallback<L extends Language>(
   const fallbackReadings: DictionaryReading<L>[] = []
   let lastGroupId = -1
   for (const group of groups) {
-    const senses = group.gloss.map((g) => ({ gloss: [g] }) as DictionarySense<L>)
+    const senses = group.lines.map((l) => ({ gloss: [l.text], usageTags: l.usageTags }) as DictionarySense<L>)
     const prev = fallbackReadings[fallbackReadings.length - 1]
     if (prev && group.groupId === lastGroupId) {
       prev.senses.push(...senses)
