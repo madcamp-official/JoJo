@@ -147,6 +147,21 @@ function getBundle(): Promise<CedictBundle> {
   return bundlePromise
 }
 
+/** word 의 반대 표기(간체↔번체)를 CC-CEDICT 데이터에서 찾아 돌려준다(없으면 undefined —
+ *  이 사전에도 없는 단어이거나 간체/번체 표기가 같은 단어). **실측으로 발견한 용도**
+ *  (2026-07-29): en.wiktionary.org 의 중국어 표제어가 간체/번체 중 한쪽 표기로만 있는
+ *  경우가 있다 — "天线"(간체, antenna)은 REST API가 404를 주는데 "天線"(번체)은 정상
+ *  응답이 옴(실측 확인). wiktionary.ts 가 조회 실패 시 이 함수로 반대 표기를 얻어 한 번
+ *  더 시도한다 — 이미 이 앱이 로드해 쓰는 CC-CEDICT 번들을 재사용하므로 별도 변환
+ *  라이브러리(OpenCC 등)가 새로 필요 없다. */
+export async function findOtherScriptVariant(word: string): Promise<string | undefined> {
+  const bundle = await getBundle()
+  const line = bundle.byHeadword.get(word)?.[0]
+  if (!line) return undefined
+  const other = line.traditional === word ? line.simplified : line.traditional
+  return other !== word ? other : undefined
+}
+
 // ---- 세그먼트 분류 (DICTIONARY_SOURCES.md "CC-CEDICT" 절 실측/결정 그대로) -----------
 
 /** 사용역/표기 관례 라벨 → usageTags (kind 분류는 문서의 2026-07-28 결정 표 그대로).

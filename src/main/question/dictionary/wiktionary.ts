@@ -1,4 +1,5 @@
 import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, Language } from '@shared/types'
+import { findOtherScriptVariant } from './cccedict'
 import { extractEnIpaValues } from './wiktionaryEnPron'
 import { extractJaPronValues } from './wiktionaryJaPron'
 import { extractZhMandarinFromWikitext, tryZhDefinitionsFallback } from './wiktionaryZh'
@@ -298,7 +299,7 @@ export interface WiktionaryLookupResult<L extends Language = Language> {
  *  객체를 반환 — MW 어댑터의 suggestions 같은 부가 정보가 이 API 엔 없다. 단, zh 는
  *  404/빈 블록이어도 곧바로 포기하지 않고 tryZhDefinitionsFallback 을 시도한다(wiktionaryZh.ts
  *  참고 — 이 두 실패 모양 다 zh 단일 한자 표제어에서 실측 확인됨). */
-export async function fetchWiktionaryEntry<L extends Language>(
+async function fetchWiktionaryEntryOnce<L extends Language>(
   word: string,
   language: L,
 ): Promise<WiktionaryLookupResult<L>> {
@@ -379,4 +380,30 @@ export async function fetchWiktionaryEntry<L extends Language>(
   } as DictionaryEntry<L>
 
   return { entry }
+}
+
+/** fetchWiktionaryEntryOnce 로 못 찾으면(zh 한정) 반대 표기(간체↔번체)로 한 번 더
+ *  시도한다 — 실측으로 발견(2026-07-29): en.wiktionary.org의 중국어 표제어가 간체/번체
+ *  중 한쪽 표기로만 있는 경우가 있다("天线"[간체, antenna]은 REST API가 404를 주는데
+ *  "天線"[번체]은 정상 응답이 옴). CC-CEDICT 번들(이미 이 앱이 로드해 씀)에서 반대
+ *  표기를 얻어 재시도 — 그 사전에도 없는 단어면 findOtherScriptVariant가 undefined를
+ *  줘서 재시도 자체를 안 하니 무한 루프 걱정 없다. */
+export async function fetchWiktionaryEntry<L extends Language>(
+  word: string,
+  language: L,
+): Promise<WiktionaryLookupResult<L>> {
+  const result = await fetchWiktionaryEntryOnce(word, language)
+  if (result.entry) return result
+
+  const isZh = language === 'zh-Hans' || language === 'zh-Hant'
+  if (!isZh) return result
+
+  const otherScript = await findOtherScriptVariant(word).catch(() => undefined)
+  if (!otherScript) return result
+  const retried = await fetchWiktionaryEntryOnce(otherScript, language)
+  // headword는 실제로 조회에 성공한 표기(otherScript)가 아니라 사용자가 선택한 원래
+  // 표기(word)로 되돌린다 — 내용(뜻풀이)은 상대 표기 페이지에서 가져왔더라도, 화면에
+  // 보이는 표제어는 사용자가 고른 스크립트(간체/번체)와 일치해야 자연스럽다.
+  if (retried.entry) retried.entry.headword = [word]
+  return retried
 }
