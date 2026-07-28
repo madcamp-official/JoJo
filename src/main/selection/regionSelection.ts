@@ -193,6 +193,19 @@ export async function autoDetectRegion(): Promise<Rect | null> {
   // 경로로 끝나든(성공/실패) ocr.ts 가 재사용할 블록/세로쓰기 판정은 이미 다 나와있다.
   cachedDetection = { blocks: detected.blocks, vertical: detected.vertical, fallbackLines: null }
   let body = detected.blocks.filter((b) => BODY_LABELS.has(b.label))
+  // 세로쓰기 페이지(vertical=true)에서 브라우저/뷰어 툴바(검색창, 탭바, 아이콘 등)가
+  // 낮은 신뢰도의 "text" 블록으로 오검출되는 경우가 있다(실사용 확인: Chrome 내장 PDF
+  // 뷰어에서 상단 툴바 3곳이 text(0.30~0.45)로 잡힘) — 실제 세로쓰기 본문 열은 전부
+  // 폭보다 높이가 뚜렷이 큰 모양인데, 이런 툴바 오검출은 반대로 폭이 훨씬 넓은 가로띠
+  // 모양이라(실측: 실제 열 h/w ≥ 2 vs 오검출 h/w < 1) 이 모양으로 구분해 제외한다.
+  // union 범위가 이 오검출 때문에 창 전체 가까이 부풀면, 그 안에서 줄 검출/열 군집화
+  // (ocrPaddle.ts: clusterVerticalLinesIntoColumns)가 노이즈에 휩쓸려 실제 우측 끝 열이
+  // 통째로 인식 안 되거나 좌측 열 위치가 틀어지는 문제로 이어졌다(실사용 중 "우측 열
+  // 텍스트 박스 없음/좌측 열 위치·크기 이상"으로 확인). doc_title/paragraph_title 은
+  // 세로쓰기 페이지에도 가로로 넓은 실제 제목이 있을 수 있어 이 필터에서 제외한다.
+  if (detected.vertical) {
+    body = body.filter((b) => b.label !== 'text' || b.bbox.height > b.bbox.width)
+  }
   // 검증용 로그 — 본문 자동 감지가 실패했을 때 "블록을 아예 못 찾음"인지 "블록은
   // 찾았는데 본문 라벨이 아니라서 걸러짐"인지 원인을 바로 구분할 수 있게 라벨/신뢰도를
   // 전부 남긴다(실사용 중 "세로쓰기 PDF에서 자동 감지 실패"로 확인 — 이 로그로 원인 추적).
