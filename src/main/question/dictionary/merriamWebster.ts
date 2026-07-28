@@ -83,7 +83,7 @@ type MerriamWebsterRaw = MerriamWebsterEntry | string
 
 // ---- fl(functional label) → CanonicalPos --------------------------------------
 
-const FL_TO_POS: Record<string, CanonicalPos> = {
+const FL_TO_POS: Record<string, CanonicalPos<'en'>> = {
   noun: 'noun',
   pronoun: 'pronoun',
   verb: 'verb',
@@ -97,7 +97,7 @@ const FL_TO_POS: Record<string, CanonicalPos> = {
   article: 'article',
 }
 
-function flToPos(fl?: string): CanonicalPos | undefined {
+function flToPos(fl?: string): CanonicalPos<'en'> | undefined {
   if (!fl) return undefined
   return FL_TO_POS[fl]
 }
@@ -222,8 +222,8 @@ function findMatchingUro(entry: MerriamWebsterEntry, queryWord: string): Merriam
 function entryToReading(
   entry: MerriamWebsterEntry,
   queryWord: string,
-  fallbackPronunciations: DictionaryReading['pronunciations'],
-): DictionaryReading | null {
+  fallbackPronunciations: DictionaryReading<'en'>['pronunciations'],
+): DictionaryReading<'en'> | null {
   const uro = findMatchingUro(entry, queryWord)
   const fl = uro?.fl ?? entry.fl
   const pos = flToPos(fl)
@@ -235,8 +235,8 @@ function entryToReading(
   const senseNodes: MerriamWebsterSense[] = []
   for (const def of entry.def ?? []) collectSenseNodes(def.sseq, senseNodes)
 
-  const senses: DictionarySense[] = senseNodes
-    .map((node): DictionarySense | null => {
+  const senses: DictionarySense<'en'>[] = senseNodes
+    .map((node): DictionarySense<'en'> | null => {
       const { gloss, examples, usageNote } = extractDt(node.dt)
       if (!gloss.length) return null // MW gloss 는 필수 필드 — 못 뽑으면 이 sense 는 버린다
       return {
@@ -249,7 +249,7 @@ function entryToReading(
         usageNote,
       }
     })
-    .filter((s): s is DictionarySense => s !== null)
+    .filter((s): s is DictionarySense<'en'> => s !== null)
 
   if (!senses.length) return null
 
@@ -273,7 +273,7 @@ function entryToReading(
 // 실측: "colour" 조회 시 def/shortdef 가 전부 비어있고 cxs 만 옴. cxl+cxt 를 합성해
 // gloss 로 대체한다(재조회 없음 — DICTIONARY_SOURCES.md 옵션 (1)).
 
-function cxsToSense(entry: MerriamWebsterEntry): DictionarySense | null {
+function cxsToSense(entry: MerriamWebsterEntry): DictionarySense<'en'> | null {
   const cxs = entry.cxs?.[0]
   if (!cxs) return null
   const targets = cxs.cxtis?.map((t) => t.cxt).join(', ')
@@ -290,7 +290,7 @@ function cxsToSense(entry: MerriamWebsterEntry): DictionarySense | null {
 export interface MerriamWebsterLookupResult {
   /** MW 가 정확한 표제어를 못 찾고 유사 단어만 제안한 경우 */
   suggestions?: string[]
-  entries?: DictionaryEntry[]
+  entries?: DictionaryEntry<'en'>[]
 }
 
 export async function fetchMerriamWebsterEntry(word: string, apiKey: string): Promise<MerriamWebsterLookupResult> {
@@ -350,7 +350,7 @@ export async function fetchMerriamWebsterEntry(word: string, apiKey: string): Pr
 }
 
 interface BuiltEntry {
-  entry: DictionaryEntry
+  entry: DictionaryEntry<'en'>
   /** 이 entry의 모든 sense가 cxs 포인터에서만 나왔는지(진짜 뜻풀이가 하나도 없는지) */
   isCxsOnly: boolean
 }
@@ -362,10 +362,10 @@ async function buildEntryForHeadword(
   word: string,
   apiKey: string,
 ): Promise<BuiltEntry | null> {
-  const readings: DictionaryReading[] = []
+  const readings: DictionaryReading<'en'>[] = []
   let isIdiom = false
   let isCxsOnly = true
-  let lastPronunciations: DictionaryReading['pronunciations']
+  let lastPronunciations: DictionaryReading<'en'>['pronunciations']
 
   for (const entry of groupEntries) {
     if (entry.fl === 'phrase') isIdiom = true
@@ -413,6 +413,7 @@ async function buildEntryForHeadword(
 
   return {
     entry: {
+      language: 'en',
       headword: [headword],
       isIdiom: isIdiom || undefined,
       readings,
@@ -429,7 +430,7 @@ async function buildEntryForHeadword(
 async function fetchHeadwordInfo(
   headword: string,
   apiKey: string,
-): Promise<{ pos?: CanonicalPos; pronunciations?: DictionaryReading['pronunciations'] }> {
+): Promise<{ pos?: CanonicalPos<'en'>; pronunciations?: DictionaryReading<'en'>['pronunciations'] }> {
   try {
     const res = await fetch(`${MERRIAM_WEBSTER_ENDPOINT}/${encodeURIComponent(headword)}?key=${apiKey}`)
     if (!res.ok) return {}

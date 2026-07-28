@@ -1,4 +1,4 @@
-import type { CanonicalPos, DictionaryEntry, DictionarySourceId, UsageTag } from '@shared/types'
+import type { CanonicalPos, DictionaryEntry, DictionarySourceId, Language, UsageTag } from '@shared/types'
 import { merriamWebsterToIpa } from './merriamWebsterToIpa'
 
 // 담당 B — 사전 뜻(sense) 번호 매기기 + LLM 판정/번역 결과 서식화 (PLAN.md §4.2-2)
@@ -21,7 +21,11 @@ export interface NumberedSense {
   isIdiom?: boolean
 }
 
-export function numberSenses(entries: DictionaryEntry[]): NumberedSense[] {
+/** L 을 구체 언어로 받아야(제네릭 그대로 두면 DictionaryEntry 가 4개 언어 유니온이라
+ *  sense.irregularForms 같은 언어 전용 필드에 TS 가 접근을 막는다 — shared/types.ts
+ *  DictionaryEntry<L> 주석 참고) — 호출부가 DictionaryEntry<'en'>[] 처럼 구체 타입을
+ *  넘기면 L 이 그걸로 추론되면서 아래 sense.irregularForms 접근이 안전해진다. */
+export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]): NumberedSense[] {
   const out: NumberedSense[] = []
   let index = 1
   for (const entry of entries) {
@@ -35,7 +39,7 @@ export function numberSenses(entries: DictionaryEntry[]): NumberedSense[] {
           pos: sense.pos,
           posRaw: sense.posRaw,
           pronunciation,
-          irregularForms: sense.irregularForms,
+          irregularForms: 'irregularForms' in sense ? sense.irregularForms : undefined,
           gloss: sense.gloss,
           examples: sense.examples,
           usageTags: sense.usageTags,
