@@ -45,7 +45,9 @@ const LINE_RE = /^(\S+) (\S+) \[([^\]]+)\] \/(.+)\/$/
 
 function parseBundle(raw: string): CedictBundle {
   const byHeadword = new Map<string, CedictLine[]>()
-  for (const line of raw.split('\n')) {
+  // MDBG 배포본이 CRLF(\r\n)로 오는 경우가 실측 확인됨(scripts/fetch-cedict.sh 로 새로
+  // 받으면 \r\n, 예전에 저장소에 커밋돼 있던 사본은 LF였음) — 둘 다 지원.
+  for (const line of raw.split(/\r?\n/)) {
     if (!line || line.startsWith('#')) continue
     const m = LINE_RE.exec(line)
     if (!m) continue
@@ -75,20 +77,53 @@ function getBundle(): Promise<CedictBundle> {
 
 // ---- 세그먼트 분류 (DICTIONARY_SOURCES.md "CC-CEDICT" 절 실측/결정 그대로) -----------
 
-/** 사용역/표기 관례 라벨 → usageTags (kind 분류는 문서의 2026-07-28 결정 표 그대로). */
+/** 사용역/표기 관례 라벨 → usageTags (kind 분류는 문서의 2026-07-28 결정 표 그대로).
+ *  **2026-07-28 확장**: `resources/cedict.u8`을 빈도순으로 재실측해 기존 문서 표에
+ *  없던 라벨 중 의미가 명확한 것들을 추가 — `(fig.)`(비유적 표현, 1401회)/`(lit.)`
+ *  (문자 그대로, 267회)/`(onom.)`(의성어, 230회)는 격식과 무관한 표기 관례라 `other`,
+ *  `(Tw)`(대만식 어휘, 1277회)/`(Cantonese)`(광둥어, 69회)는 지역 방언 표시라 `dialect`,
+ *  `(Internet slang)`(인터넷 신조어, 135회)는 `slang`과 같은 축이라 `register`. `(sb)`/
+ *  `(sth)`는 라벨이 아니라 뜻풀이 문장 안의 문법적 자리표시자("give (sth) to (sb)")라
+ *  이 목록에 넣으면 안 된다(2026-07-28 재실측 시 확인) — 절대 추가 금지. */
 const USAGE_LABELS: Record<string, UsageTagKind> = {
   'coll.': 'register',
   slang: 'register',
   'derog.': 'register',
   archaic: 'register',
   literary: 'register',
+  'Internet slang': 'register',
   dialect: 'dialect',
+  Tw: 'dialect',
+  Cantonese: 'dialect',
   loanword: 'other',
   'bound form': 'other',
+  'fig.': 'other',
+  'lit.': 'other',
+  'onom.': 'other',
 }
 
-/** 전문분야 라벨 → domain (JMdict `field`와 동일 필드로 통합). */
-const DOMAIN_LABELS = new Set(['math.', 'computing', 'chemistry', 'medicine', 'TCM', 'Buddhism', 'law', 'finance'])
+/** 전문분야 라벨 → domain (JMdict `field`와 동일 필드로 통합).
+ *  **2026-07-28 확장**: 위와 같은 재실측으로 physics/botany/sports/geology/anatomy/
+ *  music/military/linguistics/zoology(각 70~170회) 추가. */
+const DOMAIN_LABELS = new Set([
+  'math.',
+  'computing',
+  'chemistry',
+  'medicine',
+  'TCM',
+  'Buddhism',
+  'law',
+  'finance',
+  'physics',
+  'botany',
+  'sports',
+  'geology',
+  'anatomy',
+  'music',
+  'military',
+  'linguistics',
+  'zoology',
+])
 
 /** 알려진 라벨만 괄호째 찾아 뜻풀이 본문에서 떼어낸다 — `(bird species of China)`처럼
  *  분류가 아직 미정인 라벨(문서 참고)은 이 목록에 없으므로 건드리지 않고 그대로 둔다. */
@@ -175,7 +210,29 @@ function parseSegments(segments: string[]): ParsedSegments {
     if (text) gloss.push(text)
   }
 
-  return { gloss, usageTags, domain, seeAlso, classifiers, pronunciationVarieties, isIdiom }
+  return {
+    gloss,
+    // CC-CEDICT는 라벨을 세그먼트마다 반복해서 붙인다(예: "行"(hang2) → "(bound form)
+    // row; line/(bound form) line of business; .../..." — 같은 라벨이 뜻풀이 4개에
+    // 나란히 붙음). 세그먼트 단위로 순회하며 뽑다 보면 그대로 중복이 쌓이므로, sense
+    // 하나로 합쳐 반환하기 직전에 한 번만 걸러낸다(2026-07-28).
+    usageTags: dedupBy(usageTags, (t) => `${t.kind}:${t.text}`),
+    domain: [...new Set(domain)],
+    seeAlso,
+    classifiers,
+    pronunciationVarieties,
+    isIdiom,
+  }
+}
+
+function dedupBy<T>(items: T[], key: (item: T) => string): T[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const k = key(item)
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
 }
 
 // ---- CedictLine → DictionaryReading ---------------------------------------------
