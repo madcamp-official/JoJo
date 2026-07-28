@@ -2,11 +2,24 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense,
 
 // 담당 B — Wiktionary 어댑터 (PLAN.md §5, en/ja/zh 공용 최종 폴백)
 // 실측 근거는 DICTIONARY_SOURCES.md "Wiktionary (공용 — en/ja/zh 최종 폴백)" 절 참고.
-// en.wiktionary.org 공식 REST API(GET /api/rest_v1/page/definition/{word}, 무료·키 불필요) 하나만
-// 쓴다 — ja.wiktionary.org/zh.wiktionary.org 같은 네이티브판은 커버리지가 더 약해 미채택.
-// raw wikitext(활용표/방언 발음 등)는 이 폴백 소스의 스코프 밖 — REST API가 주는 만큼만 다룬다.
+// en.wiktionary.org 공식 REST API(GET /api/rest_v1/page/definition/{word}, 무료·키 불필요)를
+// 뜻풀이 소스로 쓴다 — ja.wiktionary.org/zh.wiktionary.org 같은 네이티브판은 커버리지가 더
+// 약해 미채택. 이 API 엔 발음(phonetic) 필드가 없어(실측), en 한정으로 dictionaryapi.dev
+// (서드파티, en.wiktionary.org 데이터 재가공, 실제 IPA 제공)를 발음 전용으로 추가 호출해
+// 보강한다. ja/zh는 이 서드파티 커버리지가 없는 대신, en.wiktionary.org 의 raw wikitext
+// (action=parse)에서 발음 템플릿 파라미터만 정규식으로 뽑아 보강한다(활용표·방언 발음
+// 전체를 파싱하는 건 여전히 스코프 밖 — 발음 값 하나만 필요한 만큼만 다룬다). ja는
+// {{ja-pron|よみ|...}} 의 첫 위치 인자(히라가나 읽기), zh는 {{zh-pron|m=병음|...}} 의
+// m= 파라미터(표준중국어/Mandarin 병음)만 뽑는다 — 실측 근거는 각 fetch*Pronunciation
+// 함수 주석 참고.
 
 const WIKTIONARY_ENDPOINT = 'https://en.wiktionary.org/api/rest_v1/page/definition'
+const WIKTIONARY_ACTION_API = 'https://en.wiktionary.org/w/api.php'
+/** en 전용 발음 보강 소스 — en.wiktionary.org REST API(definition 엔드포인트)엔 phonetic
+ *  필드 자체가 없어(DICTIONARY_SOURCES.md 실측) 별도로 붙인다. 서드파티(en.wiktionary.org
+ *  데이터를 재가공)라 무료·키 불필요. ja/zh는 이 API 자체가 커버리지가 없어(en 전용,
+ *  DICTIONARY_SOURCES.md 실측) 보강 대상에서 제외 — 대신 아래 raw wikitext 경로를 쓴다. */
+const DICTIONARYAPI_DEV_ENDPOINT = 'https://api.dictionaryapi.dev/api/v2/entries/en'
 
 export class WiktionaryHttpError extends Error {
   constructor(
@@ -116,10 +129,115 @@ function extractExamples(def: WiktionaryDefinition): string[] {
   return source.map(stripWiktionaryHtml).filter(Boolean)
 }
 
+// ---- dictionaryapi.dev 발음 보강(en 전용) -------------------------------------
+
+interface DictionaryApiDevPhonetic {
+  text?: string
+}
+
+interface DictionaryApiDevEntry {
+  phonetic?: string
+  phonetics?: DictionaryApiDevPhonetic[]
+}
+
+/** dictionaryapi.dev 로 실제 IPA 발음 하나를 가져온다 — 실측 확인(2026-07-28, "run"):
+ *  발음이 meaning(품사)별이 아니라 entry 최상위에만 있어(phonetics[] 가 품사와 무관하게
+ *  하나로 옴) 품사별로 구분해 붙일 수가 없다. 그래서 이 값을 그 word 의 모든 reading에
+ *  동일하게 채운다 — MW가 hom 간 발음을 상속하는 것과 비슷한 단순화. 실패(네트워크
+ *  오류·404 등)해도 조용히 undefined 반환 — 발음은 부가 정보라 이것 때문에 전체 조회를
+ *  실패시키지 않는다. */
+async function fetchEnPronunciation(word: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(`${DICTIONARYAPI_DEV_ENDPOINT}/${encodeURIComponent(word)}`, {
+      headers: { 'User-Agent': 'JoJo-dictionary-adapter/1.0' },
+    })
+    if (!res.ok) return undefined
+    const raw = (await res.json()) as DictionaryApiDevEntry[]
+    for (const entry of raw) {
+      if (entry.phonetic) return entry.phonetic
+      const fromPhonetics = entry.phonetics?.find((p) => p.text)?.text
+      if (fromPhonetics) return fromPhonetics
+    }
+  } catch {
+    /* 폴백 실패는 무시 — 나머지 사전 정보는 이미 확보돼 있음 */
+  }
+  return undefined
+}
+
+// ---- raw wikitext 발음 보강(ja/zh 전용) ---------------------------------------
+
+/** en.wiktionary.org raw wikitext(action=parse, prop=wikitext)를 가져온다 — REST API가
+ *  안 주는 발음 템플릿(ja-pron/zh-pron)이 여기에만 있다(DICTIONARY_SOURCES.md 실측).
+ *  페이지 자체가 없으면(비표제어 등) `parse` 키가 응답에 없다(REST API 의 404 와 다른
+ *  실패 모양 — MediaWiki action API 는 이 경우도 HTTP 200 을 준다, 실측 확인). */
+async function fetchWikitext(word: string): Promise<string | undefined> {
+  try {
+    const url = `${WIKTIONARY_ACTION_API}?action=parse&page=${encodeURIComponent(word)}&prop=wikitext&format=json&formatversion=2`
+    const res = await fetch(url, { headers: { 'User-Agent': 'JoJo-dictionary-adapter/1.0' } })
+    if (!res.ok) return undefined
+    const raw = (await res.json()) as { parse?: { wikitext?: string } }
+    return raw.parse?.wikitext
+  } catch {
+    return undefined
+  }
+}
+
+/** ja 읽기 — {{ja-pron|よみ|...}} 의 첫 위치 인자를 뽑는다. 실측 확인(2026-07-28, 走る/
+ *  美しい/東京/猫/犬/食べる 6개 표제어 직접 wikitext 조회): 이 템플릿이 항상 히라가나
+ *  읽기를 첫 인자로 그대로 담고 있어(예: "走る"→"はしる", "美しい"→"うつくしい") 뒤따르는
+ *  `acc=`/`acc_ref=`/`a=`(오디오 파일명) 등 named 파라미터와 파이프(|)로 안전하게 구분됨.
+ *  한 표제어에 읽기가 여러 개인 경우(실측: "猫"→ねこ/ねこま 2개, "東京"→とうきょう/とうけい/
+ *  トンキン 3개) 있어 **가장 먼저 나오는 걸 대표 읽기로 채택**한다(en dictionaryapi.dev
+ *  발음 보강과 동일하게, 이 앱은 아직 읽기별 sense 구분까지는 안 함 — 정확한 매칭은 추후
+ *  Kotobank/JMdict 정식 어댑터가 담당). 템플릿 자체가 없으면(드묾, 명사 표제어 일부)
+ *  undefined. */
+async function fetchJaPronunciation(word: string): Promise<string | undefined> {
+  const wikitext = await fetchWikitext(word)
+  if (!wikitext) return undefined
+  const match = wikitext.match(/\{\{ja-pron\|([^|}]+)/)
+  return match?.[1]?.trim() || undefined
+}
+
+/** zh 표준중국어(Mandarin) 병음 — {{zh-pron|m=병음|...}} 의 m= 파라미터만 뽑는다(다른
+ *  방언 파라미터 c=광둥어/h=객가어/mn=민난어 등은 DICTIONARY_SOURCES.md 방침대로 버림).
+ *  실측 확인(2026-07-28, 你好/中國/一/打/謝謝/打算/水/的/了/麼/嗎 11개 표제어 직접 wikitext
+ *  조회) 결과 이 파라미터엔 두 가지 함정이 있었다:
+ *  1. **값이 콤마로 여러 개 이어질 수 있고, 그중 일부는 실제 병음이 아니라 콤마로 덧붙는
+ *     수식 플래그**다 — 예: "打算"→"m=dǎsuàn,tl=y"(tl=톤 산디 플래그), "水"→"m=shuǐ,er=y"
+ *     (er=얼화 플래그), "的"→"m=de,dì,2tl=y,1nb=unstressed,2nb=stressed"(앞 2개만 진짜
+ *     복수 병음, 뒤 3개는 번호 붙은 플래그). 콤마로 나눈 뒤 "=" 가 들어간 세그먼트(플래그)는
+ *     버리고 남는 것만 병음으로 채택 — 여러 개 남으면 첫 번째만 대표로 쓴다(위 ja 와 동일
+ *     이유).
+ *  2. **일부 블록은 m= 값 자체가 병음이 아니라 한자 표제어 그대로**인 경우가 있다(실측:
+ *     "一"/"打" 일부 블록 → "m=一"/"m=打" — 정확한 의미는 불명, 아마 "문자 자체의 별도
+ *     항목을 보라"는 플레이스홀더로 추정). 이런 값은 한자만 포함해 병음처럼 안 보이므로
+ *     한자(CJK 통합 한자) 포함 여부로 걸러낸다.
+ *  3. **표제어에 zh-pron 블록이 여러 개 있고(다의어·이독), 일부 블록엔 아예 m= 자체가
+ *     없을 수 있다**(실측: "一" 세 번째 블록 — 민난어/객가어 전용, m= 없음) — 이 경우
+ *     블록을 건너뛰고 m= 가 있는 다음 블록을 본다. */
+function extractZhMandarinFromWikitext(wikitext: string): string | undefined {
+  const blockRegex = /\{\{zh-pron\b[^}]*?\|m=([^|\n}]+)/g
+  for (const m of wikitext.matchAll(blockRegex)) {
+    const candidates = m[1]
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s && !s.includes('=') && !/[㐀-鿿豈-﫿]/.test(s))
+    if (candidates.length) return candidates[0]
+  }
+  return undefined
+}
+
+async function fetchZhPronunciation(word: string): Promise<string | undefined> {
+  const wikitext = await fetchWikitext(word)
+  if (!wikitext) return undefined
+  return extractZhMandarinFromWikitext(wikitext)
+}
+
 // ---- WiktionaryPosBlock[] → DictionaryEntry ----------------------------------
 
 /** REST API 는 발음/homograph 그룹을 안 주므로(DICTIONARY_SOURCES.md 실측: phonetic 필드
- *  자체가 없음), pos 블록 하나당 reading 하나로 대응한다 — pronunciations 는 항상 undefined. */
+ *  자체가 없음), pos 블록 하나당 reading 하나로 대응한다 — pronunciations 는 여기선 항상
+ *  undefined 로 두고(en 은 fetchWiktionaryEntry 가 dictionaryapi.dev 로 보강). */
 function blockToReading<L extends Language>(block: WiktionaryPosBlock, language: L): DictionaryReading<L> | null {
   const pos = mapPos(block.partOfSpeech, language)
   const senses: DictionarySense<L>[] = block.definitions
@@ -175,6 +293,16 @@ export async function fetchWiktionaryEntry<L extends Language>(
     .map((b) => blockToReading(b, language))
     .filter((r): r is DictionaryReading<L> => r !== null)
   if (!readings.length) return {}
+
+  const pronunciation =
+    language === 'en'
+      ? await fetchEnPronunciation(word)
+      : language === 'ja'
+        ? await fetchJaPronunciation(word)
+        : await fetchZhPronunciation(word)
+  if (pronunciation) {
+    for (const reading of readings) reading.pronunciations = [{ value: pronunciation }]
+  }
 
   const entry = {
     language,
