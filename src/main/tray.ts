@@ -1,6 +1,6 @@
 import { Menu, Tray, app, nativeImage } from 'electron'
 import { IPC } from '@shared/channels'
-import { getSelectedWindowId, setSelectedWindowId } from './selection/capture'
+import { getSelectedWindowId, setSelectedWindowId, setSelectedWindowName } from './selection/capture'
 import { invalidateExtractionCache } from './selection/extractionCache'
 import { clearRegion } from './selection/regionSelection'
 import {
@@ -23,6 +23,7 @@ let tray: Tray | null = null
 
 function deselectWindow(): void {
   setSelectedWindowId(null)
+  setSelectedWindowName(null)
   invalidateExtractionCache()
   clearRegion()
   hideSelectionOverlay()

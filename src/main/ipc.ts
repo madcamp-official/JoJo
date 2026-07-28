@@ -17,7 +17,12 @@ import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
 import { listAvailableDictionarySources } from './question/dictionary/registry'
 import { startChangeWatcher } from './selection/changeWatcher'
-import { getSelectedWindowId, listWindows, setSelectedWindowId } from './selection/capture'
+import {
+  getSelectedWindowId,
+  listWindows,
+  setSelectedWindowId,
+  setSelectedWindowName,
+} from './selection/capture'
 import { invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
 import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
 import { isWarmedUp } from './selection/warmup'
@@ -65,6 +70,7 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.SELECT_WINDOW, async (_e, source: CaptureSource) => {
     setSelectedWindowId(source.id)
+    setSelectedWindowName(source.name)
     invalidateExtractionCache() // 이전 창(재선택 포함)의 캐시가 새 창으로 넘어가지 않게
     clearRegion() // 이전 창 기준 좌표라 새 창에 그대로 쓰면 안 맞음
     resetToNormalMode() // 재선택 시 선택 모드였다면 일반 모드로 — 새 창엔 아직 캐시된 단어가 없음

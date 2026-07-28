@@ -125,6 +125,7 @@ export async function listWindows(): Promise<CaptureSource[]> {
 }
 
 let selectedWindowId: string | null = null
+let selectedWindowName: string | null = null
 
 export function getSelectedWindowId(): string | null {
   return selectedWindowId
@@ -132,6 +133,15 @@ export function getSelectedWindowId(): string | null {
 
 export function setSelectedWindowId(id: string | null): void {
   selectedWindowId = id
+}
+
+/** "오너앱 - 창 제목" 형식(withOwnerName)의 선택된 창 이름 — 브라우저 여부 판정 등에 씀. */
+export function getSelectedWindowName(): string | null {
+  return selectedWindowName
+}
+
+export function setSelectedWindowName(name: string | null): void {
+  selectedWindowName = name
 }
 
 // 선택된 창을 프레임 캡처하여 OCR 입력용 이미지 버퍼(PNG) 반환.
