@@ -98,6 +98,8 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·Kotobank·JMdict·汉典·萌�
 
 **접근**: 로컬 데이터셋 번들(jmdict-simplified 등) 예정, 라이브 조회는 jisho.org API로 대체 검증. **2026-07-28, 아래 항목 전부 jisho.org API를 실제로 호출해 재확인함** — 기존 기록과 전부 일치, 정정 사항 없음.
 
+**구현 완료(2026-07-28)**: TODO.md 결정대로 jisho.org API가 아니라 jmdict-simplified `eng`(full) 변형 로컬 JSON 번들로 구현됨 — `scripts/build-jmdict-bundle.py`(GitHub Releases 원본 117MB → `resources/jmdict/{words,index,tags}.json` 3파일, 약 62MB로 트리밍) + `question/dictionary/jmdict.ts`(조회 어댑터, 네트워크 호출 없음). 실측(一人/高い/らしい/薔薇/レジスター/しどい)으로 아래 스키마 매핑 전부 검증 완료. 원본 misc 코드 기준 register/convention 분류는 다음 두 집합으로 확정: **register** = `sl`/`m-sl`/`net-sl`/`derog`/`col`/`hon`/`hum`/`pol`/`arch`/`obs`/`dated`/`rare`/`joc`/`vulg`/`sens`/`fam`/`poet`/`form`/`euph`/`male`/`fem`/`chn`/`hist`, **convention** = `uk`/`abbr`, 나머지(`yoji`/`proverb`/`id`/이름류 태그 등)는 `other`. `dialect` 필드는 misc와 별도라 `usageTags`에 `kind: 'dialect'`로 바로 매핑(원본 방언 코드는 `tags.json` 룩업으로 사람이 읽는 문자열로 변환). `conjugationClass`는 `v1`/`v5*`/`v2*-k`/`v2*-s`/`adj-i`/`adj-na` 등 활용 코드를 정규식+룩업 테이블로 디코딩(예: `v5k`→"五段(く)", `v2g-k`→"上二段(g행, 고어)"). `isIdiom`은 `partOfSpeech`에 `exp` 또는 `misc`에 `yoji`가 있으면 true. 가나만 있는 표제어(예: らしい)는 `headword`를 가나 배열로 대체, 같은 표기가 여러 word 엔트리로 갈리는 동형이의어는 `DictionaryEntry[]` 배열로 전부 반환.
+
 **원본 구조 특징**(jisho.org API 실측 기준, 원본은 jmdict-simplified 스키마):
 - 활용형을 원형으로 자동 변환해주지 않음(Kotobank와 동일) — 형태소 분석 전처리 필요.
 - 품사 판정이 Kotobank보다 훨씬 안정적 — `parts_of_speech` 배열에 일관되게 나옴(명사도 명시적으로 "Noun") → **품사 판정 1순위 소스로 확정**.
