@@ -9,6 +9,13 @@ import { merriamWebsterToIpa } from './merriamWebsterToIpa'
 
 export interface NumberedSense {
   index: number
+  /** 이 sense가 다른 sense의 더 좁은 하위 구분일 때, 그 부모 sense의 (평면화된) index를
+   *  가리킨다(2026-07-28 신설 — DictionarySense.parentIndex를 LLM이 실제로 쓸 수 있게
+   *  노출). 원본 DictionarySense.parentIndex는 같은 reading.senses 배열 안에서의 원본
+   *  위치(0-based)를 가리키는데, 여기서는 그걸 numberSenses가 새로 매긴 index로 변환해
+   *  담는다 — 그래야 buildSenseListText가 평평한 목록에서도 "몇 번의 하위 뜻"인지 그대로
+   *  표시할 수 있다(부모가 gloss 없는 그룹 헤더라 목록에서 빠진 경우는 undefined). */
+  parentIndex?: number
   headword: string
   pos?: CanonicalPos[]
   posRaw?: string
@@ -38,12 +45,19 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
     for (const reading of entry.readings) {
       const values = reading.pronunciations?.map((p) => p.value)
       const pronunciations = values?.length ? values : undefined
-      for (const sense of reading.senses) {
+      // reading.senses 안에서의 원본 위치(position) → numberSenses 가 새로 매긴 index.
+      // sense.parentIndex(원본 position 기준)를 이 배열로 찾아 "평면화된 목록에서의
+      // 부모 index"로 변환한다 — 그룹 헤더(gloss 없어 스킵됨)를 가리키면 undefined 로 빠짐.
+      const displayIndexByPosition: (number | undefined)[] = []
+      reading.senses.forEach((sense, position) => {
         // gloss 없는 sense 는 하위 구분을 위한 그룹 헤더일 뿐 그 자체로는 선택 가능한
         // 뜻풀이가 아니다(shared/types.ts DictionarySenseGloss 참고) — LLM 판정 목록에서 제외한다.
-        if (!sense.gloss) continue
+        if (!sense.gloss) return
+        const displayIndex = index++
+        displayIndexByPosition[position] = displayIndex
         out.push({
-          index: index++,
+          index: displayIndex,
+          parentIndex: sense.parentIndex !== undefined ? displayIndexByPosition[sense.parentIndex] : undefined,
           headword,
           pos: sense.pos,
           posRaw: sense.posRaw,
@@ -57,7 +71,7 @@ export function numberSenses<L extends Language>(entries: DictionaryEntry<L>[]):
           usageNote: sense.usageNote,
           isIdiom: entry.isIdiom,
         })
-      }
+      })
     }
   }
   return out
@@ -87,7 +101,13 @@ export function buildSenseListText(senses: NumberedSense[]): string {
       const tag = label ? `[${label}] ` : ''
       const gloss = s.gloss.join('; ')
       const ex = s.examples?.length ? ` (예: ${s.examples.map((e) => `"${e}"`).join(' / ')})` : ''
-      return `${s.index}. ${tag}${gloss}${ex}`
+      // parentIndex(2026-07-28 신설) — MW sdsense/Kotobank 精選版 다단 번호매김처럼 이
+      // 뜻이 다른 뜻의 "더 좁은 하위 구분"일 때, 평평한 번호 목록에서도 그 관계가
+      // LLM에 그대로 보이게 괄호로 표시한다(부모가 그룹 헤더라 목록에서 빠졌으면 undefined
+      // 라 표시 안 함). 이게 없으면 하위 정의가 그냥 "또 다른 뜻 하나"로 보여 LLM이 원래
+      // 뜻과의 좁은/넓은 관계를 알 수 없었다.
+      const parentNote = s.parentIndex !== undefined ? `(${s.parentIndex}번의 더 좁은 의미) ` : ''
+      return `${s.index}. ${parentNote}${tag}${gloss}${ex}`
     })
     .join('\n')
 }
