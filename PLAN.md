@@ -347,7 +347,7 @@ JoJo/
 │   │   └── question/           # 🅱️ 질문/AI (담당 B)
 │   │       ├── index.ts         #   질문 라우터(발음/사전/통합질문)
 │   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음) — 구현 완료
-│   │       ├── dictionary.ts    #   사전 API + LLM 뜻 번호 판정 — 스텁(빈 문자열 반환)
+│   │       ├── dictionary.ts    #   사전 API + LLM 뜻 번호 판정 — 폴백 오케스트레이션 구현 완료(8개 소스)
 │   │       ├── google.ts        #   구글 발음/이미지 검색 URL 생성
 │   │       ├── naver.ts         #   언어별 네이버 사전(en/ja/zh) URL 생성
 │   │       ├── browser.ts       #   URL을 기본 브라우저 새 창으로 열기(구글/네이버 공용)
@@ -399,4 +399,4 @@ JoJo/
 
 **시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `chrome://extensions`에서 `extension/`을 로드하고 native messaging host를 등록해야 함(추후 번들러 설정 TODO).
 
-**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)까지 구현 완료, 사전 기능만 스텁. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, 직접 추출(epub/pdf/web)·접근성 API(AX/UIA)·언어 자동 감지·브라우저 확장은 아직 미구현/스텁. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, 직접 추출(epub/pdf/web)·접근성 API(AX/UIA)·언어 자동 감지·브라우저 확장은 아직 미구현/스텁. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
