@@ -114,7 +114,7 @@ export async function lookupDictionary(
     if (outcome.ok) {
       return emit(onChunk, {
         kind: 'dictionary',
-        content: outcome.formatted,
+        content: withDebugCountsLine(outcome.formatted, whole.entries, whole.senses.length), // TEMP DEBUG
         meta: { provider, source: whole.sourceId },
       })
     }
@@ -179,6 +179,8 @@ interface ChainLookupResult {
   senses: ReturnType<typeof numberSenses>
   sourceId?: DictionarySourceId
   suggestions?: string[]
+  /** TEMP DEBUG(맨 윗줄 entry/reading/sense 개수 표시용) — 제거 시 이 필드도 같이 삭제. */
+  entries?: DictionaryEntry<Language>[]
 }
 
 /** FALLBACK_CHAINS 를 앞에서부터 순서대로 시도해 sense 가 하나라도 있는 첫 소스에서
@@ -195,7 +197,7 @@ async function lookupThroughFallbackChain(word: string, ctx: SelectionContext): 
       suggestions ??= result.suggestions
       if (!result.entries?.length) continue
       const senses = numberSenses(result.entries)
-      if (senses.length) return { senses, sourceId: result.entries[0].source, suggestions }
+      if (senses.length) return { senses, sourceId: result.entries[0].source, suggestions, entries: result.entries }
     } catch (err) {
       console.warn(`[dictionary] ${source} 조회 실패, 다음 소스로 폴백:`, err)
     }
@@ -214,11 +216,12 @@ async function lookupSingleWordThroughChain(
   model: string,
   cacheableContext: string,
 ): Promise<{ formatted: string } | { llmError: unknown } | null> {
-  const { senses, sourceId } = await lookupThroughFallbackChain(word, ctx)
+  const { senses, sourceId, entries } = await lookupThroughFallbackChain(word, ctx)
   if (!senses.length || !sourceId) return null
 
   const outcome = await judgeAndFormat({ word, source: sourceId, senses, ctx, client, model, cacheableContext })
-  return outcome.ok ? { formatted: outcome.formatted } : { llmError: outcome.error }
+  if (!outcome.ok) return { llmError: outcome.error }
+  return { formatted: withDebugCountsLine(outcome.formatted, entries, senses.length) } // TEMP DEBUG
 }
 
 interface JudgeAndFormatArgs {
@@ -282,6 +285,22 @@ function notFoundResult(word: string, suggestions?: string[]): QuestionResult {
 function emit(onChunk: (chunk: QuestionResult) => void, result: QuestionResult): QuestionResult {
   onChunk(result)
   return result
+}
+
+// ============================================================================
+// TEMP DEBUG — LLM에 넘긴 entry/reading/sense 개수를 결과 맨 윗줄에 표시(임시, 제거
+// 예정). 제거할 때는 이 함수 하나 + 호출부의 `// TEMP DEBUG` 표시가 붙은 줄들만
+// 지우면 된다(각 호출부는 `withDebugCountsLine(outcome.formatted, ...)` →
+// `outcome.formatted` 로 되돌리면 끝, 다른 로직은 안 건드려도 됨).
+// ============================================================================
+function withDebugCountsLine(
+  formatted: string,
+  entries: DictionaryEntry<Language>[] | undefined,
+  senseCount: number,
+): string {
+  const entryCount = entries?.length ?? 0
+  const readingCount = entries?.reduce((sum, e) => sum + e.readings.length, 0) ?? 0
+  return `_[DEBUG] entries: ${entryCount} / readings: ${readingCount} / senses: ${senseCount}_\n\n${formatted}`
 }
 
 // ---- 소스별 조회 디스패치 — 폴백 체인과 forceSource 디버깅 경로가 공유 ----------------
@@ -467,5 +486,9 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: SelectionCont
   if (!outcome.ok) {
     return buildErrorResult('dictionary', classifyLlmError(outcome.error), provider)
   }
-  return { kind: 'dictionary', content: outcome.formatted, meta: { provider, source: result.entries[0].source } }
+  return {
+    kind: 'dictionary',
+    content: withDebugCountsLine(outcome.formatted, result.entries, senses.length), // TEMP DEBUG
+    meta: { provider, source: result.entries[0].source },
+  }
 }
