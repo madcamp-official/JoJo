@@ -35,11 +35,19 @@ export interface SubLine {
   words: SubWord[]
 }
 
+// 클릭한 줄의 앞뒤 범위 자막(timedtext 전체 버퍼에서 현재 시간 기준으로 뽑음).
+export interface SubtitleContext {
+  before: string[]
+  current: string | null
+  after: string[]
+}
+
 // 현재 화면에 떠 있는 자막 한 프레임 + 좌표.
 export interface SubtitleSnapshot {
   lines: SubLine[]
   viewport: { width: number; height: number; dpr: number }
   currentTime: number // 영상 재생 위치(초) — timedtext 버퍼에서 앞뒤 자막을 찾는 기준
+  context?: SubtitleContext // timedtext 로딩이 끝났으면 앞뒤 범위 자막 문맥
 }
 
 // 확장 → 앱
