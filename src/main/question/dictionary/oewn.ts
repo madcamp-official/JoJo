@@ -124,24 +124,38 @@ export interface OewnLookupResult {
 
 /** 조회 표면형을 entries 의 실제 키(원형)로 해석한다. WordNet 표제어는 대부분 소문자지만
  *  고유명사는 원문 그대로 대문자로 등재돼 있어(실측: "Bach") 대소문자 그대로 먼저 시도하고,
- *  실패하면 소문자로 재시도한다. 그래도 없으면 활용형 역인덱스(로드 시점에 만든 formIndex)
- *  에서 원형 후보를 찾는다 — 같은 활용형이 여러 (표제어, 품사) 쌍에 걸칠 수 있으므로
- *  후보 전부를 반환한다(예: "closed" 류 케이스는 MW 쪽에서 실측됐고, OEWN 도 원리상 같은
- *  가능성이 있어 방어적으로 배열 그대로 취급). */
+ *  실패하면 소문자로 재시도한다. **직접 표제어가 있어도 활용형 역인덱스(formIndex)는
+ *  항상 같이 확인한다** — 실측 확인(2026-07-28, "closed"): "closed"가 그 자체로 형용사
+ *  표제어("not open or affording passage")를 갖고 있어서 예전엔 여기서 바로 반환하고
+ *  activation formIndex 조회를 건너뛰었는데, 이러면 동사 "close"(닫다)의 과거형이라는
+ *  훨씬 흔한 해석이 후보에서 통째로 빠진다("running"도 형용사 표제어가 있어 동사 "run"
+ *  활용형 해석이 같은 이유로 빠짐). 직접 표제어와 활용형 후보를 **합쳐서** 반환해야
+ *  LLM이 문맥 보고 고를 수 있다 — 같은 활용형이 여러 (표제어, 품사) 쌍에 걸칠 수도
+ *  있어 후보 전부를 반환한다. */
 function resolveLemmas(word: string, bundle: OewnBundle): { lemma: string; posKeys?: string[] }[] {
-  if (bundle.entries[word]) return [{ lemma: word }]
-  const lower = word.toLowerCase()
-  if (lower !== word && bundle.entries[lower]) return [{ lemma: lower }]
+  const results: { lemma: string; posKeys?: string[] }[] = []
 
-  const inflected = bundle.formIndex.get(lower)
-  if (!inflected?.length) return []
-  const byLemma = new Map<string, string[]>()
-  for (const { lemma, pos } of inflected) {
-    const list = byLemma.get(lemma)
-    if (list) list.push(pos)
-    else byLemma.set(lemma, [pos])
+  if (bundle.entries[word]) {
+    results.push({ lemma: word })
+  } else {
+    const lower = word.toLowerCase()
+    if (lower !== word && bundle.entries[lower]) results.push({ lemma: lower })
   }
-  return [...byLemma.entries()].map(([lemma, posKeys]) => ({ lemma, posKeys }))
+
+  const inflected = bundle.formIndex.get(word.toLowerCase())
+  if (inflected?.length) {
+    const byLemma = new Map<string, string[]>()
+    for (const { lemma, pos } of inflected) {
+      const list = byLemma.get(lemma)
+      if (list) list.push(pos)
+      else byLemma.set(lemma, [pos])
+    }
+    for (const [lemma, posKeys] of byLemma) {
+      if (!results.some((r) => r.lemma === lemma)) results.push({ lemma, posKeys })
+    }
+  }
+
+  return results
 }
 
 /** 표제어 하나(활용형 매칭이면 해당 품사만)를 DictionaryEntry 로 변환한다. */
