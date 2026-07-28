@@ -62,15 +62,39 @@ async function fetchTranscript(videoId: string): Promise<TranscriptCue[]> {
   return cues
 }
 
-// 유튜브 웹 클라이언트 공개 API 키 — 세션/로그인과 무관하게 오랫동안 안정적으로 쓰이는
-// 값(yt-dlp 등 여러 오픈소스 도구가 동일하게 사용). 비밀 키가 아니라 클라이언트 식별용.
-const INNERTUBE_API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8'
-const CLIENT_VERSION = '2.20240101.00.00'
+// 유튜브 웹 클라이언트 공개 API 키(비밀 키 아님, 클라이언트 식별용) — ytcfg 스크레이핑이
+// 실패했을 때만 쓰는 폴백. 실제 요청은 아래에서 watch 페이지가 그 순간 쓰는 진짜 apiKey/
+// context 를 그대로 긁어 보낸다 — 하드코딩된 clientVersion 은 유튜브 서버가 오래된
+// 버전을 400으로 거부해(실측 확인) 더 이상 안정적이지 않다.
+const FALLBACK_API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8'
+const FALLBACK_CONTEXT = { client: { clientName: 'WEB', clientVersion: '2.20240101.00.00' } }
 
 // watch 페이지 HTML에서 "스크립트 표시" 패널의 get_transcript continuation params(base64)를 찾는다.
 function extractTranscriptParams(html: string): string | null {
   const m = html.match(/"getTranscriptEndpoint":\{"params":"([^"]+)"/)
   return m ? m[1] : null
+}
+
+function extractApiKey(html: string): string | null {
+  const m = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/)
+  return m ? m[1] : null
+}
+
+// ytcfg.set({...}) 안의 INNERTUBE_CONTEXT 객체를 그대로 뽑는다 — clientVersion/hl/gl/
+// visitorData 등이 지금 이 페이지 세션과 정확히 일치해야 서버가 400으로 거부하지 않는다.
+function extractInnertubeContext(html: string): unknown | null {
+  const marker = '"INNERTUBE_CONTEXT":'
+  const idx = html.indexOf(marker)
+  if (idx === -1) return null
+  const braceStart = html.indexOf('{', idx + marker.length)
+  if (braceStart === -1) return null
+  const json = sliceBalancedJson(html, braceStart)
+  if (!json) return null
+  try {
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
 }
 
 async function fetchViaInnertube(html: string): Promise<TranscriptCue[]> {
@@ -79,17 +103,20 @@ async function fetchViaInnertube(html: string): Promise<TranscriptCue[]> {
     console.log('[nuance timedtext] get_transcript params 없음(자막 패널 없음 — 자막 트랙 자체가 없을 수 있음)')
     return []
   }
-  const res = await fetch(`https://www.youtube.com/youtubei/v1/get_transcript?key=${INNERTUBE_API_KEY}`, {
+  const apiKey = extractApiKey(html) ?? FALLBACK_API_KEY
+  const context = extractInnertubeContext(html) ?? FALLBACK_CONTEXT
+  console.log(`[nuance timedtext] apiKey=${extractApiKey(html) ? 'scraped' : 'fallback'} context=${extractInnertubeContext(html) ? 'scraped' : 'fallback'}`)
+  const res = await fetch(`https://www.youtube.com/youtubei/v1/get_transcript?key=${apiKey}`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      context: { client: { clientName: 'WEB', clientVersion: CLIENT_VERSION } },
-      params,
-    }),
+    body: JSON.stringify({ context, params }),
   })
   console.log(`[nuance timedtext] get_transcript status=${res.status}`)
-  if (!res.ok) return []
+  if (!res.ok) {
+    console.log('[nuance timedtext] get_transcript 실패 응답:', (await res.text()).slice(0, 300))
+    return []
+  }
   let data: unknown
   try {
     data = await res.json()
@@ -140,4 +167,27 @@ function dig(obj: unknown, path: (string | number)[]): unknown {
     cur = (cur as Record<string | number, unknown>)[key]
   }
   return cur
+}
+
+// 문자열/이스케이프를 인식하며 균형 잡힌 { ... } 한 덩어리를 잘라낸다.
+function sliceBalancedJson(s: string, start: number): string | null {
+  let depth = 0
+  let inStr = false
+  let escaped = false
+  for (let i = start; i < s.length; i++) {
+    const c = s[i]
+    if (inStr) {
+      if (escaped) escaped = false
+      else if (c === '\\') escaped = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') inStr = true
+    else if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) return s.slice(start, i + 1)
+    }
+  }
+  return null
 }

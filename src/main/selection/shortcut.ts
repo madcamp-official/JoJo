@@ -18,6 +18,13 @@ import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './sub
 let mode: AppMode = 'normal'
 let currentAccelerators: string[] = []
 
+// 판정 세대(epoch) — 선택 모드 진입 직후엔 확장이 아직 활성 탭을 보고하기 전이라(WS
+// 연결/핸드셰이크가 비동기) decideExtraction() 이 일시적으로 OCR 로 잘못 판정하는 경우가
+// 있다. OCR 판정이 시작한 무거운 비동기 체인(자동 영역 감지→OCR)이 나중에 도착한 정확한
+// 판정(예: 자막)을 덮어쓰지 않도록, 매 판정마다 세대를 올리고 비동기 완료 시점에 세대가
+// 여전히 최신인지 확인한다 — 낡은 세대의 완료는 조용히 버린다.
+let decisionEpoch = 0
+
 // 실제 마우스 드래그(이동이든 리사이즈든)는 WinEventHook 이 한 번에 끝나지 않고 위치가
 // 바뀔 때마다(픽셀 단위로) 연달아 이벤트를 쏟아낸다 — resizeJitter 허용치(windows.ts)를
 // 넘는 "진짜" 크기 변화라도, 드래그 도중에는 여러 번 연속으로 잡힐 수 있다. 매번 즉시
@@ -61,17 +68,21 @@ function toggleMode(): void {
  * 알맞은 경로로 분기한다. 판정은 비동기(언어 감지 등)라 진입 후 적용한다.
  */
 async function enterSelectMode(): Promise<void> {
+  const epoch = ++decisionEpoch
   const decision = await decideExtraction()
-  if (mode !== 'select') return // 그 사이 빠르게 토글로 빠져나갔으면 무시
+  if (mode !== 'select' || epoch !== decisionEpoch) return // 그 사이 토글로 빠져나갔거나 재판정으로 대체됐으면 무시
   applyExtractionDecision(decision)
 }
 
 /**
  * 판정 결과를 실제 파이프라인에 적용한다. 선택 모드 진입 시, 그리고 선택 모드를 유지한
- * 채 탭/URL 이 바뀌어 재판정(reevaluate.ts)될 때 호출된다.
+ * 채 탭/URL 이 바뀌어 재판정(reevaluate.ts)될 때 호출된다. 매 호출마다 세대를 올려, 이번
+ * 판정이 시작하는 비동기 체인(acquireRegionAutomaticallyOrAskDrag 등)이 그 사이 더 최신
+ * 판정으로 대체됐을 때 스스로 무시하게 한다.
  */
 export function applyExtractionDecision(decision: ExtractionDecision): void {
   if (mode !== 'select') return
+  const epoch = ++decisionEpoch
   if (decision.mode === 'subtitle') {
     // 자막 경로 — OCR 영역 선택/캡처/변화감지를 전부 중단하고 확장 자막을 쓴다.
     stopChangeWatcher()
@@ -84,7 +95,7 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     refreshExtractionCache()
     startChangeWatcher()
   } else {
-    void acquireRegionAutomaticallyOrAskDrag()
+    void acquireRegionAutomaticallyOrAskDrag(epoch)
   }
 }
 
@@ -104,7 +115,7 @@ let pendingRedetect = false
  * 드래그 선택을 요청한다 — 즉 이 실험 기능은 "잘 되면 자동, 안 되면 기존 수동 방식"
  * 으로 완전히 폴백하므로 항상 안전하다.
  */
-async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
+async function acquireRegionAutomaticallyOrAskDrag(epoch = decisionEpoch): Promise<void> {
   if (detecting) {
     pendingRedetect = true
     return
@@ -112,7 +123,9 @@ async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
   detecting = true
   try {
     const detected = await autoDetectRegion()
-    if (mode !== 'select') return // 그 사이 모드가 바뀌었으면(빠른 토글 등) 무시
+    // 그 사이 모드가 바뀌었거나(빠른 토글 등), 더 최신 판정(예: 자막 모드)으로 대체됐으면
+    // 이 낡은 OCR 체인의 완료 결과는 버린다 — 안 그러면 이미 전환된 자막 모드를 덮어쓴다.
+    if (mode !== 'select' || epoch !== decisionEpoch) return
     if (detected) {
       setRegion(detected)
       refreshExtractionCache()
@@ -126,7 +139,7 @@ async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
     detecting = false
     if (pendingRedetect) {
       pendingRedetect = false
-      void acquireRegionAutomaticallyOrAskDrag()
+      if (epoch === decisionEpoch) void acquireRegionAutomaticallyOrAskDrag(epoch)
     }
   }
 }
