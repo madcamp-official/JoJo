@@ -247,7 +247,7 @@ REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 
 
 **부가 보강**(2026-07-28, 사용자 피드백 반영):
 - 발음이 여러 개일 때 `senseSelect.ts`가 첫 번째만 쓰던 것도 함께 고쳐 전부 `[값1, 값2]` 형태로 표시하도록 변경(위 wiktionary.ts 변경이 실제 화면에 드러나려면 이 쪽도 같이 고쳐야 했음).
-- Wikimedia User-Agent 정책(연락처 명시 필수) 미준수로 개발 중 HTTP 429를 자주 맞아, `WIKTIONARY_USER_AGENT` 상수(`"JoJo-dictionary-adapter/1.0 (저장소 URL; 연락처 이메일)"`)로 en.wiktionary.org REST API·action API·dictionaryapi.dev 요청 전부에 통일 적용.
+- Wikimedia User-Agent 정책(연락 가능한 수단 명시 필수, 이메일이 꼭 아니어도 이슈를 남길 수 있는 저장소 URL이면 충분) 미준수로 개발 중 HTTP 429를 자주 맞아, `WIKTIONARY_USER_AGENT` 상수(`"JoJo-dictionary-adapter/1.0 (저장소 URL)"`)로 en.wiktionary.org REST API·action API·dictionaryapi.dev 요청 전부에 통일 적용.
 - Wiktionary는 CC BY-SA 4.0(+ GFDL) 라이선스라 저작자 표시 의무가 있음 — `senseSelect.ts`의 출처 줄이 Wiktionary일 때만 `[Wiktionary](표제어 페이지 URL) (CC BY-SA 4.0)` 형태로 링크+라이선스명을 함께 표기하도록 변경. OEWN도 CC BY 4.0이라 같은 처리가 필요하나 이번 스코프에서는 제외(별도 검토 필요).
 
 ---

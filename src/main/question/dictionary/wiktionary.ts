@@ -16,11 +16,12 @@ import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense,
 const WIKTIONARY_ENDPOINT = 'https://en.wiktionary.org/api/rest_v1/page/definition'
 const WIKTIONARY_ACTION_API = 'https://en.wiktionary.org/w/api.php'
 /** Wikimedia User-Agent 정책(https://meta.wikimedia.org/wiki/User-Agent_policy) 준수용 —
- *  "ClientName/Version (연락처)" 형식으로 연락처를 명시해야 한다. 연락처 없는 UA는 정책
- *  위반으로 더 강하게 레이트리밋/차단될 수 있음(실측: 개발 중 여러 번 HTTP 429 수신).
- *  Wikimedia 소유가 아닌 dictionaryapi.dev 호출에도 동일하게 재사용 — 일부 API가 UA
- *  없는/일반적인 요청을 더 박하게 다루는 경우가 있어 좋은 관행으로 통일. */
-const WIKTIONARY_USER_AGENT = 'JoJo-dictionary-adapter/1.0 (https://github.com/madcamp-official/JoJo; milleion1001@gmail.com)'
+ *  "ClientName/Version (연락처)" 형식으로 연락 가능한 수단을 명시해야 한다(이메일 필수는
+ *  아님 — 이슈를 남길 수 있는 저장소 URL도 인정되는 형태). 연락처 없는 UA는 정책 위반으로
+ *  더 강하게 레이트리밋/차단될 수 있음(실측: 개발 중 여러 번 HTTP 429 수신). Wikimedia
+ *  소유가 아닌 dictionaryapi.dev 호출에도 동일하게 재사용 — 일부 API가 UA 없는/일반적인
+ *  요청을 더 박하게 다루는 경우가 있어 좋은 관행으로 통일. */
+const WIKTIONARY_USER_AGENT = 'JoJo-dictionary-adapter/1.0 (https://github.com/madcamp-official/JoJo)'
 /** en 전용 발음 보강 소스 — en.wiktionary.org REST API(definition 엔드포인트)엔 phonetic
  *  필드 자체가 없어(DICTIONARY_SOURCES.md 실측) 별도로 붙인다. 서드파티(en.wiktionary.org
  *  데이터를 재가공)라 무료·키 불필요. ja/zh는 이 API 자체가 커버리지가 없어(en 전용,
