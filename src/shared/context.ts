@@ -52,6 +52,14 @@ function isSentenceEnder(text: string, i: number): boolean {
   return SENTENCE_ENDERS.test(text[i]) && !isAbbreviationDot(text, i)
 }
 
+// 닫는 따옴표/괄호(TRAILING)까지 포함해 text 가 문장이 끝나는 지점에서 끝나는지 본다
+// (예: 자막 큐 이어붙이기 — 자막 유틸이 여러 곳에서 재사용).
+export function endsWithSentenceEnder(text: string): boolean {
+  let i = text.length - 1
+  while (i >= 0 && TRAILING.test(text[i])) i -= 1
+  return i >= 0 && isSentenceEnder(text, i)
+}
+
 /** from 에서 뒤로(왼쪽) byteBudget 바이트만큼 이동한 문자 인덱스 (문자 경계 유지) */
 function stepBack(text: string, from: number, byteBudget: number): number {
   let i = from

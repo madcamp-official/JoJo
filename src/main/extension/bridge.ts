@@ -38,6 +38,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   private lastActiveTab: ExtActiveTab | null = null
   private lastSubtitles: SubtitleSnapshot | null = null
   private lastTranscript: Transcript | null = null
+  private lastCaptureActive = false
 
   start(): void {
     if (this.wss) return
@@ -82,6 +83,11 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     console.log('[ext-bridge] 확장 연결됨')
     // 재접속 직후 상태를 맞추기 위해 현재 활성 탭을 다시 보고하도록 요청한다.
     this.send({ type: 'requestActiveTab' })
+    // 재접속한 확장(background 서비스 워커 재시작 포함)은 자막 캡처 desired 상태를 모른다
+    // (background.ts captureDesired 는 기본 false로 초기화됨) — 앱이 이미 자막 모드였다면
+    // (selection/subtitleSource.ts startSubtitleMode 는 active 가 이미 true면 재전송을
+    // 생략함) 여기서 다시 알려주지 않으면 hover 하이라이트가 영영 안 켜진다.
+    if (this.lastCaptureActive) this.send({ type: 'setSubtitleCapture', active: true })
   }
 
   private onMessage(ws: WebSocket, raw: string): void {
@@ -158,8 +164,11 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     return this.lastTranscript
   }
 
-  // 선택 모드 진입/이탈 시 확장에 자막 캡처 on/off 를 지시한다.
+  // 선택 모드 진입/이탈 시 확장에 자막 캡처 on/off 를 지시한다. desired 상태를 기억해뒀다가
+  // 재접속 시(onConnection) 다시 알려준다 — 그렇지 않으면 재시작된 확장 background 는
+  // 이 상태를 모른 채 기본값(off)으로 남는다.
   setSubtitleCapture(active: boolean): void {
+    this.lastCaptureActive = active
     if (!active) this.lastSubtitles = null
     this.send({ type: 'setSubtitleCapture', active })
   }
@@ -167,6 +176,11 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   // 팝업 열림/닫힘에 맞춰 영상 재생/일시정지를 지시한다.
   setVideoPlayback(play: boolean): void {
     this.send({ type: 'setVideoPlayback', play })
+  }
+
+  // 팝업(Electron 창)이 닫힌 뒤 원래 캡처 중이던 브라우저 탭/창에 OS 포커스를 되돌린다.
+  focusTab(): void {
+    this.send({ type: 'focusTab' })
   }
 }
 
