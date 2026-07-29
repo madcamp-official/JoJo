@@ -6,6 +6,7 @@
 // shared/highlightStyle.ts(오버레이와 동일 소스)를 그대로 읽어 인라인 스타일로 적용한다.
 import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 import type { RectPx, SubLine, WordSegment } from '@shared/extension'
+import { unionRects } from '@shared/wordMapping'
 
 export interface WordHit {
   text: string
@@ -84,20 +85,6 @@ function setHoveringCursor(hovering: boolean): void {
   else document.documentElement.style.removeProperty('cursor')
 }
 
-function unionRects(rects: RectPx[]): RectPx {
-  let x0 = Infinity
-  let y0 = Infinity
-  let x1 = -Infinity
-  let y1 = -Infinity
-  for (const r of rects) {
-    x0 = Math.min(x0, r.x)
-    y0 = Math.min(y0, r.y)
-    x1 = Math.max(x1, r.x + r.width)
-    y1 = Math.max(y1, r.y + r.height)
-  }
-  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
-}
-
 function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect: RectPx }) | null {
   for (const line of lines) {
     // line.text 는 세그먼트 원문 그대로(youtube.ts) — 단어 사이 간격이 공백 한 칸이라는
@@ -128,7 +115,8 @@ function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect:
         text: line.text.slice(seg.start, seg.end),
         lineText: line.text,
         wordOffsetInLine: seg.start,
-        rect: unionRects(groupRects),
+        // groupRects 는 항상 최소 1개(현재 단어 자신)를 포함해 non-null.
+        rect: unionRects(groupRects)!,
       }
     }
   }

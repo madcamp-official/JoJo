@@ -1,6 +1,7 @@
 import { loadFile } from 'chinese-tokenizer'
 import { join } from 'path'
 import type { ZhWord } from '@shared/types'
+import { HAN_CHAR_RE } from '@shared/cjkDetect'
 
 // chinese-tokenizer(그리디 최장일치, CC-CEDICT) — zh-Hant(번체) 후보 엔진 중 하나.
 // main/nlp/chinese.ts 의 ZH_HANT_ENGINE 스위치가 'chinese-tokenizer' 일 때 쓴다.
@@ -38,8 +39,6 @@ function getTokenize(): Promise<Tokenize> {
   return tokenizePromise
 }
 
-const HAS_HAN_CHAR_RE = /[一-鿿㐀-䶿]/
-
 export async function segmentChineseTokenizerWords(text: string): Promise<ZhWord[]> {
   if (!text) return []
   const tokenize = await getTokenize()
@@ -48,7 +47,7 @@ export async function segmentChineseTokenizerWords(text: string): Promise<ZhWord
   for (const t of tokenize(text)) {
     const start = offset
     offset += t.text.length
-    if (HAS_HAN_CHAR_RE.test(t.text)) words.push({ text: t.text, start, end: offset })
+    if (HAN_CHAR_RE.test(t.text)) words.push({ text: t.text, start, end: offset })
   }
   return words
 }

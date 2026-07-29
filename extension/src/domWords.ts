@@ -3,6 +3,7 @@
 // 계열을 매번 새로 읽으므로 전체화면/자막 위치 이동에도 항상 현재 위치가 반영된다.
 import type { RectPx, SubWord } from '@shared/extension'
 import { HOVER_WORD_ATOM_PATTERN } from '@shared/wordTokenize'
+import { unionRects } from '@shared/wordMapping'
 
 // 텍스트 노드의 [start,end) 구간 사각형. 줄바꿈으로 여러 조각이면 union 한다.
 export function rangeRect(node: Text, start: number, end: number): RectPx | null {
@@ -13,21 +14,8 @@ export function rangeRect(node: Text, start: number, end: number): RectPx | null
   } catch {
     return null
   }
-  const rects = range.getClientRects()
-  if (rects.length === 0) return null
-  let x0 = Infinity
-  let y0 = Infinity
-  let x1 = -Infinity
-  let y1 = -Infinity
-  for (const r of Array.from(rects)) {
-    if (r.width === 0 && r.height === 0) continue
-    x0 = Math.min(x0, r.left)
-    y0 = Math.min(y0, r.top)
-    x1 = Math.max(x1, r.right)
-    y1 = Math.max(y1, r.bottom)
-  }
-  if (!isFinite(x0)) return null
-  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
+  const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 || r.height > 0)
+  return unionRects(rects)
 }
 
 // 중국어/일본어는 단어 사이에 공백이 없다 — 공백 기준으로만 쪼개면 자막 한 줄 전체가

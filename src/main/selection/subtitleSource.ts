@@ -1,5 +1,6 @@
 import type { ExtractedSelection, Language } from '@shared/types'
 import { byteLength, endsWithSentenceEnder } from '@shared/context'
+import { detectCjkLanguage } from '@shared/cjkDetect'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
 import { createPopupWindow, sendOverlayWords } from '../windows'
@@ -115,12 +116,7 @@ function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
 
 // 화면 자막 텍스트로 언어를 추정한다(자막엔 OCR OSD 를 못 쓰므로 유니코드 블록 휴리스틱).
 function detectSubtitleLanguage(text: string): Language {
-  if (/[぀-ヿ]/.test(text)) return 'ja' // 가나
-  if (/[一-鿿]/.test(text)) {
-    // 간체 전용 글자가 보이면 zh-Hans, 아니면 기본 zh-Hant(번체) — 정밀 판별은 추후.
-    return /[们么这来国对时会说无个开关问题东买卖车马语门]/.test(text) ? 'zh-Hans' : 'zh-Hant'
-  }
-  return 'en'
+  return detectCjkLanguage(text) ?? 'en'
 }
 
 // 전체 자막 cue 들을 이어 붙여 팝업용 text 를 만들고, 클릭 단어의 offset(anchor)을 찾는다.
