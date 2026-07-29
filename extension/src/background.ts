@@ -100,12 +100,19 @@ function onAppMessage(raw: unknown): void {
   }
 }
 
-// 앱이 CJK 자막 줄을 세그멘테이션한 결과를 캡처 중인 탭의 content script로 그대로 전달한다
-// (hover 박스를 형태소 단위로 묶는 데 씀, highlight.ts).
+// 앱이 CJK 텍스트를 세그멘테이션한 결과를 캡처 중인 탭의 content script로 그대로 전달한다
+// (hover 박스를 형태소 단위로 묶는 데 씀 — 자막은 highlight.ts, 웹 문단은
+// articleHighlight.ts, 둘 다 wordSegments.ts 캐시를 공유). 자막 캡처(capturedTabId)와
+// 웹 페이지 캡처(pageCapturedTabId)는 서로 독립적으로 추적되는데, 이 함수가 자막 전용
+// capturedTabId만 보고 있어서 웹 페이지 모드에서는(capturedTabId가 항상 null) 응답이
+// 탭까지 아예 전달되지 않았다(2026-07-30 사용자 제보 — 소설가가 되자에서 형태소 분석이
+// hover에 반영 안 됨) — 앱 판정상 한 탭이 자막/웹 모드 중 하나만 될 수 있으므로 둘 중
+// null 아닌 쪽을 그대로 쓴다.
 async function relayWordSegments(lineText: string, words: { start: number; end: number }[]): Promise<void> {
-  if (capturedTabId === null) return
+  const tabId = capturedTabId ?? pageCapturedTabId
+  if (tabId === null) return
   try {
-    await chrome.tabs.sendMessage(capturedTabId, { kind: 'wordSegments', lineText, words })
+    await chrome.tabs.sendMessage(tabId, { kind: 'wordSegments', lineText, words })
   } catch {
     /* content script 미로드/비대상 무시 */
   }
