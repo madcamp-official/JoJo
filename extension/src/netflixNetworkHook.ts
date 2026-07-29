@@ -20,9 +20,29 @@
   const origParse = JSON.parse
   const origStringify = JSON.stringify
 
+  // 마지막으로 확보한 매니페스트를 캐시한다 — content script(isolated world)가 우리 훅보다
+  // 늦게 캡처를 시작하면(선택 모드 진입 시점) 이미 postMessage 가 지나가 못 받는데, 캡처를
+  // 켤 때 재전송을 요청하면 여기 캐시로 즉시 되돌려준다(새로고침 없이 문맥 확보).
+  let lastManifest: { movieId: string; tracks: unknown } | null = null
+
   function post(movieId: string, tracks: unknown): void {
+    lastManifest = { movieId, tracks }
     window.postMessage({ source: 'nuance-mainworld', kind: 'netflixManifest', movieId, tracks }, '*')
   }
+
+  // content script 가 캡처 시작 시 캐시된 매니페스트 재전송을 요청한다.
+  window.addEventListener('message', (ev) => {
+    if (ev.source !== window) return
+    const d = ev.data as { source?: string; kind?: string } | undefined
+    if (d?.source !== 'nuance-content' || d.kind !== 'requestNetflixManifest') return
+    if (lastManifest) {
+      console.log('[nuance netflixHook] 캐시된 매니페스트 재전송')
+      window.postMessage(
+        { source: 'nuance-mainworld', kind: 'netflixManifest', movieId: lastManifest.movieId, tracks: lastManifest.tracks },
+        '*',
+      )
+    }
+  })
 
   // 신포맷(textTracks/downloadables)을 구포맷(timedtexttracks/ttDownloadables) 모양으로 맞춘다.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
