@@ -6,6 +6,7 @@ import {
   type AppToExt,
   type ExtActiveTab,
   type ExtToApp,
+  type PageClickMsg,
   type SubtitleClickMsg,
   type SubtitleSnapshot,
   type TranscriptCue,
@@ -36,6 +37,8 @@ type BridgeEvents = {
   subtitles: [SubtitleSnapshot | null]
   transcript: [Transcript]
   subtitleClick: [Omit<SubtitleClickMsg, 'type'>]
+  pageReady: [{ url: string; textLength: number }]
+  pageClick: [Omit<PageClickMsg, 'type'>]
   connected: []
   disconnected: []
 }
@@ -54,6 +57,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   // videoId별로 따로 저장하면 덮어쓰기 자체가 없어 재전송이 아예 필요 없다.
   private transcripts = new Map<string, Transcript>()
   private lastCaptureActive = false
+  private lastPageCaptureActive = false
   // 이미 세그멘테이션을 요청/전송한 자막 줄 텍스트 — subtitles 스냅샷이 자주(폴링 300ms
   // 등) 갱신되므로 같은 줄을 반복해서 재분석하지 않는다.
   private segmentedLines = new Set<string>()
@@ -106,6 +110,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     // (selection/subtitleSource.ts startSubtitleMode 는 active 가 이미 true면 재전송을
     // 생략함) 여기서 다시 알려주지 않으면 hover 하이라이트가 영영 안 켜진다.
     if (this.lastCaptureActive) this.send({ type: 'setSubtitleCapture', active: true })
+    if (this.lastPageCaptureActive) this.send({ type: 'setPageCapture', active: true })
   }
 
   private onMessage(ws: WebSocket, raw: string): void {
@@ -160,6 +165,12 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
           currentTime: msg.currentTime,
           videoId: msg.videoId,
         })
+        break
+      case 'pageReady':
+        this.emit('pageReady', { url: msg.url, textLength: msg.textLength })
+        break
+      case 'pageClick':
+        this.emit('pageClick', { text: msg.text, anchorStart: msg.anchorStart, anchorEnd: msg.anchorEnd, url: msg.url })
         break
     }
   }
@@ -302,6 +313,13 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     this.lastCaptureActive = active
     if (!active) this.lastSubtitles = null
     this.send({ type: 'setSubtitleCapture', active })
+  }
+
+  // 일반 웹페이지 본문 캡처 on/off — setSubtitleCapture와 동일한 이유로 desired 상태를
+  // 기억해뒀다가 재접속 시(onConnection) 다시 알려준다.
+  setPageCapture(active: boolean): void {
+    this.lastPageCaptureActive = active
+    this.send({ type: 'setPageCapture', active })
   }
 
   // 팝업 열림/닫힘에 맞춰 영상 재생/일시정지를 지시한다.
