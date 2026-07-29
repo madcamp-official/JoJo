@@ -32,13 +32,14 @@ import {
   getOverlayMode,
   getPopupContext,
   getPopupBounds,
+  openSettingsWindow,
   showMacSelectionOverlay,
   setMainWindowRoute,
   setOverlayInteractive,
   trackSelectionOverlay,
   type MainRoute,
 } from './windows'
-import { resetToNormalMode, updateModeShortcut, updateSettingsShortcut } from './selection/shortcut'
+import { resetToNormalMode, updateModeShortcut } from './selection/shortcut'
 import { getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
@@ -154,7 +155,9 @@ export function registerIpc(): void {
     const next = setSettings(patch)
     if (patch.llm) setActiveProvider(patch.llm)
     if (patch.modeShortcut !== undefined) updateModeShortcut(patch.modeShortcut)
-    if (patch.settingsShortcut !== undefined) updateSettingsShortcut(patch.settingsShortcut)
+    // settingsShortcut 은 더 이상 메인 프로세스에 등록할 게 없다 — 각 렌더러가 로컬
+    // keydown 으로 직접 판정하며, 매 keydown 마다 window.nuance.getSettings() 로 최신
+    // 값을 그때그때 조회하므로(App.tsx) 저장만 해두면 된다.
     return next
   })
 
@@ -200,6 +203,14 @@ export function registerIpc(): void {
   // 담당 A 통합 시엔 선택 파이프라인이 createPopupWindow(ctx) 를 직접 호출한다.
   ipcMain.handle(IPC.OPEN_POPUP, async (_e, demo?: string) => {
     createPopupWindow(null, demo)
+  })
+
+  // "설정 화면 열기" 단축키 — 각 렌더러(App.tsx)가 로컬 keydown으로 직접 판정한 뒤
+  // 여기엔 그냥 열어달라고만 요청한다(2026-07-29, shortcut.ts 주석 참고 — globalShortcut
+  // 이 Cmd+, 같은 흔한 조합을 OS 레벨에서 통째로 가로채 다른 앱에서 같은 단축키가
+  // 먹통이 되는 문제가 있어 전역 후킹을 걷어냈다).
+  ipcMain.handle(IPC.OPEN_SETTINGS, async () => {
+    openSettingsWindow()
   })
 
   // 담당 B: 팝업 렌더러가 마운트 시 현재 ExtractedSelection 을 조회

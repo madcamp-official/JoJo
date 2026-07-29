@@ -3,7 +3,7 @@ import { IPC } from '@shared/channels'
 import { createMainWindow, getMainWindow, setQuitting } from './windows'
 import { createTray } from './tray'
 import { registerIpc } from './ipc'
-import { applyExtractionDecision, registerModeShortcut, registerSettingsShortcut } from './selection/shortcut'
+import { applyExtractionDecision, registerModeShortcut } from './selection/shortcut'
 import { seedApiKeysFromEnv } from './devSeed'
 import { loadSettings } from './settingsStore'
 import { getApiKey } from './keyStore'
@@ -60,7 +60,8 @@ if (!app.requestSingleInstanceLock()) {
     registerRejudgeOnTabChange() // 선택 모드 중 탭/URL 변화 시 추출 방식 재판정
     reevaluator.on('decision', applyExtractionDecision) // 재판정 결과를 파이프라인에 적용(자막↔OCR 전환)
     registerModeShortcut(settings.modeShortcut)
-    registerSettingsShortcut(settings.settingsShortcut)
+    // settingsShortcut(설정 화면 열기)은 더 이상 여기서 전역 등록하지 않는다 — 각
+    // 렌더러(App.tsx)가 로컬 keydown 으로 직접 판정한다(shortcut.ts 주석 참고).
     warmJapaneseTokenizer() // 일본어 형태소 분석 엔진 로드를 미리 시작 — 첫 사용 시 지연 없게
     warmChineseSegmenter() // ZH_HANT_ENGINE 이 chinese-tokenizer 면 CC-CEDICT 파싱(~350ms) 예열
 

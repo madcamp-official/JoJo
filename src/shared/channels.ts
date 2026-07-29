@@ -34,6 +34,16 @@ export const IPC = {
   // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.
   WINDOW_SET_ROUTE: 'window:setRoute',
   NAVIGATE: 'window:navigate',
+  // "설정 화면 열기" 단축키(기본 Cmd/Ctrl+,, 2026-07-29) — 예전엔 globalShortcut(OS
+  // 전역 후킹)으로 구현했으나, Cmd+,는 VSCode/Claude Desktop 등 다른 앱도 흔히 쓰는
+  // 조합이라 Nuance가 실행 중이기만 하면 그 키 자체를 OS 레벨에서 통째로 가로채(우리
+  // 콜백이 "지금은 동작 안 함"이라 판단해도 이미 그 시점엔 늦음) 다른 앱에서 같은
+  // 단축키가 먹통이 되는 문제가 있었다(사용자 제보) — Nuance 자신의 창(메인/설정/
+  // 피커/팝업)에서만 반응하면 되는 조건은 굳이 전역 후킹이 필요 없어(그 창이 이미
+  // 포커싱돼 있을 때만 의미가 있으므로), 각 렌더러가 로컬 keydown 리스너로 직접
+  // 판정하고 이 채널로 메인 프로세스에 "설정 화면 열어줘"만 요청하는 방식으로 교체.
+  // 다른 앱의 키 입력에는 전혀 관여하지 않는다.
+  OPEN_SETTINGS: 'settings:open',
 
   // 팝업 직전 추출 결과 전달 = 팝업 트리거 (A → B). 최종 선택 확정은 B가 팝업에서.
   SELECTION_EXTRACTED: 'selection:extracted',

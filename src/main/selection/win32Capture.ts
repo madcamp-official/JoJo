@@ -97,7 +97,6 @@ const CreateWindowExW = user32.func(
 const DestroyWindow = user32.func('int __stdcall DestroyWindow(void *hwnd)')
 const GetSystemMetrics = user32.func('int32_t __stdcall GetSystemMetrics(int32_t nIndex)')
 const SetForegroundWindow = user32.func('int __stdcall SetForegroundWindow(void *hwnd)')
-const GetForegroundWindow = user32.func('void * __stdcall GetForegroundWindow()')
 const ShowWindow = user32.func('int __stdcall ShowWindow(void *hwnd, int32_t nCmdShow)')
 const SetWindowPos = user32.func(
   'int __stdcall SetWindowPos(void *hwnd, void *hwndInsertAfter, int32_t x, int32_t y, int32_t cx, int32_t cy, uint32_t uFlags)',
@@ -331,15 +330,6 @@ const SW_RESTORE = 9
 export function bringWindowToForeground(hwnd: bigint): void {
   if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE)
   SetForegroundWindow(hwnd)
-}
-
-/** 지금 OS 포그라운드(활성) 창이 hwnd 와 같은 창인지 — "설정 화면 열기" 전역 단축키를
- *  Nuance 자신의 창 / 선택된 대상 창이 포커싱돼 있을 때로 한정하는 데 씀(shortcut.ts).
- *  koffi 가 WNDENUMPROC 콜백의 hwnd 매개변수와 동일한 방식으로 GetForegroundWindow 의
- *  void* 반환값도 bigint 로 디코드하므로(이 파일의 다른 hwnd 값들과 동일 표현), 그냥
- *  bigint 끼리 비교하면 된다. */
-export function isWin32WindowForeground(hwnd: bigint): boolean {
-  return GetForegroundWindow() === hwnd
 }
 
 const WM_GETTEXTLENGTH = 0x000e

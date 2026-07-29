@@ -246,17 +246,6 @@ function intersects(a: MacWindowRect, b: MacWindowRect): boolean {
  * ownPid(우리 Electron 앱 = 오버레이 자신 등)의 창은 제외한다. 대상이 화면에서
  * 사라졌으면(최소화 등) true(=가려짐)로 취급해 테두리를 숨긴다.
  */
-/** windowId 가 지금 화면에서 가장 앞(z-순서 0번째, on-screen 창 중 최상단)에 있는지 —
- *  "설정 화면 열기" 전역 단축키를 Nuance 자신의 창 / 선택된 대상 창이 포커싱돼 있을 때로
- *  한정하는 데 씀(shortcut.ts). macOS 엔 win32 의 GetForegroundWindow 같은 "포커싱된
- *  창" 직접 조회 API 가 없어(포커스는 앱 단위 개념이라 창 단위로 바로 못 얻음), 대신
- *  "최상단(topmost) on-screen 창 = 사실상 포커싱된 창"으로 근사한다 — 이미 있는
- *  getOnScreenLayer0Windows(isMacTargetCovered 가 z-순서 판정에 쓰는 것과 동일 데이터)를
- *  그대로 재사용하므로 새 네이티브 바인딩이 필요 없다. */
-export function isMacWindowFocused(windowId: number): boolean {
-  const list = getOnScreenLayer0Windows()
-  return list[0]?.windowId === windowId
-}
 
 export function isMacTargetCovered(windowId: number, ownPid: number): boolean {
   const list = getOnScreenLayer0Windows()

@@ -140,6 +140,10 @@ const api = {
   testModel: (provider: LlmProvider, apiKey: string, model: string): Promise<QuestionErrorCode | null> =>
     ipcRenderer.invoke(IPC.PROVIDER_TEST_MODEL, provider, apiKey, model),
 
+  // "설정 화면 열기" 단축키(2026-07-29부터 렌더러 로컬 keydown 매칭 — App.tsx
+  // shortcutMatch.ts) — 매칭되면 메인 프로세스에 그냥 창을 열어달라고만 요청한다.
+  openSettingsWindow: (): Promise<void> => ipcRenderer.invoke(IPC.OPEN_SETTINGS),
+
   // 팝업 (담당 B)
   openPopup: (demo?: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_POPUP, demo),
 

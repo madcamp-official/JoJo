@@ -1,15 +1,13 @@
-import { BrowserWindow, globalShortcut } from 'electron'
+import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
   onWindowResized,
-  openSettingsWindow,
   sendOverlayNotice,
   sendRegionSelectionNeeded,
   setOverlayMode,
 } from '../windows'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
-import { getSelectedWindowId } from './capture'
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
@@ -182,76 +180,17 @@ export function currentMode(): AppMode {
   return mode
 }
 
-/** 지금 이 단축키를 눌러도 되는 상황인지 — "어디서나"가 아니라 (1) Nuance 자신의 창(메인/
- *  설정/피커/팝업/오버레이 전부 포함)이 포커싱돼 있을 때, (2) 선택된 대상 창이 포커싱돼
- *  있을 때로 한정한다(사용자 요청, 2026-07-29 — globalShortcut 은 원래 다른 아무 앱에
- *  포커스가 있어도 전역으로 반응하는데, 그러면 예를 들어 이 단축키와 다른 앱의 단축키가
- *  우연히 겹칠 때 사용자가 그 앱을 쓰다가 의도치 않게 설정 화면이 뜨는 문제가 있었음).
- *  (1)은 `getMainWindow()?.isFocused()`가 아니라 `BrowserWindow.getFocusedWindow()`로
- *  판정한다 — 전자는 재사용되는 메인 창(main/settings/picker 라우트)만 포함하고 별도
- *  BrowserWindow인 팝업은 안 걸려서, 팝업이 포커싱된 상태에선 이 단축키가 안 먹히는
- *  버그가 있었음(2026-07-29 사용자 피드백) — 후자는 앱 소유의 어떤 창이든(팝업/오버레이
- *  포함) OS 포커스가 있으면 그 창을 그대로 돌려주므로 이 앱의 창 전부를 한 번에 커버한다.
- *
- *  **트레이 메뉴가 떠 있는 동안엔 적용 안 됨(2026-07-29, 시도 후 포기)**: 처음엔 "트레이
- *  메뉴(창 선택/설정/종료)가 떠 있을 때도 허용"을 `Menu`의 `menu-will-close` 이벤트로
- *  추적해 시도했으나 실효가 없었다 — macOS 에서 네이티브 컨텍스트 메뉴(`Tray.
- *  popUpContextMenu`)가 떠 있는 동안은 그 메뉴의 트래킹 루프가 Electron 메인 프로세스의
- *  JS 이벤트 루프 자체를 막아서, `globalShortcut` 콜백이 그 순간엔 아예 실행되지 않는다
- *  (메뉴를 닫아야 밀려있던 콜백이 뒤늦게 실행됨 — 사용자 실사용 확인). 즉 OS 네이티브
- *  드롭다운 메뉴로는 구조적으로 불가능한 요구라 판단해 포기(대안은 네이티브 Menu 대신
- *  커스텀 BrowserWindow 드롭다운으로 바꾸는 것뿐인데, 그 정도로 다시 만들 만큼의 가치가
- *  없다고 판단). 트레이 메뉴 자체를 클릭해 여는 것("설정" 항목)은 이 제약과 무관하게
- *  그대로 잘 동작한다 — 문제는 오직 "메뉴가 열려 있는 **동안** 전역 단축키를 누르는" 경우.
- *
- *  선택된 대상 창 포커스 판정은 플랫폼 네이티브 호출이 필요해 비동기다 —
- *  win32Capture.isWin32WindowForeground/macWindow.isMacWindowFocused. */
-async function isSettingsShortcutAllowed(): Promise<boolean> {
-  if (BrowserWindow.getFocusedWindow()) return true
-
-  const selectedId = getSelectedWindowId()
-  if (!selectedId) return false
-
-  if (process.platform === 'win32') {
-    const { isWin32WindowForeground } = await import('./win32Capture')
-    try {
-      return isWin32WindowForeground(BigInt(selectedId))
-    } catch {
-      return false // hwnd 파싱 실패(형식이 다른 값 등) — 안전하게 거부
-    }
-  }
-  if (process.platform === 'darwin') {
-    const { isMacWindowFocused } = await import('./macWindow')
-    const windowId = Number(/^window:(\d+)/.exec(selectedId)?.[1])
-    return Number.isFinite(windowId) && isMacWindowFocused(windowId)
-  }
-  return false
-}
-
-// 담당 공동 — "선택된 컨텍스트에서만" 설정 화면 열기 전역 단축키(기본 CommandOrControl+,,
-// macOS 관례상 Cmd+, / 그 외 Ctrl+,). 모드 전환 단축키와 동일한 등록/해제/OS 대응 패턴을
-// 그대로 재사용한다(expandAccelerator 로 macOS 에서 Cmd/Ctrl 둘 다 동작하게) — 다만
-// 실제 동작 여부는 위 isSettingsShortcutAllowed 로 한 번 더 걸러진다.
-let currentSettingsAccelerators: string[] = []
-
-export function registerSettingsShortcut(accelerator = 'CommandOrControl+,'): void {
-  if (!accelerator) return // 빈 문자열 = 단축키 해제 상태(등록 안 함)
-  const accelerators = expandAccelerator(accelerator)
-  accelerators.forEach((a) =>
-    globalShortcut.register(a, () => {
-      void isSettingsShortcutAllowed().then((allowed) => {
-        if (allowed) openSettingsWindow()
-      })
-    }),
-  )
-  currentSettingsAccelerators = accelerators
-}
-
-export function updateSettingsShortcut(accelerator: string): void {
-  currentSettingsAccelerators.forEach((a) => globalShortcut.unregister(a))
-  currentSettingsAccelerators = []
-  registerSettingsShortcut(accelerator)
-}
+// "설정 화면 열기" 단축키(기본 Cmd/Ctrl+,)는 더 이상 여기(globalShortcut)에 없다
+// (2026-07-29) — Cmd+,는 VSCode/Claude Desktop 등 다른 앱도 흔히 쓰는 조합인데,
+// globalShortcut 은 OS 레벨에서 그 키 조합을 통째로 가로채서, Nuance가 실행 중이기만
+// 하면 우리 콜백이 "지금은 동작 안 함"이라 판단해도 이미 늦어(다른 앱은 그 키 입력
+// 자체를 못 받음) 다른 앱의 같은 단축키가 먹통이 되는 문제가 있었다(사용자 제보).
+// "Nuance 자신의 창이 포커싱돼 있을 때"만 동작하면 충분한 조건이라 전역 후킹이
+// 애초에 필요 없었다 — 각 렌더러(App.tsx)가 로컬 keydown 리스너로 직접 판정해
+// IPC(OPEN_SETTINGS)로 메인에 열기만 요청하는 방식으로 교체했다(shortcutMatch.ts).
+// "선택된 대상 창이 포커싱돼 있을 때도 동작"은 전역 후킹 없이는 못 하는 요구라 함께
+// 포기(트레이 메뉴가 떠 있는 동안 허용하려던 이전 시도도 같은 이유로 이미 포기했었음
+// — Menu 트래킹 루프가 JS 이벤트 루프를 막아 콜백 자체가 안 불림, 실사용 확인).
 
 /**
  * 창을 (재)선택할 때 호출 — 선택 모드였다면 일반 모드로 되돌린다. 새로 선택한 창은

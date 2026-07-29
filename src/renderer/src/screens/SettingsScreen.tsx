@@ -5,6 +5,7 @@ import { MW_DICTIONARY_SIGNUP_URL } from '@shared/dictionaries'
 import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 import { goto } from '../navigate'
+import { IS_MAC, toAccelerator } from '../shortcutMatch'
 import {
   ProviderLogo,
   CheckIcon,
@@ -157,37 +158,6 @@ function validationMessage(code?: QuestionErrorCode): string {
       return '키를 확인하지 못했습니다.'
   }
 }
-
-const NON_KEY_MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
-
-/** F1~F12 처럼 수식키 없이 단독으로도 전역 단축키로 적절한 키 */
-function isStandaloneKey(key: string): boolean {
-  return /^F([1-9]|1[0-2])$/.test(key)
-}
-
-/**
- * keydown 이벤트를 Electron accelerator 문자열로 변환 (예: 'Alt+Q', 'Command+,', 'Control+K').
- * 유효하지 않은 입력(수식키 단독, 수식키 없는 일반 키)은 null 을 돌려준다.
- * 수식키 없는 일반 단일 키(예: 'Q')를 전역 단축키로 등록하면 시스템 전역에서 그 키를
- * 가로채 정상 타이핑을 막으므로, F1~F12 를 제외하고는 최소 1개의 수식키를 요구한다.
- *
- * macOS 는 Cmd(metaKey)와 Ctrl(ctrlKey)을 서로 다른 물리 키로 취급해 각각 'Command'/
- * 'Control'로 따로 기록한다(둘 다 눌러도 됨, 'CommandOrControl' 로 뭉치지 않음) — Windows/
- * Linux 는 Cmd 키 자체가 없어 물리적으로 Ctrl 만 눌리므로 자연히 'Control' 만 기록된다.
- */
-function toAccelerator(e: KeyboardEvent): string | null {
-  if (NON_KEY_MODIFIERS.has(e.key)) return null // 수식키 단독 입력은 무시
-  const mods: string[] = []
-  if (e.metaKey) mods.push('Command')
-  if (e.ctrlKey) mods.push('Control')
-  if (e.altKey) mods.push('Alt')
-  if (e.shiftKey) mods.push('Shift')
-  const key = e.key.length === 1 ? e.key.toUpperCase() : e.key
-  if (mods.length === 0 && !isStandaloneKey(key)) return null // 수식키 없는 일반 키 거부
-  return [...mods, key].join('+')
-}
-
-const IS_MAC = navigator.platform.toUpperCase().includes('MAC')
 
 // Electron accelerator 토큰을 화면 표시용 라벨로 바꾼다. 'CommandOrControl' 은 이제 새로
 // 녹화되진 않지만, 과거에 저장된 값(예: 이전 기본값)을 열었을 때도 깨지지 않게 표시만 유지.
