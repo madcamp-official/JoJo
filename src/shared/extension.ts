@@ -80,6 +80,7 @@ export type ExtToApp =
   | SubtitleClickMsg // 페이지 안에서 확장이 직접 처리한 자막 단어 클릭(hover 하이라이트도 확장이 그림)
   | PageReadyMsg // 일반 웹페이지 본문 탐지 완료 보고(성공/부족 모두, setPageCapture 응답)
   | PageClickMsg // 페이지 안에서 확장이 직접 처리한 본문 단어 클릭
+  | { type: 'pageParagraphText'; text: string } // hover가 새 문단에 들어갈 때 CJK 형태소 분석 요청(자막 'subtitles'와 달리 문단 단위로 필요할 때만 보냄)
 
 export interface SubtitleClickMsg {
   type: 'subtitleClick'

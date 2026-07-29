@@ -174,6 +174,12 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
       case 'pageClick':
         this.emit('pageClick', { text: msg.text, anchorStart: msg.anchorStart, anchorEnd: msg.anchorEnd, url: msg.url })
         break
+      case 'pageParagraphText':
+        // 자막의 'subtitles' 케이스와 동일한 메서드를 그대로 재사용 — CJK 여부 판정·
+        // dedup(segmentedLines)·문맥 윈도우 구성까지 전부 공용 로직이라 새로 만들 필요가
+        // 없다. 응답도 동일한 'wordSegments' 메시지로 온다(articleHighlight.ts가 소비).
+        this.requestWordSegments([msg.text])
+        break
     }
   }
 

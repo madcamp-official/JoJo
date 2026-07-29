@@ -5,7 +5,8 @@ import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles } from './you
 import { extractNetflixSnapshot, isNetflixWatch, observeNetflixSubtitles, currentNetflixMovieId } from './netflix'
 import { videoCurrentTime } from './domWords'
 import { currentVideoId } from './timedtext'
-import { startHighlight, setWordSegments, type WordHit } from './highlight'
+import { startHighlight, type WordHit } from './highlight'
+import { setWordSegments } from './wordSegments'
 import { parseAnyCaptionPayload, parseWebVtt } from './captionParse'
 import { MIN_WEB_TEXT_LENGTH, type SubLine, type SubtitleSnapshot, type WordSegment } from '@shared/extension'
 import { detectRawLanguage } from '@shared/languageDetect'
@@ -322,6 +323,13 @@ function onArticleWordClicked(hit: ArticleWordHit): void {
   })
 }
 
+// hover가 새 문단에 들어갈 때(articleHighlight.ts) CJK 형태소 분석을 요청한다 — 응답은
+// 'wordSegments' 메시지로 오고(아래 리스너), wordSegments.ts 캐시에 쌓여 자막(highlight.ts)
+// 과 동일하게 소비된다.
+function requestParagraphSegments(text: string): void {
+  chrome.runtime.sendMessage({ kind: 'pageParagraphText', text })
+}
+
 function startPageCapture(): void {
   if (pageCapturing) return
   pageCapturing = true
@@ -331,7 +339,7 @@ function startPageCapture(): void {
   // 부족하면 기존 OCR 경로로 폴백하므로, 여기서 판단하지 않고 길이만 그대로 알려준다.
   chrome.runtime.sendMessage({ kind: 'pageReady', url: location.href, textLength: extraction.fullText.length })
   if (!container || extraction.fullText.length < MIN_WEB_TEXT_LENGTH) return
-  stopArticleHighlightUi = startArticleHighlight(container, extraction, onArticleWordClicked)
+  stopArticleHighlightUi = startArticleHighlight(container, extraction, onArticleWordClicked, requestParagraphSegments)
 }
 
 function stopPageCapture(): void {

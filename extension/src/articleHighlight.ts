@@ -9,8 +9,10 @@
 // 대해서만 wordsInParagraph()를 지연 계산 + 캐시한다(다른 문단으로 옮길 때만 재계산).
 import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 import type { RectPx, SubWord } from '@shared/extension'
+import { unionRects } from '@shared/wordMapping'
 import type { ArticleExtraction, ArticleParagraph } from './webArticle'
 import { extractArticleText, wordsInParagraph } from './webArticle'
+import { getWordSegments } from './wordSegments'
 
 export interface ArticleWordHit {
   text: string
@@ -109,8 +111,50 @@ function paragraphOffsets(paragraphText: string, words: SubWord[]): number[] {
   return offsets
 }
 
-// hover 박스가 어떤 문단을 대상으로 할지 판정하는 데만 쓴다(캡처 시작 시점 스냅샷).
+// CJK(중국어/일본어) 문단은 domWords.ts(wordsInParagraph)가 공백 없이 글자 단위로 쪼갠다
+// — 브라우저는 스스로 단어 경계를 알 방법이 없어서다(자막과 동일한 이유, highlight.ts
+// 참고). 형태소 분석 결과를 요청할지 판단하는 데만 쓰는 가벼운 문자 판정.
+const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
+
+// 형태소 분석을 이미 요청한 문단 텍스트 — 같은 문단을 여러 번 재진입해도 중복 요청하지
+// 않는다(응답 전 다시 hover해도 재요청 안 함). 앱 쪽(bridge.ts segmentedLines)도 dedup
+// 하지만, 그건 응답이 온 뒤에나 걸러지므로 왕복 전에 여기서 먼저 거른다.
+const requestedSegments = new Set<string>()
+let requestSegmentsFn: ((text: string) => void) | null = null
+
+function ensureSegmentsRequested(paragraphText: string): void {
+  if (!CJK_CHAR_RE.test(paragraphText)) return
+  if (getWordSegments(paragraphText) || requestedSegments.has(paragraphText)) return
+  requestedSegments.add(paragraphText)
+  requestSegmentsFn?.(paragraphText)
+}
+
+// idx 번째 단어가 형태소 분석 결과(세그먼트)에 속하면 같은 세그먼트의 글자들을 하나로
+// 묶어 반환한다(rect는 union, text/오프셋은 세그먼트 경계 기준) — highlight.ts의 동일
+// 그룹핑 로직과 같은 이유. 세그먼트가 없으면(분석 전/비CJK) 단어 그대로 반환.
+function groupWordAt(
+  paragraphText: string,
+  words: SubWord[],
+  offsets: number[],
+  idx: number,
+): { rect: RectPx; text: string; start: number; end: number } {
+  const w = words[idx]!
+  const off = offsets[idx]!
+  const segments = getWordSegments(paragraphText)
+  const seg = segments?.find((s) => off >= s.start && off < s.end)
+  if (!seg) return { rect: w.rect, text: w.text, start: off, end: off + w.text.length }
+  const groupRects: RectPx[] = []
+  for (let j = 0; j < words.length; j++) {
+    if (offsets[j]! >= seg.start && offsets[j]! < seg.end) groupRects.push(words[j]!.rect)
+  }
+  // groupRects 는 항상 최소 1개(idx 자신)를 포함해 non-null.
+  return { rect: unionRects(groupRects)!, text: paragraphText.slice(seg.start, seg.end), start: seg.start, end: seg.end }
+}
+
+// hover 박스가 어떤 문단을 대상으로 할지 판정하는 데만 쓴다(캡처 시작 시점 스냅샷 —
+// 정확한 앵커 계산은 클릭 시 resolveClick 이 항상 다시 라이브로 만든다).
 let paragraphByEl: Map<HTMLParagraphElement, ArticleParagraph> = new Map()
+let fullTextRef = ''
 // 클릭 시 fullText 를 다시 추출하려면 컨테이너가 필요하다(아래 resolveClick 참고).
 let containerRef: Element | null = null
 
@@ -126,16 +170,21 @@ function findWordIndexAt(words: SubWord[], x: number, y: number): number {
 function hoverHitAt(x: number, y: number): RectPx | null {
   const target = document.elementFromPoint(x, y)
   const p = target?.closest<HTMLParagraphElement>('p') ?? null
-  if (!p || !paragraphByEl.has(p)) {
+  const info = p ? paragraphByEl.get(p) : undefined
+  if (!p || !info) {
     invalidateCache()
     return null
   }
   if (cachedParagraph !== p) {
     cachedParagraph = p
     cachedWords = wordsInParagraph(p)
+    ensureSegmentsRequested(fullTextRef.slice(info.start, info.end))
   }
   const idx = findWordIndexAt(cachedWords, x, y)
-  return idx >= 0 ? cachedWords[idx]!.rect : null
+  if (idx < 0) return null
+  const paragraphText = fullTextRef.slice(info.start, info.end)
+  const offsets = paragraphOffsets(paragraphText, cachedWords)
+  return groupWordAt(paragraphText, cachedWords, offsets, idx).rect
 }
 
 // 클릭 지점의 앵커(본문 전체 텍스트 + 절대 오프셋)를 계산한다. 캡처 시작 시점에 만든
@@ -157,14 +206,16 @@ function resolveClick(x: number, y: number): ArticleWordHit | null {
   const words = wordsInParagraph(p)
   const idx = findWordIndexAt(words, x, y)
   if (idx < 0) return null
-  const w = words[idx]!
   const paragraphText = fresh.fullText.slice(info.start, info.end)
-  const off = paragraphOffsets(paragraphText, words)[idx]!
+  const offsets = paragraphOffsets(paragraphText, words)
+  // 세그먼트가 아직 응답 전이면(드묾 — hover 때 이미 요청해뒀을 확률이 높음) 글자 단위로
+  // 폴백한다(highlight.ts와 동일 특성).
+  const grouped = groupWordAt(paragraphText, words, offsets, idx)
   return {
-    text: w.text,
+    text: grouped.text,
     fullText: fresh.fullText,
-    anchorStart: info.start + off,
-    anchorEnd: info.start + off + w.text.length,
+    anchorStart: info.start + grouped.start,
+    anchorEnd: info.start + grouped.end,
   }
 }
 
@@ -202,10 +253,13 @@ export function startArticleHighlight(
   container: Element,
   extraction: ArticleExtraction,
   onClickFn: (hit: ArticleWordHit) => void,
+  requestSegments: (text: string) => void,
 ): () => void {
   containerRef = container
+  fullTextRef = extraction.fullText
   paragraphByEl = new Map(extraction.paragraphs.map((p) => [p.el, p]))
   onWordClick = onClickFn
+  requestSegmentsFn = requestSegments
   window.addEventListener('mousemove', onMouseMove, true)
   window.addEventListener('click', onClick, true)
   window.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
@@ -220,7 +274,10 @@ export function startArticleHighlight(
     hideBox()
     invalidateCache()
     paragraphByEl = new Map()
+    fullTextRef = ''
     containerRef = null
     onWordClick = null
+    requestSegmentsFn = null
+    requestedSegments.clear()
   }
 }

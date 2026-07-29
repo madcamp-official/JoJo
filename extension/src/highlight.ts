@@ -5,8 +5,9 @@
 // 좌표를 그대로 쓸 수 있어 브라우저 크롬 오프셋 보정도 필요 없다. 스타일은
 // shared/highlightStyle.ts(오버레이와 동일 소스)를 그대로 읽어 인라인 스타일로 적용한다.
 import { WORD_BOX_STYLE } from '@shared/highlightStyle'
-import type { RectPx, SubLine, WordSegment } from '@shared/extension'
+import type { RectPx, SubLine } from '@shared/extension'
 import { unionRects } from '@shared/wordMapping'
+import { getWordSegments } from './wordSegments'
 
 export interface WordHit {
   text: string
@@ -16,12 +17,9 @@ export interface WordHit {
 
 // CJK(중국어/일본어) 자막 줄은 youtube.ts가 공백 없이 글자 단위로 쪼개서 넘긴다(브라우저가
 // 스스로 단어 경계를 알 방법이 없어서) — 앱이 자신의 zh/ja 세그멘터로 분석한 결과를
-// 받으면(content.ts 경유) 여기 캐시해뒀다가, hover 히트테스트 시 같은 세그먼트에 속한
-// 글자들의 rect 를 하나로 묶어 보여준다. 아직 분석 결과가 없는 줄은 글자 단위로 폴백한다.
-const wordSegmentsByLine = new Map<string, WordSegment[]>()
-export function setWordSegments(lineText: string, words: WordSegment[]): void {
-  wordSegmentsByLine.set(lineText, words)
-}
+// 받으면(content.ts 경유, wordSegments.ts 에 캐시) hover 히트테스트 시 같은 세그먼트에
+// 속한 글자들의 rect 를 하나로 묶어 보여준다. 아직 분석 결과가 없는 줄은 글자 단위로
+// 폴백한다.
 
 let box: HTMLDivElement | null = null
 
@@ -115,7 +113,7 @@ function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect:
       offsets.push(off)
       searchFrom = off + w.text.length
     }
-    const segments = wordSegmentsByLine.get(line.text)
+    const segments = getWordSegments(line.text)
     for (let i = 0; i < line.words.length; i++) {
       const w = line.words[i]!
       const r = w.rect
