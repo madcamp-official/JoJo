@@ -107,6 +107,10 @@ interface NetflixTrack {
 }
 
 let lastNetflixMovieId = ''
+// 매니페스트로 받은 트랙 목록을 저장해뒀다가, 화면에 자막이 실제로 떠서 언어를 판정할 수
+// 있을 때 그 언어에 맞는 트랙을 골라 fetch 한다 — 매니페스트는 재생 극초반(자막 아직 안
+// 뜸)에 오므로, 그 시점에 언어를 정하면 화면 자막이 뭐든 항상 기본값(en)으로 잘못 고른다.
+let pendingNetflix: { movieId: string; tracks: NetflixTrack[] } | null = null
 
 // 화면 자막 텍스트로 언어를 대략 추정한다(subtitleSource.ts의 휴리스틱과 같은 목적) —
 // 넷플릭스 트랙 language 코드와 매칭해 화면에 보이는 언어의 트랙을 고른다.
@@ -125,7 +129,7 @@ function trackWebvttUrl(t: NetflixTrack): string | undefined {
   return undefined
 }
 
-function pickNetflixTrack(tracks: NetflixTrack[]): NetflixTrack | null {
+function pickNetflixTrack(tracks: NetflixTrack[], domText: string): NetflixTrack | null {
   // rawTrackType 은 대소문자가 포맷에 따라 달라(SUBTITLES/subtitles) 소문자로 맞춰 비교하고,
   // 강제 자막(isForcedNarrative)·끄기 트랙(isNoneTrack)은 제외한다. 실제 다운로드 URL이
   // 있는(=hydrated) 트랙만 후보로 본다.
@@ -136,17 +140,25 @@ function pickNetflixTrack(tracks: NetflixTrack[]): NetflixTrack | null {
     return !!trackWebvttUrl(t)
   })
   if (candidates.length === 0) return null
-  const domText = extractNetflixSnapshot()?.lines.map((l) => l.text).join(' ') ?? ''
+  // 화면에 보이는 자막 언어와 맞는 트랙을 우선한다 — 매칭 실패 시에만 첫 트랙으로 폴백.
   const prefix = detectDomLanguagePrefix(domText)
   return candidates.find((t) => t.language?.startsWith(prefix)) ?? candidates[0]!
 }
 
-async function fetchNetflixTranscript(movieId: string, tracks: NetflixTrack[]): Promise<void> {
-  const track = pickNetflixTrack(tracks)
+// pendingNetflix(매니페스트)가 있고 화면에 자막이 떠 있으면, 그 언어로 트랙을 골라 확보한다.
+// 화면 자막이 아직 없으면(재생 초반) 언어 판정을 못 하니 다음 스냅샷에서 재시도한다.
+function maybeFetchNetflixTranscript(): void {
+  const p = pendingNetflix
+  if (!p || p.movieId === lastNetflixMovieId) return
+  const domText = extractNetflixSnapshot()?.lines.map((l) => l.text).join(' ') ?? ''
+  if (!domText.trim()) return // 화면 자막이 아직 없음 — 언어 판정 불가, 다음 프레임 대기
+  void fetchNetflixTranscript(p.movieId, p.tracks, domText)
+}
+
+async function fetchNetflixTranscript(movieId: string, tracks: NetflixTrack[], domText: string): Promise<void> {
+  const track = pickNetflixTrack(tracks, domText)
   const url = track ? trackWebvttUrl(track) : undefined
   if (!url) {
-    // 첫 매니페스트는 아직 webvtt 프로필 요청 주입 전에 온 것일 수 있다(재시도 대기) —
-    // lastNetflixMovieId 를 여기서 잠그면 이후 성공할 매니페스트도 무시되니 잠그지 않는다.
     const withUrl = tracks.filter((t) => !!trackWebvttUrl(t)).length
     console.log(
       `[nuance content] 넷플릭스 webvtt 트랙 선택 실패(tracks=${tracks.length}, url보유=${withUrl}) — 다음 매니페스트 대기`,
@@ -174,14 +186,19 @@ window.addEventListener('message', (ev) => {
   const data = ev.data as { source?: string; kind?: string; movieId?: string; tracks?: NetflixTrack[] } | undefined
   if (!data || data.source !== 'nuance-mainworld' || data.kind !== 'netflixManifest') return
   if (!data.movieId || !data.tracks) return
-  if (data.movieId === lastNetflixMovieId) return // 이미 이 영화 자막을 확보했으면 스킵
   console.log(`[nuance content] 넷플릭스 매니페스트 수신: movieId=${data.movieId} tracks=${data.tracks.length}`)
-  void fetchNetflixTranscript(data.movieId, data.tracks)
+  // 즉시 fetch 하지 않고 저장만 — 화면 자막이 떠서 언어를 판정할 수 있을 때(pushSnapshot →
+  // maybeFetchNetflixTranscript) 그 언어로 트랙을 골라 확보한다.
+  pendingNetflix = { movieId: data.movieId, tracks: data.tracks }
+  maybeFetchNetflixTranscript()
 })
 
 function pushSnapshot(): void {
   if (!capturing) return
   const snapshot = activeSnapshot()
+  // 넷플릭스: 화면 자막이 떴으면 그 언어로 전체 자막을 확보한다(매니페스트가 이미 저장돼
+  // 있고 아직 이 영화 자막을 안 보냈을 때만 실제 fetch, 나머지는 즉시 반환이라 저렴).
+  if (isNetflixWatch()) maybeFetchNetflixTranscript()
   // 동일 프레임 중복 전송 방지(디버그 로그용, 좌표+텍스트가 같으면 스킵). null 도 한 번만 보낸다.
   const sig = snapshot ? JSON.stringify(snapshot) : 'null'
   if (sig === lastSent) return
@@ -193,7 +210,13 @@ function startCapture(): void {
   if (capturing) return
   capturing = true
   lastSent = ''
-  const observe = isNetflixWatch() ? observeNetflixSubtitles : observeSubtitles
+  const netflix = isNetflixWatch()
+  // 넷플릭스 매니페스트 요청은 재생 시작 때 한 번뿐이라, 이미 재생 중인 페이지에서 선택
+  // 모드에 진입하면 그 요청이 이미 지나가 못 잡는다(예전엔 새로고침해야 문맥이 떴음) —
+  // MAIN world 훅(netflixNetworkHook.ts)이 마지막 매니페스트를 캐시해두므로, 캡처를 켤 때
+  // 재전송을 요청해 저장된 매니페스트를 즉시 받아온다.
+  if (netflix) window.postMessage({ source: 'nuance-content', kind: 'requestNetflixManifest' }, '*')
+  const observe = netflix ? observeNetflixSubtitles : observeSubtitles
   stopObserving = observe(() => pushSnapshot())
   // MutationObserver 가 자막 등장/좌표 변화를 놓치는 경우를 대비한 폴링 폴백(중복은 dedup 됨,
   // 앱으로 보내는 디버그 스냅샷용 — hover/클릭 자체는 liveLines()로 즉석 측정이라 무관).
