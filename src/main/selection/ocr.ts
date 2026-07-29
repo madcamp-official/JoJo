@@ -449,7 +449,26 @@ async function recognizeRegion(
     words.push(...lineWords)
   }
 
-  return { text: words.map((word) => word.text).join(''), words }
+  const text = words.map((word) => word.text).join('')
+  if (process.env.DEBUG_OCR_DUMP) {
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    // 담당 A — text/words 오프셋 어긋남 진단용(2026-07-30, 사용자 제보 — 클릭이 다른
+    // 단어에 매핑됨). 각 word 의 누적 오프셋을 같이 남겨서, 어느 word 부터 실제 화면
+    // 텍스트와 어긋나는지 눈으로 바로 짚을 수 있게 한다.
+    let acc = 0
+    const dump = words.map((word) => {
+      const entry = { text: word.text, bbox: word.bbox ?? null, start: acc, end: acc + word.text.length }
+      acc += word.text.length
+      return entry
+    })
+    writeFileSync(
+      join(process.env.DEBUG_OCR_DUMP, `tesswords-${Date.now()}.json`),
+      JSON.stringify({ text, words: dump }, null, 2),
+    )
+  }
+
+  return { text, words }
 }
 
 /**

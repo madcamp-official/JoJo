@@ -20,6 +20,7 @@ import {
   buildDisplayText,
   buildSelectionModel,
   deriveContext,
+  displayOffsetToAbsolute,
   DISPLAY_CONTEXT_LINES_AFTER,
   DISPLAY_CONTEXT_LINES_BEFORE,
 } from './popup/selection'
@@ -275,6 +276,14 @@ export function PopupScreen() {
   // range 가 가리키는 atom 인덱스는 model(atoms 배열)이 바뀌면 의미가 달라진다(아래 참고) —
   // "지금 선택된 문자 범위"를 atom 인덱스와 별개로 기억해뒀다가, model 이 바뀌어도 같은
   // 문자 범위를 새 atom 인덱스로 재매핑하는 데 쓴다.
+  //
+  // **원문(extracted.text) 절대 좌표로 기억한다**(2026-07-30 수정) — 예전엔 displayText
+  // 좌표로 기억했는데, model 이 바뀌는 이유 중 measuredRange 도착(근사 창 → 측정 창)은
+  // atoms 구조만이 아니라 표시 창 시작점(windowStart) 자체가 이동해서, 낡은 표시 좌표를
+  // 새 창의 atoms 에 그대로 얹으면 수십 자 뒤의 엉뚱한 단어(들)로 재매핑됐다(실사용 확인,
+  // "yet 을 눌렀는데 sandy hole 이 선택됨" — 창 이동량만큼 밀리므로 클릭마다 밀림량도
+  // 달라 보였음). 절대 좌표로 기억하고 비교할 때도 각 atom 을 절대 좌표로 변환하면
+  // 창이 어떻게 바뀌든 항상 같은 원문 범위를 가리킨다.
   const lastSpanRef = useRef<{ start: number; end: number } | null>(null)
   const prevBaseCtxRef = useRef(baseCtx)
 
@@ -282,7 +291,12 @@ export function PopupScreen() {
     setRange({ from, to })
     const a = model.atoms[from]
     const b = model.atoms[to]
-    if (a && b) lastSpanRef.current = { start: Math.min(a.start, b.start), end: Math.max(a.end, b.end) }
+    if (a && b) {
+      lastSpanRef.current = {
+        start: displayOffsetToAbsolute(model, Math.min(a.start, b.start)),
+        end: displayOffsetToAbsolute(model, Math.max(a.end, b.end)),
+      }
+    }
   }
 
   // model 이 바뀔 때(baseCtx 자체가 바뀜 / charLevel 토글 / jaResult·zhWords 도착 등) 항상
@@ -291,7 +305,8 @@ export function PopupScreen() {
   // 선택이 초기화돼버리는 버그가 있었다(실사용 확인, 2026-07-29 — 글자 단위 선택 토글을
   // 누르면 드래그해둔 범위가 사라짐). baseCtx 자체가 바뀐 경우(진짜 다른 선택으로 교체)만
   // initialFrom/To로 리셋하고, 그 외(같은 baseCtx인데 atoms 구조만 바뀐 경우)는 직전
-  // 선택의 문자 범위(lastSpanRef)와 겹치는 새 atom 인덱스로 재매핑해 선택을 유지한다.
+  // 선택의 문자 범위(lastSpanRef, 원문 절대 좌표)와 겹치는 새 atom 인덱스로 재매핑해
+  // 선택을 유지한다.
   useEffect(() => {
     const baseCtxChanged = prevBaseCtxRef.current !== baseCtx
     prevBaseCtxRef.current = baseCtx
@@ -302,7 +317,9 @@ export function PopupScreen() {
       let newTo = -1
       for (let i = 0; i < model.atoms.length; i++) {
         const atom = model.atoms[i]!
-        if (atom.end > span.start && atom.start < span.end) {
+        const atomStart = displayOffsetToAbsolute(model, atom.start)
+        const atomEnd = displayOffsetToAbsolute(model, atom.end)
+        if (atomEnd > span.start && atomStart < span.end) {
           if (newFrom < 0) newFrom = i
           newTo = i
         }
