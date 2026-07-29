@@ -36,6 +36,14 @@ export function rangeRect(node: Text, start: number, end: number): RectPx | null
 // 여기서는 클릭 지점의 글자 하나만 정확히 짚으면 된다.
 const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
 
+// 팝업의 영문 단어 판정 규칙(popup/selection.ts LATIN_ATOM_RE)과 동일하게, 문장부호를
+// 단어 밖으로 뺀다 — 문자/숫자 연속(+ 아포스트로피로 이어진 축약형, 예: don't)만 한 단어로
+// 본다. 팝업은 이미 이 규칙으로 선택하는데 hover 박스는 콤마/마침표까지 포함하고 있어서
+// 팝업 선택 범위와 안 맞아 보이는 문제가 있었다(2026-07-29 사용자 제보 — "Truthfully,"
+// 처럼 쉼표까지 박스에 들어감). \p{L}\p{N}(유니코드 문자/숫자)이라 라틴뿐 아니라 한글·
+// 키릴 등 CJK 가 아닌 모든 문자권에 동일하게 적용된다.
+const WORD_ATOM_RE = /[\p{L}\p{N}]+(?:['’][\p{L}]+)*/gu
+
 function wordsFromTextNode(node: Text): SubWord[] {
   const full = node.textContent ?? ''
   const words: SubWord[] = []
@@ -52,11 +60,21 @@ function wordsFromTextNode(node: Text): SubWord[] {
       i += 1
       continue
     }
-    // 그 외(라틴 등)는 공백 또는 CJK 문자를 만날 때까지를 한 단어로 묶는다.
+    // 그 외(라틴/한글/키릴 등)는 공백 또는 CJK 문자를 만날 때까지 우선 묶은 뒤, 그 구간
+    // 안에서 WORD_ATOM_RE 로 문장부호를 뺀 실제 단어(들)만 골라낸다 — 하이픈처럼 팝업의
+    // LATIN_ATOM_RE 에도 안 걸리는 구두점으로 이어진 구간은 여러 단어로 쪼개질 수 있다
+    // (예: "well-known" → well / known, 팝업과 동일).
     let j = i + 1
     while (j < full.length && !/\s/.test(full[j]!) && !CJK_CHAR_RE.test(full[j]!)) j += 1
-    const rect = rangeRect(node, i, j)
-    if (rect) words.push({ text: full.slice(i, j), rect })
+    const run = full.slice(i, j)
+    WORD_ATOM_RE.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = WORD_ATOM_RE.exec(run))) {
+      const start = i + m.index
+      const end = start + m[0].length
+      const rect = rangeRect(node, start, end)
+      if (rect) words.push({ text: m[0], rect })
+    }
     i = j
   }
   return words
