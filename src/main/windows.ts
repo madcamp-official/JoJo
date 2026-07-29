@@ -691,6 +691,17 @@ export function createPopupWindow(
     shell.openExternal(url)
     return { action: 'deny' }
   })
+  if (process.platform === 'darwin') {
+    // 넷플릭스/유튜브를 전체화면(자기 전용 Space)으로 보다가 자막을 눌러 팝업을 여는
+    // 경우(2026-07-29 재수정) — 예전엔 팝업 창을 재사용해서(destroy 없이 내용만 갱신)
+    // macOS 가 "이미 있던 창"으로 취급해 같은 Space 위에 그냥 보여줬는데, 매번 새
+    // BrowserWindow 를 만드는 지금 방식(바로 위 destroy+재생성 변경)에서는 "새로 나타난
+    // 창"을 전체화면 Space 위에 바로 못 띄우고 별도 Space 를 새로 만들어 그리로 전환해버렸다
+    // (사용자 피드백 — "옆 데스크탑으로 이동해서 따로 뜬다"). `visibleOnFullScreen: true`
+    // 로 이 창이 전체화면 Space 에도 나타날 수 있다고 미리 알려주면, Space 전환 없이 그
+    // 자리(전체화면 앱 위)에 바로 뜬다.
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  }
   win.once('ready-to-show', () => forceWindowToFront(win))
   // ESC 로 팝업을 닫는다(자막 경로에선 닫힐 때 영상이 다시 재생된다 — ipc.ts).
   win.webContents.on('before-input-event', (_e, input) => {
