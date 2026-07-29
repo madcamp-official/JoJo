@@ -210,13 +210,23 @@ window.addEventListener('message', (ev) => {
 // 선택 모드에 들어가기 전(capturing=false)이어도, 유튜브/넷플릭스 영상 탭에 있는 동안은
 // 백그라운드에서 계속 전체 자막 확보를 미리 시도해둔다(사용자 요청, 2026-07-29 — "새로고침
 // 안 해도 알아서 미리 받아올 수 없냐") — 그래야 나중에 실제로 선택 모드에 들어가 클릭할
-// 때는 이미 도착해 있을 확률이 훨씬 높아진다. `maybeFetchNetflixTranscript` 자체가
-// "이미 이 영화·언어 조합을 확보했으면 즉시 반환"(`lastNetflixKey`)이라 매초 불러도
-// 저렴하다. 유튜브는 이 폴링이 필요 없다 — 네트워크 가로채기(`networkHook.ts`)가
-// capturing 여부와 무관하게 이미 항상 켜져 있어서 별도 트리거가 없어도 된다.
+// 때는 이미 도착해 있을 확률이 훨씬 높아진다. 유튜브는 이 폴링이 필요 없다 — 네트워크
+// 가로채기(`networkHook.ts`)가 capturing 여부와 무관하게 이미 항상 켜져 있어서 별도
+// 트리거가 없어도 된다.
+//
+// **성능 버그 수정(2026-07-29, "팝업이 다시 느려졌다" 제보)**: `maybeFetchNetflixTranscript`
+// 는 `lastNetflixKey` 로 "이미 확보했으면 스킵"하지만, 그 체크 전에 매번
+// `extractNetflixSnapshot()`(DOM 순회 + `getClientRects()` layout 강제)을 먼저 돌려서
+// domText 를 만들었다 — 이미 확보를 끝낸 뒤에도 이 비싼 스캔을 초당 한 번씩 무한히
+// 반복하고 있었다. 이 패시브 폴링의 목적은 "선택 모드 진입 전 한 번 미리 받아두기"뿐이라,
+// 이 영화(movieId)에 대해 이미 뭔가(어느 언어든) 확보돼 있으면 스캔 자체를 건너뛴다 —
+// 활성 캡처(`pushSnapshot`, 선택 모드 중)는 이 가드 없이 그대로 매 틱 재확인해 자막 언어
+// 전환도 계속 감지한다(기존 동작 그대로).
 const PREFETCH_INTERVAL_MS = 1000
 setInterval(() => {
-  if (isNetflixWatch()) maybeFetchNetflixTranscript()
+  if (!isNetflixWatch()) return
+  if (pendingNetflix && lastNetflixKey.startsWith(`${pendingNetflix.movieId}|`)) return
+  maybeFetchNetflixTranscript()
 }, PREFETCH_INTERVAL_MS)
 
 function pushSnapshot(): void {
