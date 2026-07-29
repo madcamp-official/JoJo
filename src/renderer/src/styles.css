@@ -449,64 +449,20 @@ button:disabled { cursor: not-allowed; }
 /* 선택 결과 표시 — 예전엔 진보라 배경+흰 글자였는데, hover 박스(word-box, 연보라 배경+
    진보라 테두리+둥근 모서리)와 톤을 맞춰달라는 요청(2026-07-29)으로 변경. 글자색은
    더 이상 덮어쓰지 않아(연보라 배경 위에도 원래 어두운 글자색 그대로 잘 읽힘) 별도
-   지정하지 않는다.
-   여러 단어를 선택했을 때 각 atom/gap 마다 outline(네 변 전부)을 그리면 단어마다 따로
-   테두리 박스로 보여 분절돼 보인다(사용자 피드백, 2026-07-29 — "dining rooms all were
-   on the same"처럼 여러 단어 선택 시 단어마다 따로 박스로 쪼개져 보임). 그래서 위/아래
-   테두리만 모든 선택 세그먼트에 공통으로 긋고(같은 줄에서 자연히 이어진 하나의 띠로
-   보임), 좌/우 테두리와 둥근 모서리는 선택 범위의 맨 처음(`.sel-start`)·맨 끝
-   (`.sel-end`) 세그먼트에만 줘서 양 끝만 마감되고 중간은 이어지게 한다(ContextView.tsx
-   가 렌더링 시 계산). border 대신 box-shadow(inset)를 쓴다 — border/outline과 달리
-   레이아웃에 전혀 관여하지 않으면서 변(top/bottom/left/right)을 따로 조합할 수 있어서
-   (outline은 네 변을 따로 못 그림), 선택 중에도 글자 크기·줄바꿈이 흔들리지 않는다. */
-/* 텍스트에 배경이 바로 붙어 있어 답답해 보인다는 피드백(2026-07-29 — "보라 영역이 너무
-   텍스트에 붙어있다")으로 글자와 테두리 사이에 여백(2px)을 준다. 테두리 두께는 hover
-   박스(word-box, 2px)와 맞췄다가 "너무 두껍다"는 재피드백으로 원래 두께(1.5px)로 되돌림
-   — 모서리 반지름(5px)과 배경(rgba(124, 58, 237, 0.18))은 word-box 와 계속 맞춘 상태로
-   유지. `border` 대신 비-inset(바깥쪽) box-shadow 를 겹쳐 쓴다 — 안쪽 겹(연보라, 2px)이
-   글자와 테두리 사이 여백을, 바깥 겹(진보라, 1.5px 더)이 그 바로 바깥에 테두리 링을
-   그린다. 두 겹 다 **spread 가 아니라 방향별 offset** 으로만 만든다(위/아래/좌/우 각각
-   독립된 box-shadow 항목) — spread 를 쓰면 그 겹의 반지름이 spread 만큼 자동으로 커져
-   (border-radius+spread) 바깥 겹(반지름 그대로)과 안쪽 겹(반지름이 커짐)이 모서리에서
-   서로 안 맞아떨어져 바깥쪽이 움푹 파인 것처럼 보이는 버그가 있었다(2026-07-29 실사용
-   확인 — "모서리 바깥쪽이 파여있다"). offset 방식은 반지름을 그대로 유지한 채 도형을
-   평행이동만 시켜서 이 문제가 없다(box-shadow 는 border 와 달리 레이아웃에 관여 안 해
-   선택 중에도 글자 크기·줄바꿈이 흔들리지 않는 것도 그대로 유지). 여러 단어를 선택했을
-   때 각 세그먼트마다 네 변 다 그으면 단어마다 따로 박스로 보여 분절된다(2026-07-29 —
-   "dining rooms all were on the same" 케이스) — 위/아래는 모든 선택 세그먼트에 공통으로
-   긋고, 좌/우 테두리는 선택 범위의 맨 처음(`.sel-start`)·맨 끝(`.sel-end`) 세그먼트에만
-   줘서 중간은 이어지게 한다(ContextView.tsx 가 렌더링 시 계산). 모서리 라운드도 그 두
-   세그먼트에서 자기 쪽만. `.atom`의 기본 border-radius: 3px 이 중간 세그먼트에 남아있으면
-   인접 세그먼트와 맞닿는 자리가 둥글게 파여 틈처럼 보이는 버그가 있었다(헤드리스 크롬으로
-   원인 확인, "dining-rooms" 선택 시 가운데가 푹 들어가 보임) — 중간은 border-radius: 0
-   으로 명시적으로 초기화. */
+   지정하지 않는다. border 대신 outline 을 쓴다 — border 는 박스 모델에 관여해 선택된
+   글자만 테두리 두께(1.5px)만큼 커져 버리고(`.ctx-text`가 justify 라 이게 줄바꿈 위치까지
+   어긋나게 할 수 있음, 위 padding 관련 주석과 같은 문제), outline 은 레이아웃에 영향
+   없이 위에 그려져 선택 중에도 글자 크기·줄바꿈이 흔들리지 않는다.
+   **2026-07-29 재수정**: 이후 여러 단어 선택 시 통짜로 이어 보이게(box-shadow 분해) +
+   hover 박스 수준 여백/두께로 맞추는 시도를 했으나, 모서리가 파이거나 겹쳐 보이는
+   버그가 반복돼 사용자 요청으로 이 커밋(7842720) 당시의 단순한 형태로 되돌림 —
+   여러 단어를 선택하면 단어마다 개별 박스로 보이는 것(분절)은 이 버전의 알려진
+   특성으로 감수한다. ContextView.tsx 의 `sel-start`/`sel-end` 클래스는 계속 렌더링
+   되지만 이 규칙들이 참조하지 않아 지금은 아무 효과가 없다. */
 .ctx-text .atom.sel, .ctx-text .gap.sel {
-  background: rgba(124, 58, 237, 0.18);
-  box-shadow:
-    0 -2px 0 0 rgba(124, 58, 237, 0.18), 0 2px 0 0 rgba(124, 58, 237, 0.18),
-    0 -3.5px 0 0 var(--purple), 0 3.5px 0 0 var(--purple);
-  border-radius: 0;
-}
-.ctx-text .sel.sel-start {
-  box-shadow:
-    0 -2px 0 0 rgba(124, 58, 237, 0.18), 0 2px 0 0 rgba(124, 58, 237, 0.18), -2px 0 0 0 rgba(124, 58, 237, 0.18),
-    0 -3.5px 0 0 var(--purple), 0 3.5px 0 0 var(--purple), -3.5px 0 0 0 var(--purple);
-  border-radius: 5px 0 0 5px;
-}
-.ctx-text .sel.sel-end {
-  box-shadow:
-    0 -2px 0 0 rgba(124, 58, 237, 0.18), 0 2px 0 0 rgba(124, 58, 237, 0.18), 2px 0 0 0 rgba(124, 58, 237, 0.18),
-    0 -3.5px 0 0 var(--purple), 0 3.5px 0 0 var(--purple), 3.5px 0 0 0 var(--purple);
-  border-radius: 0 5px 5px 0;
-}
-/* 단어 하나만 선택된 흔한 경우(맨 처음=맨 끝) — 네 변 다 그어 hover 박스와 동일한 모양. */
-.ctx-text .sel.sel-start.sel-end {
-  box-shadow:
-    0 -2px 0 0 rgba(124, 58, 237, 0.18), 0 2px 0 0 rgba(124, 58, 237, 0.18),
-    -2px 0 0 0 rgba(124, 58, 237, 0.18), 2px 0 0 0 rgba(124, 58, 237, 0.18),
-    0 -3.5px 0 0 var(--purple), 0 3.5px 0 0 var(--purple),
-    -3.5px 0 0 0 var(--purple), 3.5px 0 0 0 var(--purple);
-  border-radius: 5px;
+  background: var(--theme-weak);
+  outline: 1.5px solid var(--purple);
+  border-radius: 3px;
 }
 /* 툴바 */
 .toolbar {
