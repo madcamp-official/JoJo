@@ -540,6 +540,10 @@ button:disabled { cursor: not-allowed; }
   flex: 1; resize: none; max-height: 80px;
   background: #fff; border: 1px solid #dbe0e6; border-radius: 8px;
   color: #1e2230; padding: 7px 10px; font: inherit; font-size: 15px;
+  /* .bubble 과 같은 line-height(1.5) — 기존엔 브라우저 기본 line-height(~1.2)라 한 줄
+     입력창 높이가 채팅 말풍선 한 줄 높이보다 낮아 보였다(사용자 피드백, 2026-07-29).
+     패딩(7px)은 이미 .bubble 과 동일해서 line-height 만 맞추면 한 줄 높이가 같아진다. */
+  line-height: 1.5;
 }
 .chat-input textarea:focus { outline: none; border-color: var(--theme); }
 .send-btn {
