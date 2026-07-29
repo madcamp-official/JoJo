@@ -107,6 +107,8 @@ const POS_COMMON: Record<string, CanonicalPos> = {
   pronoun: 'pronoun',
   conjunction: 'conjunction',
   interjection: 'interjection',
+  suffix: 'suffix',
+  prefix: 'prefix',
 }
 
 /** Wiktionary partOfSpeech 원문(대문자 시작)을 CanonicalPos<L> 로 매핑한다. 이 소스는

@@ -92,7 +92,11 @@ function getBundle(): Promise<JmdictBundle> {
 
 /** 실측 확인(jmdict-eng-3.6.2 전수 스캔): 이 사전에 실제로 등장하는 partOfSpeech 코드
  *  77종 전부를 다룬다. 'exp'(구/관용구)·'aux'(일반 조동사)·'unc'/'v-unspec'(미분류)처럼
- *  품사라기보다 분류 표시에 가까운 코드는 'other'로 둔다. */
+ *  품사라기보다 분류 표시에 가까운 코드는 'other'로 둔다. 'suf'/'pref'(接尾辞/接頭辞,
+ *  예: 達/たち)는 원래 'other'였는데 화면에 번역 없이 영어 "other"가 그대로 나오는
+ *  문제가 있어(사용자 피드백, 2026-07-29) `CanonicalPos<'ja'>`에 전용 카테고리를 추가해
+ *  분리했다 — `n-suf`/`n-pref`(명사적으로 쓰이는 접미/접두, 예: "명사+的")는 이 둘과
+ *  달리 계속 'noun'으로 둔다(이미 실제로 명사 역할을 하는 별개의 코드). */
 const POS_TO_CANONICAL: Record<string, CanonicalPos<'ja'>> = {
   n: 'noun',
   'n-pr': 'noun',
@@ -135,8 +139,8 @@ const POS_TO_CANONICAL: Record<string, CanonicalPos<'ja'>> = {
   cop: 'other',
   aux: 'other',
   exp: 'other',
-  suf: 'other',
-  pref: 'other',
+  suf: 'suffix',
+  pref: 'prefix',
   unc: 'other',
 }
 // v4*/v5*/v2*-k/v2*-s(五段/四段/二段 활용형 코드)는 전부 동사라 규칙적으로 채운다 — 하드코딩

@@ -143,7 +143,21 @@ export interface QuestionResult {
 
 /** 3개 언어 전부에 대응 품사가 있는 것들 — CanonicalPos<L> 이 언어별로 여기에 각자의
  *  전용 품사를 더한다. */
-type CanonicalPosCommon = 'noun' | 'verb' | 'adjective' | 'adverb' | 'pronoun' | 'conjunction' | 'interjection' | 'other'
+// suffix/prefix(접미사/접두사)는 언어 전용이 아니라 공통에 둔다 — en(MW fl)/ja(JMdict
+// suf/pref)/zh 모두 나올 수 있고, Wiktionary는 언어 불문 "Suffix"/"Prefix" 헤더를 그대로
+// 쓴다(2026-07-29, JMdict 達/たち가 전용 카테고리 없이 'other'로 뭉뚱그려져 화면에 번역
+// 안 된 영어 "other"가 그대로 새던 문제를 고치며 함께 정리).
+type CanonicalPosCommon =
+  | 'noun'
+  | 'verb'
+  | 'adjective'
+  | 'adverb'
+  | 'pronoun'
+  | 'conjunction'
+  | 'interjection'
+  | 'suffix'
+  | 'prefix'
+  | 'other'
 
 /** 언어 간 품사 분류를 최대한 겹치게 정리한 것 — 언어마다 없는 품사도 있다(일/중엔
  *  관사가 없고, 영어엔 조사가 없는 등). ja 助詞/zh 助词는 이름은 같지만 실제 기능이
@@ -156,7 +170,7 @@ type CanonicalPosCommon = 'noun' | 'verb' | 'adjective' | 'adverb' | 'pronoun' |
 export type CanonicalPos<L extends Language = Language> = L extends 'en'
   ? CanonicalPosCommon | 'preposition' | 'article' // en 전치사, 관사(a/an/the)
   : L extends 'ja'
-    ? CanonicalPosCommon | 'particle' | 'adnominal' // ja 助詞, 連体詞(この/あの/いわゆる 등 — 활용 없이 체언 수식만, 실측: JMdict "Pre-noun adjectival (rentaishi)")
+    ? CanonicalPosCommon | 'particle' | 'adnominal' // ja 助詞, 連体詞(この/あの/いわゆる 등 — 활용 없이 체언 수식만, 실측: JMdict "Pre-noun adjectival (rentaishi)"). 接尾辞/接頭辞(JMdict suf/pref)는 suffix/prefix(공통, 위 CanonicalPosCommon 참고)로 매핑
     : L extends 'zh-Hans' | 'zh-Hant'
       ? CanonicalPosCommon | 'preposition' | 'particle' | 'classifier' // zh 介词(개사), 助词, 量词
       : never

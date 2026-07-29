@@ -284,6 +284,18 @@ const POS_KO: Partial<Record<CanonicalPos, string>> = {
   interjection: '감탄사',
   classifier: '양사',
   adnominal: '연체사',
+  suffix: '접미사',
+  prefix: '접두사',
+}
+
+/** 화면에 보여줄 품사 라벨 — pos(CanonicalPos[])가 있으면 한국어로 번역해 보여주되,
+ *  'other'처럼 POS_KO 에 번역이 없는 값만 있으면(JMdict cop/aux/exp/unc/v-unspec 등,
+ *  품사라기보다 분류 표시라 전용 카테고리를 안 만들기로 한 것들 — jmdict.ts 참고) 번역
+ *  안 된 영단어 그대로("other")가 새어나오지 않도록 원본 코드(posRaw)로 대체한다
+ *  (사용자 피드백, 2026-07-29 — "達[たち]" 옆에 "other"가 그대로 보였음). */
+function posDisplayLabel(pos: CanonicalPos[] | undefined, posRaw: string | undefined): string | undefined {
+  const translated = pos?.map((p) => POS_KO[p]).filter((l): l is string => l !== undefined)
+  return translated?.length ? translated.join('/') : posRaw
 }
 
 /** 최종적으로 채팅창에 보여줄 마크다운 — 뜻풀이·예문은 LLM 이 번역한 한국어, 나머지
@@ -319,7 +331,7 @@ export function formatDictionaryAnswer(
             ? '정관사'
             : sense.definite === false
               ? '부정관사'
-              : (sense.pos?.map((p) => POS_KO[p] ?? p).join('/') ?? sense.posRaw)
+              : posDisplayLabel(sense.pos, sense.posRaw)
     const idiomTag = sense.isIdiom ? ' (관용구)' : ''
     const posSuffix = label ? ` · ${label}${idiomTag}` : ''
     // MW 는 IPA 가 아니라 자체 표기법이라 표시 직전에 IPA 근사치로 변환한다(merriamWebsterToIpa.ts).

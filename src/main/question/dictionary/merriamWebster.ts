@@ -110,6 +110,8 @@ const FL_TO_POS: Record<string, CanonicalPos<'en'>> = {
   // undefined 를 반환해 품사 자체가 통째로 비어 있었다.
   'definite article': 'article',
   'indefinite article': 'article',
+  suffix: 'suffix',
+  prefix: 'prefix',
 }
 
 /** MW 의 fl 은 entry 당 하나뿐이라 배열이라도 항상 원소 1개 — DictionarySense.pos 가
