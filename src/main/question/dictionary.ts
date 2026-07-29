@@ -216,6 +216,7 @@ async function japaneseWordCandidates(word: string): Promise<string[]> {
 function guessEnglishBaseForms(word: string): string[] {
   const lower = word.toLowerCase()
   if (lower === word && lower.length < 4) return []
+  if (word.includes("'")) return [] // 축약형("they're" 등)은 stripContraction이 따로 처리
   const candidates = new Set<string>()
 
   const maybeUndoubleAndAdd = (stem: string) => {
@@ -240,8 +241,29 @@ function guessEnglishBaseForms(word: string): string[] {
   return [...candidates]
 }
 
+/** en 축약형("they're"/"isn't" 등)의 원래 단어 후보를 뽑는다 — 실사용 중 발견(2026-07-29):
+ *  "they're"를 MW로 조회하면 `posRaw: "contraction", gloss: ["they are"]` 한 줄짜리
+ *  얇은 답만 나오는데(문법적 설명일 뿐, 대명사 "they" 자체의 뜻풀이가 아님), 정작
+ *  유용한 답은 "they"(대명사, "누구를 가리키는지" 등 실제 뜻풀이 여러 개)에 있다.
+ *  "n't"(isn't/don't/won't 등)는 어미를 통째로 떼야 하고("aren't"→"are", 어간+"n't"
+ *  분리가 아님), "won't"/"can't"는 규칙과 다른 불규칙 축약이라 따로 처리한다. 나머지
+ *  ('re/'ve/'ll/'d/'m/'s)는 어퍼스트로피 앞부분을 그대로 쓰면 된다. */
+function stripContraction(word: string): string | null {
+  const lower = word.toLowerCase()
+  if (lower === "won't") return 'will'
+  if (lower === "can't") return 'can'
+  if (lower.endsWith("n't") && lower.length > 3) return word.slice(0, -3)
+  for (const suffix of ["'re", "'ve", "'ll", "'d", "'m", "'s"]) {
+    if (lower.endsWith(suffix)) return word.slice(0, -suffix.length)
+  }
+  return null
+}
+
 function englishWordCandidates(word: string): string[] {
-  return [word, ...guessEnglishBaseForms(word)]
+  const candidates = [word, ...guessEnglishBaseForms(word)]
+  const contractionBase = stripContraction(word)
+  if (contractionBase && !candidates.includes(contractionBase)) candidates.push(contractionBase)
+  return candidates
 }
 
 /** FALLBACK_CHAINS 를 앞에서부터 순서대로 시도해 sense 가 하나라도 있는 첫 소스에서
