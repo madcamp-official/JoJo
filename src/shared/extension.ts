@@ -58,6 +58,12 @@ export interface TranscriptCue {
   text: string
 }
 
+// 자막 줄 텍스트 안에서 단어 하나의 문자 오프셋 범위(형태소 분석 결과).
+export interface WordSegment {
+  start: number
+  end: number
+}
+
 // 확장 → 앱
 export type ExtToApp =
   | { type: 'hello'; version: string } // 접속 직후 핸드셰이크
@@ -83,5 +89,9 @@ export type AppToExt =
   | { type: 'setSubtitleCapture'; active: boolean } // 자막 캡처 on/off(선택 모드 진입/이탈 시)
   | { type: 'setVideoPlayback'; play: boolean } // 영상 재생/일시정지(팝업 열림=정지, 닫힘=재생)
   | { type: 'focusTab' } // 캡처 중인 탭/브라우저 창에 OS 포커스를 되돌린다(팝업 닫힘 시)
+  // zh/ja 자막 줄의 형태소 분석 결과 — 브라우저는 공백 없는 CJK 줄을 글자 단위로만 쪼갤 수
+  // 있어서(youtube.ts), 앱이 subtitles 스냅샷에서 CJK 줄을 감지해 자신의 zh/ja 세그멘터로
+  // 분석한 뒤 내려준다. hover 박스가 이 경계로 글자들을 묶어 보여준다(highlight.ts).
+  | { type: 'wordSegments'; lineText: string; words: WordSegment[] }
 
 export type ExtMessage = ExtToApp | AppToExt

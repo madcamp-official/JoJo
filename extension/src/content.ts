@@ -3,15 +3,16 @@
 // background 가 WS 로 앱에 중계한다. 자막 캡처는 앱이 선택 모드일 때만 켜진다(setCapture).
 import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles, videoCurrentTime } from './youtube'
 import { currentVideoId } from './timedtext'
-import { startHighlight, type WordHit } from './highlight'
+import { startHighlight, setWordSegments, type WordHit } from './highlight'
 import { parseAnyCaptionPayload } from './captionParse'
-import type { SubLine } from '@shared/extension'
+import type { SubLine, WordSegment } from '@shared/extension'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).
 type FromBackground =
   | { kind: 'setCapture'; active: boolean }
   | { kind: 'requestSnapshot' }
   | { kind: 'setPlayback'; play: boolean }
+  | { kind: 'wordSegments'; lineText: string; words: WordSegment[] }
 
 function setVideoPlayback(play: boolean): void {
   const v = document.querySelector<HTMLVideoElement>('video')
@@ -130,6 +131,10 @@ chrome.runtime.onMessage.addListener((msg: FromBackground, _sender, sendResponse
     // 최신 좌표+재생시간으로 한 프레임 즉시 반환(hover/클릭 직전 앱 요청용).
     sendResponse({ snapshot: isYoutubeWatch() ? extractSubtitleSnapshot() : null })
     return true
+  } else if (msg?.kind === 'wordSegments') {
+    // 앱이 CJK 자막 줄을 형태소 분석한 결과 — hover 박스를 글자 단위가 아니라 단어
+    // 단위로 묶는 데 쓴다(highlight.ts).
+    setWordSegments(msg.lineText, msg.words)
   }
   return undefined
 })

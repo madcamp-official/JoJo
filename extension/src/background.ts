@@ -86,8 +86,22 @@ function onAppMessage(raw: unknown): void {
     case 'focusTab':
       void focusCapturedTab()
       break
+    case 'wordSegments':
+      void relayWordSegments(msg.lineText, msg.words)
+      break
     case 'welcome':
       break
+  }
+}
+
+// 앱이 CJK 자막 줄을 세그멘테이션한 결과를 캡처 중인 탭의 content script로 그대로 전달한다
+// (hover 박스를 형태소 단위로 묶는 데 씀, highlight.ts).
+async function relayWordSegments(lineText: string, words: { start: number; end: number }[]): Promise<void> {
+  if (capturedTabId === null) return
+  try {
+    await chrome.tabs.sendMessage(capturedTabId, { kind: 'wordSegments', lineText, words })
+  } catch {
+    /* content script 미로드/비대상 무시 */
   }
 }
 

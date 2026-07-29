@@ -9,11 +9,25 @@ import {
   type SubtitleClickMsg,
   type SubtitleSnapshot,
   type TranscriptCue,
+  type WordSegment,
 } from '@shared/extension'
+import { segmentChineseWords } from '../nlp/chinese'
+import { tokenizeJapanese } from '../nlp/japanese'
 
 export interface Transcript {
   videoId: string
   cues: TranscriptCue[]
+}
+
+// 자막 줄이 CJK(ja/zh)인지 판별 — 라틴 등 그 외는 null(브라우저의 공백 기준 단어 분리로
+// 이미 충분해 세그멘테이션 불필요). subtitleSource.ts의 언어 판별과 같은 휴리스틱이지만,
+// 그쪽을 그대로 import 하면 bridge.ts ↔ subtitleSource.ts 순환 참조가 생겨 여기 따로 둔다.
+function detectCjkLine(text: string): 'ja' | 'zh-Hans' | 'zh-Hant' | null {
+  if (/[぀-ヿ]/.test(text)) return 'ja'
+  if (/[一-鿿]/.test(text)) {
+    return /[们么这来国对时会说无个开关问题东买卖车马语门]/.test(text) ? 'zh-Hans' : 'zh-Hant'
+  }
+  return null
 }
 
 // 담당 B — 크롬 확장 브릿지 (Electron main 쪽 WebSocket 서버).
@@ -39,6 +53,9 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   private lastSubtitles: SubtitleSnapshot | null = null
   private lastTranscript: Transcript | null = null
   private lastCaptureActive = false
+  // 이미 세그멘테이션을 요청/전송한 자막 줄 텍스트 — subtitles 스냅샷이 자주(폴링 300ms
+  // 등) 갱신되므로 같은 줄을 반복해서 재분석하지 않는다.
+  private segmentedLines = new Set<string>()
 
   start(): void {
     if (this.wss) return
@@ -111,6 +128,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
       case 'subtitles':
         this.lastSubtitles = msg.snapshot
         this.emit('subtitles', msg.snapshot)
+        this.requestWordSegments(msg.snapshot?.lines.map((l) => l.text) ?? [])
         break
       case 'transcript':
         this.lastTranscript = { videoId: msg.videoId, cues: msg.cues }
@@ -162,6 +180,33 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
 
   getTranscript(): Transcript | null {
     return this.lastTranscript
+  }
+
+  // CJK 자막 줄을 감지해 앱의 zh/ja 세그멘터로 분석한 뒤 확장에 내려준다 — 브라우저는
+  // 공백 없는 CJK 텍스트를 글자 단위로만 쪼갤 수 있어서(youtube.ts), hover 박스를 실제
+  // 단어 단위로 묶으려면 형태소 분석 결과가 필요하다(highlight.ts). 새로 보이는 줄에
+  // 대해서만 1회 요청한다.
+  private requestWordSegments(lineTexts: string[]): void {
+    for (const text of lineTexts) {
+      if (!text || this.segmentedLines.has(text)) continue
+      const lang = detectCjkLine(text)
+      if (!lang) continue
+      this.segmentedLines.add(text)
+      void this.segmentAndSend(text, lang)
+    }
+  }
+
+  private async segmentAndSend(text: string, lang: 'ja' | 'zh-Hans' | 'zh-Hant'): Promise<void> {
+    try {
+      const words: WordSegment[] =
+        lang === 'ja'
+          ? (await tokenizeJapanese(text)).map((t) => ({ start: t.start, end: t.start + t.surface.length }))
+          : (await segmentChineseWords(text, lang)).map((w) => ({ start: w.start, end: w.end }))
+      if (words.length === 0) return
+      this.send({ type: 'wordSegments', lineText: text, words })
+    } catch (err) {
+      console.warn('[ext-bridge] 자막 줄 세그멘테이션 실패:', (err as Error)?.message)
+    }
   }
 
   // 선택 모드 진입/이탈 시 확장에 자막 캡처 on/off 를 지시한다. desired 상태를 기억해뒀다가
