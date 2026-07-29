@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
+  AnyLanguage,
   ApiKeyId,
   AppSettings,
   CaptureSource,
@@ -241,7 +242,7 @@ export function registerIpc(): void {
   // 담당 B: 구글 발음/이미지 검색 — 기본 브라우저의 새 창으로(팝업과 같은 위치·크기) 연다(google.ts)
   ipcMain.handle(
     IPC.OPEN_GOOGLE,
-    async (_e, payload: { mode: 'pron' | 'image'; text: string; lang: Language }) => {
+    async (_e, payload: { mode: 'pron' | 'image'; text: string; lang: AnyLanguage }) => {
       const url =
         payload.mode === 'pron'
           ? googlePronunciationUrl(payload.text, payload.lang)
@@ -250,11 +251,14 @@ export function registerIpc(): void {
     },
   )
 
-  // 담당 B: 네이버 사전 — 언어별 서브도메인 사전을 기본 브라우저의 새 창으로 연다(naver.ts)
+  // 담당 B: 네이버 사전 — 언어별 서브도메인 사전을 기본 브라우저의 새 창으로 연다(naver.ts).
+  // tier2-B는 url이 null(네이버 사전 자체가 없음) — 팝업 UI가 애초에 이 언어에서 네이버
+  // 버튼을 안 보여주므로 정상 경로로는 안 오지만, 방어적으로 그때는 새 창을 열지 않는다.
   ipcMain.handle(
     IPC.OPEN_NAVER_DICT,
-    async (_e, payload: { text: string; lang: Language }) => {
+    async (_e, payload: { text: string; lang: AnyLanguage }) => {
       const url = naverDictionaryUrl(payload.text, payload.lang)
+      if (!url) return
       await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
     },
   )
