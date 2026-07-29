@@ -221,6 +221,10 @@ function pushSnapshot(): void {
 }
 
 function startCapture(): void {
+  // 진단(임시, 2026-07-29): "탭 전환 시 hover 박스 안 뜸" 재현 원인 특정용 — setCapture
+  // active=true 메시지는 받았는데 capturing 이 이미 true 라 아래서 조용히 no-op 되는 건지
+  // 확인한다(이 로그가 "이미capturing=true"로 찍히면 그게 원인).
+  console.log(`[nuance content] startCapture 호출됨 (이미capturing=${capturing})`)
   if (capturing) return
   capturing = true
   lastSent = ''

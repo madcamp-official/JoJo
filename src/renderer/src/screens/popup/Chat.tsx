@@ -102,7 +102,11 @@ export function Chat({ messages, onSend, busy }: Props) {
           placeholder="궁금한 내용을 입력하세요…"
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // 한글 등 IME 조합 중에 Enter를 누르면, 아직 조합 중인 마지막 글자가 input
+            // 상태에 반영(onChange)되기 전에 submit()이 먼저 실행돼 그 글자가 입력창에
+            // 남는 문제가 있었다(예: "...출력해" 입력 후 Enter → "해"만 남음) —
+            // isComposing 이면 제출하지 않고 IME가 조합을 끝내도록 둔다.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
               submit()
             }
