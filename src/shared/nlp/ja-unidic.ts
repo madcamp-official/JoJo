@@ -9,6 +9,16 @@ import type { JaToken } from '../types'
 // 있어야 한다는 요청으로 뺐다(ja.ts 도 동일한 이유로 동일하게 뺌).
 const TE_DE = new Set(['て', 'で'])
 
+// ちゃう/じゃう(〜てしまう 축약, 助動詞로 태깅됨)는 앞 동사 활용의 일부로 흡수하지 않고
+// 그 자체로 새 단어를 시작한다 — 「食べられちゃった」를 그대로 붙이면 "食べられ"(어간+수동)
+// 와 "ちゃった"(축약+과거)를 따로 선택·조회할 수 없다는 요청(2026-07-29)으로 분리했다.
+// 다른 助動詞 체인(られる/せる/た/ます 등)은 기존대로 계속 흡수한다.
+const SHIMAU_CONTRACTION_BASE_FORMS = new Set(['ちゃう', 'じゃう'])
+
+function isShimauContraction(t: JaToken): boolean {
+  return t.pos === '助動詞' && !!t.baseForm && SHIMAU_CONTRACTION_BASE_FORMS.has(t.baseForm)
+}
+
 function combine(group: JaToken[]): JaToken {
   const first = group[0]!
   return {
@@ -24,11 +34,12 @@ export function mergeJaTokensUnidic(tokens: JaToken[]): JaToken[] {
   let i = 0
   while (i < tokens.length) {
     const t = tokens[i]!
-    if (t.pos === '動詞' || t.pos === '形容詞') {
+    if (t.pos === '動詞' || t.pos === '形容詞' || isShimauContraction(t)) {
       const group = [t]
       i++
       while (i < tokens.length) {
         const next = tokens[i]!
+        if (isShimauContraction(next)) break // ちゃう/じゃう는 흡수하지 않고 새 단어로 넘긴다
         if (next.pos === '助動詞') {
           group.push(next)
           i++
