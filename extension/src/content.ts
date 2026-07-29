@@ -7,9 +7,9 @@ import { videoCurrentTime } from './domWords'
 import { currentVideoId } from './timedtext'
 import { startHighlight, setWordSegments, type WordHit } from './highlight'
 import { parseAnyCaptionPayload, parseWebVtt } from './captionParse'
-import type { SubLine, SubtitleSnapshot, WordSegment } from '@shared/extension'
+import { MIN_WEB_TEXT_LENGTH, type SubLine, type SubtitleSnapshot, type WordSegment } from '@shared/extension'
 import { detectRawLanguage } from '@shared/languageDetect'
-import { findMainContent, extractArticleText, MIN_WEB_TEXT_LENGTH } from './webArticle'
+import { findMainContent, extractArticleText } from './webArticle'
 import { startArticleHighlight, type ArticleWordHit } from './articleHighlight'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).

@@ -5,10 +5,6 @@
 import type { SubWord } from '@shared/extension'
 import { wordsInElement } from './domWords'
 
-// 텍스트 위주 사이트로 판정하는 최소 본문 길이. 이 미만이면 OCR로 폴백한다(webSource.ts,
-// AppToExt setPageCapture 의 응답인 PageReadyMsg.textLength 로 판정).
-export const MIN_WEB_TEXT_LENGTH = 300
-
 // 본문 후보에서 제외할 컨테이너 — nav/footer/광고/댓글 등 흔한 보일러플레이트 패턴.
 // 사이트별 등록이 아니라 범용 키워드라 특정 사이트에 종속되지 않는다.
 const BOILERPLATE_PATTERN =

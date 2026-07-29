@@ -10,6 +10,12 @@ export function extWsUrl(): string {
   return `ws://${EXT_WS_HOST}:${EXT_WS_PORT}`
 }
 
+// 일반 웹페이지(뉴스·웹소설 등)를 "텍스트 위주 사이트"로 판정하는 최소 본문 길이.
+// 확장(extension/src/webArticle.ts, 본문 조립 후 스스로 판정해 pageReady 로 알림)과
+// 앱(src/main/selection/webSource.ts, 그 결과를 받아 OCR 폴백 여부 결정) 양쪽이 같은
+// 값을 봐야 해서 이 공유 프로토콜 파일에 둔다 — 어느 한쪽만 임계값을 바꾸면 어긋난다.
+export const MIN_WEB_TEXT_LENGTH = 300
+
 // 브라우저 활성 탭 정보 — 탭/URL 변화 감지 통지에 실린다(decideOcr 재판정용).
 export interface ExtActiveTab {
   tabId: number
