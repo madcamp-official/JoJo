@@ -26,7 +26,6 @@ let stopObserving: (() => void) | null = null
 let stopHighlightUi: (() => void) | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSent = ''
-let lastDiag = -1
 
 // hover/클릭 판정용 자막 줄+좌표를 그 순간 즉석에서 다시 측정한다(캐시 안 씀) — 컨트롤바
 // 자동 표시/숨김으로 자막 위치가 바뀌어도(유튜브가 이때 childList/attribute 변화를 항상
@@ -43,16 +42,6 @@ function onWordClicked(hit: WordHit): void {
     wordOffsetInLine: hit.wordOffsetInLine,
     currentTime: videoCurrentTime(),
   })
-}
-
-// 진단(임시): 화면에 자막 요소가 몇 개 보이는지 유튜브 탭 콘솔에 찍는다(개수 바뀔 때만).
-function debugCounts(): void {
-  const wins = document.querySelectorAll('.caption-window').length
-  const segs = document.querySelectorAll('.ytp-caption-segment').length
-  if (segs !== lastDiag) {
-    lastDiag = segs
-    console.log(`[nuance content] youtubeWatch=${isYoutubeWatch()} caption-window=${wins} ytp-caption-segment=${segs}`)
-  }
 }
 
 // 페이지 메인 JS 세계(networkHook.ts, manifest.json "world":"MAIN")가 가로챈 자막 관련
@@ -81,7 +70,6 @@ window.addEventListener('message', (ev) => {
 
 function pushSnapshot(): void {
   if (!capturing) return
-  debugCounts()
   const snapshot = isYoutubeWatch() ? extractSubtitleSnapshot() : null
   // 동일 프레임 중복 전송 방지(디버그 로그용, 좌표+텍스트가 같으면 스킵). null 도 한 번만 보낸다.
   const sig = snapshot ? JSON.stringify(snapshot) : 'null'
@@ -94,7 +82,6 @@ function startCapture(): void {
   if (capturing) return
   capturing = true
   lastSent = ''
-  lastDiag = -1
   stopObserving = observeSubtitles(() => pushSnapshot())
   // MutationObserver 가 자막 등장/좌표 변화를 놓치는 경우를 대비한 폴링 폴백(중복은 dedup 됨,
   // 앱으로 보내는 디버그 스냅샷용 — hover/클릭 자체는 liveLines()로 즉석 측정이라 무관).
