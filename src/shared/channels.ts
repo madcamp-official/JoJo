@@ -69,6 +69,10 @@ export const IPC = {
   // 팝업 (담당 B) — 선택 확정 후 뜨는 검색/채팅 팝업
   OPEN_POPUP: 'popup:open',
   POPUP_GET_CONTEXT: 'popup:getContext',
+  // 팝업이 실제 내용(빈 자리표시자가 아닌 baseCtx)을 그리고 첫 페인트까지 끝냈을 때
+  // 렌더러가 1회 통지 — 빈 창이 잠깐 보였다 내용으로 채워지는 깜빡임을 없애려고,
+  // 메인이 이 신호를 받을 때까지 창을 숨겨둔다(windows.ts: createPopupWindow).
+  POPUP_CONTENT_READY: 'popup:contentReady',
   OPEN_GOOGLE: 'popup:openGoogle',
   OPEN_NAVER_DICT: 'popup:openNaverDict',
   // 채팅창 마크다운 안의 링크(사전 출처 등)를 구글/네이버 버튼과 동일한 방식(기본

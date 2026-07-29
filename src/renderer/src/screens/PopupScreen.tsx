@@ -116,6 +116,24 @@ export function PopupScreen() {
     })
   }, [])
 
+  // 창이 빈 자리표시자(emptyExtraction)로 먼저 페인트된 뒤 실제 내용으로 바뀌는 깜빡임을
+  // 없애려고(2026-07-29 사용자 피드백), 메인이 창을 숨겨둔 채로 이 신호를 기다린다
+  // (windows.ts: createPopupWindow). baseCtx 가 실제 값(위 useEffect 에서 온 ctx/mock)으로
+  //바뀐 뒤 두 번의 requestAnimationFrame(브라우저가 그 프레임을 실제로 그렸다고 볼 수
+  // 있는 표준적인 방법 — 1번만으로는 페인트 전일 수 있음)을 기다렸다가 통지한다. 팝업이
+  // 열려있는 내내(글자 단위 토글, 선택 범위 변경 등으로 baseCtx 가 다시 바뀌는 경우는
+  // 없음) 딱 한 번만 필요하므로 baseCtx 참조가 최초 자리표시자에서 벗어나는 순간에만 실행.
+  const notifiedReadyRef = useRef(false)
+  useEffect(() => {
+    if (notifiedReadyRef.current) return
+    if (!baseCtx.text) return // 아직 자리표시자(emptyExtraction) — 실제 내용이 아님
+    notifiedReadyRef.current = true
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.nuance.notifyPopupContentReady())
+    })
+    return () => cancelAnimationFrame(raf1)
+  }, [baseCtx])
+
   // Esc 로 팝업 닫기 (헤더 ✕ 와 동일 동작)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

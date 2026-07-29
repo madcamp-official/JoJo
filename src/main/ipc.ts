@@ -36,6 +36,7 @@ import {
   showMacSelectionOverlay,
   setMainWindowRoute,
   setOverlayInteractive,
+  signalPopupContentReady,
   trackSelectionOverlay,
   type MainRoute,
 } from './windows'
@@ -226,6 +227,11 @@ export function registerIpc(): void {
   // 담당 B: 팝업 렌더러가 마운트 시 현재 ExtractedSelection 을 조회
   ipcMain.handle(IPC.POPUP_GET_CONTEXT, async (): Promise<ExtractedSelection | null> => {
     return getPopupContext()
+  })
+
+  // 팝업이 실제 내용을 그리고 첫 페인트까지 끝냈을 때 통지 — 그때까지 숨겨뒀던 창을 보여준다.
+  ipcMain.on(IPC.POPUP_CONTENT_READY, () => {
+    signalPopupContentReady()
   })
 
   // 담당 B: 구글 발음/이미지 검색 — 기본 브라우저의 새 창으로(팝업과 같은 위치·크기) 연다(google.ts)

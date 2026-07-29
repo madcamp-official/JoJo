@@ -632,6 +632,15 @@ export function sendOverlayNotice(text: string): void {
 //    하지 않는다(PopupScreen.tsx 참고, 2026-07-29 수정).
 let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
+// 현재 팝업 창이 "내용 준비 완료" 신호를 기다리는 중이면 그 신호를 처리할 콜백 —
+// ipc.ts 의 POPUP_CONTENT_READY 핸들러가 호출한다(createPopupWindow 참고).
+let popupShowSignal: (() => void) | null = null
+
+/** 팝업 렌더러가 실제 내용을 그리고 첫 페인트까지 끝냈을 때(POPUP_CONTENT_READY) 호출 —
+ *  그때까지 숨겨뒀던 창을 보여준다. 이미 보였거나(안전망 타임아웃 등) 창이 바뀐 뒤라면 no-op. */
+export function signalPopupContentReady(): void {
+  popupShowSignal?.()
+}
 
 const POPUP_WIDTH = 900
 const POPUP_HEIGHT = 900
@@ -702,12 +711,30 @@ export function createPopupWindow(
     // 자리(전체화면 앱 위)에 바로 뜬다.
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
-  win.once('ready-to-show', () => forceWindowToFront(win))
+  // 'ready-to-show'(첫 페인트)에 바로 win.show() 하지 않는다(2026-07-29 수정) — 그
+  // 시점엔 아직 빈 자리표시자(emptyExtraction)만 그려져 있어서, 창이 뜬 직후 실제
+  // 내용(baseCtx)으로 채워지는 깜빡임이 사용자 눈에 보였다("빈 창이 뜬 다음 내용물을
+  // 채우는 방식이라... 짧지만 눈에 보인다"). 렌더러(PopupScreen.tsx)가 실제 컨텍스트를
+  // 받아 그리고 첫 페인트까지 끝낸 뒤 IPC(`POPUP_CONTENT_READY`)로 알려줄 때만 보여준다
+  // (`ipc.ts` 핸들러가 아래 `popupShowSignal`을 호출). 그 신호가 어떤 이유로든(렌더러
+  // 버그·크래시 등) 안 오는 경우를 대비해, 일정 시간 뒤엔 안전망으로 그냥 보여준다.
+  let shown = false
+  const showOnce = () => {
+    if (shown || win.isDestroyed()) return
+    shown = true
+    clearTimeout(fallbackTimer)
+    forceWindowToFront(win)
+  }
+  const POPUP_SHOW_FALLBACK_MS = 1500
+  const fallbackTimer = setTimeout(showOnce, POPUP_SHOW_FALLBACK_MS)
+  popupShowSignal = showOnce
   // ESC 로 팝업을 닫는다(자막 경로에선 닫힐 때 영상이 다시 재생된다 — ipc.ts).
   win.webContents.on('before-input-event', (_e, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && !win.isDestroyed()) win.close()
   })
   win.on('closed', () => {
+    clearTimeout(fallbackTimer)
+    if (popupShowSignal === showOnce) popupShowSignal = null
     // popupWindow/popupContext 가 이미 "이 창 다음에 새로 열린 창" 것으로 바뀌어 있을 수
     // 있다(이 창이 닫히는 도중 거의 동시에 다음 클릭이 들어와 createPopupWindow 가 다시
     // 호출된 경우) — 그럴 때 무조건 null 로 지우면 방금 막 연 새 창의 ctx 까지 같이

@@ -173,6 +173,10 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.POPUP_GET_CONTEXT, listener)
   },
 
+  // 팝업이 실제 내용을 그리고 첫 페인트까지 끝냈을 때 1회 호출 — 빈 창이 잠깐 보였다
+  // 내용으로 채워지는 깜빡임을 없애려고, 메인이 이 신호를 받을 때까지 창을 숨겨둔다.
+  notifyPopupContentReady: (): void => ipcRenderer.send(IPC.POPUP_CONTENT_READY),
+
   openGoogle: (mode: 'pron' | 'image', text: string, lang: Language): Promise<void> =>
     ipcRenderer.invoke(IPC.OPEN_GOOGLE, { mode, text, lang }),
 
