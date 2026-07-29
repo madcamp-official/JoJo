@@ -103,8 +103,9 @@ let capturedTabId: number | null = null
 async function sendCapture(tabId: number, active: boolean): Promise<void> {
   try {
     await chrome.tabs.sendMessage(tabId, { kind: 'setCapture', active })
-  } catch {
+  } catch (err) {
     // content script 미로드/비대상 페이지면 무시.
+    console.log(`[nuance bg] sendCapture 실패 tabId=${tabId} active=${active}:`, (err as Error)?.message)
   }
 }
 
@@ -118,6 +119,7 @@ async function syncCapture(): Promise<void> {
   }
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
   const activeId = tab?.id ?? null
+  console.log(`[nuance bg] syncCapture desired=${captureDesired} activeTab=${activeId}(${tab?.url ?? ''}) prevCaptured=${capturedTabId}`)
   if (activeId === capturedTabId) return
   if (capturedTabId !== null) await sendCapture(capturedTabId, false) // 이전 탭 끄기
   if (activeId !== null) await sendCapture(activeId, true) // 새 활성 탭 켜기
