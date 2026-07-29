@@ -89,23 +89,36 @@ const WN_POS_TO_CANONICAL: Record<string, CanonicalPos<'en'>> = {
 
 // ---- synset → DictionarySense ---------------------------------------------------
 
-function synsetToSense(synsetId: string, posKey: string, synsets: OewnBundleSynsets, irregularForms?: string[]): DictionarySense<'en'> | null {
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** OEWN synset 의 example 은 synset 에 속한 모든 동의어(예: "well-to-do"/"prosperous"/
+ *  "well-off" 등)의 사용례가 한 배열에 섞여 있다 — 조회한 표제어 자신을 쓴 문장만 남긴다. */
+function filterExamplesByHeadword(examples: string[] | undefined, lemma: string): string[] | undefined {
+  if (!examples?.length) return undefined
+  const pattern = new RegExp(`\\b${escapeRegExp(lemma)}\\b`, 'i')
+  const filtered = examples.filter((ex) => pattern.test(ex))
+  return filtered.length ? filtered : undefined
+}
+
+function synsetToSense(synsetId: string, posKey: string, synsets: OewnBundleSynsets, lemma: string, irregularForms?: string[]): DictionarySense<'en'> | null {
   const synset = synsets[synsetId]
   if (!synset || !synset.definition.length) return null // gloss 는 필수 필드 — 못 채우면 이 sense 는 버린다
   return {
     pos: [WN_POS_TO_CANONICAL[baseWnPos(posKey)]],
     posRaw: posKey,
     gloss: synset.definition,
-    examples: synset.example?.length ? synset.example : undefined,
+    examples: filterExamplesByHeadword(synset.example, lemma),
     irregularForms: irregularForms?.length ? irregularForms : undefined,
   }
 }
 
 // ---- entries[lemma][posKey] → DictionaryReading -------------------------------
 
-function posInfoToReading(posKey: string, info: OewnBundleEntryPos, synsets: OewnBundleSynsets): DictionaryReading<'en'> | null {
+function posInfoToReading(lemma: string, posKey: string, info: OewnBundleEntryPos, synsets: OewnBundleSynsets): DictionaryReading<'en'> | null {
   const senses = info.synsets
-    .map((id) => synsetToSense(id, posKey, synsets, info.form))
+    .map((id) => synsetToSense(id, posKey, synsets, lemma, info.form))
     .filter((s): s is DictionarySense<'en'> => s !== null)
   if (!senses.length) return null
 
@@ -167,7 +180,7 @@ function buildEntry(lemma: string, posKeys: string[] | undefined, bundle: OewnBu
   const readings = keys
     .map((posKey) => {
       const info = byPos[posKey]
-      return info ? posInfoToReading(posKey, info, bundle.synsets) : null
+      return info ? posInfoToReading(lemma, posKey, info, bundle.synsets) : null
     })
     .filter((r): r is DictionaryReading<'en'> => r !== null)
   if (!readings.length) return null
