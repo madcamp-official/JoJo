@@ -11,6 +11,83 @@
  * 달리 모호함이 적다 — 대부분의 상용한자가 스크립트별 고유 형태를 가진다(国/國, 汉/漢 등). */
 export type Language = 'en' | 'ja' | 'zh-Hans' | 'zh-Hant'
 
+/** tier2 — 감지는 되지만(eld) LLM 사전은 없는 언어. OCR은 되고, 구글 발음 검색은 항상,
+ * 네이버 사전은 일부만 된다(어느 쪽인지는 `shared/languages.ts` LINK_LANGUAGES의
+ * naverDictCode 유무로 판정 — 있으면 tier2-A, 없으면 tier2-B). 이 유니온에 있는 언어를
+ * 나중에 tier1로 승격하려면: 여기서 빼서 위 Language 유니온에 추가 + LANGUAGES 레지스트리로
+ * 항목 이동 + dictionary.ts FALLBACK_CHAINS에 사전 소스 추가, 이 셋만 하면 된다(OCR/구글
+ * 접미어/발음표기는 LINK_LANGUAGES 값을 그대로 옮겨 재사용 가능하도록 필드 구조를 통일해둠).
+ *
+ * tier2-A(구글+네이버, eld ∩ 네이버 실제 지원 — dict.naver.com/{code}kodict/ 경로로
+ * 2026-07-30 실측 확인, 서브도메인 방식이 아님 주의):
+ *   ar cs da de el es fa fi fr he hi hr hu it ka lo nl no pl pt ro ru sq sv th tl tr uk ur vi
+ * tier2-B(구글만, eld는 되는데 네이버 사전은 없음):
+ *   am az be bg bn ca et eu gu hy is kn ko ku lt lv ml mr ms or pa sk sl sr ta te
+ * (요루바 yo는 eld는 감지하나 "발음"에 대응하는 신뢰 가능한 번역을 못 찾아 tier3로 보류) */
+export type LinkLanguage =
+  | 'ar'
+  | 'cs'
+  | 'da'
+  | 'de'
+  | 'el'
+  | 'es'
+  | 'fa'
+  | 'fi'
+  | 'fr'
+  | 'he'
+  | 'hi'
+  | 'hr'
+  | 'hu'
+  | 'it'
+  | 'ka'
+  | 'lo'
+  | 'nl'
+  | 'no'
+  | 'pl'
+  | 'pt'
+  | 'ro'
+  | 'ru'
+  | 'sq'
+  | 'sv'
+  | 'th'
+  | 'tl'
+  | 'tr'
+  | 'uk'
+  | 'ur'
+  | 'vi'
+  | 'am'
+  | 'az'
+  | 'be'
+  | 'bg'
+  | 'bn'
+  | 'ca'
+  | 'et'
+  | 'eu'
+  | 'gu'
+  | 'hy'
+  | 'is'
+  | 'kn'
+  | 'ko'
+  | 'ku'
+  | 'lt'
+  | 'lv'
+  | 'ml'
+  | 'mr'
+  | 'ms'
+  | 'or'
+  | 'pa'
+  | 'sk'
+  | 'sl'
+  | 'sr'
+  | 'ta'
+  | 'te'
+
+/** tier1(완전지원) + tier2(링크만) 통틀어 "감지/선택 가능한 모든 언어". ExtractedSelection/
+ * SelectionContext처럼 "어떤 언어인지"만 실어 나르는 자리는 이 타입을 쓰고, 사전 스키마처럼
+ * tier1 전용 기능은 계속 좁은 `Language`를 쓴다. tier3(둘 다 아님)는 값 자체가 없다는
+ * 뜻이라 이 타입엔 안 나타나고, 판별 함수가 `null`을 반환하는 식으로 표현한다. */
+export type AnyLanguage = Language | LinkLanguage
+
 /** 창 선택 UI에 보여줄 캡처 가능 창 1개 (담당 A) */
 export interface CaptureSource {
   id: string
@@ -64,7 +141,7 @@ export interface ExtractedSelection {
   anchor: { start: number; end: number }
   /** 단어 분해(+화면 좌표) — 좌표 매핑·하이라이트용 */
   words: Word[]
-  language: Language
+  language: AnyLanguage
   source: SelectionSource
   // 자막(유튜브/넷플릭스)도 DOM/timedtext 에서 그대로 가져오는 direct 추출이다 —
   // 별도 값 없이 source.kind(youtube/netflix)로 자막 경로를 구분한다.
@@ -74,7 +151,7 @@ export interface ExtractedSelection {
 /** B 가 팝업에서 범위를 확정한 결과. 질문 함수(runQuestion)의 입력. */
 export interface SelectionContext {
   selectedText: string
-  language: Language
+  language: AnyLanguage
   /**
    * 원문 전체(트리밍 없음, ExtractedSelection.text 그대로) — LLM 문맥 구성 시
    * settings.contextBytesBefore/After 만큼 여기서 직접 잘라 쓴다. 팝업이 화면에 보여주는
@@ -529,7 +606,7 @@ export type ApiKeyId = LlmProvider | 'mw'
 
 export interface AppSettings {
   llm: LlmProvider | null // 사용자가 아직 고르지 않았으면 null (기본 provider 를 임의로 정하지 않는다)
-  language: Language | 'auto'
+  language: AnyLanguage | 'auto'
   modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑). 빈 문자열 = 단축키 해제
   settingsShortcut: string // 어디서나 설정 화면을 여는 전역 단축키. 기본값: macOS 'Command+,' / 그 외 'Control+,'(settingsStore.ts). 빈 문자열 = 단축키 해제
   // 트레이 메뉴 "창 선택"/"창 선택 전환"(선택 여부와 무관하게 같은 동작: 창 선택 화면 열기) 공용 단축키.
