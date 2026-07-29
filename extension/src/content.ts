@@ -27,6 +27,11 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSent = ''
 let lastDiag = -1
 let transcriptKey: string | null = null // `${videoId}|${langHint}`
+// 네트워크 가로채기로 이미 자막을 확보한 videoId — ensureTranscript(native/InnerTube 경로)가
+// 이 video 에 대해 다시 시도해 실패(0 cues)로 덮어쓰지 않도록 videoId 단위로 완전히 막는다.
+// (transcriptKey 는 `${vid}|${hint}` 형식이라 `${vid}|intercepted` 와는 절대 일치하지 않아
+// 예전엔 이 차단이 사실상 동작하지 않았다.)
+let interceptedVideoId: string | null = null
 
 // hover/클릭 판정용 자막 줄+좌표를 그 순간 즉석에서 다시 측정한다(캐시 안 씀) — 컨트롤바
 // 자동 표시/숨김으로 자막 위치가 바뀌어도(유튜브가 이때 childList/attribute 변화를 항상
@@ -62,6 +67,7 @@ function ensureTranscript(screenText: string): void {
   const vid = currentVideoId()
   const hint = subtitleLangHint(screenText)
   if (!vid || !hint) return
+  if (vid === interceptedVideoId) return // 이미 네트워크 가로채기로 확보됨 — 폴백 재시도 안 함
   const key = `${vid}|${hint}`
   if (key === transcriptKey) return
   transcriptKey = key
@@ -98,7 +104,7 @@ window.addEventListener('message', (ev) => {
   if (sig === lastInterceptedSig) return
   lastInterceptedSig = sig
   console.log(`[nuance content] 네트워크 가로채기로 자막 확보: ${cues.length} cues (url=${data.url})`)
-  transcriptKey = `${vid}|intercepted` // ensureTranscript 의 native/InnerTube 재시도를 막음
+  interceptedVideoId = vid // ensureTranscript 의 native/InnerTube 재시도를 막음
   chrome.runtime.sendMessage({
     kind: 'transcript',
     videoId: vid,
