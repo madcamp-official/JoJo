@@ -11,9 +11,25 @@
 ;(function () {
   const CAPTION_URL_PATTERN = /timedtext|get_transcript/i
 
+  // 마지막으로 가로챈 자막 응답을 캐시한다 — 플레이어가 캡션을 요청하는 시점은 보통 영상
+  // 로드 극초반(선택 모드 진입보다 훨씬 전)인데, 그때 content script(isolated world)의
+  // message 리스너가 아직 등록 전이면 postMessage 가 그냥 유실된다(넷플릭스와 달리 이
+  // 훅엔 원래 재전송 수단이 없었다 — 2026-07-29 실사용 확인: 새로고침 없이 첫 선택 모드
+  // 진입 시 유튜브만 항상 문맥 없이 한 줄로 뜨는 원인). 넷플릭스(netflixNetworkHook.ts)와
+  // 같은 패턴으로, 캡처 시작 시 content script 가 재전송을 요청하면 캐시로 즉시 되돌려준다.
+  let lastCaption: { url: string; text: string } | null = null
+
   function post(url: string, text: string): void {
+    lastCaption = { url, text }
     window.postMessage({ source: 'nuance-mainworld', kind: 'captionResponse', url, text }, '*')
   }
+
+  window.addEventListener('message', (ev) => {
+    if (ev.source !== window) return
+    const d = ev.data as { source?: string; kind?: string } | undefined
+    if (d?.source !== 'nuance-content' || d.kind !== 'requestLastCaption') return
+    if (lastCaption) post(lastCaption.url, lastCaption.text)
+  })
 
   const origFetch = window.fetch
   window.fetch = function (...args: Parameters<typeof fetch>): ReturnType<typeof fetch> {
