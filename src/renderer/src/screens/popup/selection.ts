@@ -40,14 +40,16 @@ export interface PopupSelectionModel {
   insertions: number[]
 }
 
-// 팝업 원문 문맥 표시 범위 — 선택한 표현이 속한 줄 기준 앞 3줄 · 뒤 3줄(문단 단위,
+// 팝업 원문 문맥 표시 범위 — 선택한 표현이 속한 줄 기준 앞 2줄 · 뒤 2줄(문단 단위,
 // extracted.text 의 '\n' 구분). 예전엔 앞뒤 각 256바이트 + 문장 경계 확장
 // (computeContextRange, @shared/context)을 썼으나, 바이트 예산은 "몇 줄이 보일지"
 // 감이 안 온다는 사용자 피드백으로 줄 수 기준으로 교체(2026-07-29) — 바이트 예산
-// 개념 자체를 폐기한다. LLM 문맥(설정 화면의 Byte 범위, settings.contextBytesBefore/
-// After)은 이 표시와 완전히 별개이며 여전히 바이트 기준 그대로다(buildContextBlock 참고).
-export const DISPLAY_CONTEXT_LINES_BEFORE = 3
-export const DISPLAY_CONTEXT_LINES_AFTER = 3
+// 개념 자체를 폐기한다. 처음엔 앞뒤 각 3줄이었으나 자막처럼 한 줄=한 문장인 텍스트에서
+// 문맥이 너무 길어 보인다는 피드백으로 2줄로 축소(2026-07-29). LLM 문맥(설정 화면의
+// Byte 범위, settings.contextBytesBefore/After)은 이 표시와 완전히 별개이며 여전히
+// 바이트 기준 그대로다(buildContextBlock 참고).
+export const DISPLAY_CONTEXT_LINES_BEFORE = 2
+export const DISPLAY_CONTEXT_LINES_AFTER = 2
 
 /** text 안에서 [selStart, selEnd) 선택이 속한 줄('\n' 구분)을 찾아, 그 앞 linesBefore줄 ·
  *  뒤 linesAfter줄까지 포함하는 문자 오프셋 범위를 반환한다. 문서 시작/끝 근처라 그만큼
