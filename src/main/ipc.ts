@@ -39,7 +39,12 @@ import {
   trackSelectionOverlay,
   type MainRoute,
 } from './windows'
-import { resetToNormalMode, updateModeShortcut, updateNamedShortcut } from './selection/shortcut'
+import {
+  clearRegionEscapeShortcut,
+  resetToNormalMode,
+  updateModeShortcut,
+  updateNamedShortcut,
+} from './selection/shortcut'
 import { getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
@@ -125,6 +130,7 @@ export function registerIpc(): void {
     await submitRegionFromOverlay(rect)
     refreshExtractionCache()
     startChangeWatcher() // 영역이 확정됐으니 이 영역 안 내용 변화 감지를 시작(changeWatcher.ts)
+    clearRegionEscapeShortcut() // 드래그로 영역을 확정했으니 Esc 임시 단축키(shortcut.ts)도 해제
   })
 
   // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)

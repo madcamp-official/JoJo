@@ -70,6 +70,7 @@ export function toggleMode(): void {
   if (mode !== 'select') {
     stopChangeWatcher()
     stopSubtitleMode()
+    clearRegionEscapeShortcut()
     return
   }
   void enterSelectMode()
@@ -147,7 +148,7 @@ async function acquireRegionAutomaticallyOrAskDrag(epoch = decisionEpoch): Promi
     } else {
       // 영역이 없으면(처음 선택하는 창이거나, 리사이즈로 무효화된 뒤) 오버레이에 드래그
       // 선택을 요청한다 — 사용자가 영역을 그리면 ipc.ts(SUBMIT_REGION)가 저장 후 추출을 시작한다.
-      sendRegionSelectionNeeded()
+      requestRegionSelection()
     }
   } finally {
     detecting = false
@@ -166,7 +167,29 @@ async function acquireRegionAutomaticallyOrAskDrag(epoch = decisionEpoch): Promi
  * 끝나므로 detecting/pendingRedetect 같은 겹침 방지 장치가 필요 없다.
  */
 function acquireRegionManually(): void {
+  requestRegionSelection()
+}
+
+// 오버레이가 "영역을 드래그로 지정하세요" 배너를 띄우는 동안(Overlay.tsx: needsRegion)
+// Esc 를 누르면 선택 모드 자체를 빠져나가도록 한다(2026-07-29 사용자 요청) — 오버레이
+// 창은 focusable: false 라 렌더러가 keydown 을 직접 받을 수 없으므로(windows.ts:
+// ensureOverlayWindow) globalShortcut 을 쓴다. 사용자가 설정하는 영구 단축키가 아니라
+// 이 배너가 떠 있는 좁은 구간에서만 등록됐다 해제되는 임시 단축키라, 그 구간이 아닐 때
+// 다른 앱의 Esc 사용과 충돌하지 않는다.
+let regionEscapeRegistered = false
+
+function requestRegionSelection(): void {
+  if (!regionEscapeRegistered) {
+    regionEscapeRegistered = globalShortcut.register('Escape', resetToNormalMode)
+  }
   sendRegionSelectionNeeded()
+}
+
+/** 드래그 완료(SUBMIT_REGION)·모드 이탈 등으로 배너가 사라질 때 호출해 임시 등록을 해제한다. */
+export function clearRegionEscapeShortcut(): void {
+  if (!regionEscapeRegistered) return
+  globalShortcut.unregister('Escape')
+  regionEscapeRegistered = false
 }
 
 /**
@@ -276,4 +299,5 @@ export function resetToNormalMode(): void {
   // 자막 모드였다면 확장의 캡처도 꺼야 한다 — 안 그러면 새 창을 선택해도(또는 선택 해제해도)
   // 확장은 이전 탭에서 hover 하이라이트 박스를 계속 띄운다(탭 새로고침 전까지 안 꺼짐).
   stopSubtitleMode()
+  clearRegionEscapeShortcut()
 }
