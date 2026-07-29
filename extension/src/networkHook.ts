@@ -24,11 +24,38 @@
     window.postMessage({ source: 'nuance-mainworld', kind: 'captionResponse', url, text }, '*')
   }
 
+  // 캐시조차 없다(=이 페이지 로드 중 캡션 요청 자체를 한 번도 못 봄)면, 새로고침과 같은
+  // 효과를 내는 방법으로 지금 당장 새 요청을 강제로 일으킨다: 유튜브 플레이어의 자막
+  // 트랙을 껐다 다시 켜면(getOption/setOption — YT.Player 가 아니라 페이지가 직접 이
+  // #movie_player 엘리먼트에 붙여둔 내부 API, 재생 위치·상태는 전혀 안 건드림) 플레이어가
+  // timedtext 를 다시 요청하므로, 지금은 리스너(이 훅)가 이미 떠 있는 상태라 확실히
+  // 잡을 수 있다(2026-07-29, 사용자 요청 — "탭에 들어가면 새로고침한 것처럼 알아서
+  // 받아올 수 없냐"). 유튜브 내부 API 라 버전이 바뀌면 깨질 수 있어 실패해도 무시하고
+  // 기존 폴백(subtitleSource.ts 의 잠깐 대기 후 한 줄 폴백)으로 자연스럽게 넘어가게 둔다.
+  function forceReloadCaptions(): void {
+    try {
+      const player = document.querySelector('#movie_player') as
+        | (HTMLElement & {
+            getOption?: (module: string, option: string) => unknown
+            setOption?: (module: string, option: string, value: unknown) => void
+          })
+        | null
+      if (!player?.getOption || !player.setOption) return
+      const track = player.getOption('captions', 'track') as { languageCode?: string } | null
+      if (!track?.languageCode) return // 자막 자체가 꺼져있는 영상 — 강제로 켤 이유 없음
+      player.setOption('captions', 'track', {})
+      player.setOption('captions', 'track', track)
+    } catch {
+      /* 무시 — 실패해도 기존 폴백으로 자연스럽게 이어짐 */
+    }
+  }
+
   window.addEventListener('message', (ev) => {
     if (ev.source !== window) return
     const d = ev.data as { source?: string; kind?: string } | undefined
     if (d?.source !== 'nuance-content' || d.kind !== 'requestLastCaption') return
     if (lastCaption) post(lastCaption.url, lastCaption.text)
+    else forceReloadCaptions()
   })
 
   const origFetch = window.fetch
