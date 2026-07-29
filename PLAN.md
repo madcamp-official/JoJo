@@ -214,7 +214,7 @@ flowchart TB
 - 창 선택/화면 캡처(win32는 네이티브 우선·desktopCapturer 폴백, macOS는 창 목록에 desktopCapturer 그대로 사용), 오버레이 윈도우, 전역 단축키, 모드 전환.
 - OCR 파이프라인(캡처→언어 감지→언어 특화 OCR→좌표 매핑) + 노이즈 제거.
 - 소스별 직접 추출(txt/epub/PDF) + 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출, OCR 여부 판정 로직·판정 시점 캐싱.
-- 브라우저 확장(유튜브/넷플릭스 자막, 단어 하이라이트) + 앱과 로컬 WebSocket — 실제 구현은 자막 문맥 로직과의 결합도 때문에 담당 B로 이관됨(TODO.md 참고), DOM 텍스트(일반 웹페이지)는 A 영역으로 후속 예정.
+- 브라우저 확장(유튜브/넷플릭스 자막, 단어 하이라이트) + 앱과 로컬 WebSocket — 실제 구현은 자막 문맥 로직과의 결합도 때문에 담당 B로 이관됨(TODO.md 참고), DOM 텍스트(일반 웹페이지)는 A 영역으로 후속 예정(담당: milleion — 설계 방향·구현 상태는 TODO.md "DOM 텍스트(일반 웹페이지) 직접 추출" 항목 참고).
 - 확장이 `chrome.tabs` API로 탭/URL 변화를 감지해 WS로 앱에 보고.
 - 단어 hover 피드백·클릭 감지 → 팝업 트리거.
 - **산출**: 클릭 시점의 `ExtractedSelection`(근방 텍스트 + 단어 좌표 + 클릭 기준점)을 B로 넘긴다(최종 선택 확정은 B가 팝업에서).
@@ -401,9 +401,11 @@ JoJo/
         ├── domWords.ts          #   공용 단어 좌표 유틸(CJK 글자 단위, 후리가나 제외)
         ├── highlight.ts         #   hover 박스/클릭을 페이지 안에서 직접 렌더
         ├── networkHook.ts / netflixNetworkHook.ts  # MAIN world 네트워크 가로채기(전체 자막 확보)
-        └── timedtext.ts / captionParse.ts          # videoId 파싱 / 자막 응답 포맷 파서
+        ├── timedtext.ts / captionParse.ts          # videoId 파싱 / 자막 응답 포맷 파서
+        ├── webArticle.ts        #   🅰️ [담당: milleion, 2026-07-30 구현 완료] 일반 웹페이지(뉴스·웹소설) 본문 DOM 추출 — 사이트별 셀렉터 등록 없이 범용 본문 탐지 알고리즘(텍스트 밀도 스코어링)
+        └── articleHighlight.ts  #   🅰️ [담당: milleion] 본문 hover/클릭(highlight.ts와 같은 페이지 내 직접 처리 방식, 문단 단위 지연 계산으로 성능 대응)
 ```
 
 **시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `npm run build:ext`로 빌드한 `extension/dist`를 `chrome://extensions`에서 로드(개발자 모드 → 압축해제된 확장 프로그램 로드) — native messaging host 등록 불필요(로컬 WebSocket 사용).
 
-**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)·브라우저 확장(유튜브·넷플릭스 자막)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract/NDLOCR/PaddleOCR→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, 직접 추출(epub/pdf/web)·접근성 API(AX/UIA)·언어 자동 감지는 아직 미구현/스텁. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)·브라우저 확장(유튜브·넷플릭스 자막)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract/NDLOCR/PaddleOCR→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, DOM 텍스트(일반 웹페이지, 담당: milleion)도 2026-07-30 구현 완료(범용 본문 탐지+자막 경로와 동일한 확장 hover/클릭 direct 추출 구조, 상세는 TODO.md). 직접 추출(epub/pdf/txt)·접근성 API(AX/UIA)·언어 자동 감지는 아직 미구현/스텁. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.

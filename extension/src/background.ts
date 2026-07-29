@@ -52,6 +52,8 @@ function connect(): void {
     // 띄운다. 끊기면 일단 꺼두고, 재연결되면(bridge.ts) 앱이 원하는 상태를 다시 알려준다.
     captureDesired = false
     void syncCapture()
+    pageCaptureDesired = false
+    void syncPageCapture()
   }
   ws.onerror = () => {
     try {
@@ -79,6 +81,10 @@ function onAppMessage(raw: unknown): void {
     case 'setSubtitleCapture':
       captureDesired = msg.active
       void syncCapture()
+      break
+    case 'setPageCapture':
+      pageCaptureDesired = msg.active
+      void syncPageCapture()
       break
     case 'setVideoPlayback':
       void sendPlaybackToActiveTab(msg.play)
@@ -221,6 +227,43 @@ async function syncCapture(): Promise<void> {
   capturedTabId = activeId
 }
 
+// 일반 웹페이지 본문 캡처 — 자막 캡처(captureDesired/capturedTabId)와 독립적으로 추적한다.
+// 앱 쪽(decideOcr.ts)이 한 탭에 대해 subtitle/web 중 하나만 고르므로 실제로 동시에 둘 다
+// 켜질 일은 없지만, 이 파일은 그 판정을 모르는 채 단순 릴레이만 하므로 상태를 따로 둔다.
+let pageCaptureDesired = false
+let pageCapturedTabId: number | null = null
+
+async function sendPageCapture(tabId: number, active: boolean): Promise<void> {
+  try {
+    await chrome.tabs.sendMessage(tabId, { kind: 'setPageCapture', active })
+  } catch {
+    if (!active) return
+    const tab = await chrome.tabs.get(tabId).catch(() => null)
+    await injectContentScripts(tabId, tab?.url)
+    try {
+      await chrome.tabs.sendMessage(tabId, { kind: 'setPageCapture', active })
+    } catch {
+      // 재주입까지 했는데도 실패 — 비대상 페이지 등, 무시.
+    }
+  }
+}
+
+async function syncPageCapture(): Promise<void> {
+  if (!pageCaptureDesired) {
+    if (pageCapturedTabId !== null) {
+      await sendPageCapture(pageCapturedTabId, false)
+      pageCapturedTabId = null
+    }
+    return
+  }
+  const tab = await activeNormalTab()
+  const activeId = tab?.id ?? null
+  if (activeId === pageCapturedTabId) return
+  if (pageCapturedTabId !== null) await sendPageCapture(pageCapturedTabId, false)
+  if (activeId !== null) await sendPageCapture(activeId, true)
+  pageCapturedTabId = activeId
+}
+
 // content script → background: 화면 자막 프레임/전체 자막을 받아 앱으로 중계한다.
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.kind === 'subtitles') {
@@ -236,6 +279,10 @@ chrome.runtime.onMessage.addListener((msg) => {
       currentTime: msg.currentTime,
       videoId: msg.videoId ?? null,
     })
+  } else if (msg?.kind === 'pageReady') {
+    send({ type: 'pageReady', url: msg.url, textLength: msg.textLength })
+  } else if (msg?.kind === 'pageClick') {
+    send({ type: 'pageClick', text: msg.text, anchorStart: msg.anchorStart, anchorEnd: msg.anchorEnd, url: msg.url })
   }
   return undefined
 })
@@ -266,6 +313,7 @@ function scheduleReport(): void {
 chrome.tabs.onActivated.addListener(() => {
   scheduleReport()
   void syncCapture()
+  void syncPageCapture()
 })
 // 같은 탭 안에서 URL 이 바뀌는 경우(유튜브 SPA 네비게이션 = /watch 이동 등은 url 갱신으로 잡힘)
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
@@ -279,7 +327,11 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
     if (info.status === 'complete' && captureDesired && tabId === capturedTabId) {
       void sendCapture(tabId, true)
     }
+    if (info.status === 'complete' && pageCaptureDesired && tabId === pageCapturedTabId) {
+      void sendPageCapture(tabId, true)
+    }
     void syncCapture()
+    void syncPageCapture()
   }
 })
 // 브라우저 창 포커스 전환(다른 브라우저 창으로 이동)
@@ -287,6 +339,7 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId !== chrome.windows.WINDOW_ID_NONE) {
     scheduleReport()
     void syncCapture()
+    void syncPageCapture()
   }
 })
 

@@ -13,6 +13,7 @@ import { invalidateExtractionCache, refreshExtractionCache } from './extractionC
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
+import { isWebModeActive, startWebMode, stopWebMode } from './webSource'
 
 // 담당 A — 모드 전환 전역 단축키 (PLAN.md §3, 기본 macOS: Option+Q / Windows: Alt+Q)
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
@@ -40,8 +41,8 @@ let resizeSettleTimer: NodeJS.Timeout | null = null
 // 드래그 모드로 들어간다(오버레이가 배너를 먼저 잠깐 보여준 뒤 드래그 안내로 전환).
 onWindowResized(() => {
   if (mode !== 'select') return
-  // 자막 경로는 확장이 실시간 좌표를 주므로 창 리사이즈 시 OCR 영역 재선택이 필요 없다.
-  if (isSubtitleModeActive()) return
+  // 자막/웹 경로는 화면 좌표 기반 OCR 영역이 아예 없으므로 창 리사이즈 시 재선택이 필요 없다.
+  if (isSubtitleModeActive() || isWebModeActive()) return
   clearRegion()
   invalidateExtractionCache() // 이전 영역 기준 캐시/단어를 비움(오버레이에도 빈 배열 통지돼 박스가 사라짐)
   stopChangeWatcher() // 영역이 무효화됐으니 그 영역 기준 변화 감지도 멈춘다(재선택 후 다시 시작)
@@ -69,6 +70,7 @@ function exitSelectMode(): void {
   setOverlayMode(mode) // 오버레이 테두리 색(일반=파랑/선택=보라) 갱신 + MODE_CHANGED 통지
   stopChangeWatcher()
   stopSubtitleMode()
+  stopWebMode()
   clearRegionEscapeShortcut()
 }
 
@@ -105,20 +107,38 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
   const epoch = ++decisionEpoch
   if (decision.mode === 'subtitle') {
     // 자막 경로 — OCR 영역 선택/캡처/변화감지를 전부 중단하고 확장 자막을 쓴다.
+    stopWebMode()
     stopChangeWatcher()
     startSubtitleMode()
     return
   }
-  // 자막(미디어) 페이지였다가 아닌 페이지로 바뀐 경우(예: 유튜브 영상을 보다가 채널/홈으로
-  // 이동) — OCR 로 자동 전환하지 않고 선택 모드 자체를 끈다(사용자 요청, 2026-07-29).
-  // 영상 페이지를 벗어난 건 "이 페이지도 계속 선택하고 싶다"는 의도가 아닐 가능성이 커서,
-  // 엉뚱한 페이지에 OCR 영역 지정 드래그가 뜨는 것보다 조용히 꺼지는 쪽이 낫다고 판단.
-  if (isSubtitleModeActive()) {
+  if (decision.mode === 'web') {
+    // 일반 웹페이지 경로 — 확장의 본문 DOM 텍스트를 우선 시도한다(decideOcr.ts, 낙관적
+    // 판정). 실제 텍스트가 부족하면 startWebMode 가 이 콜백을 통해 기존 OCR 흐름으로
+    // 넘어간다(§4.1 "텍스트 양으로 분기").
+    stopSubtitleMode()
+    stopChangeWatcher()
+    startWebMode(() => startOcrFallback(epoch))
+    return
+  }
+  // 자막(미디어)/웹(텍스트 위주) 페이지였다가 그 외 페이지로 바뀐 경우(예: 유튜브 영상을
+  // 보다가 채널/홈으로 이동) — OCR 로 자동 전환하지 않고 선택 모드 자체를 끈다(사용자 요청,
+  // 2026-07-29, 웹 모드에도 동일하게 적용). 그 페이지를 벗어난 건 "이 페이지도 계속
+  // 선택하고 싶다"는 의도가 아닐 가능성이 커서, 엉뚱한 페이지에 OCR 영역 지정 드래그가
+  // 뜨는 것보다 조용히 꺼지는 쪽이 낫다고 판단.
+  if (isSubtitleModeActive() || isWebModeActive()) {
     exitSelectMode()
     return
   }
-  // OCR/direct 경로(자막 모드였던 적이 없는 일반 진입) — 기존 영역/OCR 흐름으로.
+  // OCR/direct 경로(자막/웹 모드였던 적이 없는 일반 진입) — 기존 영역/OCR 흐름으로.
   stopSubtitleMode()
+  stopWebMode()
+  startOcrFallback(epoch)
+}
+
+// OCR 영역/캡처/변화감지 흐름으로 진입한다 — decision.mode 가 애초에 ocr/direct 였을 때,
+// 그리고 web 모드가 텍스트 부족으로 startWebMode 의 콜백을 통해 폴백할 때 공유한다.
+function startOcrFallback(epoch: number): void {
   if (getRegion()) {
     refreshExtractionCache()
     startChangeWatcher()
@@ -311,8 +331,10 @@ export function resetToNormalMode(): void {
   mode = 'normal'
   setOverlayMode(mode)
   stopChangeWatcher()
-  // 자막 모드였다면 확장의 캡처도 꺼야 한다 — 안 그러면 새 창을 선택해도(또는 선택 해제해도)
-  // 확장은 이전 탭에서 hover 하이라이트 박스를 계속 띄운다(탭 새로고침 전까지 안 꺼짐).
+  // 자막/웹 모드였다면 확장의 캡처도 꺼야 한다 — 안 그러면 새 창을 선택해도(또는 선택
+  // 해제해도) 확장은 이전 탭에서 hover 하이라이트 박스를 계속 띄운다(탭 새로고침 전까지
+  // 안 꺼짐).
   stopSubtitleMode()
+  stopWebMode()
   clearRegionEscapeShortcut()
 }
