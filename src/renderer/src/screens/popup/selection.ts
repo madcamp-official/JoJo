@@ -343,6 +343,19 @@ function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWo
       i += latin[0].length
       continue
     }
+    // charLevel(글자 단위) 모드에서 위 어떤 분기에도 안 걸리는 문자(문장부호·기호 등)는
+    // 그냥 건너뛰지 않고 그 글자 하나짜리 atom 으로 만든다(2026-07-29 사용자 피드백 —
+    // "글자 단위인데 문장부호는 선택이 안 된다"). 이 문자들은 원래 atom 이 아니라 gap 으로
+    // 렌더링되는데(ContextView.tsx), gap 은 항상 가장 가까운 atom 의 선택 여부에 얹혀갈 뿐
+    // 자기 혼자 선택 시작/끝점이 될 수 없다 — "글자 단위"는 이름 그대로 일반 텍스트 드래그
+    // 처럼 어느 글자에서든 자유롭게 시작/끝낼 수 있어야 하므로, 형태소 분석 결과와 무관한
+    // 단위 구분(atom/gap) 자체를 이 모드에선 없앤다. 단어 단위 모드(charLevel=false)는
+    // 기존처럼 문장부호를 gap 취급해 인접 단어에 붙여 보이게 하는 동작을 그대로 유지한다.
+    if (charLevel) {
+      atoms.push({ start: i, end: i + 1 })
+      i += 1
+      continue
+    }
     i += 1
   }
   return atoms
