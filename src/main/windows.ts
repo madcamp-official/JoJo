@@ -204,6 +204,18 @@ const DISPLAY_EDGE_SNAP_PX = 4
  * 때만(=정말로 모니터 전체를 덮는 진짜 전체화면일 때만) 스냅하고, 그 외엔 절대
  * 손대지 않는다.
  */
+/** rect(DIP)가 display 의 물리적 진짜 경계를 (허용치 이내로) 꽉 채우는지 — "진짜 전체화면" 판정. */
+function coversWholeDisplay(rect: Electron.Rectangle, display: Electron.Display): boolean {
+  const b = display.bounds
+  const near = (a: number, v: number) => Math.abs(a - v) <= DISPLAY_EDGE_SNAP_PX
+  return (
+    near(rect.x, b.x) &&
+    near(rect.y, b.y) &&
+    near(rect.x + rect.width, b.x + b.width) &&
+    near(rect.y + rect.height, b.y + b.height)
+  )
+}
+
 function snapToDisplayEdges(rect: Electron.Rectangle, isMaximized: boolean): Electron.Rectangle {
   const display = screen.getDisplayMatching(rect)
   if (isMaximized) {
@@ -211,13 +223,7 @@ function snapToDisplayEdges(rect: Electron.Rectangle, isMaximized: boolean): Ele
     return { x: wa.x, y: wa.y, width: wa.width, height: wa.height }
   }
   const b = display.bounds
-  const near = (a: number, v: number) => Math.abs(a - v) <= DISPLAY_EDGE_SNAP_PX
-  const coversWholeDisplay =
-    near(rect.x, b.x) &&
-    near(rect.y, b.y) &&
-    near(rect.x + rect.width, b.x + b.width) &&
-    near(rect.y + rect.height, b.y + b.height)
-  return coversWholeDisplay ? { x: b.x, y: b.y, width: b.width, height: b.height } : rect
+  return coversWholeDisplay(rect, display) ? { x: b.x, y: b.y, width: b.width, height: b.height } : rect
 }
 
 const resizeListeners = new Set<() => void>()
@@ -298,7 +304,34 @@ function applyOverlayBounds(targetRect: Electron.Rectangle | null, isMaximized =
     return
   }
 
-  const bounds = snapToDisplayEdges(physicalToDipRect(targetRect), isMaximized)
+  const dipRect = physicalToDipRect(targetRect)
+
+  // 대상 창이 모니터를 진짜로(taskbar 까지) 꽉 채운 전체화면(F11 류)이면 오버레이 자체를
+  // 숨긴다 — Windows 는 포그라운드 전체화면 창 위에 다른 창이(투명·클릭스루라도) 조금이라도
+  // z-order 상 겹쳐 있으면 taskbar 자동 숨김 등 "전체화면 최적화"를 발동하지 않는다(게임
+  // 오버레이류 앱이 이 최적화를 깨는 것과 같은 원인 — 실사용 확인: 창을 선택했을 때만
+  // F11에서 taskbar 가 안 사라짐, syncOverlayZOrder 가 이 창을 계속 대상 창 바로 위에
+  // 꽂아두기 때문). 자막 모드(유튜브/넷플릭스)는 확장이 페이지 안에 직접 하이라이트를
+  // 그려서(extension/highlight.ts) 이 오버레이 창과 무관하니 숨겨도 지장이 없고, 그 외
+  // OCR 선택 모드는 전체화면인 동안만 hover/클릭이 잠깐 안 되는 트레이드오프를 감수하기로
+  // 함(사용자 결정, 2026-07-29).
+  //
+  // `isMaximized` 를 조건에 안 넣는다 — 실측 확인(진단 로그): 크롬 F11 전체화면은 창
+  // 크기를 모니터 전체로 키우면서도 `IsZoomed`(win32Capture.ts: isWindowMaximized) 는
+  // 그대로 true 로 남는다(브라우저가 "최대화" 스타일 비트를 유지한 채 프레임만 없애고
+  // 크기를 키우는 방식으로 F11 을 구현하는 듯). `!isMaximized` 를 조건에 넣었더니 이
+  // 진짜 전체화면 케이스가 전부 걸러져서 hide 가 전혀 안 됐다 — "모니터를 실제로
+  // 덮었는지"만으로 판단하면 `isMaximized` 값과 무관하게 정확히 잡힌다.
+  if (coversWholeDisplay(dipRect, screen.getDisplayMatching(dipRect))) {
+    if (overlayWindow && overlayVisible) {
+      overlayWindow.hide()
+      overlayVisible = false
+    }
+    lastBounds = null // 전체화면을 벗어나면 다음 호출에서 bounds 를 무조건 다시 맞추게
+    return
+  }
+
+  const bounds = snapToDisplayEdges(dipRect, isMaximized)
   const win = ensureOverlayWindow(bounds)
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
     notifyIfResized(bounds)
@@ -322,7 +355,11 @@ let win32CaptureMod: typeof Win32Capture | null = null
 
 /** 오버레이를 대상 창 바로 위 z-order 한 칸에 꽂는다 — 다른 창이 대상을 덮으면 같이 가려짐. */
 function syncOverlayZOrder(mod: typeof Win32Capture, hwnd: bigint): void {
-  if (!overlayWindow) return
+  // 대상 창이 진짜 전체화면이라 오버레이를 의도적으로 숨긴 상태(applyOverlayBounds)에서는
+  // z-order 를 다시 대상 창 바로 위로 꽂을 필요가 없다 — 숨겨져 있어도 굳이 다시
+  // 겹쳐두면 다음에 보일 때(showInactive)까지 그 상태가 남아 의미 없는 SetWindowPos
+  // 호출만 반복하게 된다.
+  if (!overlayWindow || !overlayVisible) return
   const overlayHwnd = overlayWindow.getNativeWindowHandle().readBigUInt64LE(0)
   mod.placeWindowJustAbove(overlayHwnd, hwnd)
 }
