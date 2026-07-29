@@ -163,6 +163,29 @@ export function ContextView({ model, from, to, onChange, charLevel, className, r
 
   const segments = toSegments(model)
 
+  // 선택된 세그먼트(atom.sel/gap.sel)들이 각자 따로 테두리 박스로 보이지 않고 한 덩어리
+  // (통짜)로 이어져 보이게 하려고, 맨 앞·맨 뒤 세그먼트만 구분해 둥근 모서리+양끝 마감을
+  // 준다(styles.css `.sel-start`/`.sel-end`) — 중간 세그먼트들은 위아래 선만 그어 같은
+  // 줄에서는 이어진 하나의 띠처럼, 줄이 바뀌면 자연스럽게 다음 줄로 이어지게 한다
+  // (사용자 피드백, 2026-07-29 — 여러 단어를 선택하면 단어마다 따로 박스로 분절돼 보임).
+  function isSegSelected(i: number): boolean {
+    const seg = segments[i]!
+    if (seg.atomIndex === null) {
+      const prev = segments[i - 1]?.atomIndex
+      const next = segments[i + 1]?.atomIndex
+      return prev != null && next != null && prev >= lo && prev <= hi && next >= lo && next <= hi
+    }
+    return seg.atomIndex >= lo && seg.atomIndex <= hi
+  }
+  const selStartIdx = segments.findIndex((_, i) => isSegSelected(i))
+  let selEndIdx = -1
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (isSegSelected(i)) {
+      selEndIdx = i
+      break
+    }
+  }
+
   return (
     <div
       ref={rootRef}
@@ -192,7 +215,14 @@ export function ContextView({ model, from, to, onChange, charLevel, className, r
           return (
             <span
               key={i}
-              className={inside ? 'gap sel' : 'gap'}
+              className={[
+                'gap',
+                inside && 'sel',
+                inside && i === selStartIdx && 'sel-start',
+                inside && i === selEndIdx && 'sel-end',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               onMouseDown={(e) => {
                 // 좌클릭으로 공백/문장부호에서 드래그가 시작되는 것만 막는다(atom 과 동일
                 // 이유). CSS user-select: none 은 안 쓴다 — 우클릭 메뉴용 선택 텍스트에서
@@ -222,7 +252,14 @@ export function ContextView({ model, from, to, onChange, charLevel, className, r
               else atomElsRef.current.delete(idx)
             }}
             data-atom-index={idx}
-            className={selected ? 'atom sel' : 'atom'}
+            className={[
+              'atom',
+              selected && 'sel',
+              selected && i === selStartIdx && 'sel-start',
+              selected && i === selEndIdx && 'sel-end',
+            ]
+              .filter(Boolean)
+              .join(' ')}
             onMouseDown={(e) => {
               if (e.button === 2) {
                 // 우클릭 — 커스텀 드래그 선택(preventDefault)을 시작하지 않는다. preventDefault

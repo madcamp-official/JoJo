@@ -449,13 +449,49 @@ button:disabled { cursor: not-allowed; }
 /* 선택 결과 표시 — 예전엔 진보라 배경+흰 글자였는데, hover 박스(word-box, 연보라 배경+
    진보라 테두리+둥근 모서리)와 톤을 맞춰달라는 요청(2026-07-29)으로 변경. 글자색은
    더 이상 덮어쓰지 않아(연보라 배경 위에도 원래 어두운 글자색 그대로 잘 읽힘) 별도
-   지정하지 않는다. border 대신 outline 을 쓴다 — border 는 박스 모델에 관여해 선택된
-   글자만 테두리 두께(1.5px)만큼 커져 버리고(`.ctx-text`가 justify 라 이게 줄바꿈 위치까지
-   어긋나게 할 수 있음, 위 padding 관련 주석과 같은 문제), outline 은 레이아웃에 영향
-   없이 위에 그려져 선택 중에도 글자 크기·줄바꿈이 흔들리지 않는다. */
+   지정하지 않는다.
+   여러 단어를 선택했을 때 각 atom/gap 마다 outline(네 변 전부)을 그리면 단어마다 따로
+   테두리 박스로 보여 분절돼 보인다(사용자 피드백, 2026-07-29 — "dining rooms all were
+   on the same"처럼 여러 단어 선택 시 단어마다 따로 박스로 쪼개져 보임). 그래서 위/아래
+   테두리만 모든 선택 세그먼트에 공통으로 긋고(같은 줄에서 자연히 이어진 하나의 띠로
+   보임), 좌/우 테두리와 둥근 모서리는 선택 범위의 맨 처음(`.sel-start`)·맨 끝
+   (`.sel-end`) 세그먼트에만 줘서 양 끝만 마감되고 중간은 이어지게 한다(ContextView.tsx
+   가 렌더링 시 계산). border 대신 box-shadow(inset)를 쓴다 — border/outline과 달리
+   레이아웃에 전혀 관여하지 않으면서 변(top/bottom/left/right)을 따로 조합할 수 있어서
+   (outline은 네 변을 따로 못 그림), 선택 중에도 글자 크기·줄바꿈이 흔들리지 않는다. */
+/* 위/아래 오프셋이 비대칭(1.5px/1.5px 그대로 두면 아래쪽 여백이 더 좁아 보임) — 글자의
+   실제 잉크(ascent/descent)가 줄상자 안에서 위로 치우쳐 있어(예: "dining"의 g처럼
+   내림선이 있는 글자만 아래쪽을 채우고, 그 외엔 대부분 베이스라인 위쪽만 채움), 위아래
+   오프셋을 똑같이 줘도 시각적으로는 아래쪽 보라 여백이 더 좁아 보인다(헤드리스 크롬
+   스크린샷 픽셀 실측 확인, 2026-07-29 사용자 피드백 — "위아래가 비대칭"). 아래쪽
+   오프셋을 위쪽보다 살짝 더 키워(1.5px→2.25px) 시각적으로 균형을 맞춘다 — 너무 키우면
+   (3px 시도해봄) 오히려 내림선이 있는 글자의 잉크를 바 자체가 덮어버려 더 나빠짐, 이
+   값이 덮지 않으면서 여백을 넓히는 절충점(헤드리스 크롬 실측). 글자마다 내림선 유무가
+   달라 완벽히 동일하게 맞출 수는 없지만 흔한 경우 기준으로 개선됨.
+   `.atom`(위쪽 `.ctx-text .atom` 규칙)은 기본 border-radius: 3px 을 항상 갖고 있어서,
+   선택된 여러 단어 중간에 낀 atom/gap 이 `sel-start`/`sel-end` 가 아니어도 그 3px가
+   그대로 남아있으면 인접 세그먼트와 맞닿는 모서리가 둥글게 파여 틈(그리고 "두 겹
+   테두리"처럼 보이는 결) 생겼다(사용자 피드백, 2026-07-29 — "dining-rooms" 선택 시
+   가운데가 푹 들어가 보임/테두리가 겹쳐 보임 — 헤드리스 크롬 스크린샷으로 원인 확인:
+   `.atom`의 기본 3px 모서리가 sel-start/sel-end 가 아닌 쪽에도 안 지워지고 남아있었음).
+   여기서 border-radius: 0 으로 명시적으로 초기화하고, sel-start/sel-end 는 각자 자기
+   쪽 모서리만 라운드, 반대쪽은 0 으로 명시한다. */
 .ctx-text .atom.sel, .ctx-text .gap.sel {
   background: var(--theme-weak);
-  outline: 1.5px solid var(--purple);
+  box-shadow: inset 0 1.5px 0 0 var(--purple), inset 0 -2.25px 0 0 var(--purple);
+  border-radius: 0;
+}
+.ctx-text .sel.sel-start {
+  box-shadow: inset 0 1.5px 0 0 var(--purple), inset 0 -2.25px 0 0 var(--purple), inset 1.5px 0 0 0 var(--purple);
+  border-radius: 3px 0 0 3px;
+}
+.ctx-text .sel.sel-end {
+  box-shadow: inset 0 1.5px 0 0 var(--purple), inset 0 -2.25px 0 0 var(--purple), inset -1.5px 0 0 0 var(--purple);
+  border-radius: 0 3px 3px 0;
+}
+/* 단어 하나만 선택된 흔한 경우(맨 처음=맨 끝) — 네 변 다 그어 hover 박스와 동일한 모양. */
+.ctx-text .sel.sel-start.sel-end {
+  box-shadow: inset 0 1.5px 0 0 var(--purple), inset 0 -2.25px 0 0 var(--purple), inset 1.5px 0 0 0 var(--purple), inset -1.5px 0 0 0 var(--purple);
   border-radius: 3px;
 }
 /* 툴바 */
