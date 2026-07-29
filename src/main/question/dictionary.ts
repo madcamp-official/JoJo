@@ -395,17 +395,21 @@ async function judgeAndFormat(args: JudgeAndFormatArgs): Promise<JudgeAndFormatR
  *  원자 단위로 선택돼 있어 "여러 단어"가 아니라 "하나의 활용된 단어"라는 전제(TODO.md
  *  131번 항목의 en 다중 단어 폴백과 다른 축).
  *  - 첫 토큰 자체가 활용됐으면(baseForm ≠ surface, 실측: 歩いた→歩く, 大きかった→大きい,
- *    静かだ→静か) 그 기본형을 쓴다.
+ *    静かだ→静か, はしゃぎ→はしゃぐ) 토큰 개수와 무관하게 그 기본형을 쓴다 — **활용된
+ *    단어가 항상 토큰 2개(어간+활용어미)로 쪼개지는 건 아니다**(2026-07-29 실측 발견:
+ *    "はしゃぎ"(동사 連用形이 그대로 명사처럼 쓰인 형태)는 단일 토큰인데도 baseForm이
+ *    "はしゃぐ"로 이미 채워져 있음 — 예전엔 `tokens.length < 2`로 이런 단일 토큰 활용형을
+ *    전부 걸러내 daijisen/JMdict 둘 다 표면형만으로 조회를 시도하다 실패했다).
  *  - 첫 토큰은 안 변했는데 뒤에 토큰이 더 있으면(명사+する 복합동사, 실측: 勉強する→
  *    勉強+する 2토큰, "勉強する"는 404지만 "勉強" 단독은 정상 조회됨) 첫 토큰의 표면형만
  *    따로 조회한다 — 뒤에 붙은 する/조사 등을 뗀 값.
- *  - 토큰이 하나뿐이면(활용 문제가 아님, 이미 원형이거나 명사 등) null. */
+ *  - 토큰이 하나뿐이고 활용도 없으면(이미 원형이거나 명사 등) null. */
 async function toJapaneseDictionaryBaseForm(word: string): Promise<string | null> {
   const tokens = await tokenizeJapanese(word)
-  if (tokens.length < 2) return null
   const first = tokens[0]
+  if (!first) return null
   if (first.baseForm && first.baseForm !== first.surface) return first.baseForm
-  return first.surface || null
+  return tokens.length >= 2 ? first.surface || null : null
 }
 
 /** en 폴백용 단어 분리 — 공백·하이픈 기준(팝업 atom 규칙과 동일한 축, 문장부호는 버림).
