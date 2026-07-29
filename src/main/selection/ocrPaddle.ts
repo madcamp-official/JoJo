@@ -992,7 +992,10 @@ export async function recognizeLinesWithPaddle(
 ): Promise<Word[] | null> {
   const lines = precomputedLines ?? (await detectLinesWithPaddle(image, bbox))
   if (!lines || lines.length === 0) return []
-  const bodyLines = excludeFuriganaHorizontal(lines)
+  // 후리가나는 일본어 전용 표기라 중국어(zh-Hans/zh-Hant)엔 애초에 존재하지 않는다 —
+  // 필터 자체는 중국어 줄엔 걸릴 일이 없어 사실상 no-op이었지만, 불필요한 검사 비용을
+  // 없애고 "중국어에 후리가나 필터가 적용된다"는 오해를 코드로도 막기 위해 언어로 분기한다.
+  const bodyLines = language === 'ja' ? excludeFuriganaHorizontal(lines) : lines
   const ordered = [...bodyLines].sort((a, b) => a.y - b.y)
   return recognizeOrderedLines(image, language, ordered, false, LIGHT_RECOGNITION_MODEL)
 }
