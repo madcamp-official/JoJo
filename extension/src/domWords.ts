@@ -2,6 +2,7 @@
 // 자막 span 을 단어로 쪼개 각 단어의 뷰포트 사각형을 Range 로 잰다. getBoundingClientRect
 // 계열을 매번 새로 읽으므로 전체화면/자막 위치 이동에도 항상 현재 위치가 반영된다.
 import type { RectPx, SubWord } from '@shared/extension'
+import { HOVER_WORD_ATOM_PATTERN } from '@shared/wordTokenize'
 
 // 텍스트 노드의 [start,end) 구간 사각형. 줄바꿈으로 여러 조각이면 union 한다.
 export function rangeRect(node: Text, start: number, end: number): RectPx | null {
@@ -36,13 +37,12 @@ export function rangeRect(node: Text, start: number, end: number): RectPx | null
 // 여기서는 클릭 지점의 글자 하나만 정확히 짚으면 된다.
 const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
 
-// 팝업의 영문 단어 판정 규칙(popup/selection.ts LATIN_ATOM_RE)과 동일하게, 문장부호를
-// 단어 밖으로 뺀다 — 문자/숫자 연속(+ 아포스트로피로 이어진 축약형, 예: don't)만 한 단어로
-// 본다. 팝업은 이미 이 규칙으로 선택하는데 hover 박스는 콤마/마침표까지 포함하고 있어서
-// 팝업 선택 범위와 안 맞아 보이는 문제가 있었다(2026-07-29 사용자 제보 — "Truthfully,"
-// 처럼 쉼표까지 박스에 들어감). \p{L}\p{N}(유니코드 문자/숫자)이라 라틴뿐 아니라 한글·
-// 키릴 등 CJK 가 아닌 모든 문자권에 동일하게 적용된다.
-const WORD_ATOM_RE = /[\p{L}\p{N}]+(?:['’][\p{L}]+)*/gu
+// 팝업의 단어 판정 핵심 규칙(콤마/마침표 등 문장부호 제외)을 공유하되, 하이픈만 의도적
+// 으로 다르게 처리한다 — 팝업은 하이픈을 경계로 보고 쪼개지만("well-to-do" → well/to/do),
+// hover 박스는 하이픈으로 이어진 구간을 한 단어로 묶어 보여준다(자막 화면에서 세 조각으로
+// 쪼개 보이면 부자연스럽다는 요청, 2026-07-29). 클릭하면 여전히 팝업이 열리고 그 안에서는
+// 팝업 규칙대로 다시 쪼개진다 — 규칙 차이의 근거는 @shared/wordTokenize 주석 참고.
+const WORD_ATOM_RE = new RegExp(HOVER_WORD_ATOM_PATTERN, 'gu')
 
 function wordsFromTextNode(node: Text): SubWord[] {
   const full = node.textContent ?? ''

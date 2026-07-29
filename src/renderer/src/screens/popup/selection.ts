@@ -8,6 +8,7 @@ import type {
 } from '@shared/types'
 import { mergeJaTokens } from '@shared/nlp/ja'
 import { mergeJaTokensUnidic } from '@shared/nlp/ja-unidic'
+import { WORD_ATOM_PATTERN } from '@shared/wordTokenize'
 
 // ============================================================================
 // 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §4.1 "팝업 내 범위 지정")
@@ -147,9 +148,11 @@ function toWindowedOffset(displayPos: number, insertions: number[]): number {
   return displayPos - removed
 }
 
-// 영어 atom: 알파벳/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로 취급 →
-// "well-to-do" 는 well / to / do 세 atom, "left-hand" 는 left / hand 두 atom 이 된다.
-const LATIN_ATOM_RE = /[A-Za-z0-9]+(?:['’][A-Za-z]+)*/y
+// 영어 등 비-CJK 문자권 atom: 문자/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로
+// 취급 → "well-to-do" 는 well / to / do 세 atom, "left-hand" 는 left / hand 두 atom
+// 이 된다. 확장(extension/src/domWords.ts)의 hover 박스 단어 판정과 규칙을 공유한다
+// (@shared/wordTokenize) — 패턴은 유니코드 일반(한글·키릴 등 포함)이라 이전보다 넓다.
+const LATIN_ATOM_RE = new RegExp(WORD_ATOM_PATTERN, 'yu')
 
 // 한자(중/일 공통) atom: 한 글자가 곧 atom 하나 — "天线" 은 天 / 线 두 atom 으로,
 // 원하는 한 글자만 골라 선택할 수도 있다(PLAN.md §4.1 "문자 단위 세밀 선택").
