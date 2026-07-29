@@ -265,12 +265,26 @@ export function excludeFuriganaHorizontal<T extends Rect>(
 // 줄이 뒤섞여 읽힌다(예: A열 3번째 줄 다음에 B열 1번째 줄이 오는 식). x좌표로 다시 열을
 // 묶어서 세로쓰기 순서(오른쪽 열부터, 각 열 안에서는 위→아래)로 바로잡는다. 열 간격
 // 판정 기준은 줄 폭의 중앙값 — 세로쓰기 줄 하나의 폭은 대략 글자 크기라 같은 열 안의
-// 줄들은 폭이 비슷하고, 다른 열로 넘어가면 그보다 확연히(1.5배 이상) 떨어진 x에 나타난다.
+// 줄들은 폭이 비슷하고, 다른 열로 넘어가면 그보다 확연히 떨어진 x에 나타난다.
 // 정상적인 단일 열(DocLayout 이 이미 열을 나눠준 경우 등)에서는 이 클러스터링이 그냥
 // 열 1개로 수렴하므로 무해하다 — recognizeVerticalColumnWithPaddle 에서 항상 적용한다.
 // (후리가나를 미리 걸러내지 않으면 그 좁은 잡음 줄들이 중앙값 폭 자체를 왜곡시켜서
 // 열 간격 판정이 흔들린다 — 실측 확인.)
-const COLUMN_GAP_RATIO = 1.5
+//
+// 담당 A — 1.5 → 1.2 로 하향(2026-07-30, 실측 확인 — 사용자 제보 "열 순서가 A B C
+// 대신 A C B 로 나옴" + "한 열의 일부가 다른 열 중간에 낀다"). DEBUG_OCR_DUMP 로 실제
+// 페이지의 열 중심 x 를 찍어보니, 서로 다른 두 열의 중심 간격이 66.5px 였는데 그 페이지
+// 글자 폭 중앙값(45px)×1.5 = 67.5px 라 **1px 차이**로 "같은 열"로 오판돼 있었다 —
+// 중심거리 = 폭 + 간격 이므로 이 비율(1.5)은 산수상 "열 사이 빈 간격이 글자 폭의
+// 0.5배보다 작으면 같은 열"과 동치인데, 이 페이지의 실제 열 간격도 하필 글자 폭의
+// 0.48~0.55배 정도로(다른 정상 열 쌍들도 동일 범위) 그 경계선에 바짝 붙어 있어서 노이즈
+// 몇 px 차이로 도박처럼 병합 여부가 갈렸다. 병합되면 그 안에서 y좌표로 재정렬하는데,
+// 그 두 열이 진짜 다른 열이다 보니 순서가 뒤섞이거나(A C B) 각 열이 여러 조각으로 검출된
+// 경우 조각들끼리 y로 잘못 인터리브돼("한 열의 일부가 다른 열 중간에 낀다") 두 증상이
+// 사실 같은 원인이었다. 진짜 같은 열의 서로 다른 조각은 x가 사실상 거의 동일하게 검출돼
+// (중심 거리 몇 px 이내) 이 정도로 낮춰도 안전하게 병합되고, 실측된 진짜 다른 열 간격
+// (비율 약 1.48~1.55)은 확실히 걸러진다.
+const COLUMN_GAP_RATIO = 1.2
 
 // excludeFurigana 와 같은 이유로 제네릭화(ocrYomitoku.ts 에서 "Rect + 텍스트" 쌍을
 // 그대로 재정렬하는 데 재사용) — 내부는 Rect 필드만 본다.
@@ -288,18 +302,38 @@ export function clusterVerticalLinesIntoColumns<T extends Rect>(lines: T[]): T[]
   const columnCount: number[] = []
   for (const line of byX) {
     const center = line.x + line.width / 2
-    const last = columns.length - 1
-    // 경계값(간격이 정확히 gapThreshold 와 같은 경우)은 "다른 열"로 본다(<= 가 아니라 <)
-    // — 실측 확인: 어떤 페이지에서 서로 다른 두 열의 중심 간격이 medianWidth*COLUMN_GAP_RATIO
-    // 와 정확히 일치해서(글자 폭이 균일한 조판이라 우연이 아니라 실제로 자주 맞아떨어짐)
-    // <= 였을 때 두 열이 하나로 합쳐져 버렸고, 합쳐진 뭉치 안에서 y좌표로 재정렬되며 읽기
-    // 순서가 뒤섞였다(오른쪽 열이 왼쪽 열보다 늦게 읽힘). 경계에서는 "합치지 않음" 쪽이
-    // 더 안전한 기본값이다 — 잘못 합쳐지면 순서가 깨지지만, 잘못 안 합쳐지면(같은 열이
-    // 조각나 있던 경우) 최악의 경우도 조각들이 별개 열처럼 취급될 뿐 순서 자체는 유지된다.
-    if (last >= 0 && Math.abs(columnCenterSum[last]! / columnCount[last]! - center) < gapThreshold) {
-      columns[last]!.push(line)
-      columnCenterSum[last]! += center
-      columnCount[last]!++
+    // 담당 A — 재수정(2026-07-30, 사용자 제보 — 아래 최종 재정렬 보완만으로는 "일부
+    // 순서가 여전히 안 맞는다"는 사례가 남음). 예전엔 "바로 직전 열"하고만 비교했는데,
+    // 문장부호만 있는 짧은 줄처럼 검출 폭이 유독 좁은 줄은 중심 x 가 원래 열 범위를 살짝
+    // 벗어나 그 순간 엉뚱하게 새 열을 만들었다 — 그 뒤로 진짜 다음 열(C)의 줄들이 오면
+    // "직전 열"이 이미 그 잘못 만들어진 조각으로 바뀌어 있어서, 나중에 나오는 원래 열(B)의
+    // 나머지 줄들도 C와 비교당해 또 새 열이 됐다(B가 두 조각으로 쪼개짐). 최종 펼치기 전
+    // 평균 중심 x 로 재정렬해도, 조각난 두 그룹의 평균 자체가 서로 다르면(예: 한쪽 조각에
+    // 유난히 좁은 줄이 몰려 평균이 왜곡됨) 재정렬 후에도 두 조각이 다시 붙지 못하고 순서가
+    // 깨질 수 있었다 — 애초에 조각나지 않게, 직전 열이 아니라 **지금까지 만들어진 모든
+    // 열** 중 중심이 가장 가까운(그리고 gapThreshold 이내인) 열을 찾아 합친다. 어느 열과도
+    // 안 가까우면(=진짜 새 열) 그때만 새로 만든다 — 이러면 순서상 멀리 떨어져 다시
+    // 나타나도 원래 열로 정확히 되돌아간다.
+    let bestIdx = -1
+    let bestDist = Infinity
+    for (let i = 0; i < columns.length; i++) {
+      const dist = Math.abs(columnCenterSum[i]! / columnCount[i]! - center)
+      // 경계값(간격이 정확히 gapThreshold 와 같은 경우)은 "다른 열"로 본다(<= 가 아니라 <)
+      // — 실측 확인: 어떤 페이지에서 서로 다른 두 열의 중심 간격이 medianWidth*COLUMN_GAP_RATIO
+      // 와 정확히 일치해서(글자 폭이 균일한 조판이라 우연이 아니라 실제로 자주 맞아떨어짐)
+      // <= 였을 때 두 열이 하나로 합쳐져 버렸고, 합쳐진 뭉치 안에서 y좌표로 재정렬되며 읽기
+      // 순서가 뒤섞였다(오른쪽 열이 왼쪽 열보다 늦게 읽힘). 경계에서는 "합치지 않음" 쪽이
+      // 더 안전한 기본값이다 — 잘못 합쳐지면 순서가 깨지지만, 잘못 안 합쳐지면(같은 열이
+      // 조각나 있던 경우) 최악의 경우도 아래 최종 재정렬이 조각들을 다시 나란히 붙여준다.
+      if (dist < gapThreshold && dist < bestDist) {
+        bestDist = dist
+        bestIdx = i
+      }
+    }
+    if (bestIdx >= 0) {
+      columns[bestIdx]!.push(line)
+      columnCenterSum[bestIdx]! += center
+      columnCount[bestIdx]!++
     } else {
       columns.push([line])
       columnCenterSum.push(center)
@@ -307,8 +341,21 @@ export function clusterVerticalLinesIntoColumns<T extends Rect>(lines: T[]): T[]
     }
   }
 
-  for (const column of columns) column.sort((a, b) => a.y - b.y) // 열 안에서는 위→아래
-  return columns.flat()
+  // 담당 A — 열 순서 뒤바뀜 버그 수정(2026-07-30, 사용자 제보 — "A B C 순서여야 하는데
+  // A C B 로 나옴"). 위 루프는 "바로 직전 열"하고만 비교하는 단일 패스라, 어떤 줄(특히
+  // 문장부호만 있는 짧은 줄 등)의 검출 폭이 살짝 어긋나 그 중심 x 가 정상 범위를 벗어나면
+  // 그 자리에서 엉뚱하게 새 열이 끼어들 수 있다 — 예: B열 줄 하나가 노이즈로 C열 x범위에
+  // 걸리면 훑는 순서상 A, B(일부), C, B(나머지)로 조각나고, 그대로 펼치면 최종 순서가
+  // A C B 가 돼버린다. 펼치기 전에 각 열의 평균 중심 x 로 다시 한번 내림차순 정렬해두면,
+  // 이런 단일 패스 도중의 조각남과 무관하게 최종 열 순서는 항상 오른쪽→왼쪽으로 정확하다
+  // (같은 열이 여러 조각으로 쪼개진 경우, 조각들의 평균이 서로 가까워 결과적으로 다시
+  // 나란히 붙게 되는 효과도 있음).
+  const columnOrder = columns
+    .map((_, i) => i)
+    .sort((a, b) => columnCenterSum[b]! / columnCount[b]! - columnCenterSum[a]! / columnCount[a]!)
+  const orderedColumns = columnOrder.map((i) => columns[i]!)
+  for (const column of orderedColumns) column.sort((a, b) => a.y - b.y) // 열 안에서는 위→아래
+  return orderedColumns.flat()
 }
 
 // 검출된 줄 bbox 를 여백 없이 그대로 크롭하면 글자 획이 경계에 살짝 걸려 잘리는 경우가
@@ -328,6 +375,13 @@ export function padLine(line: Rect): Rect {
     width: line.width + LINE_PADDING_X * 2,
     height: line.height + LINE_PADDING_Y * 2,
   }
+}
+
+// 중국어 텍스트에서 아포스트로피(직선/곡선 둘 다)가 보이면 십중팔구 쉼표를 잘못 읽은
+// 것이다 — recognizeOrderedLines 에서 zh-Hans/zh-Hant 텍스트에만 적용(주석은 그 호출부 참고).
+const CHINESE_COMMA_MISREAD_RE = /['’]/g
+export function fixChineseCommaMisread(text: string): string {
+  return text.replace(CHINESE_COMMA_MISREAD_RE, '，')
 }
 
 // PaddleOCR 의 `text_word`가 주는 개별 bbox 크기는 못 믿는다 — 실측 확인 결과 글자
@@ -671,8 +725,12 @@ async function recognizeOrderedLines(
   vertical: boolean,
   recModel?: string,
 ): Promise<Word[] | null> {
+  const recStart = Date.now()
   const perLine = await Promise.all(
     orderedLines.map((line) => recognizeWithPaddle(image, language, padLine(line), recModel)),
+  )
+  console.log(
+    `[timing]     줄별 인식(recognizeWithPaddle, ${orderedLines.length}줄 병렬): ${Date.now() - recStart}ms`,
   )
   if (perLine.some((words) => !words)) return null
   // 단어 단위가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28)은 세로쓰기 일본어
@@ -681,27 +739,53 @@ async function recognizeOrderedLines(
   if (language !== 'ja' && language !== 'zh-Hans' && language !== 'zh-Hant') {
     return perLine.flatMap((words) => words!)
   }
-  const texts = perLine.map((words) => words!.map((w) => w.text).join(''))
+  const rawTexts = perLine.map((words) => words!.map((w) => w.text).join(''))
+  // 담당 A — 중국어 쉼표↔아포스트로피 오인식 교정(2026-07-30, 사용자 제보 — "쉼표가 '로
+  // 인식됨"). PaddleOCR 인식 모델(PP-OCRv6)이 콤마와 아포스트로피를 종종 헷갈린다(둘 다
+  // 작은 곡선 하나짜리 글자라 저해상도에서 구분이 어려움) — `KANJI_LATIN_CONFUSION`(위,
+  // ocrNdlocr.ts)과 같은 패턴으로, 중국어 텍스트에서는 아포스트로피가 원래 나올 일이
+  // 거의 없으므로(따옴표는 「」/『』/‘’ 등 다른 문자를 씀) `'`/`'`를 보면 그냥 쉼표로
+  // 교정한다. 일본어/영어는 대상이 아님(영어는 it's/don't 같은 진짜 아포스트로피가 흔해
+  // 문맥 없이 이 방식을 쓰면 위험함) — zh-Hans/zh-Hant 에서만 적용.
+  const texts =
+    language === 'zh-Hans' || language === 'zh-Hant' ? rawTexts.map(fixChineseCommaMisread) : rawTexts
   // 세로쓰기에서만 대시(―) 보정을 시도한다 — 가로쓰기 폴백 경로는 이 문제 대상이 아니다.
+  const markStart = Date.now()
   const { texts: finalTexts, typicalCellSize } = vertical
     ? await insertUndetectedMarks(
         orderedLines,
         perLine.map((w) => w!),
         texts,
+        language === 'zh-Hans' || language === 'zh-Hant' ? UNKNOWN_GAP_PLACEHOLDER_ZH : UNKNOWN_GAP_PLACEHOLDER,
       )
     : { texts, typicalCellSize: null }
+  if (vertical) {
+    console.log(`[timing]     미검출 구간 보정(insertUndetectedMarks): ${Date.now() - markStart}ms`)
+  }
   if (process.env.DEBUG_OCR_DUMP) {
     const { writeFileSync } = require('node:fs') as typeof import('node:fs')
     const { join } = require('node:path') as typeof import('node:path')
     writeFileSync(
       join(process.env.DEBUG_OCR_DUMP, `texts-${Date.now()}.json`),
       JSON.stringify(
-        orderedLines.map((line, i) => ({ x: line.x, before: texts[i], after: finalTexts[i], changed: texts[i] !== finalTexts[i] })),
+        orderedLines.map((line, i) => ({
+          x: line.x,
+          width: line.width,
+          // 담당 A — 열 순서 디버깅용(2026-07-30, 사용자 제보). 이 배열의 순서 자체가
+          // clusterVerticalLinesIntoColumns 가 최종 확정한 읽기 순서라, center 값을
+          // 순서대로 눈으로 훑어보면 어느 지점에서 순서가 튀는지(예: A C B 처럼 갑자기
+          // 커졌다 작아지는 지점) 바로 보인다.
+          center: line.x + line.width / 2,
+          before: texts[i],
+          after: finalTexts[i],
+          changed: texts[i] !== finalTexts[i],
+        })),
         null,
         2,
       ),
     )
   }
+  const gridStart = Date.now()
   const grouped = await Promise.all(
     orderedLines.map(async (line, i) => {
       const words = await groupCjkCharsGrid(line, finalTexts[i]!, language, vertical, typicalCellSize, vertical ? null : image)
@@ -714,6 +798,7 @@ async function recognizeOrderedLines(
       return words.map((w) => ({ ...w, lineId }))
     }),
   )
+  console.log(`[timing]     격자 분할(groupCjkCharsGrid, ${orderedLines.length}줄): ${Date.now() - gridStart}ms`)
   if (!vertical) return grouped.flat()
   // 담당 A — 세로쓰기(주로 중국어 — 일본어 세로쓰기는 보통 NDLOCR 경로가 처리) 열 경계마다
   // '\n' 마커를 끼워 넣는다(2026-07-29, 사용자 요청). 이 마커가 없으면 페이지 전체 텍스트가
@@ -812,6 +897,11 @@ export function estimateCellSizeFromIndent(lines: Rect[]): number | null {
 // 추정하려 들지 않고 "여기 뭔가 있었는데 못 읽었다"는 사실만 통일된 표시(게타 마크,
 // 일본어 문헌에서 미판독 글자를 표시하는 관례)로 팝업 본문에 남긴다.
 export const UNKNOWN_GAP_PLACEHOLDER = '〓'
+// 담당 A — 중국어 전용 자리표자(2026-07-30, 사용자 요청) — 게타 마크(〓)는 일본
+// 문헌에서 미판독 글자를 표시하는 관례라 중국어에는 안 맞는다는 지적. 중국어 쪽 관례인
+// 흰 사각형(□, "허결호"/虚缺号)으로 대신 표시 — ocrNdlocr.ts(일본어 전용, NDLOCR-Lite)는
+// 이 상수를 안 쓰고 위 UNKNOWN_GAP_PLACEHOLDER 를 그대로 쓰므로 영향 없음.
+export const UNKNOWN_GAP_PLACEHOLDER_ZH = '□'
 
 /**
  * 세로쓰기 일본어 소설에서 문장 시작/전환에 쓰이는 대시(―)나 그 밖의 몇 칸짜리 기호는
@@ -843,7 +933,15 @@ export const UNKNOWN_GAP_PLACEHOLDER = '〓'
 // ocrYomitoku.ts 도 같은 배율(줄 시작이 기준선보다 1.5~3칸 아래면 미검출 구간으로 판단,
 // 딱 1칸이면 문단 들여쓰기 관례로 판단)을 재사용한다 — 판정 자체의 근거(몇 칸짜리
 // 기호는 육안상 다른 글자보다 넓은 공백을 차지)는 인식 엔진이 바뀌어도 동일하다.
-export const GAP_RATIO_THRESHOLD = 1.5
+// 담당 A — 1.5 → 0.6 로 하향(2026-07-30, 실측 확인 — 사용자 제보 "문장 중간 마침표/
+// 쉼표가 인식이 안 돼서 텍스트 박스 길이에 영향을 줌"). 문제였던 실제 페이지에서
+// `insertGapPlaceholdersForLine`의 모든 인접 간격 비율(gap/typicalCellSize)을 그대로
+// 찍어보니(DEBUG_OCR_DUMP), 정상적인 글자-글자 사이 간격은 전부 -0.3~+0.33 범위에
+// 몰려 있었고, 마침표/쉼표 하나가 통째로 빠졌다고 의심되는 자리들만 0.72~0.96 로
+// 뚜렷하게 떨어져 있었다(예: "…人總…" 사이가 0.9569 — 거의 정확히 글자 한 칸). 1.5는
+// 이 둘 사이 어디에도 안 걸리는(둘 다 통과 못 함) 너무 높은 값이었던 것 — 그 빈틈
+// 한가운데인 0.6으로 낮추면 정상 간격은 안 건드리면서 이런 누락은 잡아낸다.
+export const GAP_RATIO_THRESHOLD = 0.6
 // 이 배율을 넘는 간격은 기호가 아니라 PaddleOCR 인식 실패(여러 글자가 통째로 안 잡힘,
 // 실측 확인된 별개 문제 — 예: 10글자 넘는 내용이 "有" 한 글자로 뭉개짐)로 본다 — 이런
 // 경우까지 전부 자리표자로 채우면 이미 망가진 인식 결과를 더 이상하게 만든다.
@@ -870,6 +968,7 @@ export function insertGapPlaceholdersForLine(
   text: string,
   typicalCellSize: number,
   paddingBias = 0,
+  placeholder: string = UNKNOWN_GAP_PLACEHOLDER,
 ): string {
   const bboxUnits = units.filter((w) => w.bbox)
   if (bboxUnits.length === 0) return text
@@ -882,28 +981,68 @@ export function insertGapPlaceholdersForLine(
   const inRange = (gap: number) =>
     gap >= typicalCellSize * GAP_RATIO_THRESHOLD && gap <= typicalCellSize * MAX_GAP_RATIO
 
+  // 담당 A — 쉼표/마침표 뒤에 자리표자가 중복으로 끼어드는 문제 수정(2026-07-30, 사용자
+  // 제보 — "쉼표 다음에 빠짐표 문자가 추가돼서 텍스트 박스가 정상값보다 길어짐").
+  // GAP_RATIO_THRESHOLD 를 0.6으로 낮춘 뒤 실측(DEBUG_OCR_DUMP)해보니, 문장부호(、。，
+  // 등)는 잉크 자체가 좁아서 그 글자가 "차지해야 할 칸"을 다 못 채우고, 그 남는 여백이
+  // 바로 다음 글자와의 간격에 그대로 얹혀 측정된다 — 실측: 정상 글자 간격은 -0.3~+0.33인데
+  // 문장부호 **바로 뒤** 간격만 0.72~0.79로 따로 몰려 있었다(예: "，→歷" 0.7235,
+  // "，→缺" 0.7468, "。"로 끝나는 줄들의 trailing 간격 0.79/0.61). 이 범위가 하필 진짜
+  // 누락 신호(0.9569)와 낮춘 임계값(0.6) 사이에 걸쳐 있어서, 이미 정확히 인식된 문장부호
+  // 뒤에 "한 글자 더 빠졌다"고 오판해 자리표자를 중복으로 끼워 넣었다. 문장부호 자신은
+  // 이미 텍스트에 있으니(비어있는 자리가 아니라 잉크가 좁은 것뿐) 그 직후 간격은 애초에
+  // "미검출 구간" 판정 대상이 될 이유가 없다 — 바로 앞 원시 단위가 이 문장부호 집합에
+  // 속하면 간격 크기와 무관하게 무조건 건너뛴다.
+  // `'`/`'`(아포스트로피)도 포함한다 — 이 함수는 `fixChineseCommaMisread`가 적용되기
+  // 전의 원시 인식 단위(units)를 보는데, PaddleOCR이 쉼표를 아포스트로피로 잘못 읽은
+  // 경우 원시 단위의 text 는 아직 `'`/`'` 그대로다. 잉크가 좁아 다음 글자와의 간격이
+  // 벌어지는 현상은 정확한 쉼표로 읽혔든 아포스트로피로 오독됐든 똑같이 일어나므로
+  // 함께 걸러야 한다.
+  const NARROW_PUNCTUATION_RE = /[、。，！？…'’]/
+  const skipGapAfter = (prevText: string) => NARROW_PUNCTUATION_RE.test(prevText)
+
+  // 담당 A — 마침표/쉼표 미검출 진단용(2026-07-30, 사용자 제보 — "문장 중간 마침표/
+  // 쉼표가 인식이 안 돼서 텍스트 박스 길이에 영향을 줌"). GAP_RATIO_THRESHOLD(1.5)를
+  // 통과 못 해 자리표자가 안 채워지는 "문턱 바로 아래" 간격이 실제로 얼마인지 눈으로
+  // 확인하려고, 통과 여부와 무관하게 모든 인접 간격의 비율(gap/typicalCellSize)을
+  // 남긴다 — 동작 자체는 바뀌지 않음(아래 inRange 판정은 그대로 유지).
+  const debugGaps: { at: string; ratio: number; passed: boolean }[] = []
+
   const leadingGap = bboxUnits[0]!.bbox!.y - line.y
+  debugGaps.push({ at: 'leading', ratio: leadingGap / typicalCellSize, passed: inRange(leadingGap) })
   if (inRange(leadingGap)) {
     gaps.push([0, gapCount(leadingGap)])
   }
   for (let k = 1; k < bboxUnits.length; k++) {
     const prev = bboxUnits[k - 1]!
     const gap = bboxUnits[k]!.bbox!.y - (prev.bbox!.y + prev.bbox!.height)
-    if (inRange(gap)) {
+    const passed = !skipGapAfter(prev.text) && inRange(gap)
+    debugGaps.push({ at: `${prev.text}→${bboxUnits[k]!.text}`, ratio: gap / typicalCellSize, passed })
+    if (passed) {
       gaps.push([countAt(k), gapCount(gap)])
     }
   }
   const last = bboxUnits[bboxUnits.length - 1]!
   const trailingGap = line.y + line.height - (last.bbox!.y + last.bbox!.height)
-  if (inRange(trailingGap)) {
+  const trailingPassed = !skipGapAfter(last.text) && inRange(trailingGap)
+  debugGaps.push({ at: 'trailing', ratio: trailingGap / typicalCellSize, passed: trailingPassed })
+  if (trailingPassed) {
     gaps.push([countAt(bboxUnits.length), gapCount(trailingGap)])
+  }
+  if (process.env.DEBUG_OCR_DUMP) {
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    writeFileSync(
+      join(process.env.DEBUG_OCR_DUMP, `gaps-${Date.now()}-${Math.random().toString(36).slice(2)}.json`),
+      JSON.stringify({ text, typicalCellSize, debugGaps }, null, 2),
+    )
   }
   if (gaps.length === 0) return text
 
   // 뒤에서부터 끼워 넣어야 앞쪽 삽입이 뒤쪽 삽입 위치(문자 오프셋)를 안 밀리게 한다.
   const codepoints = [...text]
   for (const [idx, count] of [...gaps].sort((a, b) => b[0] - a[0])) {
-    codepoints.splice(idx, 0, ...Array(count).fill(UNKNOWN_GAP_PLACEHOLDER))
+    codepoints.splice(idx, 0, ...Array(count).fill(placeholder))
   }
   return codepoints.join('')
 }
@@ -912,6 +1051,7 @@ async function insertUndetectedMarks(
   lines: Rect[],
   perLine: Word[][],
   texts: string[],
+  placeholder: string = UNKNOWN_GAP_PLACEHOLDER,
 ): Promise<{ texts: string[]; typicalCellSize: number | null }> {
   const rawCellSizes = lines
     .map((line, i) => {
@@ -923,7 +1063,9 @@ async function insertUndetectedMarks(
   const typicalCellSize = estimateCellSizeFromIndent(lines) ?? fallbackCellSize
   if (!typicalCellSize) return { texts, typicalCellSize: null }
 
-  const newTexts = lines.map((line, i) => insertGapPlaceholdersForLine(line, perLine[i]!, texts[i]!, typicalCellSize))
+  const newTexts = lines.map((line, i) =>
+    insertGapPlaceholdersForLine(line, perLine[i]!, texts[i]!, typicalCellSize, 0, placeholder),
+  )
   return { texts: newTexts, typicalCellSize }
 }
 
@@ -952,13 +1094,26 @@ export async function recognizeVerticalColumnWithPaddle(
   // 가로/세로 판별용으로 이미 이 크롭에 detectLinesWithPaddle 을 한 번 돌려놨는데, 여기서
   // 또 같은 크롭에 같은 호출을 하면 완전히 중복된 작업이라(실측: 이 호출 자체가 페이지
   // 전체 크롭일 땐 38초까지도 걸림) 호출부가 넘겨주면 그대로 재사용한다.
+  // 담당 A — 세로쓰기 인식 파이프라인 단계별 시간 확인용(2026-07-29, 사용자 요청 — 콤마/
+  // 아포스트로피 혼동, 마침표 누락, 마지막 글자 박스 누락 등 남은 문제를 조사하려면 어느
+  // 단계가 얼마나 걸리는지부터 봐야 함). 기존 `[timing]   세로쓰기(전체 영역): ...`(ocr.ts)
+  // 는 이 함수 전체 합산 시간만 찍어서 내부 단계를 구분할 수 없었다 — 한 단계 더 들여써서
+  // (`     `, 공백 5칸) 상위 로그 아래 하위 항목처럼 보이게 함.
+  const detectStart = Date.now()
   const lines = precomputedLines ?? (await detectLinesWithPaddle(image, columnBbox))
+  console.log(
+    `[timing]     줄 검출(detectLinesWithPaddle): ${Date.now() - detectStart}ms (precomputed=${!!precomputedLines}, lines=${lines?.length ?? 'null'})`,
+  )
   if (!lines || lines.length === 0) return []
   // 열 병합보다 먼저 후리가나를 걸러낸다 — excludeFurigana 주석 참고(후리가나 잡음 줄이
   // 남아있으면 열 폭 중앙값이 왜곡돼 clusterVerticalLinesIntoColumns 의 간격 판정이
   // 흔들린다, 실측 확인: 순서 뒤섞임/내용 누락).
+  const clusterStart = Date.now()
   const bodyLines = excludeFurigana(lines)
   const ordered = clusterVerticalLinesIntoColumns(bodyLines)
+  console.log(
+    `[timing]     후리가나 필터+열 재군집화: ${Date.now() - clusterStart}ms (${lines.length}줄 → 본문 ${bodyLines.length}줄)`,
+  )
   return recognizeOrderedLines(image, language, ordered, true)
 }
 
@@ -1004,20 +1159,41 @@ export async function recognizeLinesWithPaddle(
  * 앱 시작 시(warmup.ts) 미리 불러서 풀의 워커 전부에 PaddleOCR 엔진을 만들어둔다 —
  * 워커마다 모델을 독립적으로 로드하므로(프로세스 간 공유 안 됨) 한 워커만 예열하면
  * 나머지는 실제 사용 시점에야 콜드 스타트를 겪는다. 위치 전용 엔진(en, detectLinesWithPaddle
- * 이 항상 쓰는 것)과 지금 우선 대상인 일본어 인식 엔진 둘 다 예열한다.
+ * 이 항상 쓰는 것)과 인식 엔진(ja/zh-Hans/zh-Hant)을 전부 예열한다.
+ *
+ * zh-Hans/zh-Hant 는 원래 여기 빠져 있었다(2026-07-30 발견) — `ocr_paddle.py: get_engine`
+ * 이 엔진을 언어별(`LANG_MAP` 값 기준: ja→japan, zh-Hans→ch, zh-Hant→chinese_cht)로 따로
+ * 캐싱해서, 밑에 깔린 모델 가중치 파일 자체는(코드 주석 확인: PP-OCRv6_medium_det/_rec로
+ * 넷 다 동일) 같아도 언어 태그가 다르면 `PaddleOCR(...)` 인스턴스를 처음부터 다시 만든다
+ * — ja 만 예열해뒀으니 중국어 세로쓰기를 앱 켜고 처음 인식할 때 워커마다 이 생성 비용을
+ * 그 자리에서 치렀다(실측 확인: 단계별 타이밍 로그로 "줄별 인식" 9.6초 중 대부분이
+ * `Creating model: (...)` 콘솔 출력과 겹침 — 진짜 추론 시간이 아니라 콜드 스타트였음).
+ * 세로쓰기 경로(recognizeVerticalColumnWithPaddle)는 recModel 을 안 넘겨 항상 기본 모델
+ * (RECOGNITION_MODEL_NAME, medium)을 쓰므로 여기 예열도 모델명을 안 넘겨 그대로 맞춘다.
  *
  * `server.warmUpAll()`은 `recognizeWithPaddle`/`detectLinesWithPaddle`(에러를 내부에서
  * 잡아 null 반환)을 거치지 않고 서버에 직접 요청하므로 Python 쪽 에러가 나면 그대로
- * reject 된다 — 여기서 안 잡으면 warmup.ts 의 `Promise.all([...])`이 통째로 reject 돼서
- * (다른 엔진은 멀쩡해도) "예열 완료" 상태로 절대 안 넘어가고 창 선택 버튼이 계속
- * 막혀있게 된다. 그래서 이 함수는 절대 reject 하지 않도록 직접 잡는다.
+ * reject 된다 — 개별 호출을 따로 잡아야 언어 하나가 실패해도(예: 특정 언어 모델 다운로드
+ * 실패) 나머지 언어는 그대로 예열되고, warmup.ts 의 `Promise.all([...])`도 절대 reject
+ * 되지 않는다(안 잡으면 "예열 완료" 상태로 못 넘어가 창 선택 버튼이 계속 막힘). 언어별로
+ * 독립된 워커 풀 왕복이라 순차보다 병렬(Promise.all)이 전체 예열 시간도 줄인다.
  */
 export async function warmUp(): Promise<void> {
   try {
     const tmpPath = await writeCrop(TINY_PNG, { x: 0, y: 0, width: 1, height: 1 })
     try {
-      await server.warmUpAll({ image_path: tmpPath, language: DETECTION_ONLY_LANGUAGE, mode: 'detect_lines' })
-      await server.warmUpAll({ image_path: tmpPath, language: 'ja' })
+      const warmUpLanguage = (language: string) =>
+        server
+          .warmUpAll({ image_path: tmpPath, language })
+          .catch((err) => console.error(`[ocrPaddle] ${language} 예열 실패(무시):`, err))
+      await Promise.all([
+        server
+          .warmUpAll({ image_path: tmpPath, language: DETECTION_ONLY_LANGUAGE, mode: 'detect_lines' })
+          .catch((err) => console.error('[ocrPaddle] 줄 검출 엔진 예열 실패(무시):', err)),
+        warmUpLanguage('ja'),
+        warmUpLanguage('zh-Hans'),
+        warmUpLanguage('zh-Hant'),
+      ])
     } finally {
       void unlink(tmpPath).catch(() => {})
     }
