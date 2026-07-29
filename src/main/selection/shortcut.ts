@@ -209,4 +209,7 @@ export function resetToNormalMode(): void {
   mode = 'normal'
   setOverlayMode(mode)
   stopChangeWatcher()
+  // 자막 모드였다면 확장의 캡처도 꺼야 한다 — 안 그러면 새 창을 선택해도(또는 선택 해제해도)
+  // 확장은 이전 탭에서 hover 하이라이트 박스를 계속 띄운다(탭 새로고침 전까지 안 꺼짐).
+  stopSubtitleMode()
 }

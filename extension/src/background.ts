@@ -47,6 +47,11 @@ function connect(): void {
     if (socket === ws) socket = null
     console.log('[nuance] WS 끊김 → 재접속 예약')
     scheduleReconnect()
+    // 앱이 완전히 종료됐을 수도 있다 — 그 경우 다시는 연결이 안 돌아올 수 있는데, 여기서
+    // 캡처를 끄지 않으면 확장은 마지막 상태(hover 박스 등)를 탭 새로고침 전까지 계속
+    // 띄운다. 끊기면 일단 꺼두고, 재연결되면(bridge.ts) 앱이 원하는 상태를 다시 알려준다.
+    captureDesired = false
+    void syncCapture()
   }
   ws.onerror = () => {
     try {
