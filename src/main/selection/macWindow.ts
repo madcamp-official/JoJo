@@ -57,15 +57,6 @@ let boundsKey: unknown = null // CFString "kCGWindowBounds" (재사용 위해 �
 let ownerPidKey: unknown = null // CFString "kCGWindowOwnerPID"
 let ownerNameKey: unknown = null // CFString "kCGWindowOwnerName"
 let numberKey: unknown = null // CFString "kCGWindowNumber"
-let layerKey: unknown = null // CFString "kCGWindowLayer"
-let nameKey: unknown = null // CFString "kCGWindowName"
-
-/** 오버레이 창에만 붙이는 표식 제목(windows.ts: ensureOverlayWindow 가 darwin 에서 setTitle
- *  로 지정) — frame:false 라 화면엔 안 보이지만 CGWindowListCopyWindowInfo 의
- *  kCGWindowName 으로는 조회된다. isMacWindowFrontmost 가 "다른 창에 가려졌는지" 판정할
- *  때 오버레이 자신(메인/설정/팝업 등 우리 앱의 다른 창과 달리 이건 항상 제외해야 함)을
- *  z-순서 목록에서 걸러내는 데 쓴다. */
-export const OVERLAY_MARKER_TITLE = '__nuance_overlay_border__'
 
 const kCGWindowListOptionIncludingWindow = 1 << 3
 const kCGWindowListOptionOnScreenOnly = 1 << 0
@@ -99,8 +90,6 @@ function ensureCoreGraphics(): boolean {
     ownerPidKey = CFStringCreateWithCString(null, 'kCGWindowOwnerPID', kCFStringEncodingUTF8)
     ownerNameKey = CFStringCreateWithCString(null, 'kCGWindowOwnerName', kCFStringEncodingUTF8)
     numberKey = CFStringCreateWithCString(null, 'kCGWindowNumber', kCFStringEncodingUTF8)
-    layerKey = CFStringCreateWithCString(null, 'kCGWindowLayer', kCFStringEncodingUTF8)
-    nameKey = CFStringCreateWithCString(null, 'kCGWindowName', kCFStringEncodingUTF8)
     return true
   } catch {
     cg = cf = null
@@ -214,43 +203,59 @@ export function listMacWindowOwnerNames(): Map<number, string> {
   }
 }
 
-/**
- * windowId 가 지금 화면에서 가장 앞(맨 위)에 있는 "일반" 창인지 확인한다(2026-07-29,
- * 오버레이가 선택된 창 바로 위에만 붙어있어야 한다는 요청 — 포커싱이 다른 창으로
- * 넘어가면 테두리도 그 창에 가려져야 함). `CGWindowListCopyWindowInfo(OnScreenOnly)`
- * 는 z-순서(앞→뒤)로 목록을 주는 성질을 그대로 이용해, kCGWindowLayer 가 0(메뉴바·독·
- * 알림 등 시스템 레이어가 아닌 일반 앱 창)이고 오버레이 자신(`OVERLAY_MARKER_TITLE`)이
- * 아닌 첫 항목의 windowId 가 대상과 같은지만 본다. 오버레이 자신은 메인/설정/팝업 같은
- * 우리 앱의 다른 창과 달리 항상 제외해야 하는데(그 자리에 있는 게 당연하니), pid 로는
- * 같은 프로세스의 다른 창들과 구분이 안 돼 제목 표식으로 구분한다. */
-export function isMacWindowFrontmost(windowId: number): boolean {
-  if (!ensureCoreGraphics()) return false
-  let arr: unknown = null
+// ---- orderWindow:relativeTo: — 오버레이를 대상 창 바로 위 z-order 한 칸에 꽂기 --------
+//
+// 처음엔 "대상이 지금 화면 맨 앞(포커싱된 창)인지"를 매 틱 확인해 그때만 alwaysOnTop 을
+// 켜는 방식(isMacWindowFrontmost, 이젠 삭제됨)으로 접근했는데, 껐을 때 오버레이가 "일반
+// 레벨의 어디쯤"으로 가라앉을 뿐이라 대상 창 자체가 멀쩡히 보이는데도(아무것도 안 덮었는데도)
+// 테두리가 안 보이는 문제가 있었다(사용자 피드백, 2026-07-29 — "테두리가 선택창 포커스가
+// 해제되면 안보이게 됐어. 선택창 바로 위에 붙어있게 해줘"). win32(`syncOverlayZOrder`)처럼
+// "정확히 대상 창 바로 위 한 칸"에 꽂아야 이 문제가 없다 — mac 공개 API 중
+// `-[NSWindow orderWindow:relativeTo:]`(AppKit, 어떤 창 번호를 relativeTo 로 줘도 동작하며
+// 우리 앱 소유가 아닌 창도 기준으로 삼을 수 있다)가 정확히 이 용도다. Electron
+// `getNativeWindowHandle()`은 NSWindow*가 아니라 NSView*(contentView)를 주므로, 먼저
+// `-window` 접근자로 NSWindow*를 얻은 뒤 이 메서드를 호출한다.
+let orderWindowReady = false
+let orderWindowOk = false
+let msgSendGetWindow: KFn | null = null // NSView* -> NSWindow*("window" 접근자)
+let msgSendOrderWindow: KFn | null = null // NSWindow* -orderWindow:relativeTo:
+let selWindowAccessor: unknown = null
+let selOrderWindowRelativeTo: unknown = null
+
+const NSWindowAbove = 1
+
+function ensureOrderWindow(): boolean {
+  if (orderWindowReady) return orderWindowOk
+  orderWindowReady = true
   try {
-    arr = CGWindowListCopyWindowInfo!(kCGWindowListOptionOnScreenOnly, 0)
-    if (!arr) return false
-    const count = Number(CFArrayGetCount!(arr))
-    for (let i = 0; i < count; i++) {
-      const dict = CFArrayGetValueAtIndex!(arr, i)
-      if (!dict) continue
-      const layer = readInt(dict, layerKey)
-      if (layer !== 0) continue
-      const name = cfStringToJs(CFDictionaryGetValue!(dict, nameKey))
-      if (name === OVERLAY_MARKER_TITLE) continue
-      const wid = readInt(dict, numberKey)
-      return wid === windowId
-    }
-    return false
+    const objc = koffi.load('/usr/lib/libobjc.A.dylib')
+    const sel_registerName = objc.func('void* sel_registerName(const char* name)')
+    msgSendGetWindow = objc.func('objc_msgSend', 'void*', ['void*', 'void*'])
+    msgSendOrderWindow = objc.func('objc_msgSend', 'void', ['void*', 'void*', 'long', 'long'])
+    selWindowAccessor = sel_registerName('window')
+    selOrderWindowRelativeTo = sel_registerName('orderWindow:relativeTo:')
+    orderWindowOk = true
+  } catch {
+    orderWindowOk = false
+  }
+  return orderWindowOk
+}
+
+/**
+ * 오버레이(Electron BrowserWindow)를 targetWindowId(CGWindowID) 바로 위 z-order 한 칸에
+ * 꽂는다. overlayNsView 는 오버레이 창의 `getNativeWindowHandle()`(NSView* 를 담은
+ * Buffer) 를 그대로 넘기면 된다. 실패(권한·API 변경 등)해도 예외 없이 false 만 반환 —
+ * 호출부(windows.ts)가 이 경우 기존 alwaysOnTop 방식으로 폴백한다. */
+export function orderOverlayAboveWindow(overlayNsView: Buffer, targetWindowId: number): boolean {
+  if (!ensureOrderWindow()) return false
+  try {
+    const nsViewPtr = overlayNsView.readBigUInt64LE(0)
+    const nsWindow = msgSendGetWindow!(nsViewPtr, selWindowAccessor)
+    if (!nsWindow) return false
+    msgSendOrderWindow!(nsWindow, selOrderWindowRelativeTo, NSWindowAbove, targetWindowId)
+    return true
   } catch {
     return false
-  } finally {
-    if (arr) {
-      try {
-        CFRelease!(arr)
-      } catch {
-        /* ignore */
-      }
-    }
   }
 }
 
