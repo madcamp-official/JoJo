@@ -1,9 +1,8 @@
 // 담당 B — 유튜브 화면 자막 DOM 추출 + 단어별 좌표.
 // 유튜브 자막은 .ytp-caption-segment span 으로 렌더된다(극장/전체화면/자막 위치 이동과
-// 무관하게 항상 이 구조). span 을 단어로 쪼개 각 단어의 뷰포트 사각형을 Range 로 잰다 —
-// getBoundingClientRect 를 매번 새로 읽으므로 자막을 드래그로 옮기거나 전체화면 전환해도
-// 항상 현재 위치가 반영된다.
-import type { RectPx, SubLine, SubtitleSnapshot, SubWord } from '@shared/extension'
+// 무관하게 항상 이 구조). 공용 유틸(domWords.ts)로 단어별 뷰포트 사각형을 잰다.
+import type { SubLine, SubtitleSnapshot } from '@shared/extension'
+import { observeContainer, videoCurrentTime, viewportInfo, wordsInElement } from './domWords'
 
 const CAPTION_WINDOW = '.caption-window' // 자막 컨테이너(여러 줄/위치 이동의 최상위)
 const CAPTION_SEGMENT = '.ytp-caption-segment'
@@ -17,87 +16,11 @@ export function isYoutubeWatch(): boolean {
 }
 
 // 자막 갱신을 감시할 컨테이너. 플레이어 전체를 관찰해 자막 창이 생겼다 사라지는 것까지 잡는다.
-export function captionRoot(): HTMLElement | null {
+function captionRoot(): HTMLElement | null {
   return (
     document.querySelector<HTMLElement>('#movie_player') ||
     document.querySelector<HTMLElement>('.html5-video-player')
   )
-}
-
-export function videoCurrentTime(): number {
-  const v = document.querySelector<HTMLVideoElement>('video.html5-main-video, video')
-  return v ? v.currentTime : 0
-}
-
-// 중국어/일본어는 단어 사이에 공백이 없다 — 공백 기준으로만 쪼개면 자막 한 줄 전체가
-// "단어 하나"로 잡혀 hover 박스·클릭 앵커가 줄 단위가 돼버린다(실사용 중 확인). 그래서
-// 한자/가나는 여기서 한 글자씩 개별 토큰으로 쪼갠다 — 실제 단어 경계(형태소 분석)는 팝업이
-// 열린 뒤 앱의 zh/ja 세그멘터(popup/selection.ts tokenizeAtoms)가 문맥을 보고 다시 묶어주므로,
-// 여기서는 클릭 지점의 글자 하나만 정확히 짚으면 된다.
-const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
-
-// 한 세그먼트(span) 텍스트를 단어 단위로 쪼개고, 각 단어의 뷰포트 사각형을 Range 로 잰다.
-function wordsFromSegment(seg: HTMLElement): SubWord[] {
-  const textNode = firstTextNode(seg)
-  if (!textNode) return []
-  const full = textNode.textContent ?? ''
-  const words: SubWord[] = []
-  let i = 0
-  while (i < full.length) {
-    const ch = full[i]!
-    if (/\s/.test(ch)) {
-      i += 1
-      continue
-    }
-    if (CJK_CHAR_RE.test(ch)) {
-      const rect = rangeRect(textNode, i, i + 1)
-      if (rect) words.push({ text: ch, rect })
-      i += 1
-      continue
-    }
-    // 그 외(라틴 등)는 공백 또는 CJK 문자를 만날 때까지를 한 단어로 묶는다(기존 동작).
-    let j = i + 1
-    while (j < full.length && !/\s/.test(full[j]!) && !CJK_CHAR_RE.test(full[j]!)) j += 1
-    const rect = rangeRect(textNode, i, j)
-    if (rect) words.push({ text: full.slice(i, j), rect })
-    i = j
-  }
-  return words
-}
-
-function firstTextNode(el: Node): Text | null {
-  if (el.nodeType === Node.TEXT_NODE) return el as Text
-  for (const child of Array.from(el.childNodes)) {
-    const found = firstTextNode(child)
-    if (found) return found
-  }
-  return null
-}
-
-// 텍스트 노드의 [start,end) 구간 사각형. 줄바꿈으로 여러 조각이면 union 한다.
-function rangeRect(node: Text, start: number, end: number): RectPx | null {
-  const range = document.createRange()
-  try {
-    range.setStart(node, start)
-    range.setEnd(node, end)
-  } catch {
-    return null
-  }
-  const rects = range.getClientRects()
-  if (rects.length === 0) return null
-  let x0 = Infinity
-  let y0 = Infinity
-  let x1 = -Infinity
-  let y1 = -Infinity
-  for (const r of Array.from(rects)) {
-    if (r.width === 0 && r.height === 0) continue
-    x0 = Math.min(x0, r.left)
-    y0 = Math.min(y0, r.top)
-    x1 = Math.max(x1, r.right)
-    y1 = Math.max(y1, r.bottom)
-  }
-  if (!isFinite(x0)) return null
-  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
 }
 
 // 지금 화면에 떠 있는 자막 프레임을 추출한다. 자막이 없으면 null.
@@ -109,48 +32,21 @@ export function extractSubtitleSnapshot(): SubtitleSnapshot | null {
     const segs = win.querySelectorAll<HTMLElement>(CAPTION_SEGMENT)
     // 한 자막 창 안에서 각 세그먼트는 보통 한 줄(또는 줄 조각)이다. 세그먼트별로 한 줄로 본다.
     for (const seg of Array.from(segs)) {
-      const words = wordsFromSegment(seg)
+      const words = wordsInElement(seg)
       if (words.length === 0) continue
       // words 를 공백으로 join 하면 CJK 처럼 원문에 공백이 없던 구간에 가짜 공백이 끼어들어
-      // (wordsFromSegment 가 한자/가나를 글자 단위로 쪼개므로) 실제 자막 원문과 달라진다 —
+      // (domWords.ts 가 한자/가나를 글자 단위로 쪼개므로) 실제 자막 원문과 달라진다 —
       // anchorInTranscript(subtitleSource.ts)가 이 lineText 를 timedtext cue 원문 안에서
       // 그대로 찾아야 하므로, 세그먼트의 원문 그대로를 line.text 로 쓴다.
-      const raw = firstTextNode(seg)?.textContent ?? words.map((w) => w.text).join(' ')
+      const raw = seg.textContent ?? words.map((w) => w.text).join(' ')
       lines.push({ text: raw, words })
     }
   }
   if (lines.length === 0) return null
-  // 브라우저 창 좌상단 → 뷰포트 좌상단 오프셋(CSS px). 세로는 툴바+탭바(outer-inner),
-  // 가로는 좌우 테두리 절반. 전체화면/극장모드에선 크롬이 없어 0 에 수렴한다.
-  const chromeTop = Math.max(0, window.outerHeight - window.innerHeight)
-  const chromeLeft = Math.max(0, Math.round((window.outerWidth - window.innerWidth) / 2))
-  return {
-    lines,
-    viewport: {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      dpr: window.devicePixelRatio || 1,
-      chromeLeft,
-      chromeTop,
-    },
-    currentTime: videoCurrentTime(),
-  }
+  return { lines, viewport: viewportInfo(), currentTime: videoCurrentTime() }
 }
 
 // 자막 컨테이너 변화를 감시해 콜백을 호출한다. 반환값으로 정리 함수를 준다.
 export function observeSubtitles(onChange: () => void): () => void {
-  const root = captionRoot() ?? document.body
-  const observer = new MutationObserver(() => onChange())
-  observer.observe(root, { childList: true, subtree: true, characterData: true })
-  // 스크롤/리사이즈/전체화면 전환 시 좌표가 달라지므로 함께 갱신한다.
-  const onView = () => onChange()
-  window.addEventListener('resize', onView, { passive: true })
-  window.addEventListener('scroll', onView, { passive: true, capture: true })
-  document.addEventListener('fullscreenchange', onView)
-  return () => {
-    observer.disconnect()
-    window.removeEventListener('resize', onView)
-    window.removeEventListener('scroll', onView, { capture: true } as EventListenerOptions)
-    document.removeEventListener('fullscreenchange', onView)
-  }
+  return observeContainer(captionRoot() ?? document.body, onChange)
 }
