@@ -152,20 +152,35 @@ export function getMacWindowBounds(windowId: number): MacWindowRect | null {
 }
 
 /**
- * windowId 가 지금 최소화되지 않고 화면에 보이는 상태인지 확인한다 — win32 의
- * `IsIconic`(win32Capture.ts) 에 대응. `getMacWindowBounds`(kCGWindowListOptionIncludingWindow
- * 만 사용)는 창이 최소화돼도 마지막 bounds 를 그대로 돌려주도록 의도돼 있어(닫힘 판정과
- * 구분하려고) 그 값만으로는 최소화 여부를 알 수 없다 — `kCGWindowListOptionOnScreenOnly`
- * 를 같이 줘서 조회하면 최소화된 창은 결과가 비어 온다(2026-07-29, 코드 감사로 발견한
- * 격차 수정 — win32 는 최소화 시 오버레이를 숨기는데 mac 은 옛 위치에 그대로 떠 있었음).
- */
+ * windowId 가 지금 최소화되지 않고 화면에(=현재 활성 데스크탑/Space 에) 보이는 상태인지
+ * 확인한다 — win32 의 `IsIconic`(win32Capture.ts) 에 대응. `getMacWindowBounds`
+ * (kCGWindowListOptionIncludingWindow 만 사용)는 창이 최소화되거나 다른 데스크탑(Space)에
+ * 있어도 마지막 bounds 를 그대로 돌려주도록 의도돼 있어(닫힘 판정과 구분하려고) 그 값만
+ * 으로는 최소화/Space 이동 여부를 알 수 없다(2026-07-29, 코드 감사로 발견한 격차 수정 —
+ * win32 는 최소화 시 오버레이를 숨기는데 mac 은 옛 위치에 그대로 떠 있었음).
+ *
+ * **재수정(2026-07-29, "데스크탑 전환 시 오버레이가 따라온다" 재발 제보)**: 처음엔
+ * `kCGWindowListOptionOnScreenOnly`를 `kCGWindowListOptionIncludingWindow`(특정 windowId
+ * 하나만 조회)와 비트 OR로 합쳐서 썼는데, `kCGWindowListOptionIncludingWindow`는 원래
+ * "그 windowId 부터 시작하는 나머지 목록"을 뜻하는 옵션이라(relativeToWindow 위치 지정용)
+ * onScreenOnly 와 합치면 "이 창 하나만"이 아니라 "이 창 위치부터 이어지는 모든 on-screen
+ * 창들"이 반환돼, 대상이 안 보이는 상태여도 다른 on-screen 창들 때문에 결과가 거의 항상
+ * 비어있지 않게(=true 로 오판) 나왔을 수 있다 — 이미 검증된 `listMacWindowOwnerNames`와
+ * 동일하게 `kCGWindowListOptionOnScreenOnly` 단독으로 전체 on-screen 목록을 받아 그 안에
+ * windowId 가 있는지 직접 찾는 방식으로 바꿔 이 모호함을 없앤다. */
 export function isMacWindowOnScreen(windowId: number): boolean {
   if (!ensureCoreGraphics()) return true // 조회 자체가 안 되면 "보임"으로 낙관적 폴백(기존 getWindowInfo 와 동일한 실패 처리 기조)
   let arr: unknown = null
   try {
-    arr = CGWindowListCopyWindowInfo!(kCGWindowListOptionOnScreenOnly | kCGWindowListOptionIncludingWindow, windowId)
+    arr = CGWindowListCopyWindowInfo!(kCGWindowListOptionOnScreenOnly, 0)
     if (!arr) return false
-    return Number(CFArrayGetCount!(arr)) > 0
+    const count = Number(CFArrayGetCount!(arr))
+    for (let i = 0; i < count; i++) {
+      const dict = CFArrayGetValueAtIndex!(arr, i)
+      if (!dict) continue
+      if (readInt(dict, numberKey) === windowId) return true
+    }
+    return false
   } catch {
     return true
   } finally {
