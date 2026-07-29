@@ -620,18 +620,18 @@ export function SettingsScreen() {
           </div>
         </div>
         <div className="shortcut-row">
-          <span className="label">설정 화면 열기</span>
+          <span className="label">창 선택 / 전환</span>
           <div className="shortcut-control">
-            <span className={`shortcut-keys${recordingField === 'settingsShortcut' ? ' recording' : ''}`}>
-              {recordingField === 'settingsShortcut'
+            <span className={`shortcut-keys${recordingField === 'windowSelectShortcut' ? ' recording' : ''}`}>
+              {recordingField === 'windowSelectShortcut'
                 ? '수식키+키 입력 (Esc 취소)'
-                : formatAccelerator(settings.settingsShortcut)}
+                : formatAccelerator(settings.windowSelectShortcut)}
             </span>
             <EditDeleteGroup
-              onEdit={() => setRecordingField('settingsShortcut')}
-              onDelete={() => void patch({ settingsShortcut: '' })}
+              onEdit={() => setRecordingField('windowSelectShortcut')}
+              onDelete={() => void patch({ windowSelectShortcut: '' })}
               deleteTitle="단축키 해제"
-              deleteDisabled={!settings.settingsShortcut}
+              deleteDisabled={!settings.windowSelectShortcut}
             />
           </div>
         </div>
@@ -652,22 +652,6 @@ export function SettingsScreen() {
           </div>
         </div>
         <div className="shortcut-row">
-          <span className="label">창 선택 / 전환</span>
-          <div className="shortcut-control">
-            <span className={`shortcut-keys${recordingField === 'windowSelectShortcut' ? ' recording' : ''}`}>
-              {recordingField === 'windowSelectShortcut'
-                ? '수식키+키 입력 (Esc 취소)'
-                : formatAccelerator(settings.windowSelectShortcut)}
-            </span>
-            <EditDeleteGroup
-              onEdit={() => setRecordingField('windowSelectShortcut')}
-              onDelete={() => void patch({ windowSelectShortcut: '' })}
-              deleteTitle="단축키 해제"
-              deleteDisabled={!settings.windowSelectShortcut}
-            />
-          </div>
-        </div>
-        <div className="shortcut-row">
           <span className="label">영역 수동 선택</span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recordingField === 'manualRegionShortcut' ? ' recording' : ''}`}>
@@ -680,6 +664,22 @@ export function SettingsScreen() {
               onDelete={() => void patch({ manualRegionShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.manualRegionShortcut}
+            />
+          </div>
+        </div>
+        <div className="shortcut-row">
+          <span className="label">설정 화면 열기</span>
+          <div className="shortcut-control">
+            <span className={`shortcut-keys${recordingField === 'settingsShortcut' ? ' recording' : ''}`}>
+              {recordingField === 'settingsShortcut'
+                ? '수식키+키 입력 (Esc 취소)'
+                : formatAccelerator(settings.settingsShortcut)}
+            </span>
+            <EditDeleteGroup
+              onEdit={() => setRecordingField('settingsShortcut')}
+              onDelete={() => void patch({ settingsShortcut: '' })}
+              deleteTitle="단축키 해제"
+              deleteDisabled={!settings.settingsShortcut}
             />
           </div>
         </div>

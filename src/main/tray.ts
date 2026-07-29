@@ -22,8 +22,8 @@ import {
 // 담당 A — 백그라운드 실행 + 트레이 아이콘 (PLAN.md §3)
 // 창을 선택하면 메인 창은 숨고(windows.ts: SELECT_WINDOW 핸들러) 트레이 아이콘만 남는다.
 // 트레이 메뉴는 선택 상태에 따라 달라진다:
-//   - 선택된 창이 있을 때: 창 선택 전환 / 창 선택 해제 / 모드 전환 / (선택 모드면) 영역 수동 선택 / 설정 / 종료
-//     (2026-07-29 재수정 — "전환"이 "해제"보다 앞, 단축키도 전환=Opt+1/해제=Opt+2로 서로 교체)
+//   - 선택된 창이 있을 때: 모드 전환 / 창 선택 전환 / 창 선택 해제 / (선택 모드면) 영역 수동 선택 / 설정 / 종료
+//     (2026-07-29 재수정 — 이 순서로 확정, 단축키는 전환=Opt+1/해제=Opt+2, "현재 모드" 표시는 라벨에서 제거)
 //   - 없을 때: 창 선택 / 설정 / 종료 ("창 선택 해제"는 뜻이 없고, "창 선택 전환"은 그냥 "창 선택")
 // "영역 수동 선택"(선택 모드에서만 노출)은 자동 탐지 설정(autoDetectRegion)이 켜져 있어도
 // 그 결과가 마음에 안 들 때 강제로 드래그 선택으로 덮어쓰는 용도 — shortcut.ts:
@@ -65,6 +65,13 @@ function buildTrayMenu(): Menu {
   return Menu.buildFromTemplate([
     ...(hasSelection
       ? [
+          // 모드 전환(일반 ↔ 선택, 2026-07-29 트레이 노출 요청) — 대상 창이 있어야 뜻이
+          // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+Q)을 그대로 표시.
+          {
+            label: '모드 전환',
+            accelerator: accel(settings.modeShortcut),
+            click: toggleMode,
+          },
           {
             label: '창 선택 전환',
             accelerator: accel(settings.windowSelectShortcut),
@@ -74,13 +81,6 @@ function buildTrayMenu(): Menu {
             label: '창 선택 해제',
             accelerator: accel(settings.windowDeselectShortcut),
             click: deselectWindow,
-          },
-          // 모드 전환(일반 ↔ 선택, 2026-07-29 트레이 노출 요청) — 대상 창이 있어야 뜻이
-          // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+Q)을 그대로 표시.
-          {
-            label: `모드 전환 (현재: ${inSelectMode ? '선택 모드' : '일반 모드'})`,
-            accelerator: accel(settings.modeShortcut),
-            click: toggleMode,
           },
         ]
       : [{ label: '창 선택', accelerator: accel(settings.windowSelectShortcut), click: openWindowPicker }]),
