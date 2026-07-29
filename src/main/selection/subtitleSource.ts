@@ -174,15 +174,23 @@ function anchorInTranscript(
   // 넣으면 한 문장이 팝업에서 여러 줄로 쪼개져 보인다 — 직전 cue 가 문장 종결부호로 끝날
   // 때만 줄바꿈(새 문단)을 넣고, 그렇지 않으면 공백으로 이어 자연스럽게 흐르게 한다.
   //
-  // 이 판단은 "문장부호가 하나라도 있는가"가 아니라 **비율**로 한다 — 넷플릭스 대사
+  // 이 판단은 "문장부호가 하나라도 있는가"가 아니라 **밀도**로 한다 — 넷플릭스 대사
   // 자막처럼 거의 모든 cue 에 문장부호가 없고 가끔 "…" 정도만 섞여 있으면(실측, 2026-07-29)
   // "하나라도 있으면"이라는 기준은 문장부호 판단을 쓰기로 결정해버려서, 문장부호 없는
-  // 절대다수 cue 들이 전부 공백으로만 이어붙어 문단 하나가 되는 문제가 있었다. cue의
-  // 상당수가 실제로 문장부호로 끝날 때만(=진짜 "구두점 있는 자막") 그 기준을 쓰고,
-  // 그렇지 않으면(대부분 구두점 없는 대사 단위 자막) cue(화면 줄/대사) 단위로 줄바꿈한다.
-  const PUNCTUATED_RATIO_THRESHOLD = 0.3
-  const punctuatedCount = cues.filter((c) => endsWithSentenceEnder(c.text)).length
-  const looksPunctuated = punctuatedCount / cues.length >= PUNCTUATED_RATIO_THRESHOLD
+  // 절대다수 cue 들이 전부 공백으로만 이어붙어 문단 하나가 되는 문제가 있었다.
+  //
+  // **재수정(2026-07-29, 사용자 제보 — 유튜브 에세이류 영상에서 "hiding in" 뒤처럼 문장이
+  // 안 끝났는데 강제 줄바꿈됨)**: 처음엔 "cue 가 그 자리에서 끝나는가"의 **비율**로
+  // 판단했는데, 자막 cue 컷은 보통 시간/화면폭 기준이라 문장 경계와 거의 안 맞아떨어진다
+  // — 그래서 진짜로 구두점이 촘촘한 나레이션 자막도(문장부호가 cue 중간중간에는 많아도
+  // 하필 cue *끝*에 오는 경우는 드물어서) 비율이 낮게 나와 "구두점 없음"으로 오판하고
+  // 모든 cue 경계에서 강제 줄바꿈해버렸다. cue 끝인지 여부와 무관하게 **전체 텍스트 안
+  // 어디에든** 문장부호가 얼마나 자주 나오는지(밀도)로 바꿔서, 넷플릭스류(거의 없음)와
+  // 나레이션류(문장마다 하나씩, 밀도 훨씬 높음)를 구분한다.
+  const PUNCTUATION_DENSITY_THRESHOLD = 0.15 // cue 당 평균 이 값 이상(대략 6~7 cue 마다 1개)이면 "구두점 있는 자막"
+  const SENTENCE_ENDER_RE = /[.!?。！？…]/g
+  const totalSentenceEnders = (cues.map((c) => c.text).join(' ').match(SENTENCE_ENDER_RE) ?? []).length
+  const looksPunctuated = totalSentenceEnders / cues.length >= PUNCTUATION_DENSITY_THRESHOLD
   const offsets: number[] = []
   let full = ''
   for (let i = 0; i < cues.length; i++) {
