@@ -701,22 +701,43 @@ export function createPopupWindow(
   ctx: ExtractedSelection | null = null,
   demo?: string,
 ): BrowserWindow {
-  popupContext = ctx
-  // 임시 진단 로그(2026-07-29, "가끔 빈 팝업이 뜬다" 제보 확인용) — 텍스트 원문은
-  // 안 찍고 존재 여부/길이만 남긴다.
-  console.log(
-    `[windows] createPopupWindow ctx=${ctx ? `len=${ctx.text.length} source=${ctx.source.kind}` : 'null'} demo=${demo ?? 'none'}`,
-  )
-  // 팝업이 이미 떠 있는 상태에서 다른 단어를 새로 고르면, 예전엔 기존 창 내용만 갱신하고
-  // 앞으로 올렸다(forceWindowToFront) — 그런데 이전 대화(채팅 로그 등) 상태가 그대로 남아
-  // 헷갈린다는 피드백(2026-07-29)으로, 기존 창은 즉시 없애고 항상 새 팝업을 띄우도록 변경.
+  // 팝업이 이미 떠 있는데 실사용 클릭(ctx 있음)으로 다른 단어를 새로 골랐으면, 창을
+  // 닫았다 새로 띄우지 않고 기존 창 내용만 갱신한다(2026-07-29 재수정, 사용자 요청 —
+  // "팝업이 닫혔다 새로 열리는 대신 기존 팝업 내에서 바뀌면 좋겠다"). demo/null ctx
+  // (미리보기 버튼)는 그 경로가 원래 드물고 굳이 재사용할 이유가 없어 기존 destroy+재생성
+  // 그대로 둔다 — 아래에서 fall-through.
+  //
+  // 예전엔(더 이전 버전) 이 재사용 방식이었다가, 이전 대화(채팅 로그 등) 상태가 창에 그대로
+  // 남아 헷갈린다는 피드백으로 한 번은 destroy+재생성으로 바꿨었다(2026-07-29). 그 문제는
+  // "창을 새로 만드느냐"가 아니라 "렌더러가 새 ctx 를 받고도 이전 대화 상태를 안 지우느냐"가
+  // 원인이라, 창은 재사용하되 렌더러(PopupScreen.tsx) 쪽에서 baseCtx 가 바뀔 때마다 채팅
+  // 메시지/스트리밍 상태를 명시적으로 리셋하도록 옮겼다 — 두 요구사항을 동시에 만족.
+  if (ctx && popupWindow && !popupWindow.isDestroyed()) {
+    // 위치/크기는 건드리지 않는다 — 사용자가 헤더를 드래그해 옮겨둔 자리를 그대로 유지해야
+    // 하는데, 여기서 매번 centerOnCursorDisplay 로 재배치하면 "창이 새로 뜨지는 않지만
+    // 다른 단어를 클릭할 때마다 특정 위치로 튀는" 문제가 생긴다(사용자 피드백, 2026-07-29).
+    popupContext = ctx
+    popupWindow.webContents.send(IPC.POPUP_GET_CONTEXT, ctx)
+    forceWindowToFront(popupWindow)
+    return popupWindow
+  }
+
   // close() 대신 destroy() 를 쓴다 — close 는 'before-input-event'/beforeunload 등 비동기
   // 정리 경로를 타는데, 그 사이 아래에서 새 창을 만들면 "닫히는 중인 창"과 "새 창"이 잠깐
   // 공존해 z-order/포커스가 꼬일 수 있다. destroy 는 즉시 동기로 없애 그 틈을 없앤다.
+  //
+  // 담당 A — popupContext 대입은 반드시 이 destroy **뒤**여야 한다(2026-07-29, 실사용
+  // 확인: "팝업이 떠 있는 상태에서 다른 텍스트 박스를 클릭하면 본문이 빈 팝업이 뜸").
+  // destroy() 는 'closed' 이벤트를 동기로 발화하는데, 그 핸들러의 `popupWindow === win`
+  // 가드는 이 시점엔 popupWindow 가 아직 이전 창을 가리키고 있어 참이 되고 popupContext
+  // 를 null 로 지운다 — 대입을 destroy 앞에 두면 방금 저장한 새 컨텍스트가 그 자리에서
+  // 지워져서, 새 팝업 렌더러가 getPopupContext() 로 null 을 받아 빈 자리표시자에 영영
+  // 머물고 1.5초 안전망(POPUP_SHOW_FALLBACK_MS)이 빈 창을 그대로 보여주게 된다.
   if (popupWindow && !popupWindow.isDestroyed()) {
     popupWindow.destroy()
   }
   popupWindow = null
+  popupContext = ctx
   const workAreaHeight = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea.height
   const popupHeight = Math.min(POPUP_HEIGHT, workAreaHeight - POPUP_HEIGHT_MARGIN)
   const { x, y } = centerOnCursorDisplay(POPUP_WIDTH, popupHeight) // 활성 모니터에 뜨도록

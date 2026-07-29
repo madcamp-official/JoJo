@@ -334,6 +334,16 @@ export function PopupScreen() {
   const [busy, setBusy] = useState(false)
   const streamingIdRef = useRef<string | null>(null)
 
+  // 팝업 창이 닫혔다 새로 뜨는 대신 재사용되면서(2026-07-29, windows.ts: createPopupWindow)
+  // 새 baseCtx 를 받을 때마다 이전 대화를 비운다 — 창을 매번 새로 만들던 때는 이게 저절로
+  // 됐지만, 이제는 명시적으로 지워야 이전 선택의 채팅 로그가 새 선택 화면에 남아 헷갈리는
+  // 문제(창을 재사용했던 예전 버전에서 실제로 있었던 사용자 불만)가 재발하지 않는다.
+  useEffect(() => {
+    setMessages([])
+    setBusy(false)
+    streamingIdRef.current = null
+  }, [baseCtx])
+
   // 스트리밍 델타 라우팅 — 진행 중 assistant 말풍선에 append
   useEffect(() => {
     return window.nuance.onQuestionStream((chunk: QuestionResult) => {
