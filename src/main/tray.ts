@@ -103,7 +103,10 @@ function buildTrayMenu(): Menu {
 export function createTray(): Tray {
   if (tray) return tray
 
-  const icon = nativeImage.createFromPath(resolveIconPath()).resize({ width: 32, height: 32 })
+  // macOS 메뉴바 표준 높이는 22pt(레티나 44px)라 Windows와 같은 32px로 리사이즈하면
+  // 비균등 스케일링이 걸려 아이콘이 가로로 길쭉하게 보인다.
+  const iconSize = process.platform === 'darwin' ? 22 : 32
+  const icon = nativeImage.createFromPath(resolveIconPath()).resize({ width: iconSize, height: iconSize })
   tray = new Tray(icon)
   tray.setToolTip('Nuance')
 
