@@ -16,6 +16,11 @@ interface Props {
   charLevel?: boolean
   /** 언어별 전용 스타일(예: 일본어 전용 폰트, styles.css: .ctx-text.lang-ja) 훅. */
   className?: string
+  /** 아랍어/페르시아어/히브리어/우르두어(RTL) 팝업일 때 'rtl' — 기본 텍스트 방향만
+   *  바꾼다(2026-07-30). 드래그 선택 자체는 이 값과 무관하게 이미 정확하다(위 atomIndexAtPoint
+   *  주석 참고 — document.caretRangeFromPoint가 bidi를 이미 인식하고, atom index/lo/hi
+   *  비교가 전부 논리 순서 기준이라 시각적 방향이 뒤집혀도 실제 선택 범위는 안 흔들림). */
+  dir?: 'ltr' | 'rtl'
   /** PopupScreen 이 실제 렌더링 너비/폰트로 "화면상 줄" 경계를 측정할 때 씀
    *  (popup/measureLines.ts) — 이 루트 엘리먼트의 className/clientWidth를 그대로
    *  복제해 오프스크린에서 측정한다. */
@@ -107,7 +112,7 @@ function atomIndexAtPoint(atomEls: Map<number, HTMLSpanElement>, x: number, y: n
   return nearestAtomIndex(atomEls, x, y)
 }
 
-export function ContextView({ model, from, to, onChange, charLevel, className, rootRef }: Props) {
+export function ContextView({ model, from, to, onChange, charLevel, className, rootRef, dir }: Props) {
   const lo = Math.min(from, to)
   const hi = Math.max(from, to)
   const [dragging, setDragging] = useState(false)
@@ -189,6 +194,7 @@ export function ContextView({ model, from, to, onChange, charLevel, className, r
   return (
     <div
       ref={rootRef}
+      dir={dir}
       className={['ctx-text', dragging && 'dragging', charLevel && 'char-level', className]
         .filter(Boolean)
         .join(' ')}

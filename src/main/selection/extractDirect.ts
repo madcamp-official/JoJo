@@ -2,6 +2,7 @@ import type { AnyLanguage, SelectionSource, Word } from '@shared/types'
 import { detectSupportedLanguage } from '@shared/languageDetect'
 import { readWindowText } from './accessibility'
 import { getSelectedWindowId } from './capture'
+import { getLanguageOverride } from '../settingsStore'
 
 // 담당 A — 소스별 직접 텍스트 추출 (PLAN.md §5.1 / §8)
 //  - txt(표준 텍스트 컨트롤) : 접근성(WM_GETTEXT)으로 렌더 텍스트 직접 읽기 — 구현됨
@@ -27,7 +28,7 @@ export async function extractDirect(source: SelectionSource): Promise<Extracted>
     // 확장, 2026-07-30), 텍스트가 이미 있는 경로라 자막 판별과 같은 함수를 그대로 쓸 수
     // 있다. tier3(미지원 언어)면 en으로 폴백 — 이 경로는 클릭 시점 토스트 분기가 따로
     // 없어서(자막 경로와 달리) null을 그대로 흘려보내면 하위 소비처가 다 깨진다.
-    if (text) return { text, language: detectSupportedLanguage(text) ?? 'en', words: [] }
+    if (text) return { text, language: getLanguageOverride() ?? detectSupportedLanguage(text) ?? 'en', words: [] }
   }
   // TODO(담당 A): epub/pdf/web 소스별 파서 분기 + 좌표 매핑.
   return { text: '', language: 'en', words: [] }

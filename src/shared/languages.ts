@@ -201,6 +201,16 @@ export function hasNaverDict(lang: AnyLanguage): boolean {
   return isFullLanguage(lang) || LINK_LANGUAGES[lang].naverDictCode !== undefined
 }
 
+/** 오른쪽에서 왼쪽으로 쓰는 언어(tier2 중 아랍어/페르시아어/히브리어/우르두어) — 팝업
+ * 본문의 기본 텍스트 방향(dir 속성)을 정할 때 쓴다(2026-07-30). 드래그 선택 자체는
+ * `document.caretRangeFromPoint`(브라우저 네이티브, bidi 인식)와 atom index(항상 논리
+ * 순서) 기반이라 이 목록과 무관하게 이미 정확하다 — 여긴 순수 레이아웃(정렬 방향)용. */
+const RTL_LANGUAGES: ReadonlySet<AnyLanguage> = new Set(['ar', 'fa', 'he', 'ur'])
+
+export function isRtlLanguage(lang: AnyLanguage): boolean {
+  return RTL_LANGUAGES.has(lang)
+}
+
 /** 네이버 사전 링크 URL. tier1은 서브도메인 방식(`{code}.dict.naver.com`), tier2-A는
  * 경로 방식(`dict.naver.com/{code}kodict/`, 2026-07-30 실측 확인 — 서브도메인 아님
  * 주의)이라 패턴 자체가 다르다. tier2-B(naverDictCode 없음)는 null. */

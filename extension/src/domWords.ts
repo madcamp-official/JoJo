@@ -27,11 +27,53 @@ const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
 
 // 태국어/라오어도 단어 사이 공백이 없지만(위 CJK와 같은 문제), 여긴 반대로 접근한다 —
 // 형태소 분석기가 없어(2026-07-30 결정) 글자 단위로 쪼개도 "정확한 단어 경계"를 흉내낼
-// 수조차 없으므로, 아예 시도하지 않고 hover 박스를 줄 전체로 보여준다(사용자 결정 —
-// "호버박스는 줄 단위, 팝업 연 다음 내부 선택만 글자 단위"). 팝업이 열린 뒤의 글자 단위
-// 선택은 popup/selection.ts의 NO_WORD_BOUNDARY_LANGUAGES가 담당 — 여기(hover)와
+// 수조차 없으므로, 아예 시도하지 않고 hover 박스를 "화면상 줄" 단위로 보여준다(사용자
+// 결정 — "호버박스는 줄 단위, 팝업 연 다음 내부 선택만 글자 단위"). 팝업이 열린 뒤의
+// 글자 단위 선택은 popup/selection.ts의 NO_WORD_BOUNDARY_LANGUAGES가 담당 — 여기(hover)와
 // 그쪽(팝업 내부)이 "글자 단위"의 의미가 다르다는 점 주의.
+//
+// 처음엔 "텍스트 노드 전체 = 한 줄"로 단순화했는데, 이 함수(wordsInElement)가 자막
+// (한 노드 = 실제로 화면상 한 줄)뿐 아니라 일반 웹페이지 본문 문단(webArticle.ts, 한
+// 노드가 여러 줄로 줄바꿈될 수 있음)에도 재사용되면서 문단 전체가 한 덩어리로 뭉치는
+// 문제가 있었다(2026-07-30 사용자 지적) — splitTextNodeIntoVisualLines로 실제 화면상
+// 줄바꿈 지점을 찾아 진짜 줄 단위로 쪼갠다.
 const THAI_LAO_CHAR_RE = /[฀-໿]/
+
+// 텍스트 노드를 실제 화면에 그려지는 줄(visual line) 단위로 쪼갠다 — 글자 하나씩 사각형을
+// 재서(rangeRect) 세로 위치(y)가 이전 줄 범위를 벗어나면 줄바꿈으로 본다. 자막처럼 원래
+// 한 줄뿐인 노드는 그대로 1개 결과, 웹 기사 문단처럼 여러 줄로 감싸진 노드는 줄 수만큼
+// 나온다. RTL/LTR 등 글의 방향과 무관하게 세로(y) 좌표만 보므로 아랍어 등에도 안전하다.
+function splitTextNodeIntoVisualLines(node: Text, full: string): { start: number; end: number }[] {
+  const lines: { start: number; end: number }[] = []
+  let lineStart = 0
+  let lineTop = 0
+  let lineBottom = 0
+  let hasLine = false
+  for (let i = 0; i < full.length; i++) {
+    const r = rangeRect(node, i, i + 1)
+    if (!r) continue // 공백 등 폭 0 인 문자 — 줄 판정에서 제외하고 다음 글자로
+    if (!hasLine) {
+      lineTop = r.y
+      lineBottom = r.y + r.height
+      hasLine = true
+      continue
+    }
+    // 세로 범위가 지금 줄과 조금이라도 겹치면 같은 줄로 본다(폰트 크기가 섞여도 안전하게
+    // 넉넉히 판정) — 안 겹치면 새 줄이 시작된 것.
+    const overlaps = r.y < lineBottom && r.y + r.height > lineTop
+    if (overlaps) {
+      lineTop = Math.min(lineTop, r.y)
+      lineBottom = Math.max(lineBottom, r.y + r.height)
+      continue
+    }
+    lines.push({ start: lineStart, end: i })
+    lineStart = i
+    lineTop = r.y
+    lineBottom = r.y + r.height
+  }
+  if (hasLine) lines.push({ start: lineStart, end: full.length })
+  return lines
+}
 
 // 팝업의 단어 판정 핵심 규칙(콤마/마침표 등 문장부호 제외)을 공유하되, 하이픈만 의도적
 // 으로 다르게 처리한다 — 팝업은 하이픈을 경계로 보고 쪼개지만("well-to-do" → well/to/do),
@@ -42,11 +84,16 @@ const WORD_ATOM_RE = new RegExp(HOVER_WORD_ATOM_PATTERN, 'gu')
 
 function wordsFromTextNode(node: Text): SubWord[] {
   const full = node.textContent ?? ''
-  // 태국어/라오어는 통째로 줄 하나를 "단어" 하나로 취급한다(위 THAI_LAO_CHAR_RE 주석
-  // 참고) — 공백/CJK 분기를 아예 안 타고 이 노드 전체의 사각형 하나만 반환.
+  // 태국어/라오어는 화면상 줄 하나를 "단어" 하나로 취급한다(위 THAI_LAO_CHAR_RE 주석
+  // 참고) — 공백/CJK 분기를 아예 안 타고 실제 줄바꿈 지점(splitTextNodeIntoVisualLines)
+  // 마다 사각형 하나씩 반환.
   if (THAI_LAO_CHAR_RE.test(full)) {
-    const rect = rangeRect(node, 0, full.length)
-    return rect ? [{ text: full, rect }] : []
+    const lineWords: SubWord[] = []
+    for (const { start, end } of splitTextNodeIntoVisualLines(node, full)) {
+      const rect = rangeRect(node, start, end)
+      if (rect) lineWords.push({ text: full.slice(start, end), rect })
+    }
+    return lineWords
   }
   const words: SubWord[] = []
   let i = 0

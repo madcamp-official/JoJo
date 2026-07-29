@@ -11,7 +11,7 @@ import type {
 } from '@shared/types'
 import { sentenceEnd, sentenceStart } from '@shared/context'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
-import { getNativeLanguageName, hasNaverDict, isFullLanguage } from '@shared/languages'
+import { getNativeLanguageName, hasNaverDict, isFullLanguage, isRtlLanguage } from '@shared/languages'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
@@ -482,6 +482,7 @@ export function PopupScreen() {
             to={range.to}
             onChange={(from, to) => updateRange(from, to)}
             charLevel={charLevel}
+            dir={isRtlLanguage(baseCtx.language) ? 'rtl' : 'ltr'}
             className={
               baseCtx.language === 'ja'
                 ? 'lang-ja'

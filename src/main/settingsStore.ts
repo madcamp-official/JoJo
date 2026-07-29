@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import type { AppSettings } from '@shared/types'
+import type { AnyLanguage, AppSettings } from '@shared/types'
 
 // 담당 B — 앱 설정(AppSettings) 영속화 (PLAN.md §4 설정 화면)
 // userData/settings.json 에 평문 JSON으로 저장한다 (민감정보 없음 — API 키는 keyStore 가 별도 암호화 저장).
@@ -54,4 +54,15 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   cached = next
   writeFileSync(filePath(), JSON.stringify(next, null, 2), 'utf-8')
   return next
+}
+
+/** settings.language 가 'auto' 가 아니면(사용자가 특정 언어를 수동 지정) 그 값을,
+ * 'auto' 면 null 을 반환한다 — 자막/화면 텍스트/OCR 판별 지점들이 공통으로 이걸 먼저
+ * 확인해서, 지정돼 있으면 자동판별(eld/Tesseract OSD) 자체를 건너뛰고 항상 이 언어로
+ * 확정한다(2026-07-30, 설정 화면 수동 선택을 실제 판별 로직에 연동). 특히 tier2에서
+ * 라틴/키릴/아랍/데바나가리처럼 여러 언어가 스크립트를 공유해 자동판별이 흔들릴 수
+ * 있는 경우, 사용자가 수동으로 확정해 그 모호성 자체를 없앨 수 있게 하는 게 목적. */
+export function getLanguageOverride(): AnyLanguage | null {
+  const { language } = getSettings()
+  return language === 'auto' ? null : language
 }

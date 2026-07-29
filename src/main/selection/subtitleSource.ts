@@ -4,6 +4,7 @@ import { endsWithSentenceEnder } from '@shared/context'
 import { detectSupportedLanguage } from '@shared/languageDetect'
 import { extensionBridge, type Transcript } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
+import { getLanguageOverride } from '../settingsStore'
 import { createPopupWindow, sendOverlayWords } from '../windows'
 
 // 담당 B — 유튜브/넷플릭스 자막 추출 경로 (OCR 대체).
@@ -164,8 +165,8 @@ function buildSelection(hit: SubtitleClickHit): ExtractedSelection | null {
   }
 
   // 전체 자막이 아직 없으면(로드 전/트랙 없음) 현재 줄만이라도 보여준다 — 이 경우엔
-  // 캐시된 language 가 없으니 그 줄만으로 판별한다.
-  const language = detectSupportedLanguage(hit.lineText)
+  // 캐시된 language 가 없으니 그 줄만으로 판별한다(설정에서 수동 지정했으면 그 값 우선).
+  const language = getLanguageOverride() ?? detectSupportedLanguage(hit.lineText)
   if (language === null) return null
   return {
     text: hit.lineText,
