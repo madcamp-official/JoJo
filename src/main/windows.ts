@@ -618,13 +618,28 @@ const POPUP_HEIGHT = 900
 // 높이에서 위아래 여백을 뺀 값을 상한으로 삼는다.
 const POPUP_HEIGHT_MARGIN = 40
 
+/** 팝업 창을 다른 앱 창들보다 앞으로 강제로 올린다. 방금 사용자가 클릭한 대상 앱(브라우저
+ *  등)이 그 클릭으로 포그라운드를 가져간 직후라, Windows 는 백그라운드 프로세스가
+ *  SetForegroundWindow 로 강제로 포그라운드를 뺏는 걸 막는 정책이 있어 `focus()`만
+ *  호출하면 조용히 무시되고 팝업이 계속 대상 창 뒤에 남아있었다(실사용 확인, 2026-07-29 —
+ *  팝업이 이미 떠 있는 상태에서 다른 텍스트를 새로 선택해도 내용만 바뀌고 앞으로 안 옴).
+ *  `setAlwaysOnTop`을 껐다 켰다 토글하면 이 제한과 무관하게 z-order 재계산이 강제로
+ *  일어난다 — 흔히 쓰이는 우회법. */
+function forceWindowToFront(win: BrowserWindow): void {
+  if (win.isMinimized()) win.restore()
+  if (!win.isVisible()) win.show()
+  win.setAlwaysOnTop(true)
+  win.setAlwaysOnTop(false)
+  win.focus()
+}
+
 export function createPopupWindow(
   ctx: ExtractedSelection | null = null,
   demo?: string,
 ): BrowserWindow {
   popupContext = ctx
   if (popupWindow) {
-    popupWindow.focus()
+    forceWindowToFront(popupWindow)
     popupWindow.webContents.send(IPC.POPUP_GET_CONTEXT, ctx) // 이미 열려 있으면 컨텍스트만 갱신
     return popupWindow
   }
@@ -645,7 +660,7 @@ export function createPopupWindow(
     shell.openExternal(url)
     return { action: 'deny' }
   })
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => forceWindowToFront(win))
   // ESC 로 팝업을 닫는다(자막 경로에선 닫힐 때 영상이 다시 재생된다 — ipc.ts).
   win.webContents.on('before-input-event', (_e, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && !win.isDestroyed()) win.close()
