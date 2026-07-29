@@ -164,8 +164,11 @@ let capturedTabId: number | null = null
 async function sendCapture(tabId: number, active: boolean): Promise<void> {
   try {
     await chrome.tabs.sendMessage(tabId, { kind: 'setCapture', active })
-  } catch {
-    // content script 미로드/비대상 페이지면 무시.
+    console.log(`[nuance bg] sendCapture 성공 tabId=${tabId} active=${active}`)
+  } catch (err) {
+    // 진단(임시, 2026-07-29): "넷플릭스→유튜브 탭 전환 시 hover 박스 안 뜸" 재현 원인
+    // 특정용 — content script 미로드/비대상 페이지면 정상적으로도 실패할 수 있음.
+    console.log(`[nuance bg] sendCapture 실패 tabId=${tabId} active=${active}:`, (err as Error)?.message)
   }
 }
 
@@ -179,6 +182,7 @@ async function syncCapture(): Promise<void> {
   }
   const tab = await activeNormalTab()
   const activeId = tab?.id ?? null
+  console.log(`[nuance bg] syncCapture activeId=${activeId}(${tab?.url ?? 'no-tab'}) capturedTabId=${capturedTabId}`)
   if (activeId === capturedTabId) return
   if (capturedTabId !== null) await sendCapture(capturedTabId, false) // 이전 탭 끄기
   if (activeId !== null) await sendCapture(activeId, true) // 새 활성 탭 켜기
