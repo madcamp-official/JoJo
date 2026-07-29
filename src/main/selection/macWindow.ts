@@ -456,6 +456,35 @@ function raiseSpecificWindow(pid: number, targetBounds: MacWindowRect): boolean 
   }
 }
 
+/** pid 소유의 화면에 보이는 일반(layer 0) 창 개수 — 권한이 필요 없는 CGWindowList 로 센다. */
+function countOnScreenWindowsOfPid(pid: number): number {
+  if (!ensureCoreGraphics()) return 0
+  let arr: unknown = null
+  try {
+    arr = CGWindowListCopyWindowInfo!(kCGWindowListOptionOnScreenOnly, 0)
+    if (!arr) return 0
+    const total = Number(CFArrayGetCount!(arr))
+    let count = 0
+    for (let i = 0; i < total; i++) {
+      const dict = CFArrayGetValueAtIndex!(arr, i)
+      if (!dict) continue
+      if (readInt(dict, layerKey) !== 0) continue // 메뉴바/독 등 비-0 레이어 제외
+      if (readInt(dict, ownerPidKey) === pid) count++
+    }
+    return count
+  } catch {
+    return 0
+  } finally {
+    if (arr) {
+      try {
+        CFRelease!(arr)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 /** windowId 로 대상 창을 앞으로 올리고 bounds 를 반환한다(실패 시 null). */
 export function raiseAndGetBounds(windowId: number): MacWindowRect | null {
   const info = getWindowInfo(windowId)
@@ -464,7 +493,11 @@ export function raiseAndGetBounds(windowId: number): MacWindowRect | null {
     // 같은 pid 안에 여러 창(예: 크롬 + 별도 devtools 창)이 있을 수 있어, 앱 전체를
     // 활성화하기 전에 먼저 AX 로 "이 창"만 특정해 raise+focus 해둔다 — 그래야 이어지는
     // activateApp 이 앱을 앞으로 올릴 때 이미 포커스가 맞춰진 이 창이 key window 로 유지된다.
-    raiseSpecificWindow(info.pid, info.bounds)
+    // 단, AX(손쉬운 사용 권한 프롬프트 포함)는 실제로 필요할 때 — 그 앱에 창이 2개
+    // 이상일 때 — 만 발동한다: 창이 하나뿐이면 activateApp 만으로 항상 그 창이 앞으로
+    // 오므로 AX 가 필요 없고, 대부분의 사용자에게 권한 요청 자체가 안 뜬다(창 개수는
+    // 권한이 필요 없는 CGWindowList 로 센다).
+    if (countOnScreenWindowsOfPid(info.pid) >= 2) raiseSpecificWindow(info.pid, info.bounds)
     activateApp(info.pid)
   }
   return info.bounds
