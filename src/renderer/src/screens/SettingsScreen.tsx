@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppSettings, ProviderValidation, QuestionErrorCode } from '@shared/types'
+import type { AnyLanguage, AppSettings, ProviderValidation, QuestionErrorCode } from '@shared/types'
 import { PROVIDERS, PROVIDER_ORDER, DEFAULT_MODELS } from '@shared/providers'
 import { MW_DICTIONARY_SIGNUP_URL } from '@shared/dictionaries'
-import { LANGUAGES, LANGUAGE_ORDER } from '@shared/languages'
+import { LANGUAGES, LANGUAGE_ORDER, LINK_LANGUAGES } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 import { goto } from '../navigate'
 import { IS_MAC, toAccelerator } from '../shortcutMatch'
@@ -20,6 +20,25 @@ import { EditDeleteGroup } from './EditDeleteGroup'
 // 설정 화면 (PLAN.md §3) — 담당 B
 // LLM·API 키 / 단축키 / 문맥 범위(Byte) / 언어
 // 메인 창 안에서 해시 라우팅으로 뜬다(#/main ↔ #/settings, 별도 창 아님).
+
+// 언어 수동 선택 드롭다운(2026-07-30) — tier1/tier2-A/tier2-B 세 그룹으로 나눠 <optgroup>
+// 으로 묶는다(네이티브 select 가 그룹마다 굵은 라벨+들여쓰기로 시각적 구분선을 그려줌).
+// tier2는 naverDictCode 유무로 A(네이버 사전 있음)/B(없음)를 가른다 — shared/languages.ts
+// LinkLanguageInfo 주석 참고. 각 그룹 안에서는 한국어 이름 가나다순으로 정렬해 찾기 쉽게 한다.
+const TIER2_A_CODES: AnyLanguage[] = (Object.keys(LINK_LANGUAGES) as (keyof typeof LINK_LANGUAGES)[])
+  .filter((code) => LINK_LANGUAGES[code].naverDictCode !== undefined)
+  .sort((a, b) => LINK_LANGUAGES[a].koName.localeCompare(LINK_LANGUAGES[b].koName, 'ko'))
+const TIER2_B_CODES: AnyLanguage[] = (Object.keys(LINK_LANGUAGES) as (keyof typeof LINK_LANGUAGES)[])
+  .filter((code) => LINK_LANGUAGES[code].naverDictCode === undefined)
+  .sort((a, b) => LINK_LANGUAGES[a].koName.localeCompare(LINK_LANGUAGES[b].koName, 'ko'))
+const TIER1_CODES_SORTED: AnyLanguage[] = [...LANGUAGE_ORDER].sort((a, b) =>
+  LANGUAGES[a].koName.localeCompare(LANGUAGES[b].koName, 'ko'),
+)
+
+function languageLabel(code: AnyLanguage): string {
+  const info = code in LANGUAGES ? LANGUAGES[code as keyof typeof LANGUAGES] : LINK_LANGUAGES[code as keyof typeof LINK_LANGUAGES]
+  return `${info.koName} (${info.nativeName})`
+}
 
 // Byte 예산은 자유 지정(고정 단위 없음). 슬라이더 범위/숫자 입력 공통 하한.
 // 상한(BYTE_MAX)은 미리보기 글 길이에서 자동 산출한다(아래, PREVIEW_TEXT 정의 후).
@@ -777,7 +796,19 @@ export function SettingsScreen() {
       {/* 언어 선택 */}
       <section className="settings-section">
         <h2>언어 선택</h2>
-        <p className="desc">OCR의 언어 설정을 선택하세요.</p>
+        <p className="desc">
+          자동: 자막/화면 텍스트로 언어를 매번 자동 판별합니다. 대부분의 경우 정확하지만,
+          라틴·키릴·아랍·데바나가리 문자를 공유하는 언어(예: 프랑스어/독일어/스페인어 등)가
+          섞인 콘텐츠에서는 판별이 흔들릴 수 있습니다. 특정 언어를 선택하면 이 판별 자체를
+          건너뛰고 항상 그 언어로 확정합니다 — 자동 판별이 계속 틀리는 콘텐츠를 볼 때
+          유용합니다.
+        </p>
+        <p className="desc">
+          지원 범위는 3단계입니다 — <strong>1단계</strong>(영어·일본어·중국어): 언어 특화
+          OCR·사전 검색·발음 표기(히라가나/병음 등 그 언어 학습에 맞는 표기)까지 전부
+          지원합니다. <strong>2단계</strong>: OCR과 IPA 발음, 구글 발음 검색은 되지만
+          사전 검색 기능은 없고, 그중 일부만 네이버 사전 연결도 됩니다.
+        </p>
         <div className="lang-options">
           <label className="lang-option">
             <input
@@ -788,7 +819,7 @@ export function SettingsScreen() {
             />
             <div>
               <div className="title">자동 언어 감지</div>
-              <div className="desc">OCR 실행 시 언어를 자동으로 감지합니다.</div>
+              <div className="desc">자막/화면 텍스트로 언어를 매번 자동으로 판별합니다.</div>
             </div>
           </label>
           <label className="lang-option">
@@ -800,22 +831,38 @@ export function SettingsScreen() {
             />
             <div>
               <div className="title">언어 선택</div>
-              <div className="desc">언어를 직접 선택합니다.</div>
+              <div className="desc">
+                자동 판별을 끄고 항상 선택한 언어 하나로 고정합니다.
+              </div>
             </div>
             <div className="lang-select">
-              {LANGUAGE_ORDER.map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  className={`lang-pill${settings.language === code ? ' active' : ''}`}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    void patch({ language: code })
-                  }}
-                >
-                  {LANGUAGES[code].koName}
-                </button>
-              ))}
+              <select
+                value={settings.language === 'auto' ? LANGUAGE_ORDER[0] : settings.language}
+                disabled={settings.language === 'auto'}
+                onChange={(e) => void patch({ language: e.target.value as AnyLanguage })}
+              >
+                <optgroup label="1단계 — OCR·사전·발음 전부 지원">
+                  {TIER1_CODES_SORTED.map((code) => (
+                    <option key={code} value={code}>
+                      {languageLabel(code)}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="2단계 A — OCR·발음(IPA)·구글·네이버 사전">
+                  {TIER2_A_CODES.map((code) => (
+                    <option key={code} value={code}>
+                      {languageLabel(code)}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="2단계 B — OCR·발음(IPA)·구글(네이버 사전 없음)">
+                  {TIER2_B_CODES.map((code) => (
+                    <option key={code} value={code}>
+                      {languageLabel(code)}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
             </div>
           </label>
         </div>
