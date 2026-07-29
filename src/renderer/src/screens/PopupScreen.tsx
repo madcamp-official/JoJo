@@ -9,7 +9,7 @@ import type {
   QuestionResult,
   ZhWord,
 } from '@shared/types'
-import { sentenceEnd, sentenceStart, skipPartialSentenceForward } from '@shared/context'
+import { sentenceEnd, skipPartialSentenceForward } from '@shared/context'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
 import { getNativeLanguageName, hasNaverDict, isFullLanguage, isRtlLanguage } from '@shared/languages'
 import { ContextView } from './popup/ContextView'
@@ -203,23 +203,21 @@ export function PopupScreen() {
     // 삼켜버리는 버그가 있었다(실사용 확인, 2026-07-29 — "course" 선택 시 그 뒤로
     // 원래 3줄이어야 할 범위에 무관한 한 문장이 더 붙어 나옴). "포함된 마지막 글자"
     // (absEnd - 1) 기준으로 확인해야 이미 문장이 끝난 위치를 "아직 안 끝남"으로
-    // 오판하지 않는다 — absStart(포함된 첫 글자, inclusive)는 애초에 이 문제가 없어
-    // sentenceStart 는 그대로 둔다.
-    // 웹(article) 소스는 문장이 여러 줄에 걸쳐 이어지는 산문이 많아, "문장 시작까지 뒤로
-    // 확장"하면 창이 예상보다 훨씬 커진다(2026-07-30 사용자 제보 — RoyalRoad 등 웹소설에서
-    // 2줄이 순식간에 5~6줄로 불어남, 실측: "There was no way...exorbitant."라는 긴 문장
-    // 중간에 2줄 경계가 걸리자 그 문장 전체가 앞에 통째로 붙어 나옴). OCR/자막은 줄이 이미
-    // 문장에 가까워 이 문제가 거의 없으므로, 웹 소스에서만 "뒤로 확장" 대신 "그 문장을
-    // 통째로 버리고 다음 문장 시작까지 앞으로 건너뛰기"로 바꿔 창이 오히려 줄어드는 쪽을
-    // 택한다(skipPartialSentenceForward).
-    const start =
-      baseCtx.source.kind === 'web'
-        ? skipPartialSentenceForward(fullText, absStart)
-        : sentenceStart(fullText, absStart)
+    // 오판하지 않는다 — absStart(포함된 첫 글자, inclusive)는 애초에 이 문제가 없다.
+    //
+    // 시작 경계는 sentenceStart(뒤로 확장해 문장을 포함) 대신 skipPartialSentenceForward
+    // 를 쓴다 — "N줄 전" 위치가 여러 줄에 걸친 긴 문장 중간에 걸리면, 뒤로 확장해 그
+    // 문장 전체를 끌어오는 대신 그 문장을 통째로 버리고 다음 문장 시작까지 건너뛴다(창이
+    // 커지는 대신 줄어드는 쪽). RoyalRoad 실측(2026-07-30)으로 원인 확정 — "There was no
+    // way...exorbitant."라는 긴 문장 중간에 2줄 경계가 걸리자 그 문장 전체가 앞에 통째로
+    // 붙어 2줄이 5~6줄로 불어났었다. 모든 소스(OCR/자막/웹) 공통 — "N줄 전/후"는 소스와
+    // 무관한 공용 규칙이라 소스별로 다르게 동작할 이유가 없다(2026-07-30 사용자 지적으로
+    // web 전용 분기를 걷어냄 — 애초에 p가 이미 문장 시작이면 그대로 반환하는 함수라
+    // 대부분의 OCR/자막에는 사실상 no-op이다).
     setMeasured({
       ctx: baseCtx,
       range: {
-        start,
+        start: skipPartialSentenceForward(fullText, absStart),
         end: sentenceEnd(fullText, Math.max(absStart, absEnd - 1)),
       },
     })
