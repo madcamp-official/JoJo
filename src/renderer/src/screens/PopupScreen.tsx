@@ -127,7 +127,19 @@ export function PopupScreen() {
     if (!measured) return
     const absStart = measured.start + sliceStart
     const absEnd = measured.end + sliceStart
-    setMeasuredRange({ start: sentenceStart(fullText, absStart), end: sentenceEnd(fullText, absEnd) })
+    // sentenceEnd(text, p)는 "p가 아직 문장 중간이면 그 문장 끝까지 확장"하는 함수라,
+    // absEnd(슬라이스 끝 — 다음 줄의 "첫 글자" 오프셋, exclusive)를 그대로 넘기면 그
+    // 위치가 하필 다음 문장의 시작과 겹칠 때(줄 기반 자막처럼 "한 줄 = 한 문장"인
+    // 텍스트에서 흔함) "이 문장이 아직 안 끝났다"고 오인해 그 다음 문장 전체를 통째로
+    // 삼켜버리는 버그가 있었다(실사용 확인, 2026-07-29 — "course" 선택 시 그 뒤로
+    // 원래 3줄이어야 할 범위에 무관한 한 문장이 더 붙어 나옴). "포함된 마지막 글자"
+    // (absEnd - 1) 기준으로 확인해야 이미 문장이 끝난 위치를 "아직 안 끝남"으로
+    // 오판하지 않는다 — absStart(포함된 첫 글자, inclusive)는 애초에 이 문제가 없어
+    // sentenceStart 는 그대로 둔다.
+    setMeasuredRange({
+      start: sentenceStart(fullText, absStart),
+      end: sentenceEnd(fullText, Math.max(absStart, absEnd - 1)),
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseCtx])
 
@@ -334,7 +346,7 @@ export function PopupScreen() {
         <section className="context">
           <div className="ctx-head">
             <span className="ctx-label">범위 지정</span>
-            <span className="ctx-hint">드래그로 범위를 다시 지정할 수 있어요</span>
+            <span className="ctx-hint">드래그로 범위를 다시 지정할 수 있어요 · 선택한 표현은 자동으로 클립보드에 복사돼요</span>
           </div>
           <ContextView
             rootRef={ctxRootRef}
