@@ -115,7 +115,7 @@ export async function lookupDictionary(
     if (outcome.ok) {
       return emit(onChunk, {
         kind: 'dictionary',
-        content: withDebugCountsLine(outcome.formatted, whole.entries, whole.senses.length), // TEMP DEBUG
+        content: withDebugCountsLine(outcome.formatted, whole.entries, whole.senses.length, outcome.selected), // TEMP DEBUG
         meta: { provider, source: whole.sourceId },
       })
     }
@@ -343,7 +343,7 @@ async function lookupSingleWordThroughChain(
 
   const outcome = await judgeAndFormat({ word, source: sourceId, senses, ctx, client, model, cacheableContext })
   if (!outcome.ok) return { llmError: outcome.error }
-  return { formatted: withDebugCountsLine(outcome.formatted, entries, senses.length) } // TEMP DEBUG
+  return { formatted: withDebugCountsLine(outcome.formatted, entries, senses.length, outcome.selected) } // TEMP DEBUG
 }
 
 interface JudgeAndFormatArgs {
@@ -356,7 +356,9 @@ interface JudgeAndFormatArgs {
   cacheableContext: string
 }
 
-type JudgeAndFormatResult = { ok: true; formatted: string } | { ok: false; error: unknown }
+type JudgeAndFormatResult =
+  | { ok: true; formatted: string; selected: ReturnType<typeof parseJudgeReply> }
+  | { ok: false; error: unknown }
 
 /** LLM 에 뜻풀이 후보를 판정+번역 요청한 뒤 채팅창용 마크다운으로 서식화한다 —
  *  통째 조회 경로와 단어별 폴백 경로가 공유하는 핵심 로직. */
@@ -386,7 +388,7 @@ async function judgeAndFormat(args: JudgeAndFormatArgs): Promise<JudgeAndFormatR
   }
 
   const selected = parseJudgeReply(reply, senses)
-  return { ok: true, formatted: formatDictionaryAnswer(word, source, selected, ctx.language) }
+  return { ok: true, formatted: formatDictionaryAnswer(word, source, selected, ctx.language), selected }
 }
 
 /** ja 활용형(동사/형용사/な형용사+だ, 명사+する 복합동사 등) 표면형 → 사전 기본형 변환
@@ -442,10 +444,18 @@ function withDebugCountsLine(
   formatted: string,
   entries: DictionaryEntry<Language>[] | undefined,
   senseCount: number,
+  selected: ReturnType<typeof parseJudgeReply>,
 ): string {
   const entryCount = entries?.length ?? 0
   const readingCount = entries?.reduce((sum, e) => sum + e.readings.length, 0) ?? 0
-  return `_[DEBUG] entries: ${entryCount} / readings: ${readingCount} / senses: ${senseCount}_\n\n${formatted}`
+  // LLM이 "대응어:" 줄을 실제로 줬는지 — combineTranslation이 길이 비율로 걸러내
+  // 최종 번역에서는 대응어가 안 보일 수 있어(senseSelect.ts 참고), "LLM이 아예 안
+  // 줬는지" vs "줬는데 로컬에서 걸렀는지"를 구분할 방법이 없다는 사용자 피드백으로
+  // 추가(2026-07-29). 없으면 명시적으로 "없음"이라고 표시한다.
+  const counterparts = selected
+    .map((s) => `${s.sense.index}번: ${s.rawCounterpart ? `"${s.rawCounterpart}"` : '없음'}`)
+    .join(', ')
+  return `_[DEBUG] entries: ${entryCount} / readings: ${readingCount} / senses: ${senseCount} / 대응어(LLM 원본) — ${counterparts || '없음'}_\n\n${formatted}`
 }
 
 // ---- 소스별 조회 디스패치 — 폴백 체인과 forceSource 디버깅 경로가 공유 ----------------
@@ -668,7 +678,7 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: SelectionCont
   }
   return {
     kind: 'dictionary',
-    content: withDebugCountsLine(outcome.formatted, collectedEntries, senses.length), // TEMP DEBUG
+    content: withDebugCountsLine(outcome.formatted, collectedEntries, senses.length, outcome.selected), // TEMP DEBUG
     meta: { provider, source: collectedEntries[0].source },
   }
 }

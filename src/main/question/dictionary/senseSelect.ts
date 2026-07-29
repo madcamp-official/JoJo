@@ -139,6 +139,11 @@ export interface SelectedSense {
   translatedGloss: string
   /** sense.examples 와 같은 순서 · 같은 개수로 대응하는 번역(원문 예문이 있었을 때만) */
   translatedExamples?: string[]
+  /** TEMP DEBUG — LLM 응답의 "대응어:" 줄 원문(길이 비율 필터링 이전 값, 없으면 null).
+   *  combineTranslation 이 길이 비율로 걸러내 최종 번역에는 안 보일 수 있어, "LLM이 아예
+   *  안 줬는지" vs "줬는데 로컬에서 걸렀는지"를 구분할 방법이 없다는 사용자 피드백(2026-07-29)
+   *  으로 추가 — dictionary.ts 의 디버깅 카운트 줄에서만 사용, 제거 예정. */
+  rawCounterpart?: string | null
 }
 
 /** LLM 응답에서 "번호: N\n번역: ...\n예문번역: ..." 블록(들, "---" 로 구분)을 파싱한다.
@@ -183,6 +188,7 @@ export function parseJudgeReply(reply: string, senses: NumberedSense[]): Selecte
       sense,
       translatedGloss: combineTranslation(counterpartMatch?.[1]?.trim(), glossMatch[1].trim()),
       translatedExamples,
+      rawCounterpart: counterpartMatch?.[1]?.trim() ?? null, // TEMP DEBUG
     })
   }
   return out
