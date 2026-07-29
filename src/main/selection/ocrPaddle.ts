@@ -65,13 +65,17 @@ export async function recognizeWithPaddle(
   image: Buffer,
   language: Language,
   cropBbox: Rect,
+  // 담당 A — 가로쓰기 후리가나 노이즈 대응 실험(2026-07-29): 인식 모델을 호출부가
+  // 골라 넘길 수 있게 함(예: 더 가벼운 모델로 속도 비교). 생략하면 Python 쪽 기본값
+  // (RECOGNITION_MODEL_NAME, medium)을 그대로 쓴다 — 기존 호출부는 전부 무변화.
+  recModel?: string,
 ): Promise<Word[] | null> {
   const tmpPath = await writeCrop(image, cropBbox)
   try {
     const { words } = await server.request<
-      { image_path: string; language: string },
+      { image_path: string; language: string; rec_model?: string },
       { words: RawWord[] }
-    >({ image_path: tmpPath, language })
+    >({ image_path: tmpPath, language, rec_model: recModel })
     return words.map((w) => ({
       text: w.text,
       bbox: {
@@ -493,8 +497,11 @@ async function recognizeOrderedLines(
   language: Language,
   orderedLines: Rect[],
   vertical: boolean,
+  recModel?: string,
 ): Promise<Word[] | null> {
-  const perLine = await Promise.all(orderedLines.map((line) => recognizeWithPaddle(image, language, padLine(line))))
+  const perLine = await Promise.all(
+    orderedLines.map((line) => recognizeWithPaddle(image, language, padLine(line), recModel)),
+  )
   if (perLine.some((words) => !words)) return null
   // 단어가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28) — 같은 줄에서 나온
   // 단어들을 나중에(wordMapping.ts: findLineWordsAtPoint) 한데 묶을 수 있도록, 줄마다
@@ -506,6 +513,14 @@ async function recognizeOrderedLines(
     })
   }
   const texts = perLine.map((words) => words!.map((w) => w.text).join(''))
+  // 임시 진단 로그(2026-07-29) — Yomitoku 검출 도입 후 노이즈/텍스트 누락 재보고 확인용,
+  // 원인 확정되면 제거. 줄 rect + 그 줄에서 실제로 PaddleOCR 이 인식한 텍스트를 같이 남긴다.
+  if (!vertical) {
+    console.log(
+      '[recognizeOrderedLines-debug] recognized text per line:',
+      JSON.stringify(orderedLines.map((l, i) => ({ x: l.x, y: l.y, width: l.width, height: l.height, text: texts[i] }))),
+    )
+  }
   // 세로쓰기에서만 대시(―) 보정을 시도한다 — 가로쓰기 폴백 경로는 이 문제 대상이 아니다.
   const { texts: finalTexts, typicalCellSize } = vertical
     ? await insertUndetectedMarks(
@@ -780,6 +795,13 @@ export async function recognizeVerticalColumnWithPaddle(
  * 크게 느려지고, 후리가나 자체도 본문 텍스트에 섞여 나오는 문제가 실측 확인됨
  * (2026-07-29, NHK "やさしいことば" 뉴스 페이지).
  */
+// 담당 A — 가로쓰기 인식 속도 실험(2026-07-29, 사용자 요청). "small" 은 예전에 이미 한 번
+// 검증됐던 이력이 있다(RECOGNITION_MODEL_NAME 주석 참고) — medium 대비 약 30% 빠르면서
+// 정확도는 거의 동등했고, 그때 발견된 유일한 약점(縦中横 압축 숫자 오독)은 세로쓰기
+// 전용 문제라 이 가로쓰기 경로엔 해당 안 된다. 세로쓰기(recognizeVerticalColumnWithPaddle)
+// 는 이 상수를 안 쓰므로 그쪽 엔진 선택엔 영향이 없다.
+const LIGHT_RECOGNITION_MODEL = 'PP-OCRv6_small_rec'
+
 export async function recognizeLinesWithPaddle(
   image: Buffer,
   language: Language,
@@ -790,7 +812,7 @@ export async function recognizeLinesWithPaddle(
   if (!lines || lines.length === 0) return []
   const bodyLines = excludeFuriganaHorizontal(lines)
   const ordered = [...bodyLines].sort((a, b) => a.y - b.y)
-  return recognizeOrderedLines(image, language, ordered, false)
+  return recognizeOrderedLines(image, language, ordered, false, LIGHT_RECOGNITION_MODEL)
 }
 
 /**

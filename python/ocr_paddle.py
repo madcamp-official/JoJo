@@ -57,22 +57,27 @@ RECOGNITION_MODEL_NAME = "PP-OCRv6_medium_rec"
 CPU_THREADS = None
 
 
-def get_engine(language: str) -> PaddleOCR:
+def get_engine(language: str, model_name: str = RECOGNITION_MODEL_NAME) -> PaddleOCR:
     paddle_lang = LANG_MAP.get(language, "en")
-    if paddle_lang not in _engines:
+    # 담당 A — 가로쓰기 후리가나 노이즈 대응 실험(2026-07-29). 인식 모델을 요청마다
+    # 다르게 넘길 수 있게(가벼운 모델로 속도 실험, ocrPaddle.ts: recognizeWithPaddle
+    # 의 recModel 인자) 캐시 키에 모델명을 포함한다 — 언어만으로 캐싱하던 이전 방식은
+    # 모델이 바뀌어도 이전에 로드된(다른 모델의) 엔진을 그대로 재사용해버리는 버그가 됨.
+    key = f"{paddle_lang}:{model_name}"
+    if key not in _engines:
         # enable_mkldnn=False 필수 — 켜두면(기본값) 이 환경에서 oneDNN 실행기가
         # "ConvertPirAttribute2RuntimeAttribute not support" 로 매번 죽었다(실측 확인,
         # PaddlePaddle/oneDNN 조합 버그로 보임). 문서 방향 보정도 꺼서(스크린샷은 항상
         # 똑바로 서 있으므로 불필요) 조금이라도 더 빠르게 한다.
-        _engines[paddle_lang] = PaddleOCR(
+        _engines[key] = PaddleOCR(
             lang=paddle_lang,
-            text_recognition_model_name=RECOGNITION_MODEL_NAME,
+            text_recognition_model_name=model_name,
             cpu_threads=CPU_THREADS,
             enable_mkldnn=False,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
         )
-    return _engines[paddle_lang]
+    return _engines[key]
 
 
 def get_detector() -> TextDetection:
@@ -118,8 +123,8 @@ def _strip_lone_surrogates(text: str) -> str:
     return text.encode("utf-8", "ignore").decode("utf-8")
 
 
-def recognize(image_path: str, language: str) -> list[dict]:
-    engine = get_engine(language)
+def recognize(image_path: str, language: str, model_name: str = RECOGNITION_MODEL_NAME) -> list[dict]:
+    engine = get_engine(language, model_name)
     results = engine.predict(image_path, return_word_box=True)
     words = []
     for r in results:
@@ -150,7 +155,9 @@ def serve():
                 lines = detect_lines(req["image_path"], req["language"])
                 print(json.dumps({"lines": lines}), flush=True)
             else:
-                words = recognize(req["image_path"], req["language"])
+                # rec_model 이 없으면(기존 호출부) 기본 모델 그대로 — 프로토콜 하위호환.
+                model_name = req.get("rec_model", RECOGNITION_MODEL_NAME)
+                words = recognize(req["image_path"], req["language"], model_name)
                 print(json.dumps({"words": words}), flush=True)
         except Exception as e:
             # 에러 메시지 자체에 깨진 문자가 섞여 있으면 이 print 마저 실패해 서버 프로세스가
