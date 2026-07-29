@@ -612,7 +612,9 @@ export function sendOverlayNotice(text: string): void {
 // 선택 확정 후 뜨는 검색/채팅 팝업 (담당 B).
 //  - 화면 중앙에 뜨고, 헤더 드래그로 사용자가 위치를 옮길 수 있다(styles.css: -webkit-app-region).
 //  - 담당 A 통합 시: 선택 파이프라인이 ExtractedSelection 을 만들어 createPopupWindow(ctx) 로 넘긴다.
-//    지금은 데모용으로 ctx 없이 열면 팝업이 자체 목업(호빗 well-to-do)으로 fallback 한다.
+//    MainScreen 의 미리보기 버튼은 demo 쿼리(예: `demo=hobbit`)와 함께 열어 그 목업으로
+//    채운다 — demo 쿼리 없이 ctx 도 없는 경우(실사용 중 레이스 등)는 목업으로 fallback
+//    하지 않는다(PopupScreen.tsx 참고, 2026-07-29 수정).
 let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
 
@@ -680,15 +682,23 @@ export function createPopupWindow(
     if (input.type === 'keyDown' && input.key === 'Escape' && !win.isDestroyed()) win.close()
   })
   win.on('closed', () => {
-    if (popupWindow === win) popupWindow = null
-    popupContext = null
+    // popupWindow/popupContext 가 이미 "이 창 다음에 새로 열린 창" 것으로 바뀌어 있을 수
+    // 있다(이 창이 닫히는 도중 거의 동시에 다음 클릭이 들어와 createPopupWindow 가 다시
+    // 호출된 경우) — 그럴 때 무조건 null 로 지우면 방금 막 연 새 창의 ctx 까지 같이
+    // 지워져 그 새 창이 실사용인데도 ctx 없이 뜨는 레이스가 있었다(2026-07-29). 이 창이
+    // 여전히 현재 tracked 된 창일 때만 같이 정리한다.
+    if (popupWindow === win) {
+      popupWindow = null
+      popupContext = null
+    }
   })
   popupWindow = win
   loadRoute(win, 'popup', demo ? `demo=${demo}` : undefined)
   return win
 }
 
-/** 팝업 렌더러가 마운트 시 조회하는 현재 ExtractedSelection (없으면 null → 렌더러가 목업 fallback). */
+/** 팝업 렌더러가 마운트 시 조회하는 현재 ExtractedSelection (없으면 null — 렌더러는 demo 쿼리가
+ * 있을 때만 목업으로 fallback 하고, 실사용(demo 쿼리 없음)이면 그냥 로딩 상태를 유지한다). */
 export function getPopupContext(): ExtractedSelection | null {
   return popupContext
 }

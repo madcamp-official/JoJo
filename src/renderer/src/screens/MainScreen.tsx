@@ -30,7 +30,7 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
         {selected && <p className="hint">선택됨: {selected.name}</p>}
         {/* 데모 트리거(담당 B) — 담당 A 선택 파이프라인 통합 전, 언어별 팝업 미리보기.
             통합 후엔 선택 확정 시 자동으로 팝업이 뜨므로 이 버튼들은 제거 예정. */}
-        <button className="link-btn demo" onClick={() => window.nuance.openPopup()}>
+        <button className="link-btn demo" onClick={() => window.nuance.openPopup('hobbit')}>
           🔍 팝업 미리보기 (영어: well-to-do)
         </button>
         <button className="link-btn demo" onClick={() => window.nuance.openPopup('en-bank')}>
