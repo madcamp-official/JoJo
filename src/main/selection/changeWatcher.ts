@@ -1,5 +1,6 @@
 import { nativeImage } from 'electron'
 import { sendExtractionStarted, sendOverlayWords } from '../windows'
+import { getSettings } from '../settingsStore'
 import { captureFocusedWindow } from './capture'
 import { refreshExtractionCache } from './extractionCache'
 import { autoDetectRegion, getRegion, setRegion } from './regionSelection'
@@ -117,39 +118,53 @@ async function poll(): Promise<void> {
           return
         }
         regionRefreshInFlight = true
-        // 내용이 바뀌었으니(스크롤, 페이지 넘김 등) 영역을 처음 모드 진입할 때처럼
-        // 다시 감지한다(autoDetectRegion, DocLayout 재실행) — 예전엔 캐시만 비우고
-        // region(위치/크기) 자체는 그대로 뒀는데, 페이지 넘김처럼 내용뿐 아니라 본문이
-        // 차지하는 영역 자체가 페이지마다 달라지는 경우(실사용 중 확인: 1페이지엔
-        // 비어있던 자리에 2페이지엔 본문이 생김) 옛 영역 밖으로 벗어난 본문은 크롭에
-        // 아예 안 들어가 인식이 안 됐다. autoDetectRegion 이 내부적으로 새 블록/줄
-        // 검출 결과를 캐시에 채워주므로 별도로 캐시를 비울 필요는 없다 — 실패하면
-        // (Python 환경 없음 등) 기존 region 을 그대로 유지한다(완전히 못 쓰게 되는
-        // 것보다 예전 영역으로라도 계속 동작하는 쪽이 안전).
-        void autoDetectRegion()
-          .then((detected) => {
-            if (detected) {
-              setRegion(detected)
-              // 영역 크기가 바뀌었을 수 있어 이전 비트맵과 비교하면 크기 불일치로 항상
-              // "달라짐"이 떠서 이 갱신 직후 또 한 번 불필요한 재추출 사이클이 돈다 —
-              // 다음 폴링에서 새 영역 기준으로 조용히 새로 잡게 비워둔다.
-              lastBitmap = null
-            }
-            // refreshExtractionCache 는 자체적으로 inFlight promise 를 최신 호출로
-            // 덮어써서, 이 시점에 이전 추출이 진행 중이었더라도 그 결과는 캐시에
-            // 반영되지 않고 이번 호출 결과만 반영된다("진행 중인 추출을 취소하고 새로
-            // 시작"과 동일한 효과). 이 사이클(autoDetectRegion+refreshExtractionCache)
-            // 이 끝날 때까지 잠금을 들고 있다가 완료되면(성공/실패 무관, finally) 풀어서
-            // 다음 settle 사이클이 겹치지 않게 한다.
-            sendExtractionStarted() // 오버레이에 "텍스트 추출 중…" 표시(초기 진입 때와 동일한 배너)
-            return refreshExtractionCache()
-          })
-          .catch((err) => {
-            console.error('[changeWatcher] 영역 재감지/재추출 실패:', err)
-          })
-          .finally(() => {
-            regionRefreshInFlight = false
-          })
+        if (getSettings().autoDetectRegion) {
+          // 내용이 바뀌었으니(스크롤, 페이지 넘김 등) 영역을 처음 모드 진입할 때처럼
+          // 다시 감지한다(autoDetectRegion, DocLayout 재실행) — 예전엔 캐시만 비우고
+          // region(위치/크기) 자체는 그대로 뒀는데, 페이지 넘김처럼 내용뿐 아니라 본문이
+          // 차지하는 영역 자체가 페이지마다 달라지는 경우(실사용 중 확인: 1페이지엔
+          // 비어있던 자리에 2페이지엔 본문이 생김) 옛 영역 밖으로 벗어난 본문은 크롭에
+          // 아예 안 들어가 인식이 안 됐다. autoDetectRegion 이 내부적으로 새 블록/줄
+          // 검출 결과를 캐시에 채워주므로 별도로 캐시를 비울 필요는 없다 — 실패하면
+          // (Python 환경 없음 등) 기존 region 을 그대로 유지한다(완전히 못 쓰게 되는
+          // 것보다 예전 영역으로라도 계속 동작하는 쪽이 안전).
+          void autoDetectRegion()
+            .then((detected) => {
+              if (detected) {
+                setRegion(detected, 'auto')
+                // 영역 크기가 바뀌었을 수 있어 이전 비트맵과 비교하면 크기 불일치로 항상
+                // "달라짐"이 떠서 이 갱신 직후 또 한 번 불필요한 재추출 사이클이 돈다 —
+                // 다음 폴링에서 새 영역 기준으로 조용히 새로 잡게 비워둔다.
+                lastBitmap = null
+              }
+              // refreshExtractionCache 는 자체적으로 inFlight promise 를 최신 호출로
+              // 덮어써서, 이 시점에 이전 추출이 진행 중이었더라도 그 결과는 캐시에
+              // 반영되지 않고 이번 호출 결과만 반영된다("진행 중인 추출을 취소하고 새로
+              // 시작"과 동일한 효과). 이 사이클(autoDetectRegion+refreshExtractionCache)
+              // 이 끝날 때까지 잠금을 들고 있다가 완료되면(성공/실패 무관, finally) 풀어서
+              // 다음 settle 사이클이 겹치지 않게 한다.
+              sendExtractionStarted() // 오버레이에 "텍스트 추출 중…" 표시(초기 진입 때와 동일한 배너)
+              return refreshExtractionCache()
+            })
+            .catch((err) => {
+              console.error('[changeWatcher] 영역 재감지/재추출 실패:', err)
+            })
+            .finally(() => {
+              regionRefreshInFlight = false
+            })
+        } else {
+          // 자동 탐지가 꺼져 있으면(사용자 요청, 2026-07-29) 영역 자체는 처음 지정한
+          // 그대로 두고, 그 안의 내용만 다시 인식한다 — 사용자가 직접 고른 영역을
+          // 화면 변화 때마다 임의로 다시 잡으면 안 된다는 명시적 요구.
+          sendExtractionStarted()
+          void refreshExtractionCache()
+            .catch((err) => {
+              console.error('[changeWatcher] 재추출 실패:', err)
+            })
+            .finally(() => {
+              regionRefreshInFlight = false
+            })
+        }
       }, SETTLE_DELAY_MS)
     }
     lastBitmap = bitmap

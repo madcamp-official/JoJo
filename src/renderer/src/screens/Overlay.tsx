@@ -39,12 +39,21 @@ export function Overlay() {
   // 팝업의 초기 선택 범위도 메인 프로세스(selection/index.ts: findLineSpan)가 같은
   // 방식으로 줄 전체를 anchor 로 잡는다.
   const [hoveredLine, setHoveredLine] = useState<Word[]>([])
+  // 개발 전용 디버그(사용자 요청) — OCR이 실제로 인식에 넘긴 블록/열 경계를 반투명
+  // 사각형으로 보여준다. 프로덕션에서는 메인이 아예 이 이벤트를 안 보내므로 항상 빈
+  // 배열로 남는다(onDebugBlocks 자체는 등록해도 무해 — 그냥 아무 이벤트도 안 옴).
+  const [debugBlocks, setDebugBlocks] = useState<Rect[]>([])
   const [resolving, setResolving] = useState(false)
   // 선택 모드 진입 시 메인이 백그라운드로 캡처+OCR 을 시작한다(extractionCache.ts:
   // refreshExtractionCache, shortcut.ts 가 모드 전환 즉시 호출) — 그 사이(1~3초) 동안
   // 아무 표시도 없으면 멈춘 것처럼 보여서, 모드 진입 즉시 켜고 onExtractionWords 로
   // 결과(성공/실패 모두 빈 배열이라도)가 오면 끈다.
   const [extracting, setExtracting] = useState(false)
+  // 추출 중 배너를 2단계로 나눠 보여준다(사용자 요청, 2026-07-29) — extracting 이 켜지는
+  // 시점(모드 진입/화면 변화 감지)엔 아직 "언어 감지 & 텍스트 영역 탐지" 단계이고,
+  // extractionCache.ts 가 언어 감지를 끝내고 실제 OCR 을 시작하면(onExtractionOcrStarted)
+  // "텍스트 추출" 단계로 넘어간다.
+  const [extractionPhase, setExtractionPhase] = useState<'detect' | 'ocr'>('detect')
   const [needsRegion, setNeedsRegion] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
@@ -89,7 +98,20 @@ export function Overlay() {
   useEffect(
     () =>
       window.nuance.onExtractionStarted(() => {
-        if (modeRef.current === 'select') setExtracting(true)
+        if (modeRef.current === 'select') {
+          setExtracting(true)
+          setExtractionPhase('detect')
+        }
+      }),
+    [],
+  )
+
+  // 언어 감지가 끝나고 실제 OCR 이 시작되는 시점(extractionCache.ts) — 배너 문구를
+  // "텍스트 추출" 단계로 넘긴다. onExtractionStarted 와 같은 이유로 선택 모드일 때만 반영.
+  useEffect(
+    () =>
+      window.nuance.onExtractionOcrStarted(() => {
+        if (modeRef.current === 'select') setExtractionPhase('ocr')
       }),
     [],
   )
@@ -111,6 +133,18 @@ export function Overlay() {
 
   useEffect(() => window.nuance.onOverlayNotice(setNotice), [])
 
+  // onExtractionStarted 와 같은 레이스(위 modeRef 주석 참고) — changeWatcher.ts 의
+  // 배경 재추출이 모드를 나간 뒤에도 뒤늦게 끝나면서 onDebugBlocks 가 일반 모드에서도
+  // 도착해, 방금 나가면서 비운 블록이 다시 나타나는 문제가 실측 확인됨. 그 시점의
+  // 최신 모드를 보고 선택 모드일 때만 반영한다.
+  useEffect(
+    () =>
+      window.nuance.onDebugBlocks((blocks) => {
+        if (modeRef.current === 'select') setDebugBlocks(blocks)
+      }),
+    [],
+  )
+
   // 안내 배너는 잠깐 떴다가 자동으로 사라진다.
   useEffect(() => {
     if (!notice) return
@@ -122,9 +156,11 @@ export function Overlay() {
   useEffect(() => {
     if (mode === 'select') {
       setExtracting(true) // onRegionSelectionNeeded 가 뒤이어 오면 바로 false 로 정정됨
+      setExtractionPhase('detect')
     } else {
       setWords([])
       setHoveredLine([])
+      setDebugBlocks([])
       setExtracting(false)
       setNeedsRegion(false)
       setDragStart(null)
@@ -193,12 +229,24 @@ export function Overlay() {
 
   return (
     <div
-      className={`overlay-root mode-${mode}${hoveredBox ? ' hovering-word' : ''}${IS_MAC ? ' is-mac' : ''}`}
+      className={`overlay-root mode-${mode}${hoveredBox ? ' hovering-word' : ''}${IS_MAC ? ' is-mac' : ''}${needsRegion ? ' region-select-cursor' : ''}`}
       onClick={onOverlayClick}
       onMouseDown={onRootMouseDown}
       onMouseMove={onRootMouseMove}
       onMouseUp={onRootMouseUp}
     >
+      {debugBlocks.map((block, i) => (
+        <div
+          key={i}
+          className="debug-block"
+          style={{
+            left: block.x,
+            top: block.y,
+            width: block.width,
+            height: block.height,
+          }}
+        />
+      ))}
       {hoveredBox && (
         <div
           className="word-box"
@@ -249,12 +297,16 @@ export function Overlay() {
       {notice ? (
         <div className="overlay-resolving">{notice}</div>
       ) : needsRegion ? (
-        <div className="overlay-resolving">텍스트를 추출할 영역을 드래그해서 선택하세요</div>
+        <div className="overlay-resolving">
+          선택된 영역에 한하여 화면 변화를 감지하고 텍스트를 추출합니다.
+        </div>
       ) : (
         (extracting || resolving) && (
           <div className="overlay-resolving">
             <span className="overlay-spinner" />
-            텍스트 추출 중…
+            {extracting && extractionPhase === 'detect'
+              ? '언어 감지 & 텍스트 영역 탐지 중…'
+              : '텍스트 추출 중…'}
           </div>
         )
       )}

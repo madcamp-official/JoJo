@@ -1,9 +1,10 @@
-import type { Language, SelectionSource, Word } from '@shared/types'
-import { getPhysicalToDipScale, sendOverlayWords } from '../windows'
+import type { Language, Rect, SelectionSource, Word } from '@shared/types'
+import { getPhysicalToDipScale, sendDebugBlocks, sendExtractionOcrStarted, sendOverlayWords } from '../windows'
+import { getSettings } from '../settingsStore'
 import { captureFocusedWindow, getSelectedWindowId } from './capture'
 import { detectLanguage } from './langDetect'
-import { runOcr } from './ocr'
-import { getRegion } from './regionSelection'
+import { getLastExtractionBlocks, runOcr } from './ocr'
+import { getRegion, getRegionSource } from './regionSelection'
 
 // 담당 A — 선택 창 추출 결과 캐시 (PLAN.md §4.1 / §7)
 // 클릭할 때마다 캡처+OCR을 새로 돌리면 매번 1~3초씩 걸린다 — 대신 선택 모드
@@ -49,8 +50,25 @@ async function runExtraction(): Promise<CachedExtraction> {
   // 메뉴바 등 다른 언어 UI 텍스트에 안 흔들리도록, 캡처 → 영역 확정 → 언어 감지 →
   // OCR 순서로 실행한다.
   const language = await timed('language detect', () => detectLanguage(image, region))
+  // 언어 감지까지 끝났으니 추출 중 배너를 "텍스트 추출" 단계로 넘긴다(사용자 요청,
+  // 2026-07-29 — 그 전까지는 "언어 감지 & 텍스트 영역 탐지" 단계로 표시됨).
+  sendExtractionOcrStarted()
   const extracted = await timed(`ocr(${language})`, () => runOcr(image, language, region))
   console.log(`[timing] total: ${Date.now() - overallStart}ms`)
+
+  // OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 반투명 사각형으로 보여준다 —
+  // 원래 개발 전용 디버그였으나, 텍스트 영역 자동 탐지 설정(autoDetectRegion, 사용자
+  // 요청 2026-07-29)의 결과 시각화로 실사용 기능이 됐다. 자동 탐지로 잡힌 영역일 때만
+  // 보여준다(설정이 꺼져 있거나 사용자가 "영역 수동 선택"으로 직접 지정했으면 안 보여줌
+  // — regionSelection.ts: getRegionSource). 개발 모드에서는 이 조건과 무관하게 항상
+  // 보내(디버깅 편의), words 와 같은 좌표 보정(물리 픽셀 → 오버레이 DIP)이 필요해서
+  // alignWordsToOverlay 를 그대로 재사용한다(Rect 를 텍스트 없는 가짜 Word 로 감싸서
+  // 넘기고 bbox 만 다시 뺌).
+  if (import.meta.env.DEV || (getSettings().autoDetectRegion && getRegionSource() === 'auto')) {
+    const blocks = getLastExtractionBlocks()
+    const aligned = await alignWordsToOverlay(blocks.map((bbox) => ({ text: '', bbox })))
+    sendDebugBlocks(aligned.map((w) => w.bbox).filter((b): b is Rect => b !== undefined))
+  }
 
   return {
     text: extracted.text,

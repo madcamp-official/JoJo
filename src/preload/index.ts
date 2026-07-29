@@ -87,6 +87,22 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.EXTRACTION_STARTED, listener)
   },
 
+  // 언어 감지가 끝나고 실제 OCR 이 시작될 때 수신(extractionCache.ts) — 추출 중 배너를
+  // "언어 감지 & 텍스트 영역 탐지" 단계에서 "텍스트 추출" 단계로 넘긴다.
+  onExtractionOcrStarted: (cb: () => void): (() => void) => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.EXTRACTION_OCR_STARTED, listener)
+    return () => ipcRenderer.removeListener(IPC.EXTRACTION_OCR_STARTED, listener)
+  },
+
+  // OCR이 실제로 인식에 넘긴 블록/열 경계 수신 — 텍스트 영역 자동 탐지 결과 시각화
+  // (autoDetectRegion 설정 ON + 자동 탐지로 잡힌 영역일 때만 메인이 보낸다).
+  onDebugBlocks: (cb: (blocks: Rect[]) => void): (() => void) => {
+    const listener = (_e: unknown, blocks: Rect[]) => cb(blocks)
+    ipcRenderer.on(IPC.DEBUG_BLOCKS, listener)
+    return () => ipcRenderer.removeListener(IPC.DEBUG_BLOCKS, listener)
+  },
+
   // OCR 대상 영역 지정 — 메인이 오버레이에 드래그 선택을 요청(영역 없거나 "영역 재선택")
   onRegionSelectionNeeded: (cb: () => void): (() => void) => {
     const listener = () => cb()

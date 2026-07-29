@@ -699,6 +699,26 @@ export function SettingsScreen() {
         </div>
       </section>
 
+      {/* 텍스트 영역 자동 탐지 */}
+      <section className="settings-section">
+        <h2>텍스트 영역 자동 탐지</h2>
+        <p className="desc">
+          활성화 시 선택 모드로 전환을 하거나 선택 모드 내에서 창의 크기가 변할 때 자동으로
+          텍스트 영역을 탐지합니다. 탐지된 영역은 모드 전환 단축키로 확인할 수 있으며,
+          페이지 구조에 따라 본문이 아닌 영역(헤더·사이드바 등)이 노이즈로 함께 잡힐 수
+          있습니다. 원하는 결과가 아니라면 선택 모드에서 트레이 메뉴의 &quot;영역 수동
+          선택&quot;으로 직접 지정할 수 있습니다.
+        </p>
+        <label className="byte-link-toggle">
+          <input
+            type="checkbox"
+            checked={settings.autoDetectRegion}
+            onChange={(e) => void patch({ autoDetectRegion: e.target.checked })}
+          />
+          활성화
+        </label>
+      </section>
+
       {/* 언어 선택 */}
       <section className="settings-section">
         <h2>언어 선택</h2>

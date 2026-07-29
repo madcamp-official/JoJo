@@ -21,6 +21,15 @@ const AUTO_REGION_PADDING_Y = 12
 let region: Rect | null = null
 
 /**
+ * 담당 A — 지금 저장된 region 이 어떻게 정해졌는지(자동 탐지 vs 사용자 드래그) — 자동 탐지
+ * 설정(autoDetectRegion)이 켜져 있어도 사용자가 트레이 "영역 수동 선택"으로 덮어쓰면 그
+ * 이후엔 수동 취급해야 하므로(예: 자동 탐지 결과 시각화는 이 값이 'auto'일 때만 보여준다 —
+ * extractionCache.ts) region 자체와 별개로 출처를 추적한다. setRegion 이 항상 같이 갱신하고,
+ * clearRegion 이 함께 비운다.
+ */
+let regionSource: 'auto' | 'manual' | null = null
+
+/**
  * 담당 A — 자동 영역 감지(autoDetectRegion) 때 이미 계산해둔 DocLayout/PaddleOCR 결과를
  * 캐시해서 OCR 단계(ocr.ts: runOcr)가 재사용하게 한다. `region`과 생명주기를 같이한다
  * (재계산/무효화 시점이 같아서 — 리사이즈로 region 이 무효화되면 이 캐시도 더 이상
@@ -47,6 +56,10 @@ export function getRegion(): Rect | null {
   return region
 }
 
+export function getRegionSource(): 'auto' | 'manual' | null {
+  return regionSource
+}
+
 export function getCachedDetection(): CachedDetection | null {
   return cachedDetection
 }
@@ -62,12 +75,14 @@ export function invalidateCachedDetection(): void {
   cachedDetection = null
 }
 
-export function setRegion(rect: Rect): void {
+export function setRegion(rect: Rect, source: 'auto' | 'manual'): void {
   region = rect
+  regionSource = source
 }
 
 export function clearRegion(): void {
   region = null
+  regionSource = null
   cachedDetection = null
 }
 
@@ -92,12 +107,15 @@ export async function submitRegionFromOverlay(dipRect: Rect): Promise<void> {
 
     const offset = getCaptureOriginOffset(hwnd)
     const scale = getPhysicalToDipScale(rect)
-    setRegion({
-      x: dipRect.x * scale + offset.x,
-      y: dipRect.y * scale + offset.y,
-      width: dipRect.width * scale,
-      height: dipRect.height * scale,
-    })
+    setRegion(
+      {
+        x: dipRect.x * scale + offset.x,
+        y: dipRect.y * scale + offset.y,
+        width: dipRect.width * scale,
+        height: dipRect.height * scale,
+      },
+      'manual',
+    )
     return
   }
 
@@ -105,13 +123,13 @@ export async function submitRegionFromOverlay(dipRect: Rect): Promise<void> {
     const id = getSelectedWindowId()
     const wid = Number(/^window:(\d+)/.exec(id ?? '')?.[1])
     if (!Number.isFinite(wid)) {
-      setRegion(dipRect)
+      setRegion(dipRect, 'manual')
       return
     }
     const { getMacWindowBounds } = await import('./macWindow')
     const bounds = getMacWindowBounds(wid)
     if (!bounds) {
-      setRegion(dipRect)
+      setRegion(dipRect, 'manual')
       return
     }
     const { screen } = await import('electron')
@@ -125,16 +143,19 @@ export async function submitRegionFromOverlay(dipRect: Rect): Promise<void> {
         width: Math.round(bounds.width),
         height: Math.round(bounds.height),
       }).scaleFactor || 1
-    setRegion({
-      x: dipRect.x * scale,
-      y: dipRect.y * scale,
-      width: dipRect.width * scale,
-      height: dipRect.height * scale,
-    })
+    setRegion(
+      {
+        x: dipRect.x * scale,
+        y: dipRect.y * scale,
+        width: dipRect.width * scale,
+        height: dipRect.height * scale,
+      },
+      'manual',
+    )
     return
   }
 
-  setRegion(dipRect)
+  setRegion(dipRect, 'manual')
 }
 
 // 본문으로 볼 레이아웃 라벨 — PP-DocLayout_plus-L(PaddleX, python/layout_detect.py 의

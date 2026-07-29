@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
-import type { AppMode, ExtractedSelection, Word } from '@shared/types'
+import type { AppMode, ExtractedSelection, Rect, Word } from '@shared/types'
 // win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
 // Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
 // → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
@@ -484,9 +484,22 @@ export function sendOverlayWords(words: Word[]): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_WORDS, words)
 }
 
-/** changeWatcher.ts 가 화면 변화 감지로 재추출을 시작할 때 호출 — 오버레이에 "추출 중" 표시를 띄운다. */
+/** OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 반투명 사각형으로 보여준다 —
+ * 텍스트 영역 자동 탐지(autoDetectRegion) 결과 시각화(extractionCache.ts 가 조건 판단). */
+export function sendDebugBlocks(blocks: Rect[]): void {
+  overlayWindow?.webContents.send(IPC.DEBUG_BLOCKS, blocks)
+}
+
+/** 선택 모드 진입/리사이즈/화면 변화 감지로 재추출이 시작될 때 호출 — 오버레이에
+ * "언어 감지 & 텍스트 영역 탐지 중…" 표시(1단계)를 띄운다. */
 export function sendExtractionStarted(): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_STARTED)
+}
+
+/** extractionCache.ts 가 언어 감지를 끝내고 실제 OCR 을 시작할 때 호출 — 오버레이 표시를
+ * "텍스트 추출 중…"(2단계)으로 넘긴다. */
+export function sendExtractionOcrStarted(): void {
+  overlayWindow?.webContents.send(IPC.EXTRACTION_OCR_STARTED)
 }
 
 /** shortcut.ts 가 선택 모드 진입 시(영역 미지정) 또는 "영역 재선택" 요청 시 호출. */

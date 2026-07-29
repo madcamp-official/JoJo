@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   contextBytesAfter: 1024,
   contextBytesLinked: true,
   models: {},
+  autoDetectRegion: false,
 }
 
 function filePath(): string {

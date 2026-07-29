@@ -524,6 +524,11 @@ export interface AppSettings {
   contextBytesLinked: boolean // true 면 앞/뒤를 동일 값으로 사용
   // provider 별 사용 모델(설정 화면 드롭다운으로 선택). 미지정 provider 는 DEFAULT_MODELS 사용.
   models: Partial<Record<LlmProvider, string>>
+  // 선택 모드 진입/리사이즈 시 DocLayout 으로 본문 영역을 자동 탐지할지(true) 아니면
+  // 항상 수동 드래그 선택으로 보낼지(false, 기본값) — 사용자 요청(2026-07-29): 자동
+  // 탐지가 사이트 헤더/사이드바 텍스트를 본문으로 잘못 포함시키는 경우가 있어(DocLayout
+  // 모델 오분류) 기본은 꺼두고, 켜면 selection/shortcut.ts 가 자동 탐지를 먼저 시도한다.
+  autoDetectRegion: boolean
 }
 
 /** provider 별 API 키 검증 결과 (설정 화면: 유효성 + 사용 가능 모델 목록). 무과금 GET 기반. */

@@ -55,12 +55,24 @@ button:disabled { cursor: not-allowed; }
 .overlay-root.is-mac { --overlay-radius: 14px; }
 .overlay-root.mode-select { outline-color: var(--purple); }
 .overlay-root.hovering-word { cursor: pointer; }
+/* 영역 수동 선택(드래그) 대기 중 — 캡처 도구처럼 십자가 커서로 안내한다(사용자 요청, 2026-07-29). */
+.overlay-root.region-select-cursor { cursor: crosshair; }
 
 /* hover 중인 단어 위에만 그려진다(Overlay.tsx) — 항상 떠 있는 박스는 없음.
    색상/두께는 Overlay.tsx 가 shared/highlightStyle.ts(단일 소스)로 인라인 지정한다. */
 .word-box {
   position: absolute; box-sizing: border-box;
   pointer-events: none;
+}
+
+/* 개발 전용 디버그(Overlay.tsx: debugBlocks) — OCR이 실제로 인식에 넘긴 블록/열
+   경계를 반투명 사각형으로 보여준다. word-box 와 구분되도록 노란 계열로 — 상시 여러
+   개가 겹쳐 뜰 수 있어 클릭을 가로채면 안 된다(pointer-events: none). */
+.debug-block {
+  position: absolute; box-sizing: border-box;
+  pointer-events: none;
+  border: 1px dashed rgba(234, 179, 8, 0.9);
+  background: rgba(234, 179, 8, 0.12);
 }
 
 /* OCR 대상 영역을 드래그로 그리는 동안(Overlay.tsx: needsRegion) 캡처 도구처럼 화면을

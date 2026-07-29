@@ -6,6 +6,7 @@ import {
   sendRegionSelectionNeeded,
   setOverlayMode,
 } from '../windows'
+import { getSettings } from '../settingsStore'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
@@ -47,7 +48,11 @@ onWindowResized(() => {
   if (resizeSettleTimer) clearTimeout(resizeSettleTimer)
   resizeSettleTimer = setTimeout(() => {
     resizeSettleTimer = null
-    void acquireRegionAutomaticallyOrAskDrag()
+    if (getSettings().autoDetectRegion) {
+      void acquireRegionAutomaticallyOrAskDrag()
+    } else {
+      acquireRegionManually()
+    }
   }, RESIZE_SETTLE_DELAY_MS)
 })
 
@@ -93,8 +98,10 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
   if (getRegion()) {
     refreshExtractionCache()
     startChangeWatcher()
-  } else {
+  } else if (getSettings().autoDetectRegion) {
     void acquireRegionAutomaticallyOrAskDrag(epoch)
+  } else {
+    acquireRegionManually()
   }
 }
 
@@ -126,7 +133,7 @@ async function acquireRegionAutomaticallyOrAskDrag(epoch = decisionEpoch): Promi
     // 이 낡은 OCR 체인의 완료 결과는 버린다 — 안 그러면 이미 전환된 자막 모드를 덮어쓴다.
     if (mode !== 'select' || epoch !== decisionEpoch) return
     if (detected) {
-      setRegion(detected)
+      setRegion(detected, 'auto')
       refreshExtractionCache()
       startChangeWatcher()
     } else {
@@ -141,6 +148,30 @@ async function acquireRegionAutomaticallyOrAskDrag(epoch = decisionEpoch): Promi
       if (epoch === decisionEpoch) void acquireRegionAutomaticallyOrAskDrag(epoch)
     }
   }
+}
+
+/**
+ * 자동 탐지를 건너뛰고 바로 오버레이에 드래그 선택을 요청한다 — 자동 탐지 설정
+ * (autoDetectRegion)이 꺼져 있을 때(선택 모드 진입/리사이즈) 기본 경로, 그리고 설정이
+ * 켜져 있어도 트레이 "영역 수동 선택"으로 강제 전환할 때(requestManualRegionSelection)
+ * 쓴다. acquireRegionAutomaticallyOrAskDrag 와 달리 무거운 Python 호출이 없어 동기로
+ * 끝나므로 detecting/pendingRedetect 같은 겹침 방지 장치가 필요 없다.
+ */
+function acquireRegionManually(): void {
+  sendRegionSelectionNeeded()
+}
+
+/**
+ * 트레이 "영역 수동 선택" 클릭 시 호출(tray.ts) — 자동 탐지 결과가 마음에 안 들 때 강제로
+ * 드래그 선택으로 전환한다. 트레이가 이 메뉴 항목 자체를 선택 모드에서만 보여주므로
+ * (currentMode() 체크) 여기서도 방어적으로 한 번 더 확인한다.
+ */
+export function requestManualRegionSelection(): void {
+  if (mode !== 'select') return
+  clearRegion()
+  invalidateExtractionCache()
+  stopChangeWatcher()
+  acquireRegionManually()
 }
 
 /**

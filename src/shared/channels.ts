@@ -12,9 +12,14 @@ export const IPC = {
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
   // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록을 오버레이로 통지 (extractionCache.ts)
   EXTRACTION_WORDS: 'selection:words',
-  // 화면 내용 변화 감지로 백그라운드 재추출을 시작할 때 오버레이에 "추출 중" 표시를
-  // 띄우기 위한 통지 (changeWatcher.ts). 끝나면 EXTRACTION_WORDS 가 그 표시를 끈다.
+  // 추출 진행 알림 1단계("언어 감지 & 텍스트 영역 탐지") — 선택 모드 진입, 리사이즈,
+  // 화면 내용 변화 감지로 재추출이 시작될 때 오버레이에 표시를 띄운다(changeWatcher.ts,
+  // Overlay.tsx 의 모드 진입 effect). 언어 감지가 끝나고 실제 OCR 이 시작되면
+  // EXTRACTION_OCR_STARTED 가 2단계("텍스트 추출")로 문구를 넘기고, 끝나면
+  // EXTRACTION_WORDS 가 표시를 끈다.
   EXTRACTION_STARTED: 'selection:extractionStarted',
+  // 추출 진행 알림 2단계 — 언어 감지 완료 후 실제 OCR 을 시작하는 시점(extractionCache.ts).
+  EXTRACTION_OCR_STARTED: 'selection:extractionOcrStarted',
   // OCR 대상 영역 지정 — 선택 모드 진입 시 영역이 없으면 메인이 오버레이에 드래그
   // 선택을 요청하고(REGION_SELECTION_NEEDED), 오버레이가 드래그 완료 시 그 영역을
   // 돌려준다(SUBMIT_REGION). OVERLAY_NOTICE 는 리사이즈로 영역이 무효화됐을 때 같은
@@ -22,6 +27,12 @@ export const IPC = {
   REGION_SELECTION_NEEDED: 'region:selectionNeeded',
   SUBMIT_REGION: 'region:submit',
   OVERLAY_NOTICE: 'overlay:notice',
+  // OCR이 텍스트를 추출한 영역(블록/열 단위)을 오버레이에 반투명 사각형으로 보여준다
+  // (extractionCache.ts, Overlay.tsx). 원래 개발 전용 디버그였으나(2026-07-28), 텍스트
+  // 영역 자동 탐지 설정(autoDetectRegion, 2026-07-29)의 결과 시각화로 실사용 기능이 됐다
+  // — 자동 탐지로 잡힌 영역일 때만 보내고(설정 OFF 이거나 사용자가 수동으로 영역을
+  // 지정했으면 안 보냄), 개발 모드에서는 그 조건과 무관하게 항상 보낸다(디버깅용).
+  DEBUG_BLOCKS: 'debug:blocks',
 
   // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout-YOLO/PaddleOCR/manga-ocr
   // Python 엔진 예열 상태. 앱 시작 시 백그라운드로 예열을 시작하는데(main/index.ts),
