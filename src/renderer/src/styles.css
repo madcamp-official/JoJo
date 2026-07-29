@@ -313,11 +313,15 @@ button:disabled { cursor: not-allowed; }
 .lang-option input[type='radio'] { margin-top: 3px; accent-color: var(--theme); }
 .lang-option .title { font-size: 13px; font-weight: 500; }
 .lang-option .desc { font-size: 12px; color: #8b93a1; margin-top: 2px; }
-.lang-select { margin-left: auto; display: flex; gap: 6px; }
-.lang-select select, .lang-pill {
-  font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid #dbe0e6; background: #fff;
+/* 언어 60개 전체를 담는 드롭다운(2026-07-30, 기존 tier1 4개짜리 pill 버튼 목록에서 교체)
+   — optgroup(tier1/2-A/2-B) 라벨이 브라우저 기본 렌더링으로 굵게+들여쓰기 구분돼 별도
+   구분선 CSS 없이도 티어 경계가 시각적으로 드러난다. */
+.lang-select { margin-left: auto; }
+.lang-select select {
+  font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid #dbe0e6;
+  background: #fff; max-width: 220px;
 }
-.lang-pill.active { border-color: var(--theme); color: var(--theme); background: var(--theme-weak); }
+.lang-select select:disabled { color: #b0b6c0; background: #f4f5f7; cursor: not-allowed; }
 
 /* 공통 소형 버튼 */
 .link-btn {
@@ -373,7 +377,11 @@ button:disabled { cursor: not-allowed; }
   /* OCR 단계(ocr.ts: normalizeOcrText)에서 이미 "캡처 당시 창 폭 기준으로 어쩌다 끊긴"
      단일 개행은 공백으로 합치고 진짜 문단 구분(연속 개행)만 남겨뒀다 — 그래서 여기서는
      pre-wrap(원본 개행을 전부 지킴 → 팝업 폭에 안 맞아 들쭉날쭉) 대신, 남은 개행(=진짜
-     문단 구분)만 존중하고 그 외 공백은 정리하는 pre-line 을 쓴다. */
+     문단 구분)만 존중하고 그 외 공백은 정리하는 pre-line 을 쓴다.
+     text-align: justify 는 방향(dir) 과 무관하게 그대로 적용된다 — RTL 언어(아랍어 등,
+     ContextView.tsx 가 dir="rtl" 을 붙임, PopupScreen.tsx isRtlLanguage)도 우측정렬이
+     아니라 양쪽정렬로 보이고, dir="rtl" 만으로 문단의 시작(=오른쪽)에 텍스트가 붙어
+     자연스러운 방향으로 읽힌다(2026-07-30 사용자 요청) — 별도 규칙 불필요. */
   line-height: 1.7; white-space: pre-line; text-align: justify;
   cursor: text; color: #4b5563;
   /* 좌우·하단 여백을 .context 가 아니라 여기서 갖는다 — 그래야 이 여백도 ctx-text
