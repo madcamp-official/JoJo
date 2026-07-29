@@ -439,16 +439,24 @@ button:disabled { cursor: not-allowed; }
 .ctx-text.char-level .atom { cursor: text; }
 /* :not(.sel) 필수 — 이게 없으면 이 규칙(클래스 4개, 명세도 .sel 규칙의 클래스 3개보다
    높음)이 이미 선택된(.sel) 글자 위에 커서가 올라갔을 때도 배경을 지워버려서, .sel 이
-   준 흰 글자색(--theme-text)만 남고 배경은 흰색(부모 배경)이 돼 글자가 안 보이는 버그가
-   있었다(사용자 피드백, 2026-07-29) — 선택된 글자는 hover 여부와 무관하게 항상
-   .sel 스타일 그대로 유지되게 한다. */
+   준 스타일(연보라 배경+진보라 테두리)이 사라지고 글자가 흐리게 보이는 버그가 있었다
+   (사용자 피드백, 2026-07-29) — 선택된 글자는 hover 여부와 무관하게 항상 .sel 스타일
+   그대로 유지되게 한다. */
 .ctx-text.char-level .atom:not(.sel):hover { background: none; }
 /* 드래그 도중엔 어떤 세그먼트(atom/gap) 위에 있든 커서를 텍스트(I-beam) 로 고정 —
    개별 span 의 cursor: pointer/text 로 매 순간 바뀌어 보이는 걸 막는다. */
 .ctx-text.dragging, .ctx-text.dragging * { cursor: text !important; }
+/* 선택 결과 표시 — 예전엔 진보라 배경+흰 글자였는데, hover 박스(word-box, 연보라 배경+
+   진보라 테두리+둥근 모서리)와 톤을 맞춰달라는 요청(2026-07-29)으로 변경. 글자색은
+   더 이상 덮어쓰지 않아(연보라 배경 위에도 원래 어두운 글자색 그대로 잘 읽힘) 별도
+   지정하지 않는다. border 대신 outline 을 쓴다 — border 는 박스 모델에 관여해 선택된
+   글자만 테두리 두께(1.5px)만큼 커져 버리고(`.ctx-text`가 justify 라 이게 줄바꿈 위치까지
+   어긋나게 할 수 있음, 위 padding 관련 주석과 같은 문제), outline 은 레이아웃에 영향
+   없이 위에 그려져 선택 중에도 글자 크기·줄바꿈이 흔들리지 않는다. */
 .ctx-text .atom.sel, .ctx-text .gap.sel {
-  background: var(--theme); color: var(--theme-text);
-  border-radius: 0;
+  background: var(--theme-weak);
+  outline: 1.5px solid var(--purple);
+  border-radius: 3px;
 }
 /* 툴바 */
 .toolbar {
