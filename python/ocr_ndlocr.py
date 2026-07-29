@@ -126,6 +126,23 @@ def recognize_lines(image_path: str) -> list[dict]:
     return lines
 
 
+# 담당 A — 가로쓰기 인식 실험(2026-07-29, 사용자 제안): Yomitoku(검출) + NDLOCR-lite(인식)
+# 조합. detector 는 안 쓰고 recognizer 만 직접 호출한다 — Node 쪽(ocrNdlocr.ts)이 이미
+# Yomitoku 로 찾아낸 줄 하나짜리 크롭을 그대로 넘겨준다. `PARSEQ.preprocess`(parseq.py)
+# 가 `if h>w: rotate` 로 세로/가로를 자동 판별해서 처리하므로(가로 크롭은 회전 없이 그대로
+# 읽음), 이 recognizer 자체는 가로쓰기 입력도 구조적으로는 받아들인다 — 다만 원래 학습
+# 데이터가 고문서(옛 인쇄/필사체)라 현대 인쇄 후리가나 텍스트에서 정확도가 어떨지는
+# 미검증(이 실험의 목적). recognizer30/50/100 3단 캐스케이드(process_cascade)는 검출기가
+# 준 pred_char_cnt 기반 분기라 detector 없이는 그 값이 없다 — 대신 항상 recognizer100
+# (제일 넓은 폭 지원 티어)으로 고정한다.
+def recognize_crop(image_path: str) -> str:
+    state = get_state()
+    img = cv2.imread(image_path)
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    text = state["recognizer100"].read(img_rgb)
+    return _strip_lone_surrogates((text or "").strip())
+
+
 def serve():
     for line in sys.stdin:
         line = line.strip()
@@ -133,8 +150,12 @@ def serve():
             continue
         try:
             req = json.loads(line)
-            lines = recognize_lines(req["image_path"])
-            print(json.dumps({"lines": lines}), flush=True)
+            if req.get("mode") == "recognize_crop":
+                text = recognize_crop(req["image_path"])
+                print(json.dumps({"text": text}), flush=True)
+            else:
+                lines = recognize_lines(req["image_path"])
+                print(json.dumps({"lines": lines}), flush=True)
         except Exception as e:
             print(json.dumps({"error": _strip_lone_surrogates(str(e))}), flush=True)
 

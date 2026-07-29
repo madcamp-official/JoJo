@@ -11,7 +11,7 @@ import {
   recognizeLinesWithPaddle,
   recognizeVerticalColumnWithPaddle,
 } from './ocrPaddle'
-import { recognizeVerticalColumnWithNdlocr } from './ocrNdlocr'
+import { recognizeLinesWithNdlocr, recognizeVerticalColumnWithNdlocr } from './ocrNdlocr'
 import { detectLinesWithYomitoku } from './ocrYomitoku'
 import { BODY_LABELS, getCachedDetection } from './regionSelection'
 
@@ -283,11 +283,21 @@ async function runNonTesseractOcr(
       // 워커 풀이 없어 느리다(실측: 검출 4.7초 vs 인식 44.8초, ocrYomitoku.ts 주석 참고).
       // 검출 실패하면(Python 환경 없음 등) null 이 와서 기존 줄(precomputedLines 또는
       // undefined→PaddleOCR 자체 검출)로 그대로 폴백한다. zh 는 대상 아님(일본어 전용).
+      // 담당 A — Yomitoku 검출 + NDLOCR-lite 인식 조합 실험(2026-07-29, 사용자 제안).
+      // Yomitoku 로 이미 줄을 찾았으면(yomiLines) 그 줄들을 NDLOCR-lite 인식기로 먼저
+      // 읽어본다 — 원래 세로쓰기 고문서용으로 학습된 모델이라 현대 인쇄 후리가나
+      // 텍스트에서 정확도가 어떨지 검증 중(recognizeLinesWithNdlocr 주석 참고). 실패하면
+      // (null) PaddleOCR 인식으로 폴백 — 검출(Yomitoku) 자체가 실패했으면 애초에
+      // NDLOCR-lite 를 시도할 줄 목록이 없으므로 바로 PaddleOCR 전체 경로(자체 검출+인식)로 간다.
+      let words: Word[] | null = null
       if (language === 'ja') {
         const yomiLines = await detectLinesWithYomitoku(image, padded)
-        if (yomiLines) lines = yomiLines
+        if (yomiLines) {
+          lines = yomiLines
+          words = await recognizeLinesWithNdlocr(image, yomiLines)
+        }
       }
-      const words = await recognizeLinesWithPaddle(image, language, padded, lines)
+      words ??= await recognizeLinesWithPaddle(image, language, padded, lines)
       console.log(`[timing]   column ${i}: ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
       return words
     }),

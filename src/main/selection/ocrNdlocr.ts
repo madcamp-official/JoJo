@@ -10,6 +10,7 @@ import {
   computeSlotWeights,
   estimateCellSizeFromIndent,
   excludeFurigana,
+  excludeFuriganaHorizontal,
   groupCjkCharsGrid,
   median,
   MIN_BODY_LINE_HEIGHT,
@@ -644,6 +645,89 @@ export async function recognizeVerticalColumnWithNdlocr(image: Buffer, columnBbo
     }),
   )
   return grouped.flat()
+}
+
+// 담당 A — 가로쓰기 인식 실험(2026-07-29, 사용자 제안): "Yomitoku 검출 + NDLOCR-lite
+// 인식" 조합. Yomitoku(ocrYomitoku.ts: detectLinesWithYomitoku)가 이미 찾아낸 줄
+// bbox 를 그대로 받아서, 그 크롭들을 NDLOCR-lite 의 recognizer(검출기는 안 씀,
+// python/ocr_ndlocr.py: recognize_crop 참고)로 읽는다. 원래 세로쓰기 고문서용으로
+// 학습된 모델이라 현대 인쇄 가로쓰기 텍스트(특히 후리가나)에서 정확도가 어떨지는
+// 미검증 — 이 실험의 목적 자체가 그걸 확인하는 것.
+//
+// 위쪽 여백을 최소화하는 이유: 가로쓰기 후리가나는 본문 줄 바로 위에 거의 맞닿아
+// 검출되는데(간격 0~음수인 경우도 실측 확인), PaddleOCR 경로(ocrPaddle.ts: padLine,
+// LINE_PADDING_Y=6)처럼 위아래를 동일하게 넉넉히 주면 그 후리가나 잉크가 다시
+// 크롭에 섞여 들어갈 수 있다(가로쓰기 노이즈 재발의 유력 원인으로 추정 중) — 여기서는
+// 처음부터 위쪽은 최소, 아래쪽만(글자 획/문장부호 잘림 방지 목적) 여유를 둔다.
+//
+// 담당 A — DPI 배율 대응(2026-07-29, 사용자 보고: "노트북 화면과 모니터 화면에서 결과가
+// 다름 — 고배율 화면에서 줄이 통째로 누락되거나 순서가 꼬임"). 캡처는 물리 픽셀 기준이라
+// 디스플레이 배율이 높을수록(예: 150%) 같은 글자도 물리 픽셀상 더 크게 찍히는데, 여백을
+// 고정 픽셀(1px/4px)로 두면 배율이 높을수록 실제 글자 크기 대비 여백이 상대적으로 좁아져
+// 획/문장부호 하단이 잘리기 쉬워진다(잘리면 NDLOCR-lite가 빈 문자열을 반환해 그 줄이
+// 통째로 사라진 것처럼 보임 — 실사용 중 확인된 유력 원인). 절대 픽셀 대신 그 줄 자신의
+// 높이에 비례한 값을 쓰면 배율이 달라져도 "글자 크기 대비 여백 비율"이 항상 같게
+// 유지된다. 비율은 기존에 검증됐던 절대값(1px/4px, 실측 당시 줄 높이 대략 22~25px대
+// 기준)과 비슷한 크기가 나오도록 역산한 값이다.
+const LINE_MARGIN_TOP_RATIO = 0.04
+const LINE_MARGIN_BOTTOM_RATIO = 0.16
+
+async function writeLineCrop(image: Buffer, line: Rect): Promise<string> {
+  const marginTop = Math.max(1, Math.round(line.height * LINE_MARGIN_TOP_RATIO))
+  const marginBottom = Math.max(2, Math.round(line.height * LINE_MARGIN_BOTTOM_RATIO))
+  const padded: Rect = {
+    x: line.x,
+    y: line.y - marginTop,
+    width: line.width,
+    height: line.height + marginTop + marginBottom,
+  }
+  const { tmpPath } = await writeCrop(image, padded, 0)
+  return tmpPath
+}
+
+/**
+ * Yomitoku 로 검출한 가로쓰기 줄들을 NDLOCR-lite 인식기로 읽는다 — 검출은 이미
+ * 끝난 상태로 받으므로(detector 미사용) 여기서는 후리가나 필터링(검출 결과 재사용
+ * 시에도 안전하도록 방어적으로 한 번 더 적용) → 줄마다 크롭+인식 → 격자 기반 단어
+ * 분할(groupCjkCharsGrid, PaddleOCR/Yomitoku 경로와 동일한 방식)만 한다. 줄 하나라도
+ * 실패하면 전체를 null 로 반환해 호출부(ocr.ts)가 PaddleOCR 인식으로 폴백하게 한다.
+ */
+export async function recognizeLinesWithNdlocr(image: Buffer, lines: Rect[]): Promise<Word[] | null> {
+  const bodyLines = excludeFuriganaHorizontal(lines)
+  if (bodyLines.length === 0) return []
+  const ordered = [...bodyLines].sort((a, b) => a.y - b.y)
+  try {
+    const texts = await Promise.all(
+      ordered.map(async (line) => {
+        const tmpPath = await writeLineCrop(image, line)
+        try {
+          const { text } = await server.request<{ image_path: string; mode: 'recognize_crop' }, { text: string }>({
+            image_path: tmpPath,
+            mode: 'recognize_crop',
+          })
+          return text
+        } finally {
+          void unlink(tmpPath).catch(() => {})
+        }
+      }),
+    )
+    // 담당 A — 가로쓰기 단어 단위 hover 를 시도했었는데(2026-07-29), 잉크 위치 기반 박스
+    // 계산이 아직 튜닝 중이라 우선 세로쓰기와 동일하게 줄 단위로 되돌린다(사용자 요청,
+    // 2026-07-29) — 단어별 위치 계산(groupCjkCharsGrid, 잉크 스냅 포함) 자체는 그대로
+    // 두고 결과만 줄 하나로 묶는다. 나중에 잉크 튜닝이 끝나면 이 lineId 부여만 다시
+    // 빼면 단어 단위로 복귀 가능(ocrPaddle.ts: recognizeOrderedLines 의 같은 처리 참고).
+    const grouped = await Promise.all(
+      ordered.map(async (line, i) => {
+        const words = await groupCjkCharsGrid(line, texts[i]!, 'ja', false, null, image)
+        const lineId = Math.random().toString(36).slice(2)
+        return words.map((w) => ({ ...w, lineId }))
+      }),
+    )
+    return grouped.flat()
+  } catch (err) {
+    console.error('[ocrNdlocr] 가로쓰기 인식 실패 — PaddleOCR 로 폴백:', err)
+    return null
+  }
 }
 
 /** 앱 시작 시(warmup.ts) 미리 불러 모델을 로드해둔다 — 첫 인스턴스화(모델 파일 로딩)가
