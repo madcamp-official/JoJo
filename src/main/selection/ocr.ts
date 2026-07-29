@@ -351,8 +351,22 @@ async function recognizeRegion(
     : {}
   const { data } = await w.recognize(image, recognizeOptions, { blocks: true })
 
+  // 담당 A — text/words 불일치 버그 수정(2026-07-30, 사용자 제보 — "팝업 본문에서
+  // 단어 반만 선택됨" + "영역 가장자리 단어는 팝업 본문엔 나오는데 텍스트 박스가 없음").
+  // 예전엔 여기서 `text: normalizeOcrText(data.text)` 로 Tesseract 가 조립한 원문을
+  // 그대로 썼는데, 이건 아래에서 필터링(잘린 단어 제외 등)해 만드는 `words` 배열과
+  // 완전히 독립된 별도의 문자열이다 — CJK 경로(ocrPaddle.ts/ocrNdlocr.ts)는 전부
+  // `text = words.map(w => w.text).join('')` 불변조건을 지키는데(클릭 지점 ↔ 오프셋
+  // 매핑이 이 등가성에 의존, selection/index.ts: findWordSpan 주석 참고) 이 함수만
+  // 예외였다. 그 결과 (1) 잘려서 `words`엔 안 들어간 가장자리 단어가 Tesseract 원문
+  // (`data.text`)엔 그대로 남아있어 팝업 본문엔 보이는데 겹치는 bbox 가 없어 텍스트
+  // 박스는 안 생기고, (2) 그보다 더 심각하게 `words` 배열이 `text`보다 문자 수가
+  // 적어져서(제외된 단어만큼) 클릭 위치 이후 모든 오프셋 계산이 어긋나 팝업에서 엉뚱한
+  // 위치(단어 중간 등)가 선택됐다. `words` 를 만들면서 그 사이사이에 구분자(공백/문단
+  // 구분)도 bbox 없는 Word 로 같이 끼워 넣어, text 를 `words` 자체에서 그대로 뽑아내도록
+  // 바꿨다 — 이제 두 값이 애초에 같은 데이터에서 나와 어긋날 수가 없다.
   const lines = (data.blocks ?? []).flatMap((block) =>
-    block.paragraphs.flatMap((paragraph) => paragraph.lines),
+    block.paragraphs.flatMap((paragraph) => paragraph.lines.map((line) => ({ ...line, paragraph }))),
   )
   // 영역의 맨 위/아래 줄이 다른 줄보다 확연히 낮으면, 위/아래 경계가 그 줄 중간을
   // 가로질러서 글자 위쪽/아래쪽 절반만 보이는 것으로 본다(findEdgeClippedLines) — 이
@@ -360,8 +374,11 @@ async function recognizeRegion(
   const clippedLines = region ? findEdgeClippedLines(lines) : new Set<(typeof lines)[number]>()
 
   const words: Word[] = []
+  let lastParagraph: (typeof lines)[number]['paragraph'] | null = null
   for (const line of lines) {
     if (clippedLines.has(line)) continue
+
+    let lineWords: Word[]
     // 단어 단위가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28)은 세로쓰기 일본어
     // (NDLOCR-Lite, ocrNdlocr.ts)에만 남기고 되돌렸다(2026-07-29 재요청) — 가로쓰기
     // 영어/중국어는 Tesseract 단어 bbox 가 이미 충분히 정확해서 줄 단위로 묶을 이유가
@@ -370,43 +387,69 @@ async function recognizeRegion(
     if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
       // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
       // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: segmentit)로 다시 분리한다.
-      words.push(...(await buildCjkLineWords(line, language, region)))
-      continue
-    }
-    // 태국어/라오어는 형태소 분석기가 없어(2026-07-30 결정, tier2는 OCR만 지원) Tesseract
-    // 단어 경계를 신뢰할 수 없다 — 대신 ocrNdlocr.ts(세로쓰기 일본어)와 동일한 방식으로
-    // 줄마다 하나의 lineId 를 만들어 그 줄의 모든 단어에 붙인다. wordMapping.ts
-    // findLineWordsAtPoint 가 lineId 로 자동으로 묶어 hover/클릭이 줄 단위가 되고, 팝업
-    // 내부 선택은(popup/selection.ts NO_WORD_BOUNDARY_LANGUAGES) 그대로 글자 단위다.
-    if (language === 'th' || language === 'lo') {
+      lineWords = await buildCjkLineWords(line, language, region)
+    } else if (language === 'th' || language === 'lo') {
+      // 태국어/라오어는 형태소 분석기가 없어(2026-07-30 결정, tier2는 OCR만 지원) Tesseract
+      // 단어 경계를 신뢰할 수 없다 — 대신 ocrNdlocr.ts(세로쓰기 일본어)와 동일한 방식으로
+      // 줄마다 하나의 lineId 를 만들어 그 줄의 모든 단어에 붙인다. wordMapping.ts
+      // findLineWordsAtPoint 가 lineId 로 자동으로 묶어 hover/클릭이 줄 단위가 되고, 팝업
+      // 내부 선택은(popup/selection.ts NO_WORD_BOUNDARY_LANGUAGES) 그대로 글자 단위다.
       const lineId = Math.random().toString(36).slice(2)
+      lineWords = []
       for (const word of line.words) {
-        if (region && (isWordClippedByRegion(word.bbox, region) || looksTruncated(word))) continue
-        words.push(...splitWordBySymbols(word, line.bbox).map((w) => ({ ...w, lineId })))
+        if (lineWords.length > 0) lineWords.push({ text: ' ' })
+        if (region && (isWordClippedByRegion(word.bbox, region) || looksTruncated(word))) {
+          // 담당 A — 잘린 단어를 텍스트에서도 통째로 빼버리면(2026-07-30, 재수정) 그
+          // 자리의 글자가 아예 사라져버린다(사용자 재확인 — "클릭만 안 되던 단어가
+          // 누락됨") — bbox 만 빼서 hover/클릭 대상에서만 제외하고, 텍스트 자체는
+          // 그대로 문맥에 남긴다(원래 동작).
+          lineWords.push({ text: word.text })
+          continue
+        }
+        lineWords.push(...splitWordBySymbols(word, line.bbox).map((wd) => ({ ...wd, lineId })))
       }
-      continue
+    } else {
+      lineWords = []
+      for (const word of line.words) {
+        if (lineWords.length > 0) lineWords.push({ text: ' ' })
+        // 잘린 단어는 hover/클릭 대상(bbox)에서만 제외한다 — 두 가지 다른 원인을 각각
+        // 다른 방법으로 잡는다.
+        //  1) 우리가 지정한 영역 경계 자체가 단어 중간을 가로지르는 경우: Tesseract 는
+        //     rectangle 옵션으로 크롭된 픽셀만 보므로 bbox 가 그 경계에 거의 딱 붙어서
+        //     나온다(isWordClippedByRegion). 하지만 사용자가 영역을 넉넉하게(글자 주변에
+        //     여백을 두고) 잡았다면, 실제 잘림은 영역 안쪽 — 원본 화면 자체에서 이미 잘려
+        //     보이는 경우(예: 스크롤 패널 경계에 걸친 줄)일 수 있고, 이때 bbox 는 영역
+        //     경계와 거리가 있어서 위 방식으로는 못 잡는다.
+        //  2) 그래서 인식 신뢰도(confidence)도 같이 본다: 글자 획 일부만 보이는 상태로
+        //     인식되면 Tesseract 도 확신을 못 해서 대체로 confidence 가 낮게 나온다
+        //     (looksTruncated) — 위치와 무관하게 "제대로 안 보인 글자"를 잡아낸다.
+        // 담당 A — 텍스트는 그대로 유지, bbox 만 뺀다(2026-07-30 재수정) — 통째로 빼면
+        // (이전 시도) 그 자리 글자가 팝업 본문에서도 사라져버렸다(사용자 재확인).
+        if (region && (isWordClippedByRegion(word.bbox, region) || looksTruncated(word))) {
+          lineWords.push({ text: word.text })
+          continue
+        }
+        // 높이는 단어 자체 bbox 대신 줄(line) bbox 를 쓴다 — 단어 bbox 는 그 단어를
+        // 구성하는 글자의 실제 잉크 범위만 딱 맞춰서 나와서, 어센더/디센더(g/y/p 등)가
+        // 없는 단어는 자연히 낮게 나오고 같은 줄에서도 단어마다 높이가 들쭉날쭉해진다.
+        // 줄 bbox 는 그 줄 전체 기준이라 같은 줄의 단어들이 통일된 높이로 보인다.
+        lineWords.push(...splitWordBySymbols(word, line.bbox))
+      }
     }
-    for (const word of line.words) {
-      // 잘린 단어는 통째로 제외한다 — 두 가지 다른 원인을 각각 다른 방법으로 잡는다.
-      //  1) 우리가 지정한 영역 경계 자체가 단어 중간을 가로지르는 경우: Tesseract 는
-      //     rectangle 옵션으로 크롭된 픽셀만 보므로 bbox 가 그 경계에 거의 딱 붙어서
-      //     나온다(isWordClippedByRegion). 하지만 사용자가 영역을 넉넉하게(글자 주변에
-      //     여백을 두고) 잡았다면, 실제 잘림은 영역 안쪽 — 원본 화면 자체에서 이미 잘려
-      //     보이는 경우(예: 스크롤 패널 경계에 걸친 줄)일 수 있고, 이때 bbox 는 영역
-      //     경계와 거리가 있어서 위 방식으로는 못 잡는다.
-      //  2) 그래서 인식 신뢰도(confidence)도 같이 본다: 글자 획 일부만 보이는 상태로
-      //     인식되면 Tesseract 도 확신을 못 해서 대체로 confidence 가 낮게 나온다
-      //     (looksTruncated) — 위치와 무관하게 "제대로 안 보인 글자"를 잡아낸다.
-      if (region && (isWordClippedByRegion(word.bbox, region) || looksTruncated(word))) continue
-      // 높이는 단어 자체 bbox 대신 줄(line) bbox 를 쓴다 — 단어 bbox 는 그 단어를
-      // 구성하는 글자의 실제 잉크 범위만 딱 맞춰서 나와서, 어센더/디센더(g/y/p 등)가
-      // 없는 단어는 자연히 낮게 나오고 같은 줄에서도 단어마다 높이가 들쭉날쭉해진다.
-      // 줄 bbox 는 그 줄 전체 기준이라 같은 줄의 단어들이 통일된 높이로 보인다.
-      words.push(...splitWordBySymbols(word, line.bbox))
+    if (lineWords.length === 0) continue
+
+    // 구분자도 bbox 없는 Word 로 같이 끼워 넣는다(hover/클릭 대상 아님) — 문단이 바뀌면
+    // Tesseract 관례(문단 사이 빈 줄)를 그대로 살려 '\n\n', 같은 문단 안에서 줄이 바뀐
+    // 것뿐이면(창 폭 기준으로 어쩌다 끊긴 자리라 의미 없음, 예전 normalizeOcrText와 동일
+    // 판단) 공백 하나로 합친다.
+    if (words.length > 0) {
+      words.push({ text: line.paragraph === lastParagraph ? ' ' : '\n\n' })
     }
+    lastParagraph = line.paragraph
+    words.push(...lineWords)
   }
 
-  return { text: normalizeOcrText(data.text), words }
+  return { text: words.map((word) => word.text).join(''), words }
 }
 
 /**
@@ -493,21 +536,6 @@ function findEdgeClippedLines<L extends { bbox: OcrBbox }>(lines: L[]): Set<L> {
   checkEdge(top)
   if (bottom !== top) checkEdge(bottom)
   return clipped
-}
-
-/**
- * Tesseract 가 조립한 원문은 관례적으로 문단 사이엔 연속 개행(빈 줄), 한 문단 안의
- * 줄바꿈은 단일 개행을 쓴다. 단일 개행은 캡처 당시 창 폭 기준으로 어쩌다 끊긴 자리일
- * 뿐이라 의미가 없어서 공백으로 합치고, 연속 개행(진짜 문단 구분)만 유지한다 —
- * 안 그러면 팝업처럼 원본과 다른 폭의 컨테이너에 표시할 때 엉뚱한 자리에서 줄이
- * 끊겨 보인다.
- */
-function normalizeOcrText(raw: string): string {
-  return raw
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.replace(/\s*\n\s*/g, ' ').trim())
-    .filter((paragraph) => paragraph.length > 0)
-    .join('\n\n')
 }
 
 interface OcrBbox { x0: number; y0: number; x1: number; y1: number }
@@ -610,24 +638,38 @@ function splitWordBySymbols(
 
   const hasDash = symbols.some((s) => DASH_CHARS.has(s.text))
 
+  // 담당 A — 트리밍/제외된 글자를 텍스트에서도 통째로 잃어버리던 문제 수정(2026-07-30,
+  // 사용자 재확인 — "문장부호가 팝업 본문에서 모두 사라짐"). 끝 문장부호(TRAILING_PUNCT_RE)
+  // 나 대시(DASH_CHARS) 는 "클릭 가능한 단어" 경계에선 계속 빼야 맞지만(그래야 "Drive,"를
+  // 클릭해도 "Drive"만 선택됨), 예전엔 Tesseract 원문(data.text)이 따로 있어서 이 트리밍이
+  // 클릭 단위에만 영향을 줬다 — 이제 text 를 words 에서 직접 뽑아 쓰므로(recognizeRegion
+  // 참고) 여기서 버리면 팝업 본문에서도 그대로 사라진다. bbox 없는 Word(hover/클릭 대상
+  // 아님)로 같이 남겨서 텍스트는 보존하고 클릭 단위만 그대로 유지한다.
+
   if (!hasDash) {
     let end = symbols.length
     while (end > 0 && TRAILING_PUNCT_RE.test(symbols[end - 1]!.text)) end--
     if (end === 0) return [mk(word.text, word.bbox.x0, word.bbox.x1)] // 전부 문장부호면(드묾) 원본 유지
     const text = symbols.slice(0, end).map((s) => s.text).join('')
-    return [mk(text, word.bbox.x0, word.bbox.x1)]
+    const trailingText = symbols.slice(end).map((s) => s.text).join('')
+    const out: Word[] = [mk(text, word.bbox.x0, word.bbox.x1)]
+    if (trailingText) out.push({ text: trailingText })
+    return out
   }
 
-  // 대시를 경계로 글자 그룹을 나눈다(대시 자신은 어느 그룹에도 안 넣음).
+  // 대시를 경계로 글자 그룹을 나눈다(대시 자신은 어느 그룹에도 안 넣지만, 그룹 사이에
+  // bbox 없는 텍스트로 남긴다 — dashAfter[i] 는 groups[i] 바로 뒤에 있던 대시).
   const groups: OcrSymbol[][] = []
+  const dashAfter: string[] = []
   let current: OcrSymbol[] = []
   for (const sym of symbols) {
     if (DASH_CHARS.has(sym.text)) {
       if (current.length > 0) {
         groups.push(current)
+        dashAfter.push(sym.text)
         current = []
       }
-      // current 가 비어있는 채로 대시를 만나면(대시가 맨 앞 등, 드묾) 그냥 건너뜀.
+      // current 가 비어있는 채로 대시를 만나면(대시가 맨 앞 등, 드묾) 그냥 건너뜀(기존 동작 유지).
     } else {
       current.push(sym)
     }
@@ -642,12 +684,20 @@ function splitWordBySymbols(
     if (isLast) {
       while (end > 0 && TRAILING_PUNCT_RE.test(group[end - 1]!.text)) end--
     }
-    if (end === 0) continue // 그룹 전체가 문장부호면(드묾) 버림
-    const kept = group.slice(0, end)
-    const x0 = Math.min(...kept.map((s) => s.bbox.x0))
-    const x1 = Math.max(...kept.map((s) => s.bbox.x1))
-    const text = kept.map((s) => s.text).join('')
-    results.push(mk(text, x0, x1))
+    if (end > 0) {
+      const kept = group.slice(0, end)
+      const x0 = Math.min(...kept.map((s) => s.bbox.x0))
+      const x1 = Math.max(...kept.map((s) => s.bbox.x1))
+      const text = kept.map((s) => s.text).join('')
+      results.push(mk(text, x0, x1))
+    } else {
+      // 그룹 전체가 문장부호면(드묾) bbox 없이 텍스트만 남긴다.
+      results.push({ text: group.map((s) => s.text).join('') })
+    }
+    if (isLast && end < group.length) {
+      results.push({ text: group.slice(end).map((s) => s.text).join('') })
+    }
+    if (dashAfter[i]) results.push({ text: dashAfter[i]! })
   }
   return results
 }
