@@ -733,7 +733,7 @@ export function SettingsScreen() {
             />
             <div>
               <div className="title">자동 언어 감지</div>
-              <div className="desc">OCR을 할 때 영어 / 일본어 / 중국어 중 언어를 자동으로 감지합니다.</div>
+              <div className="desc">OCR 실행 시 언어를 자동으로 감지합니다.</div>
             </div>
           </label>
           <label className="lang-option">
@@ -745,7 +745,7 @@ export function SettingsScreen() {
             />
             <div>
               <div className="title">언어 선택</div>
-              <div className="desc">영어 / 일본어 / 중국어 중 하나를 직접 선택합니다.</div>
+              <div className="desc">언어를 직접 선택합니다.</div>
             </div>
             <div className="lang-select">
               {LANGUAGE_ORDER.map((code) => (
