@@ -1,5 +1,5 @@
 import type { ExtractedSelection, Language } from '@shared/types'
-import { byteLength, endsWithSentenceEnder } from '@shared/context'
+import { endsWithSentenceEnder } from '@shared/context'
 import { detectCjkLanguage } from '@shared/cjkDetect'
 import { extensionBridge, type Transcript } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
@@ -122,9 +122,6 @@ function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
   // videoId별 캐시(bridge.ts transcripts Map)라 탭/영상을 오가도 서로 덮어쓰지 않는다 —
   // 이 영상 것이 있으면 그대로 신뢰하면 된다(엉뚱한 영상 자막이 섞일 일 자체가 없음).
   const transcript = hit.videoId !== null ? extensionBridge.getTranscript(hit.videoId) : null
-  console.log(
-    `[subtitleSource] click hit.videoId=${hit.videoId} transcript.videoId=${transcript?.videoId ?? 'null'} cues=${transcript?.cues.length ?? 'null'}`,
-  )
 
   // 전체 자막(timedtext)이 있으면 그걸 통째로 text 로 주고 anchor 만 클릭 단어에 맞춘다 —
   // 팝업이 설정 바이트(contextBytesBefore/After)만큼 앞뒤를 알아서 보여준다(OCR/텍스트와 동일).
@@ -217,11 +214,5 @@ function anchorInTranscript(
   }
   const start = offsets[idx] + Math.min(inCue, cueText.length)
   const end = Math.min(start + wordText.length, offsets[idx] + cueText.length)
-  // 진단(임시, 2026-07-29): "설정한 바이트만큼 앞뒤 문맥이 안 뜬다" 재현 원인 특정용 —
-  // full 자체가 짧은 건지(영상 초반이라 실제로 자막이 얼마 없음), idx/currentTime 매칭이
-  // 잘못돼 앞뒤에 있는 자막을 못 쓰는 건지 구분한다.
-  console.log(
-    `[subtitleSource] anchorInTranscript cues=${cues.length} idx=${idx} currentTime=${currentTime.toFixed(1)} full.length=${full.length} start=${start} end=${end} beforeBytes=${byteLength(full.slice(0, start))} afterBytes=${byteLength(full.slice(end))}`,
-  )
   return { text: full, start, end }
 }

@@ -57,7 +57,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     if (this.wss) return
     const wss = new WebSocketServer({ host: EXT_WS_HOST, port: EXT_WS_PORT })
     this.wss = wss
-    wss.on('connection', (ws, req) => this.onConnection(ws, req.socket.remotePort))
+    wss.on('connection', (ws) => this.onConnection(ws))
     // 실제로 리슨 시작(바인딩 성공)한 시점에만 찍는다 — 실패면 error 가 대신 뜬다.
     wss.on('listening', () =>
       console.log(`[ext-bridge] listening on ws://${EXT_WS_HOST}:${EXT_WS_PORT} (확장 접속 대기)`),
@@ -68,13 +68,9 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     })
   }
 
-  private onConnection(ws: WebSocket, remotePort?: number): void {
+  private onConnection(ws: WebSocket): void {
     // 새 접속이 오면 이전 소켓은 버린다(브라우저 하나 = 소켓 하나 유지).
     if (this.socket && this.socket !== ws) {
-      // 진단(2026-07-29): 연결됨↔끊김이 무한 반복되는 문제 — 서로 다른 두 클라이언트
-      // (예: 확장이 두 개 설치됨/다른 프로필)가 번갈아 서로를 밀어내는지 확인용.
-      // remotePort 가 매번 두 값을 오가면 클라이언트가 둘이라는 확정 증거다.
-      console.log(`[ext-bridge] 기존 소켓을 새 접속(port=${remotePort})으로 교체`)
       try {
         this.socket.close()
       } catch {
@@ -97,7 +93,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
 
     this.startKeepalive()
     this.emit('connected')
-    console.log(`[ext-bridge] 확장 연결됨 (port=${remotePort})`)
+    console.log('[ext-bridge] 확장 연결됨')
     // 재접속 직후 상태를 맞추기 위해 현재 활성 탭을 다시 보고하도록 요청한다.
     this.send({ type: 'requestActiveTab' })
     // 재접속한 확장(background 서비스 워커 재시작 포함)은 자막 캡처 desired 상태를 모른다
