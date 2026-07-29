@@ -3,6 +3,7 @@ import { createWorker, OEM, type Worker } from 'tesseract.js'
 import type { AnyLanguage, Rect } from '@shared/types'
 import { detectHanziVariant, detectRawLanguage } from '@shared/languageDetect'
 import { getOcrLangCode } from '@shared/languages'
+import { getLanguageOverride } from '../settingsStore'
 
 // 담당 A — 언어 자동 감지 (PLAN.md §4.1 / §5 / §6)
 // 파이프라인 순서: 본문 영역 탐지(DocLayout-YOLO) → 언어 감지(여기) → 읽기 순서/OCR.
@@ -119,10 +120,18 @@ const SCRIPT_TO_LANGUAGE: Record<string, AnyLanguage | 'zh' | AnyLanguage[]> = {
  * region 을 주면 그 부분만 크롭해서 검사한다(권장 — 본문 영역이 정해진 뒤 호출).
  * image 가 없으면(아직 캡처 전 등) 감지를 시도하지 않고 기본값 'en' 을 반환한다.
  *
+ * 설정에서 특정 언어를 수동 지정했으면(getLanguageOverride) OSD/Tesseract 자체를
+ * 아예 안 돌리고 그 값을 바로 돌려준다(2026-07-30) — 라틴/키릴/아랍/데바나가리처럼
+ * 여러 언어가 스크립트를 공유해 자동판별(resolveAmbiguousScript)이 흔들릴 수 있는
+ * 경우, 사용자가 이렇게 확정해 모호성 자체를 없앨 수 있다. 부수 효과로 OSD+2차 인식
+ * 비용도 아낀다.
+ *
  * 검증용으로 스크립트/신뢰도를 콘솔에 항상 로그로 남긴다 — 언어별 테스트 콘텐츠로
  * 실제로 잘 잡히는지 눈으로 바로 확인할 수 있게.
  */
 export async function detectLanguage(image?: Buffer, region?: Rect): Promise<AnyLanguage> {
+  const override = getLanguageOverride()
+  if (override) return override
   if (!image) return 'en'
   try {
     const worker = await getOsdWorker()

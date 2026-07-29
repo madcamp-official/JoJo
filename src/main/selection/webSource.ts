@@ -4,6 +4,7 @@ import { detectSupportedLanguage } from '@shared/languageDetect'
 import { MIN_WEB_TEXT_LENGTH } from '@shared/extension'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
+import { getLanguageOverride } from '../settingsStore'
 import { createPopupWindow, sendOverlayWords } from '../windows'
 
 // 담당 milleion — 일반 웹페이지(뉴스·웹소설 등) 본문 DOM 텍스트 추출 경로(OCR 대체).
@@ -102,7 +103,7 @@ function onPageClick(hit: PageClickHit): void {
 // null = tier3(미지원 언어) — 호출부가 팝업 대신 토스트로 처리한다.
 function buildSelection(hit: PageClickHit): ExtractedSelection | null {
   const source = getBrowserSource()?.source ?? { kind: 'web' as const, url: hit.url }
-  const language = detectSupportedLanguage(hit.text)
+  const language = getLanguageOverride() ?? detectSupportedLanguage(hit.text)
   if (language === null) return null
   return {
     text: hit.text,

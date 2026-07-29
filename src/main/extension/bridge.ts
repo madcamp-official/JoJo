@@ -16,6 +16,7 @@ import { detectCjkVariant, detectSupportedLanguage } from '@shared/languageDetec
 import type { AnyLanguage } from '@shared/types'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
+import { getLanguageOverride } from '../settingsStore'
 
 export interface Transcript {
   videoId: string
@@ -141,12 +142,14 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
       case 'transcript': {
         // 전체 cue 를 이어붙인 텍스트로 언어를 1회 판별해 캐시한다(아래 language 필드
         // 참고) — 자막 줄 하나보다 훨씬 큰 표본이라 zh-Hans/zh-Hant 오판 가능성이
-        // 줄고, subtitleSource.ts 가 클릭마다 매번 재판별할 필요도 없어진다.
+        // 줄고, subtitleSource.ts 가 클릭마다 매번 재판별할 필요도 없어진다. 설정에서
+        // 언어를 수동 지정했으면(2026-07-30) 그 값을 그대로 신뢰하고 자동판별 자체를
+        // 건너뛴다.
         const fullText = msg.cues.map((c) => c.text).join(' ')
         const transcript: Transcript = {
           videoId: msg.videoId,
           cues: msg.cues,
-          language: detectSupportedLanguage(fullText),
+          language: getLanguageOverride() ?? detectSupportedLanguage(fullText),
         }
         // 같은 videoId 재수신 시 최신으로 갱신(자막 언어 전환 등) — delete 후 set 으로
         // Map 삽입 순서를 "최근 수신 순"으로 유지한다(buildContextWindow 가 최근 것부터
