@@ -188,6 +188,11 @@ function cleanCaptionText(raw: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&[a-z]+;/gi, (e) => HTML_ENTITIES[e.toLowerCase()] ?? e)
     .replace(/[‎‏‪-‮]/g, '') // 방향 제어 문자(엔티티가 아닌 실제 문자로 온 경우)
+    // 넷플릭스 자막 원문은 후리가나를 <rt>가 아니라 "漢字(かな)" 식 괄호 표기로 텍스트에
+    // 직접 박아 보낸다(화면엔 루비로 렌더되지만 자막 파일 자체엔 괄호 그대로 들어있음,
+    // 2026-07-29 실측 — 예: "篤(あつ)くて"). 한자 뒤에 바로 붙은, 내용이 가나뿐인 괄호만
+    // 후리가나로 보고 제거한다(한자는 남김).
+    .replace(/([一-鿿々]+)\(([぀-ヿー]+)\)/g, '$1')
     .replace(/\s+/g, ' ')
     .trim()
 }
