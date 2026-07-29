@@ -193,9 +193,31 @@ export function PopupScreen() {
       DISPLAY_CONTEXT_LINES_BEFORE,
       DISPLAY_CONTEXT_LINES_AFTER,
     )
-    if (!measuredSpan) return
+    // TEMP DEBUG(2026-07-30) — 문맥 표시 범위가 문장 경계보다 과하게 확장되는 문제 진단용.
+    // 원인 확인되면 이 블록 통째로 제거.
+    console.log('[measure-debug] anchor', baseCtx.anchor, 'sliceStart', sliceStart, 'measuredSpan', measuredSpan)
+    if (!measuredSpan) {
+      console.log('[measure-debug] measuredSpan is null — clientWidth=', el.clientWidth, 'textLen=', sliceEnd - sliceStart)
+      return
+    }
     const absStart = measuredSpan.start + sliceStart
     const absEnd = measuredSpan.end + sliceStart
+    console.log(
+      '[measure-debug] absStart',
+      absStart,
+      'nearText@absStart=',
+      JSON.stringify(fullText.slice(Math.max(0, absStart - 20), absStart + 20)),
+      'absEnd',
+      absEnd,
+      'nearText@absEnd=',
+      JSON.stringify(fullText.slice(Math.max(0, absEnd - 20), absEnd + 20)),
+    )
+    console.log(
+      '[measure-debug] sentenceStart result',
+      sentenceStart(fullText, absStart),
+      'text there=',
+      JSON.stringify(fullText.slice(sentenceStart(fullText, absStart), sentenceStart(fullText, absStart) + 40)),
+    )
     // sentenceEnd(text, p)는 "p가 아직 문장 중간이면 그 문장 끝까지 확장"하는 함수라,
     // absEnd(슬라이스 끝 — 다음 줄의 "첫 글자" 오프셋, exclusive)를 그대로 넘기면 그
     // 위치가 하필 다음 문장의 시작과 겹칠 때(줄 기반 자막처럼 "한 줄 = 한 문장"인

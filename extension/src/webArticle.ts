@@ -57,9 +57,14 @@ function isHiddenWithinRoot(node: Text, root: Element): boolean {
 // 문단 하나의 "진짜 본문" 텍스트 — 숨김 함정 + 후리가나를 모두 제외하고 이어붙인다.
 // domWords.ts의 elementTextExcludingFurigana 는 자막 세그먼트 전용(항상 전체가 보임을
 // 전제)이라 가시성 체크가 없다 — 본문 문단은 내부에 숨김 함정이 섞일 수 있어 별도로 둔다.
+// <br>은 텍스트 노드가 아니라 SHOW_TEXT 워커에는 아예 안 잡힌다 — 그대로 두면 <br>로
+// 나뉜 두 텍스트가 구분자 없이 그대로 붙어버린다(실측: RoyalRoad 챕터 제목이
+// "Chapter 033<br></strong><strong>Gateways" 구조라 "Chapter 033Gateways"로 붙어 나오는
+// 문제, 2026-07-30 사용자 제보). SHOW_ELEMENT도 함께 받아 <br>을 만나면 '\n'을 끼워 넣는다.
 function visibleParagraphText(p: HTMLParagraphElement): string {
-  const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT, {
+  const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
     acceptNode: (n) => {
+      if (n.nodeType === Node.ELEMENT_NODE) return NodeFilter.FILTER_ACCEPT
       const t = n as Text
       if (isFuriganaText(t)) return NodeFilter.FILTER_REJECT
       if (isHiddenWithinRoot(t, p)) return NodeFilter.FILTER_REJECT
@@ -67,10 +72,14 @@ function visibleParagraphText(p: HTMLParagraphElement): string {
     },
   })
   let text = ''
-  let node = walker.nextNode() as Text | null
+  let node = walker.nextNode()
   while (node) {
-    text += node.textContent ?? ''
-    node = walker.nextNode() as Text | null
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if ((node as Element).tagName === 'BR') text += '\n'
+    } else {
+      text += (node as Text).textContent ?? ''
+    }
+    node = walker.nextNode()
   }
   return text
 }
