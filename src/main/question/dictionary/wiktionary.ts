@@ -4,7 +4,7 @@ import { extractEnIpaValues } from './wiktionaryEnPron'
 import { extractJaPronValues } from './wiktionaryJaPron'
 import { extractZhMandarinFromWikitext, tryZhDefinitionsFallback } from './wiktionaryZh'
 
-// 담당 B — Wiktionary 어댑터 (PLAN.md §5, en/ja/zh 공용 최종 폴백)
+// 담당 B — Wiktionary 어댑터 (PLAN.md §6, en/ja/zh 공용 최종 폴백)
 // 실측 근거는 DICTIONARY_SOURCES.md "Wiktionary (공용 — en/ja/zh 최종 폴백)" 절 참고.
 // en.wiktionary.org 공식 REST API(GET /api/rest_v1/page/definition/{word}, 무료·키 불필요)를
 // 뜻풀이 소스로 쓴다 — ja.wiktionary.org/zh.wiktionary.org 같은 네이티브판은 커버리지가 더

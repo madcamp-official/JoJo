@@ -1,7 +1,7 @@
 import type { AnyLanguage } from '@shared/types'
 import { getGoogleSearchSuffix } from '@shared/languages'
 
-// 담당 B — 구글 검색 탭 URL 생성 (PLAN.md §4.2 구글 검색)
+// 담당 B — 구글 검색 탭 URL 생성 (PLAN.md §5.2 구글 검색)
 // 발음: "선택어 + pronunciation/読み方/拼音/..." 웹 탭 / 시각 자료: 이미지 탭.
 // tier1/tier2 어느 쪽이든(=tier3만 아니면) 항상 된다 — 언어별 접미어는
 // @shared/languages 에서 관리(언어 확장 시 그쪽만 수정).

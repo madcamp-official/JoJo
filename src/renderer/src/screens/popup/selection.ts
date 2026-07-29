@@ -12,7 +12,7 @@ import { mergeJaTokensUnidic } from '@shared/nlp/ja-unidic'
 import { WORD_ATOM_PATTERN } from '@shared/wordTokenize'
 
 // ============================================================================
-// 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §4.1 "팝업 내 범위 지정")
+// 담당 B — 팝업 안에서의 범위 재지정 (PLAN.md §5.1 "팝업 내 범위 지정")
 //
 // 팝업이 뜬 뒤 사용자가 원문 문맥을 드래그해 선택 범위를 바꿀 수 있게 한다.
 //  - 영어: 단어(atom) 단위. 단, "well-to-do" 처럼 하이픈으로 묶인 표현은
@@ -156,7 +156,7 @@ function toWindowedOffset(displayPos: number, insertions: number[]): number {
 const LATIN_ATOM_RE = new RegExp(WORD_ATOM_PATTERN, 'yu')
 
 // 한자(중/일 공통) atom: 한 글자가 곧 atom 하나 — "天线" 은 天 / 线 두 atom 으로,
-// 원하는 한 글자만 골라 선택할 수도 있다(PLAN.md §4.1 "문자 단위 세밀 선택").
+// 원하는 한 글자만 골라 선택할 수도 있다(PLAN.md §5.1 "문자 단위 세밀 선택").
 const KANJI_CHAR_RE = /[一-鿿㐀-䶿]/
 
 // 가나(히라가나+가타카나) 한 덩어리 — 아래 segmentKanaRun 이 의미 단위로 재분할한다.

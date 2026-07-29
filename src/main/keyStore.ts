@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { ApiKeyId } from '@shared/types'
 
-// 담당 B — API 키 로컬 암호화 저장 (PLAN.md §6 보안).
+// 담당 B — API 키 로컬 암호화 저장 (PLAN.md §7 보안).
 // safeStorage 로 암호화한 뒤 base64 문자열로 userData/apikeys.json 에 영속화한다.
 // 평문은 디스크에 남지 않으며, 외부로 전송하지 않는다.
 

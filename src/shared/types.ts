@@ -1,5 +1,5 @@
 // ============================================================================
-// 공동 소유 (담당 A ↔ 담당 B 인터페이스 계약) — PLAN.md §8
+// 공동 소유 (담당 A ↔ 담당 B 인터페이스 계약) — PLAN.md §9
 // 경계 = 팝업창. A(팝업 전)가 ExtractedSelection 을 만들어 B 로 넘기고,
 // B(팝업 후)가 팝업에서 SelectionContext 를 확정한 뒤 QuestionResult 를 UI 로 반환한다.
 // 이 파일은 양측이 함께 관리한다.
@@ -212,7 +212,7 @@ export interface QuestionResult {
 }
 
 // ---- 사전(Dictionary) 통일 스키마 --------------------------------------------
-// PLAN.md §5 — en(MW/WordNet/Wiktionary)·ja(daijisen/JMdict)·zh(汉典/萌典/CC-CEDICT)
+// PLAN.md §6 — en(MW/WordNet/Wiktionary)·ja(daijisen/JMdict)·zh(汉典/萌典/CC-CEDICT)
 // 8개 소스가 전부 다른 응답 형식(JMdict의 'v1'/'vt' 같은 약어 코드, MW의 sseq/dt/vis
 // 중첩 구조, CC-CEDICT의 슬래시 구분 평문 등)을 가지므로, 각 어댑터가 원본을 파싱해
 // 이 공통 타입으로 변환한 뒤에만 LLM 프롬프트에 들어가게 한다(llm/adapter.ts 가
@@ -256,7 +256,7 @@ export type CanonicalPos<L extends Language = Language> = L extends 'en'
  *  (convention)인지, 방언 표시(dialect)인지를 최소한으로 구분한다(2026-07-28 신설). 분류가
  *  애매한 라벨(예: CC-CEDICT `(loanword)`/`(bound form)` — 어원·형태 결합 제약 표시라
  *  격식도 방언도 아님)을 억지로 셋 중 하나로 우기지 않고 'other'로 둔다. LLM 프롬프트엔
- *  `text`만 넣고 `kind`는 어댑터/기능(예: PLAN §3 "격식 여부" 자주 쓰는 질문)이 태그를
+ *  `text`만 넣고 `kind`는 어댑터/기능(예: PLAN §4 "격식 여부" 자주 쓰는 질문)이 태그를
  *  걸러 쓸 때만 사용. */
 export type UsageTagKind = 'register' | 'convention' | 'dialect' | 'other'
 
@@ -346,7 +346,7 @@ interface DictionarySenseCommon<L extends Language = Language> {
    *  `(computing)` 등)도 이 필드로 매핑 가능 — 파싱 시 usageTags 와 구분해서 라우팅. */
   domain?: string[]
   /** 격식/사용역 + 표기 관례 라벨(복수 가능) — MW 의 `sls`(status label sequence) 필드
-   *  실측 확인(예: "ain't"→["informal"]). PLAN.md §3 "자주 쓰는 질문"에 이미 "격식·객관
+   *  실측 확인(예: "ain't"→["informal"]). PLAN.md §4 "자주 쓰는 질문"에 이미 "격식·객관
    *  표현 여부"가 있어 이 앱 기능과 직결되는 정보라 추가 — 사전 API가 이미 판정해주는 걸
    *  LLM이 처음부터 다시 추측하지 않아도 됨. 원래 필드명은 `register`였으나 JMdict `misc`
    *  (실측: "しどい"→["Slang"], "薔薇"→["Usually written using kana alone"])가 격식뿐
@@ -359,7 +359,7 @@ interface DictionarySenseCommon<L extends Language = Language> {
    *  sense 에 복제해 넣어야 한다.
    *
    *  **2026-07-28 정정: `string[]`에서 `UsageTag[]`로 구조화.** 격식(register)·표기 관례
-   *  (convention)·방언 표시(dialect)가 전부 문자열 하나에 섞여 있으면, PLAN §3 "격식·객관
+   *  (convention)·방언 표시(dialect)가 전부 문자열 하나에 섞여 있으면, PLAN §4 "격식·객관
    *  표현 여부" 자주 쓰는 질문 기능이 이 필드로 격식 여부를 판단할 때 격식과 무관한
    *  태그(예: JMdict "Usually written using kana alone")까지 같이 LLM에 들어가 판단을
    *  오염시킬 수 있음을 뒤늦게 발견 — `kind`로 최소 분류해 어댑터/프롬프트 구성 단계에서

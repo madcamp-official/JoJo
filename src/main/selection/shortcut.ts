@@ -15,7 +15,7 @@ import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
 import { isWebModeActive, startWebMode, stopWebMode } from './webSource'
 
-// 담당 A — 모드 전환 전역 단축키 (PLAN.md §3, 기본 macOS: Option+Q / Windows: Alt+Q)
+// 담당 A — 모드 전환 전역 단축키 (PLAN.md §4, 기본 macOS: Option+Q / Windows: Alt+Q)
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
 let mode: AppMode = 'normal'
 let currentAccelerators: string[] = []
@@ -115,7 +115,7 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
   if (decision.mode === 'web') {
     // 일반 웹페이지 경로 — 확장의 본문 DOM 텍스트를 우선 시도한다(decideOcr.ts, 낙관적
     // 판정). 실제 텍스트가 부족하면 startWebMode 가 이 콜백을 통해 기존 OCR 흐름으로
-    // 넘어간다(§4.1 "텍스트 양으로 분기").
+    // 넘어간다(§5.1 "텍스트 양으로 분기").
     stopSubtitleMode()
     stopChangeWatcher()
     startWebMode(() => startOcrFallback(epoch))

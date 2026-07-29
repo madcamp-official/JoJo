@@ -17,7 +17,7 @@ import {
 } from './icons'
 import { EditDeleteGroup } from './EditDeleteGroup'
 
-// 설정 화면 (PLAN.md §3) — 담당 B
+// 설정 화면 (PLAN.md §4) — 담당 B
 // LLM·API 키 / 단축키 / 문맥 범위(Byte) / 언어
 // 메인 창 안에서 해시 라우팅으로 뜬다(#/main ↔ #/settings, 별도 창 아님).
 
@@ -540,7 +540,7 @@ export function SettingsScreen() {
         </div>
       </section>
 
-      {/* 사전 API 키 (Merriam-Webster) — LLM 과 별개 섹션 (PLAN.md §5) */}
+      {/* 사전 API 키 (Merriam-Webster) — LLM 과 별개 섹션 (PLAN.md §6) */}
       <section className="settings-section">
         <h2>Merriam-Webster 사전 API 키</h2>
         <p className="desc">

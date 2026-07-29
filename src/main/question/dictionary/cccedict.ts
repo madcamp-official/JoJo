@@ -10,7 +10,7 @@ import type {
   UsageTagKind,
 } from '@shared/types'
 
-// 담당 zh — CC-CEDICT 로컬 번들 어댑터 (PLAN.md §5, zh-Hans 2순위/zh-Hant 3순위 —
+// 담당 zh — CC-CEDICT 로컬 번들 어댑터 (PLAN.md §6, zh-Hans 2순위/zh-Hant 3순위 —
 // 汉典·萌典 실패 시 공통 폴백, 그다음은 Wiktionary). 원본은 resources/cedict.u8(MDBG
 // 공개 배포, CC BY-SA 4.0) — 이 앱의 중국어 분절기(nlp/engines/chineseTokenizer.ts)가
 // 이미 같은 파일을 쓰고 있어 별도 용량 증가가 없다. 네트워크 호출이 없는 로컬 파싱

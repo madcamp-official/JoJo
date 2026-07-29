@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile)
 // Windows 가 아닌 OS(맥·리눅스)에서도 import 시점에 DLL 로드가 실행돼 크래시한다.
 // → Windows 경로에서만 동적 import 로 지연 로드한다(koffi 는 optionalDependencies).
 
-// 담당 A — 창 선택 & 포커스 창 캡처 (PLAN.md §4.1)
+// 담당 A — 창 선택 & 포커스 창 캡처 (PLAN.md §5.1)
 // Zoom 화면공유처럼 창 목록을 제공하고, 선택된 창의 화면을 캡처한다.
 //
 // Windows 에서는 desktopCapturer 대신 win32Capture(EnumWindows + PrintWindow)를

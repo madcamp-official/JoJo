@@ -1,6 +1,6 @@
 import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, Language } from '@shared/types'
 
-// 담당 C — 汉典(zdic.net) 어댑터 (PLAN.md §5, zh-Hans 1순위 / zh-Hant 2순위(萌典 실패시) 폴백)
+// 담당 C — 汉典(zdic.net) 어댑터 (PLAN.md §6, zh-Hans 1순위 / zh-Hant 2순위(萌典 실패시) 폴백)
 // 실측 근거는 DICTIONARY_SOURCES.md "汉典 (zh-Hans)" 절 참고.
 //
 // **엔트리 단위 폴백 — `#jbjs` → `#xxjs` → `#gyjs` 순서(2026-07-28 확정).** 표제어 페이지는

@@ -1,6 +1,6 @@
 import koffi from 'koffi'
 
-// 담당 A(보완) — macOS 창 좌표/앞으로 올리기 (PLAN.md §3)
+// 담당 A(보완) — macOS 창 좌표/앞으로 올리기 (PLAN.md §4)
 //
 // Windows 의 win32Capture 에 대응하는 mac 경로. osascript(System Events 자동화)는
 // unsigned dev 앱에서 권한 프롬프트가 안 뜨고 조용히 거부되는 문제가 있어, 대신

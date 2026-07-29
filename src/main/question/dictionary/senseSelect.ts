@@ -13,9 +13,9 @@ function kotobankSectionAnchor(sectionLabel: string): string {
   return [...Buffer.from(sectionLabel, 'utf-8')].map((b) => b.toString(16).toUpperCase().padStart(2, '0')).join('.')
 }
 
-// 담당 B — 사전 뜻(sense) 번호 매기기 + LLM 판정/번역 결과 서식화 (PLAN.md §4.2-2)
+// 담당 B — 사전 뜻(sense) 번호 매기기 + LLM 판정/번역 결과 서식화 (PLAN.md §5.2-2)
 // DictionaryEntry[] 를 LLM 프롬프트에 넣을 번호 매긴 평면 목록으로 바꾸고, LLM 은 문맥에
-// 맞는 번호를 고른 뒤 그 뜻풀이·예문을 한국어로 번역한다(PLAN.md §5: "사전 API는 원어
+// 맞는 번호를 고른 뒤 그 뜻풀이·예문을 한국어로 번역한다(PLAN.md §6: "사전 API는 원어
 // 뜻 목록만 제공, 한국어 설명·번역은 LLM이 담당"). pos 라벨·출처처럼 번역이 필요 없는
 // 나머지는 여기서 사전 데이터를 그대로 서식화한다.
 

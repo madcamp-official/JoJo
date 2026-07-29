@@ -1,6 +1,6 @@
 import type { QuestionErrorCode } from '@shared/types'
 
-// 담당 B — LLM HTTP 에러 → QuestionErrorCode 분류 (PLAN.md §4.2)
+// 담당 B — LLM HTTP 에러 → QuestionErrorCode 분류 (PLAN.md §5.2)
 // provider 마다 실제 에러 응답 형태가 다르므로 상태 코드를 우선 기준으로 삼고,
 // 크레딧 소진처럼 provider 마다 다른 상태코드로 오는 경우는 본문 키워드로 재분류한다.
 // 실측(2026-07-25):

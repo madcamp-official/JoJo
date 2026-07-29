@@ -1,6 +1,6 @@
 import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, UsageTag } from '@shared/types'
 
-// 담당 B — Merriam-Webster Collegiate Dictionary API 어댑터 (PLAN.md §5 en-1)
+// 담당 B — Merriam-Webster Collegiate Dictionary API 어댑터 (PLAN.md §6 en-1)
 // 실측 근거는 DICTIONARY_SOURCES.md "Merriam-Webster (MW)" 절 참고.
 // 원본 JSON(sseq/dt/vis 중첩 구조, {bc}/{it}/{sx|..} 같은 마크업 토큰)을 파싱해
 // 통일 스키마(DictionaryEntry)로 변환한다.

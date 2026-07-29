@@ -4,7 +4,7 @@ import type { AnyLanguage, Rect } from '@shared/types'
 import { detectHanziVariant, detectRawLanguage } from '@shared/languageDetect'
 import { getOcrLangCode } from '@shared/languages'
 
-// 담당 A — 언어 자동 감지 (PLAN.md §4.1 / §5 / §6)
+// 담당 A — 언어 자동 감지 (PLAN.md §5.1 / §6 / §7)
 // 파이프라인 순서: 본문 영역 탐지(DocLayout-YOLO) → 언어 감지(여기) → 읽기 순서/OCR.
 // 영역이 이미 정해진 뒤에 그 안에서만 감지해야, 메뉴바처럼 본문과 다른 언어인 UI
 // 텍스트에 안 흔들린다 — 그래서 region 을 받아 그 부분만 크롭해서 검사한다.

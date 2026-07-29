@@ -2,7 +2,7 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import type { CanonicalPos, DictionaryEntry, DictionaryPronunciation, DictionaryReading, DictionarySense } from '@shared/types'
 
-// 담당 B — OEWN(Open English WordNet) 로컬 번들 어댑터 (PLAN.md §5 en-2, MW 실패 시 폴백)
+// 담당 B — OEWN(Open English WordNet) 로컬 번들 어댑터 (PLAN.md §6 en-2, MW 실패 시 폴백)
 // 원본은 공식 GitHub Releases JSON(`globalwordnet/english-wordnet` 2025-edition,
 // `english-wordnet-2025-json.zip`)을 내려받아 build_bundle 스크립트로 두 파일로 병합해
 // resources/oewn/ 에 둔 것: entries.json(표제어→품사(+hom 번호)→발음/활용형/synset id 목록),

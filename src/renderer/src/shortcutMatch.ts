@@ -1,4 +1,4 @@
-// 공동 소유 — keydown 이벤트 ↔ Electron accelerator 문자열 변환/매칭 (PLAN.md §3)
+// 공동 소유 — keydown 이벤트 ↔ Electron accelerator 문자열 변환/매칭 (PLAN.md §4)
 // SettingsScreen.tsx(단축키 녹화)와 App.tsx("설정 화면 열기" 로컬 리스너, 2026-07-29)가
 // 공유한다 — 녹화 쪽 포맷과 매칭 쪽 포맷이 어긋나면 "방금 녹화한 값이 실제로는 안 먹힘"
 // 같은 버그로 이어지므로 반드시 같은 변환 로직을 써야 한다.

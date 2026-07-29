@@ -3,7 +3,7 @@ import type { CaptureSource } from '@shared/types'
 import { goto } from '../navigate'
 import { GearIcon } from './icons'
 
-// 메인 화면 (PLAN.md §3 화면 구성) — 중앙 [창 선택] + 우상단 설정 아이콘.
+// 메인 화면 (PLAN.md §4 화면 구성) — 중앙 [창 선택] + 우상단 설정 아이콘.
 // [담당 A] 창 선택 버튼 → 같은 창 안에서 피커 화면으로 전환(goto), 선택 완료 시 App 이 통지받는다.
 export function MainScreen({ selected }: { selected: CaptureSource | null }) {
   // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열이

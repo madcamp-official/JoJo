@@ -3,7 +3,7 @@ import type { AppMode, Rect, Word } from '@shared/types'
 import { findLineWordsAtPoint, unionBbox } from '@shared/wordMapping'
 import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 
-// 오버레이 (PLAN.md §4.1) — 담당 A
+// 오버레이 (PLAN.md §5.1) — 담당 A
 // 선택된 창과 정확히 같은 자리에 정렬되는 투명·클릭스루 창. 테두리 색으로 현재 모드를
 // 보여준다(일반=파랑 / 선택=보라). windows.ts: trackSelectionOverlay 가 위치를 잡아준다.
 //

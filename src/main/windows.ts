@@ -8,7 +8,7 @@ import type { AppMode, ExtractedSelection, Rect, Word } from '@shared/types'
 // `import type` 은 컴파일 타임에 완전히 제거되므로 런타임 로드가 없다.
 import type * as Win32Capture from './selection/win32Capture'
 
-// 3종 윈도우 팩토리 (PLAN.md §6)
+// 3종 윈도우 팩토리 (PLAN.md §7)
 //  - 메인: 창 선택 / 설정 진입
 //  - 오버레이: 투명·클릭스루, 단어 하이라이트/커서 피드백 (담당 A)
 //  - 팝업: 발음·사전·통합질문·구글탭 (담당 B)
@@ -33,7 +33,7 @@ function loadRoute(win: BrowserWindow, route: string, query?: string) {
 let mainWindow: BrowserWindow | null = null
 
 // 트레이 "종료" 메뉴로 실제 종료할 때만 true — 그 전까지는 메인 창 X 버튼이 앱을
-// 끄지 않고 트레이로 숨긴다(PLAN.md §3: 창 선택 후 백그라운드 실행).
+// 끄지 않고 트레이로 숨긴다(PLAN.md §4: 창 선택 후 백그라운드 실행).
 let isQuitting = false
 
 export function setQuitting(value: boolean): void {

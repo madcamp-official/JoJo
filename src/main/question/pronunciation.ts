@@ -5,7 +5,7 @@ import { renderPrompt } from './prompts/template'
 import pronunciationPromptTemplate from './prompts/pronunciation.txt?raw'
 import { streamLlm } from './llm/adapter'
 
-// 담당 B — 발음 (PLAN.md §4.2-1)
+// 담당 B — 발음 (PLAN.md §5.2-1)
 // 영: IPA / 일: 히라가나 / 중: 한어병음. 맥락 의존 발음을 LLM 으로 판정.
 // 예) read(현재/과거), 後(あと/ご/のち), 得(de/dé/děi)
 // tier2(2026-07-30 추가)는 사전 조회는 없지만 발음은 LLM 프롬프트만으로 되는 기능이라

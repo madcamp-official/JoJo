@@ -1,6 +1,6 @@
 import type { DictionarySourceId, DictionarySourceOption } from '@shared/types'
 
-// 담당 B — 팝업 툴바 (PLAN.md §3/§4.2)
+// 담당 B — 팝업 툴바 (PLAN.md §4/§5.2)
 // [발음]·[사전] 버튼 — 누르면 즉시 채팅에 질문을 넣고 LLM 요청 · 구글 발음/이미지 버튼.
 // 통합 질문 입력은 하단 채팅 입력창.
 //

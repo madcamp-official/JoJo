@@ -1,7 +1,7 @@
 import type { LlmProvider, QuestionErrorCode, QuestionError, QuestionResult } from '@shared/types'
 import { PROVIDERS } from '@shared/providers'
 
-// 담당 B — 질문 파이프라인 에러 메시지 단일 출처 (PLAN.md §4.2)
+// 담당 B — 질문 파이프라인 에러 메시지 단일 출처 (PLAN.md §5.2)
 // API 키 미설정/무효, 사용 한도(크레딧) 소진 등을 UI가 그대로 렌더링할 수 있는
 // 완성된 한국어 문장으로 변환한다. 새 에러 종류를 추가하려면:
 //   1. shared/types.ts 의 QuestionErrorCode 에 코드 추가

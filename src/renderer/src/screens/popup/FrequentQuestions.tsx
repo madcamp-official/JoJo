@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { EditDeleteGroup } from '../EditDeleteGroup'
 
-// 담당 B — 자주 쓰는 질문 목록 (등록·수정·삭제 + 클릭 시 질문 실행) — PLAN.md §3/§4.2-3
+// 담당 B — 자주 쓰는 질문 목록 (등록·수정·삭제 + 클릭 시 질문 실행) — PLAN.md §4/§5.2-3
 
 interface Props {
   items: string[]

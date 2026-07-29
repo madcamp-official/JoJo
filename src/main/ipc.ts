@@ -100,7 +100,7 @@ export function registerIpc(): void {
       if (Number.isFinite(windowId)) await showMacSelectionOverlay(windowId)
     }
 
-    // PLAN.md §3: 창 선택 → 백그라운드 실행. 메인 창은 X 가 아니라 여기서 숨기고,
+    // PLAN.md §4: 창 선택 → 백그라운드 실행. 메인 창은 X 가 아니라 여기서 숨기고,
     // 트레이 메뉴(선택 해제/재선택/설정/종료)로만 다시 꺼낸다(windows.ts, tray.ts).
     getMainWindow()?.hide()
   })

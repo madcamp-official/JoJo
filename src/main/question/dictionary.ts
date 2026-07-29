@@ -30,9 +30,9 @@ import { renderPrompt } from './prompts/template'
 import dictionaryPromptTemplate from './prompts/dictionary.txt?raw'
 import { buildErrorResult } from './errors'
 
-// 담당 B — 사전 검색 (PLAN.md §4.2-2)
+// 담당 B — 사전 검색 (PLAN.md §5.2-2)
 // 언어별 정식 폴백 체인(FALLBACK_CHAINS, 아래)으로 원어 뜻(sense) 후보를 모으고, LLM 에
-// "문맥상 몇 번인지" 판정과 그 뜻풀이·예문의 한국어 번역을 함께 맡긴다(PLAN.md §5:
+// "문맥상 몇 번인지" 판정과 그 뜻풀이·예문의 한국어 번역을 함께 맡긴다(PLAN.md §6:
 // 사전 API는 원어 뜻만 제공, 한국어 설명·번역은 LLM 담당). 채팅창에 보일 최종 텍스트는
 // 그 번역 결과와 사전 원본 데이터(품사·출처·활용형 등)를 조합해 여기서 직접 구성한다.
 //

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import type { PopupSelectionModel } from './selection'
 
-// 담당 B — 원문 문맥 표시 + 드래그 범위 재지정 (PLAN.md §4.1)
+// 담당 B — 원문 문맥 표시 + 드래그 범위 재지정 (PLAN.md §5.1)
 // atom(단어 조각) 위에서 클릭=단어 하나, 드래그=범위. 하이픈 단어도 조각별 선택 가능.
 
 interface Props {

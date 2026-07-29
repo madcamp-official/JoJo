@@ -16,7 +16,7 @@ function selectedWindowIsChrome(): boolean {
   return /^(google chrome|chrome|chromium)\b/i.test(name)
 }
 
-// 담당 A/B — 추출 방식 판정 (PLAN.md §4.1 / §7)
+// 담당 A/B — 추출 방식 판정 (PLAN.md §5.1 / §8)
 // 원칙: 직접 추출 먼저 시도, 텍스트가 부족할 때만 OCR fallback.
 // 브라우저(확장 연결)면 활성 탭 URL 로 유튜브/넷플릭스 자막 경로를 우선 분기한다.
 // 판정 시점: 선택 모드 진입 시 1회 + URL 변화 시 재판정 (URL 을 캐시 키로).
@@ -25,7 +25,7 @@ export interface ExtractionDecision {
   // subtitle = 확장으로 원어 자막 추출(유튜브/넷플릭스 미디어 페이지)
   // web = 확장으로 일반 웹페이지 본문 DOM 텍스트 추출(비미디어 브라우저 페이지) — 낙관적
   // 판정이라 실제 텍스트 충분 여부는 webSource.ts: startWebMode()가 확인 후 부족하면
-  // 스스로 OCR 경로로 넘어간다(§4.1 "텍스트 양으로 분기" 원칙).
+  // 스스로 OCR 경로로 넘어간다(§5.1 "텍스트 양으로 분기" 원칙).
   mode: 'direct' | 'ocr' | 'subtitle' | 'web'
   source: SelectionSource
   language: AnyLanguage

@@ -1,4 +1,4 @@
-// 담당 B — 팝업 원문 문맥의 "화면상 줄" 경계 측정 (PLAN.md §3 팝업 화면)
+// 담당 B — 팝업 원문 문맥의 "화면상 줄" 경계 측정 (PLAN.md §4 팝업 화면)
 //
 // selection.ts 의 computeLineContextRange 는 extracted.text 의 '\n'(OCR 정규화 후
 // 남은 문단 구분) 기준 줄이라, 팝업 화면에 실제로 보이는(너비·폰트에 따라 자동

@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from './types'
 
-// 담당 B — 채팅 영역 (질문/답변 말풍선 + 스트리밍 렌더 + 입력창) — PLAN.md §4.2
+// 담당 B — 채팅 영역 (질문/답변 말풍선 + 스트리밍 렌더 + 입력창) — PLAN.md §5.2
 
 // 마크다운 안 링크(사전 출처 등, senseSelect.ts formatDictionaryAnswer 참고) 클릭 시
 // 기본 동작(Electron 렌더러 안에서 그 URL로 그대로 이동해버림 — 팝업 UI가 사라지는

@@ -35,7 +35,7 @@ import { loadFrequent, saveFrequent } from './popup/frequentStore'
 import { newId, type ChatMessage } from './popup/types'
 
 // ============================================================================
-// 담당 B — 팝업 화면 (PLAN.md §3/§4.2)
+// 담당 B — 팝업 화면 (PLAN.md §4/§5.2)
 // 선택 확정 후 뜨는 검색·채팅 팝업. 위→아래:
 //   헤더(드래그 이동) · 원문 문맥(범위 재지정) · 툴바(발음/사전 버튼 포함) · 채팅 · 자주 쓰는 질문
 // 발음/사전 버튼은 토글이 아니라 원샷 액션: 누르면 즉시 채팅에 실제 LLM 요청 문구

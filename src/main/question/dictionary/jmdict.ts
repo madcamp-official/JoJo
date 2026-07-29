@@ -2,7 +2,7 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, SeeAlsoRef, UsageTag, UsageTagKind } from '@shared/types'
 
-// 담당 ja — JMdict 로컬 번들 어댑터 (PLAN.md §5 ja-2, daijisen 실패 시 폴백 & 품사 판정 1순위 소스)
+// 담당 ja — JMdict 로컬 번들 어댑터 (PLAN.md §6 ja-2, daijisen 실패 시 폴백 & 품사 판정 1순위 소스)
 // TODO.md/DICTIONARY_SOURCES.md 결정(2026-07-28): jisho.org 라이브 API가 아니라
 // jmdict-simplified(scriptin/jmdict-simplified) "full"+"eng" 변형 로컬 JSON 번들로 확정 —
 // jisho.org는 field(전문분야)/misc(사용역)를 tags 하나로 뭉개거나 노출을 안 해서, 원본

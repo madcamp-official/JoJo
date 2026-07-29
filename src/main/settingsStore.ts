@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { AppSettings } from '@shared/types'
 
-// 담당 B — 앱 설정(AppSettings) 영속화 (PLAN.md §3 설정 화면)
+// 담당 B — 앱 설정(AppSettings) 영속화 (PLAN.md §4 설정 화면)
 // userData/settings.json 에 평문 JSON으로 저장한다 (민감정보 없음 — API 키는 keyStore 가 별도 암호화 저장).
 
 const DEFAULT_SETTINGS: AppSettings = {

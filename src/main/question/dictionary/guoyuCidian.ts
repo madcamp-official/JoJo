@@ -1,6 +1,6 @@
 import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, SeeAlsoRef } from '@shared/types'
 
-// 담당 B — 教育部重編國語辭典(萌典, moedict.tw 경유) 어댑터 (PLAN.md §5, zh-Hant 1순위)
+// 담당 B — 教育部重編國語辭典(萌典, moedict.tw 경유) 어댑터 (PLAN.md §6, zh-Hant 1순위)
 // 실측 근거는 DICTIONARY_SOURCES.md "萌典 (zh-Hant)" 절 참고. 스크래핑이 아니라 공개 JSON
 // API(`https://www.moedict.tw/uni/{표제어}`)를 쓴다 — 대만 교육부 편찬(번체 네이티브).
 // 오케스트레이션(폴백 체인 호출·병합)은 이 어댑터의 스코프 밖 — 다른 세션이 담당한다.

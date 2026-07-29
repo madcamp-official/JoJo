@@ -6,7 +6,7 @@ import { detectLanguage } from './langDetect'
 import { getLastExtractionBlocks, runOcr } from './ocr'
 import { getRegion, getRegionSource } from './regionSelection'
 
-// 담당 A — 선택 창 추출 결과 캐시 (PLAN.md §4.1 / §7)
+// 담당 A — 선택 창 추출 결과 캐시 (PLAN.md §5.1 / §8)
 // 클릭할 때마다 캡처+OCR을 새로 돌리면 매번 1~3초씩 걸린다 — 대신 선택 모드
 // 진입 시(shortcut.ts: toggleMode) 미리 한 번 돌려서 캐시해두고, 클릭 시엔 이미
 // 준비된 결과를 즉시 쓴다. 선택 모드를 나갔다 다시 들어올 때마다 항상 새로

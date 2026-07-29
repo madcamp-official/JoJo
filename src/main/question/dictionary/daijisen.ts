@@ -1,6 +1,6 @@
 import type { DictionaryEntry, DictionaryReading, DictionarySense } from '@shared/types'
 
-// 담당 ja — daijisen(デジタル大辞泉, kotobank.jp 경유) 어댑터 (PLAN.md §5 ja-1)
+// 담당 ja — daijisen(デジタル大辞泉, kotobank.jp 경유) 어댑터 (PLAN.md §6 ja-1)
 // 실측 근거는 DICTIONARY_SOURCES.md "daijisen" 절 참고.
 //
 // **소스 결정**: kotobank.jp 표제어 페이지엔 daijisen(デジタル大辞泉)/nikkokuseisen(精選版

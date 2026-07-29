@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CaptureSource } from '@shared/types'
 import { goto } from '../navigate'
 
-// 창 선택 화면 (PLAN.md §3) — 메인 창 안에서 리사이즈로 전환된다(windows.ts: setMainWindowRoute).
+// 창 선택 화면 (PLAN.md §4) — 메인 창 안에서 리사이즈로 전환된다(windows.ts: setMainWindowRoute).
 // [담당 A] desktopCapturer/win32Capture 창 목록(썸네일)을 보여주고 선택.
 export function WindowPickerScreen() {
   const [sources, setSources] = useState<CaptureSource[]>([])
