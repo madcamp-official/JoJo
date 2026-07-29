@@ -59,7 +59,14 @@ interface SubtitleClickHit {
 // null/이전 값이라 "화면 자막 한 줄만" 으로 폴백해버린다(실사용 확인, 2026-07-29) — 팝업을
 // 열기 전 짧게(최대 TRANSCRIPT_WAIT_MS) 일치하는 transcript 가 도착하는지 기다려본다.
 // 이미 도착해 있으면 대기 없이 즉시 진행되고, 끝내 안 오면 기존처럼 한 줄 폴백으로 연다.
-const TRANSCRIPT_WAIT_MS = 800
+// **800ms 로는 부족함을 실사용 로그로 확인(2026-07-29)** — 탭 전환 직후 첫 클릭은 거의
+// 항상 이 타임아웃 안에 못 들어와 한 줄로 뜨고, 그 직후(로그상 짧으면 수백 ms~1초 남짓)
+// transcript 가 도착해 "두 번째 클릭부터는 정상"이 되는 패턴이 반복 확인됨 — 탭 활성화
+// →재요청(postMessage)→네트워크 fetch→content→background(서비스 워커 깨우기 포함)→WS
+// 릴레이까지 홉이 많아 800ms 로는 못 따라갔다. 2500ms 로 늘림 — 이미 도착해 있으면 여전히
+// 대기 없이 즉시 열리므로(위 얼리 리턴), 일반적인 클릭엔 영향 없고 "막 전환한 직후 첫
+// 클릭"처럼 정말 기다려야 하는 경우에만 최대 2.5초 더 기다린다.
+const TRANSCRIPT_WAIT_MS = 2500
 
 function waitForMatchingTranscript(videoId: string | null): Promise<void> {
   if (!videoId) return Promise.resolve()
