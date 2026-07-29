@@ -452,8 +452,16 @@ export function PopupScreen() {
   )
 }
 
+// 넷플릭스 워치 URL처럼 트래킹 쿼리스트링이 길게 붙는 출처는 원문 그대로 보여주면
+// (CSS 말줄임만 믿으면) 전체 헤더 폭을 URL 혼자 다 잡아먹어, 그 뒤에 이어 붙는 언어
+// 라벨(LANGUAGE_LABEL)이 화면 밖으로 밀려 아예 안 보이는 문제가 있었다(사용자 피드백,
+// 2026-07-29 — 넷플릭스 URL 헤더에서 "· English/日本語" 부분이 안 보임). 여기서 먼저
+// 적당한 길이로 잘라 "..."을 붙여두면, 뒤에 오는 언어 라벨은 항상 보이는 폭 안에 들어온다.
+const SOURCE_LABEL_MAX_LENGTH = 60
+
 function sourceLabel(ex: ExtractedSelection): string {
-  return ex.source.appName ?? ex.source.url ?? ex.source.kind
+  const raw = ex.source.appName ?? ex.source.url ?? ex.source.kind
+  return raw.length > SOURCE_LABEL_MAX_LENGTH ? `${raw.slice(0, SOURCE_LABEL_MAX_LENGTH)}...` : raw
 }
 
 const LANGUAGE_LABEL: Record<ExtractedSelection['language'], string> = {
