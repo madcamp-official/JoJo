@@ -242,22 +242,33 @@ function pushSnapshot(): void {
   chrome.runtime.sendMessage({ kind: 'subtitles', snapshot })
 }
 
+// 캡처를 (재)시작할 때마다 전체 자막을 앱에 다시 확보시킨다 — MAIN world 훅들이 캐시해둔
+// 마지막 응답(유튜브 requestLastCaption / 넷플릭스 requestNetflixManifest)을 재전송받는다.
+// 자막 네트워크 응답은 보통 영상 로드 극초반(선택 모드 진입보다 훨씬 전)에 한 번만 오므로,
+// 이 재전송이 없으면 새로고침 없이는 문맥을 영영 못 받는다(2026-07-29).
+// **dedup 캐시도 여기서 반드시 리셋한다**: `lastInterceptedSig`(유튜브)/`lastNetflixKey`
+// (넷플릭스)는 "이미 앱에 보냈으니 같은 걸 또 안 보낸다"는 표시인데, 앱이 재시작됐거나
+// 선택 모드를 껐다 켠 경우 앱 쪽 상태는 그 사이 어떻게 됐는지 모른다 — 리셋 없이는 훅이
+// 재전송해줘도 여기서 "이미 보냄"으로 삼켜 앱에 영영 안 넘어가는 구멍이 있었다(2026-07-29,
+// "여전히 한 줄만" 재보고 후 발견).
+function resyncTranscript(netflix: boolean): void {
+  if (netflix) {
+    lastNetflixKey = ''
+    window.postMessage({ source: 'nuance-content', kind: 'requestNetflixManifest' }, '*')
+  } else {
+    lastInterceptedSig = ''
+    window.postMessage({ source: 'nuance-content', kind: 'requestLastCaption' }, '*')
+  }
+}
+
 function startCapture(): void {
+  const netflix = isNetflixWatch()
+  // 이미 캡처 중이어도(예: 앱 재시작 후 WS 재접속으로 setCapture 가 다시 옴) 전체 자막
+  // 재확보는 다시 해준다 — 앱 쪽 캐시는 재시작으로 비어있을 수 있다.
+  resyncTranscript(netflix)
   if (capturing) return
   capturing = true
   lastSent = ''
-  const netflix = isNetflixWatch()
-  // 넷플릭스 매니페스트 요청은 재생 시작 때 한 번뿐이라, 이미 재생 중인 페이지에서 선택
-  // 모드에 진입하면 그 요청이 이미 지나가 못 잡는다(예전엔 새로고침해야 문맥이 떴음) —
-  // MAIN world 훅(netflixNetworkHook.ts)이 마지막 매니페스트를 캐시해두므로, 캡처를 켤 때
-  // 재전송을 요청해 저장된 매니페스트를 즉시 받아온다.
-  if (netflix) window.postMessage({ source: 'nuance-content', kind: 'requestNetflixManifest' }, '*')
-  // 유튜브도 같은 이유로 캐시 재전송을 요청한다 — 자막 네트워크 응답은 보통 영상 로드
-  // 극초반(선택 모드 진입보다 훨씬 전)에 한 번만 오는데, 그때 이 리스너가 아직 없었으면
-  // (또는 그 뒤 배경/WS 파이프라인이 아직 안 붙어 있었으면) 유실된 채 다시는 안 온다 —
-  // networkHook.ts(MAIN world)가 캐시해둔 마지막 응답을 재전송받는다(새로고침 없이도
-  // 문맥 확보, 2026-07-29).
-  else window.postMessage({ source: 'nuance-content', kind: 'requestLastCaption' }, '*')
   const observe = netflix ? observeNetflixSubtitles : observeSubtitles
   stopObserving = observe(() => pushSnapshot())
   // MutationObserver 가 자막 등장/좌표 변화를 놓치는 경우를 대비한 폴링 폴백(중복은 dedup 됨,
