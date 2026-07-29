@@ -19,6 +19,17 @@ function isShimauContraction(t: JaToken): boolean {
   return t.pos === '助動詞' && !!t.baseForm && SHIMAU_CONTRACTION_BASE_FORMS.has(t.baseForm)
 }
 
+// だろう/でしょう(推量, 助動詞「だ」「です」의 意志推量形)도 앞 동사에 흡수하지 않고 새
+// 단어로 분리한다 — 그 자체로 독립된 표제어(추측을 나타내는 어미)라 따로 선택해 조회할
+// 수 있어야 한다는 요청(2026-07-29)으로 뺐다. baseForm 이 아니라 surface 로 판별하는데,
+// baseForm 은 각각 평범한 단정 조동사 だ/です 로 정규화돼(持つだろう→だ) 그 자체로는
+// だ/だった/で 등 계속 흡수해야 하는 활용형과 구분이 안 되기 때문이다.
+const CONJECTURE_AUX_SURFACES = new Set(['だろう', 'でしょう'])
+
+function isConjectureAux(t: JaToken): boolean {
+  return t.pos === '助動詞' && CONJECTURE_AUX_SURFACES.has(t.surface)
+}
+
 function combine(group: JaToken[]): JaToken {
   const first = group[0]!
   return {
@@ -40,6 +51,7 @@ export function mergeJaTokensUnidic(tokens: JaToken[]): JaToken[] {
       while (i < tokens.length) {
         const next = tokens[i]!
         if (isShimauContraction(next)) break // ちゃう/じゃう는 흡수하지 않고 새 단어로 넘긴다
+        if (isConjectureAux(next)) break // だろう/でしょう도 흡수하지 않고 새 단어로 넘긴다
         if (next.pos === '助動詞') {
           group.push(next)
           i++
