@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { app } from 'electron'
 
 // 담당 A — 실험용 브랜치(experiment/doclayout-yolo) 전용.
-// layout_detect.py / ocr_paddle.py / ocr_manga.py 가 전부 같은 상주 서버 패턴(표준
+// layout_detect.py / ocr_paddle.py 등이 전부 같은 상주 서버 패턴(표준
 // 입출력, 한 줄 = 요청 하나·응답 하나)을 쓰길래 공통 로직으로 뽑았다. 매번 새
 // 프로세스를 스폰하면 Python/torch/PaddlePaddle import + 모델 로딩만 몇 초~십수 초
 // 걸려서(실측: layout_detect.py 8초+) 재사용이 필수라 다들 이 패턴을 쓴다.
@@ -258,8 +258,8 @@ export interface PythonServerPool {
 }
 
 /**
- * `createPythonServer` 를 여러 개 띄워 풀로 묶는다 — PaddleOCR/manga-ocr 인식은
- * 페이지 하나에 열/줄 단위로 수십 번씩 순차 호출해야 하는데(ocr.ts/ocrManga.ts), 워커가
+ * `createPythonServer` 를 여러 개 띄워 풀로 묶는다 — PaddleOCR 인식은
+ * 페이지 하나에 열/줄 단위로 수십 번씩 순차 호출해야 하는데(ocr.ts), 워커가
  * 하나면 전부 한 줄로 서서 기다려야 해서(실사용 중 "세로쓰기 페이지 인식이 오래 걸림"
  * 으로 확인) 여러 워커에 나눠 동시에 처리하게 한다. 요청마다 "지금 가장 한가한(진행
  * 중인 요청이 가장 적은) 워커"를 골라 보낸다(least-connections 방식) — 단순 라운드로빈

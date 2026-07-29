@@ -1,13 +1,11 @@
-# 실험용: DocLayout-YOLO + PaddleOCR + manga-ocr (`experiment/doclayout-yolo` 브랜치)
+# 실험용: DocLayout-YOLO + PaddleOCR (`experiment/doclayout-yolo` 브랜치)
 
 Tesseract 단일 패스는 2단 이상 레이아웃에서 열을 뒤섞어 읽고, 일본어 스캔 파일
-인식률도 낮았다(실사용 확인). 이 실험은 세 모델을 역할별로 나눠 붙인다:
+인식률도 낮았다(실사용 확인). 이 실험은 모델을 역할별로 나눠 붙인다:
 
 - **DocLayout-YOLO**(`layout_detect.py`, opendatalab, HF `juliozhao/DocLayout-YOLO-DocStructBench`)
   — 본문 영역 자동 감지 + 다단/세로쓰기 읽기 순서 결정
 - **PaddleOCR**(`ocr_paddle.py`) — en/zh/ja(가로쓰기) 텍스트 검출+인식, 글자 단위 실제 bbox 제공
-- **manga-ocr**(`ocr_manga.py`, HF `kha-white/manga-ocr-base`) — 세로쓰기 일본어(망가 등) 인식
-  전용(PaddleOCR 로 줄 위치만 잡고 텍스트는 manga-ocr 로 받음)
 
 자세한 배경은 `TODO.md` 참고.
 
@@ -38,10 +36,10 @@ det/rec 모델을 따로 받아서 첫 인식 때 조금 오래 걸릴 수 있�
 
 ## 이 설정 없이 앱을 실행하면
 
-각 Node 클라이언트(`layoutDetect.ts`/`ocrPaddle.ts`/`ocrManga.ts`)가 Python 실행
+각 Node 클라이언트(`layoutDetect.ts`/`ocrPaddle.ts`)가 Python 실행
 실패를 감지하면 `null`을 반환하고, `ocr.ts: runOcr()`는 자동으로 기존 Tesseract
 경로로 폴백한다 — 즉 `python/.venv`가 없어도 앱은 정상 동작하고, 다단 레이아웃
-재정렬 + PaddleOCR/manga-ocr 인식 기능만 빠진다(en/ja/zh 전부 Tesseract 로 처리).
+재정렬 + PaddleOCR 인식 기능만 빠진다(en/ja/zh 전부 Tesseract 로 처리).
 
 ## 동작 확인
 
@@ -49,10 +47,9 @@ det/rec 모델을 따로 받아서 첫 인식 때 조금 오래 걸릴 수 있�
 # 레이아웃(1회성 CLI 모드 지원)
 .venv/Scripts/python layout_detect.py <이미지경로> [--region x,y,w,h]
 
-# PaddleOCR/manga-ocr 는 상주 서버 전용(표준입출력, 한 줄 = 요청/응답) — 수동
+# PaddleOCR 는 상주 서버 전용(표준입출력, 한 줄 = 요청/응답) — 수동
 # 확인하려면 stdin 에 JSON 한 줄을 보내면 된다:
 echo {"image_path": "<경로>", "language": "ja"} | .venv/Scripts/python ocr_paddle.py
-echo {"image_path": "<경로>"} | .venv/Scripts/python ocr_manga.py
 ```
 
 레이아웃 표준출력 마지막 줄에 `{"blocks": [...], "vertical": bool}` JSON을 찍는다

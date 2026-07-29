@@ -3,7 +3,6 @@ huggingface_hub
 pillow
 paddleocr
 paddlepaddle
-manga-ocr
 sudachipy
 sudachidict_core
 yomitoku

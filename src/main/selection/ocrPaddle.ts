@@ -106,10 +106,8 @@ export async function recognizeWithPaddle(
 const DETECTION_ONLY_LANGUAGE: Language = 'en'
 
 /**
- * 줄 단위 박스만 얻는다(텍스트는 안 믿고 버림) — 세로쓰기 일본어를 manga-ocr 로
- * 인식할 때 "어느 크롭을 manga-ocr 에 넘길지"를 정하거나(ocrManga.ts), DocLayout 이
- * 아예 실패했을 때 본문 영역을 텍스트 위치로 직접 추정하는 데(regionSelection.ts)
- * 쓴다.
+ * 줄 단위 박스만 얻는다(텍스트는 안 믿고 버림) — DocLayout 이 아예 실패했을 때 본문
+ * 영역을 텍스트 위치로 직접 추정하는 데(regionSelection.ts) 쓴다.
  *
  * 넓은 크롭을 조각내 워커 풀에 병렬로 돌리는 방식을 두 번 시도했다 — 처음엔(검출이
  * `PaddleOCR.predict()` 풀 파이프라인이라 줄 개수에 비례해 느려지던 시절) 아예 효과가
@@ -913,13 +911,12 @@ async function insertUndetectedMarks(
 }
 
 /**
- * 세로쓰기 열 하나(또는 열 구분이 안 된 영역 전체)를 manga-ocr 대신 PaddleOCR 로
- * 인식한다 — 실측 비교(합성 세로쓰기 8줄): 같은 조건(워커 풀 3개, 병렬)에서 PaddleOCR
- * 1.6초 vs manga-ocr 7.6초로 약 4.6배 빨랐고, 회전 트릭 없이도(세로쓰기는 글자 자체는
- * 똑바로 서 있고 읽는 방향만 위→아래라 PaddleOCR 인식 모델이 그대로 정확히 읽음) 정확도도
- * 100% 일치했다. manga-ocr 은 망가 말풍선 같은 손글씨풍 폰트 전용으로 남겨두고(ocrManga.ts,
- * 지금은 기본 경로에서 안 씀 — 필요해지면 다시 연결), 일반 활자 세로쓰기(소설/책 PDF 등)는
- * 이 함수를 기본으로 쓴다.
+ * 세로쓰기 열 하나(또는 열 구분이 안 된 영역 전체)를 PaddleOCR 로 인식한다 — 실측
+ * 비교(합성 세로쓰기 8줄): 같은 조건(워커 풀 3개, 병렬)에서 PaddleOCR 1.6초 vs
+ * manga-ocr 7.6초로 약 4.6배 빨랐고, 회전 트릭 없이도(세로쓰기는 글자 자체는 똑바로
+ * 서 있고 읽는 방향만 위→아래라 PaddleOCR 인식 모델이 그대로 정확히 읽음) 정확도도
+ * 100% 일치했다 — 그래서 일반 활자 세로쓰기(소설/책 PDF 등)는 이 함수를 기본으로 쓴다
+ * (manga-ocr 로 시도했던 망가 특화 경로는 채택 안 하기로 결정해 제거됨).
  *
  * detectLinesWithPaddle 로 줄 위치를 먼저 찾고, 열이 여러 개 섞여있을 수 있으니
  * clusterVerticalLinesIntoColumns 로 순서를 바로잡은 뒤 줄마다 recognizeWithPaddle 을

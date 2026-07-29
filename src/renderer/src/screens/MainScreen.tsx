@@ -6,7 +6,7 @@ import { GearIcon } from './icons'
 // 메인 화면 (PLAN.md §3 화면 구성) — 중앙 [창 선택] + 우상단 설정 아이콘.
 // [담당 A] 창 선택 버튼 → 같은 창 안에서 피커 화면으로 전환(goto), 선택 완료 시 App 이 통지받는다.
 export function MainScreen({ selected }: { selected: CaptureSource | null }) {
-  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR/manga-ocr 예열이
+  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열이
   // 안 끝난 상태에서 창을 고르면, 선택 모드 진입 시 그 예열 대기(첫 호출 8~20초+)를
   // 그대로 겪게 된다 — 그래서 예열 중엔 버튼을 막고 안내를 보여준다. 마운트 시 현재
   // 상태를 조회하고, 이미 끝나있으면(대부분의 경우 — 예열이 앱 시작과 거의 동시에

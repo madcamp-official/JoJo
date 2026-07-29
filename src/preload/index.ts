@@ -50,7 +50,7 @@ const api = {
   setOverlayInteractive: (interactive: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC.OVERLAY_SET_INTERACTIVE, interactive),
 
-  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR/manga-ocr 예열
+  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열
   // 완료 여부(MainScreen 이 창 선택 버튼을 막을지 판단).
   getWarmupStatus: (): Promise<boolean> => ipcRenderer.invoke(IPC.WARMUP_GET),
 

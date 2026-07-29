@@ -262,8 +262,7 @@ export async function autoDetectRegion(): Promise<Rect | null> {
     // 판단하는 레이아웃 분류 모델이라 학습 안 해본 배치엔 아예 실패할 수 있다. 대신
     // PaddleOCR 의 텍스트 검출(det) 모델은 문서 구조를 몰라도 되고 "여기 글자 모양의
     // 잉크가 있다"만 보는 훨씬 범용적인 모델이라(스크립트에 덜 민감) 이걸로 창 전체를
-    // 훑어 텍스트 줄 위치를 직접 찾는다(ocr.ts 가 세로쓰기 열을 manga-ocr 로 넘길 때
-    // 줄 위치를 찾는 데 쓰는 것과 같은 함수). 언어를 아직 모르는 시점이라(본문 영역이
+    // 훑어 텍스트 줄 위치를 직접 찾는다. 언어를 아직 모르는 시점이라(본문 영역이
     // 정해진 뒤에 언어를 감지하는 순서라서) 'en' det 모델로 시도한다 — PaddleOCR 검출
     // 모델은 recognition 모델과 달리 스크립트 특정적이지 않아 이 정도로도 충분하다.
     const lines = await detectLinesWithPaddle(image, fullImage)

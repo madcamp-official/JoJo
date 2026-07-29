@@ -67,6 +67,7 @@ export function getLastExtractionBlocks(): Rect[] {
   return lastExtractionBlocks
 }
 
+
 interface LayoutInfo {
   blocks: LayoutBlock[]
   vertical: boolean
