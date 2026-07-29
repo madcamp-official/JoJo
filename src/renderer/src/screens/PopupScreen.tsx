@@ -158,19 +158,33 @@ export function PopupScreen() {
   // 보이는 텍스트 범위는 그대로"). displayText(아래, 형태소 분석 대상)와 model(atom
   // 계산)이 같은 범위를 봐야 하므로 이 state 를 두 곳보다 먼저 선언해 공유한다.
   const ctxRootRef = useRef<HTMLDivElement>(null)
-  const [measuredRange, setMeasuredRange] = useState<{ start: number; end: number } | null>(null)
+  // baseCtx 와 함께 저장해서, 아래에서 항상 "이 measured 가 지금 baseCtx 기준으로 계산된
+  // 게 맞는지"를 직접 확인하고 쓴다(바로 아래 measuredRange 파생값 참고) — 2026-07-29,
+  // 팝업 창 재사용(windows.ts: createPopupWindow) 도입 후 발견된 버그 수정. baseCtx 가
+  // 바뀌면 이 effect 가 setMeasured(null) 을 거쳐 새로 측정하는데, 그 리셋이 반영되기
+  // 전(같은 커밋의 첫 렌더)엔 이전 baseCtx 기준으로 계산된 값이 새 baseCtx 와 함께
+  // 그대로 쓰였다 — 이전엔 클릭마다 창을 새로 만들어(baseCtx 가 처음부터 null) 이런
+  // "다른 baseCtx 의 잔여값"이 존재할 수 없었지만, 재사용 이후엔 실제로 발생해 그 잘못된
+  // 범위가 range 리셋 로직(아래 lastSpanRef)에 한 번 새겨져 버리면 창이 다시 켜져도
+  // 엉뚱한 줄이 선택된 채로 남았다(사용자 재현: "팝업이 뜬 채로 다른 텍스트 박스를 누르면
+  // 가끔 엉뚱한 다른 줄이 선택됨"). ctx 를 같이 저장해 항상 지금 baseCtx 것인지 확인하면,
+  // 이 "한 프레임짜리 불일치"가 애초에 밖으로 새어나가지 않는다.
+  const [measured, setMeasured] = useState<{
+    ctx: ExtractedSelection
+    range: { start: number; end: number }
+  } | null>(null)
+  const measuredRange = measured?.ctx === baseCtx ? measured.range : null
   // 측정 대상 텍스트를 앵커 주변 일정 문자 수로 제한 — extracted.text 전체(문서 전체)를
   // 매 문자 Range 쿼리로 재는 건 낭비이고, 실제로 필요한 3~7줄보다 훨씬 넉넉한 예산이라
   // 잘릴 걱정 없이 성능만 보호한다.
   const MEASURE_TEXT_BUDGET = 4000
   useLayoutEffect(() => {
-    setMeasuredRange(null) // baseCtx 가 바뀌면 재측정 전까지 문단 기반 근사치로 되돌아감
     const el = ctxRootRef.current
     if (!el) return
     const fullText = baseCtx.text
     const sliceStart = Math.max(0, baseCtx.anchor.start - MEASURE_TEXT_BUDGET)
     const sliceEnd = Math.min(fullText.length, baseCtx.anchor.end + MEASURE_TEXT_BUDGET)
-    const measured = measureVisualLineRange(
+    const measuredSpan = measureVisualLineRange(
       el,
       fullText.slice(sliceStart, sliceEnd),
       baseCtx.anchor.start - sliceStart,
@@ -178,9 +192,9 @@ export function PopupScreen() {
       DISPLAY_CONTEXT_LINES_BEFORE,
       DISPLAY_CONTEXT_LINES_AFTER,
     )
-    if (!measured) return
-    const absStart = measured.start + sliceStart
-    const absEnd = measured.end + sliceStart
+    if (!measuredSpan) return
+    const absStart = measuredSpan.start + sliceStart
+    const absEnd = measuredSpan.end + sliceStart
     // sentenceEnd(text, p)는 "p가 아직 문장 중간이면 그 문장 끝까지 확장"하는 함수라,
     // absEnd(슬라이스 끝 — 다음 줄의 "첫 글자" 오프셋, exclusive)를 그대로 넘기면 그
     // 위치가 하필 다음 문장의 시작과 겹칠 때(줄 기반 자막처럼 "한 줄 = 한 문장"인
@@ -190,9 +204,12 @@ export function PopupScreen() {
     // (absEnd - 1) 기준으로 확인해야 이미 문장이 끝난 위치를 "아직 안 끝남"으로
     // 오판하지 않는다 — absStart(포함된 첫 글자, inclusive)는 애초에 이 문제가 없어
     // sentenceStart 는 그대로 둔다.
-    setMeasuredRange({
-      start: sentenceStart(fullText, absStart),
-      end: sentenceEnd(fullText, Math.max(absStart, absEnd - 1)),
+    setMeasured({
+      ctx: baseCtx,
+      range: {
+        start: sentenceStart(fullText, absStart),
+        end: sentenceEnd(fullText, Math.max(absStart, absEnd - 1)),
+      },
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseCtx])
