@@ -82,10 +82,19 @@ class ActiveTabTracker extends EventEmitter<Events> {
   }
 }
 
-// 추출 방식 판정에 영향을 주는 분류 키 = 사이트 종류(kind) + 자막 대상 미디어 페이지 여부.
-// 같은 kind·isMedia 면 URL(동영상 id 등)이 달라도 같은 분류로 본다.
+// 추출 방식 판정에 영향을 주는 분류 키. isMedia(자막 대상 미디어 페이지)면 기존처럼
+// kind|isMedia 로 URL(동영상 id 등)과 무관하게 같은 분류로 본다 — 영상 재생 중 URL이
+// 바뀌어도(다음 동영상 등) 자막 내용은 content script 가 알아서 갱신하므로 재판정 불필요.
+//
+// isMedia가 아니면(일반 웹페이지든, 유튜브/넷플릭스 홈·피드처럼 영상이 아닌 페이지든) URL
+// 까지 키에 포함시켜 URL이 바뀔 때마다 재판정이 걸리게 한다 — 이 경우는 전부 mode:'web'
+// 경로(decideOcr.ts)로 확장의 DOM 텍스트 추출을 시도하는데, 그 성공 여부는 페이지마다
+// 다르므로(웹소설 A→B챕터, 유튜브 홈→구독피드 등) 페이지가 바뀔 때마다 다시 확인해야
+// 한다(2026-07-30 사용자 지적 — "텍스트 많은 곳에서 적은 곳으로 이동해도 자동 해제 안 됨").
 function classKey(s: BrowserSource | null): string {
-  return s ? `${s.source.kind}|${s.isMedia}` : 'none'
+  if (!s) return 'none'
+  if (!s.isMedia) return `nonmedia|${s.source.url ?? ''}`
+  return `${s.source.kind}|${s.isMedia}`
 }
 
 export const activeTabTracker = new ActiveTabTracker()
