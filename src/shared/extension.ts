@@ -79,6 +79,11 @@ export interface SubtitleClickMsg {
   lineText: string
   wordOffsetInLine: number
   currentTime: number
+  // 지금 재생 중인 영상/영화 id(유튜브 videoId, 넷플릭스 movieId) — null이면 판별 불가.
+  // 앱이 이 값을 캐시된 transcript.videoId와 대조해, 선택 모드를 유지한 채 탭/사이트를
+  // 바꿨을 때 아직 새 자막이 안 도착해 이전 영상의 transcript가 그대로 팝업에 뜨는 걸
+  // 막는다(subtitleSource.ts buildSelection).
+  videoId: string | null
 }
 
 // 앱 → 확장

@@ -184,6 +184,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       lineText: msg.lineText,
       wordOffsetInLine: msg.wordOffsetInLine,
       currentTime: msg.currentTime,
+      videoId: msg.videoId ?? null,
     })
   }
   return undefined

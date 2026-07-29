@@ -48,6 +48,7 @@ interface SubtitleClickHit {
   lineText: string
   wordOffsetInLine: number
   currentTime: number
+  videoId: string | null
 }
 
 function onSubtitleClick(hit: SubtitleClickHit): void {
@@ -75,7 +76,10 @@ function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
 
   // 전체 자막(timedtext)이 있으면 그걸 통째로 text 로 주고 anchor 만 클릭 단어에 맞춘다 —
   // 팝업이 설정 바이트(contextBytesBefore/After)만큼 앞뒤를 알아서 보여준다(OCR/텍스트와 동일).
-  if (transcript && transcript.cues.length > 0) {
+  // 선택 모드를 유지한 채 탭/사이트(또는 같은 사이트 안에서 영상)를 바꾸면, 새 영상의
+  // transcript가 아직 도착하기 전(네트워크 가로채기는 비동기) 캐시엔 이전 영상 것이 그대로
+  // 남아있다 — videoId가 일치할 때만 신뢰해서 엉뚱한(이전) 영상 자막이 문맥으로 새는 걸 막는다.
+  if (transcript && hit.videoId !== null && transcript.videoId === hit.videoId && transcript.cues.length > 0) {
     const anchored = anchorInTranscript(
       transcript.cues,
       hit.currentTime,
