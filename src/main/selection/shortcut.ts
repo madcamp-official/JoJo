@@ -105,6 +105,11 @@ async function enterSelectMode(): Promise<void> {
 export function applyExtractionDecision(decision: ExtractionDecision): void {
   if (mode !== 'select') return
   const epoch = ++decisionEpoch
+  // direct 추출 상태(자막 또는 웹 DOM 텍스트)에서 이번 판정으로 바뀌는지 — 이 상태였다가
+  // OCR 이 필요한 곳으로 넘어가면 사용자에게 영역 지정을 요구하지 않고 선택 모드 자체를
+  // 끈다(사용자 요청, 2026-07-29 자막 최초 도입 + 2026-07-30 web 케이스까지 명시적으로
+  // 확장). 아래에서 stopSubtitleMode/stopWebMode 를 부르기 전에 미리 잡아둬야 한다.
+  const wasDirectExtraction = isSubtitleModeActive() || isWebModeActive()
   if (decision.mode === 'subtitle') {
     // 자막 경로 — OCR 영역 선택/캡처/변화감지를 전부 중단하고 확장 자막을 쓴다.
     stopWebMode()
@@ -114,19 +119,23 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
   }
   if (decision.mode === 'web') {
     // 일반 웹페이지 경로 — 확장의 본문 DOM 텍스트를 우선 시도한다(decideOcr.ts, 낙관적
-    // 판정). 실제 텍스트가 부족하면 startWebMode 가 이 콜백을 통해 기존 OCR 흐름으로
-    // 넘어간다(§5.1 "텍스트 양으로 분기").
+    // 판정). 실제 텍스트가 부족하면(startWebMode 콜백) direct 추출 상태에서 넘어온
+    // 것이었으면 조용히 선택 모드를 끄고(아래와 동일 이유), 애초에 OCR 이 필요한 곳에
+    // 방금 막 진입한 것이었으면(fresh 진입) 정상적으로 OCR 흐름으로 폴백한다.
     stopSubtitleMode()
     stopChangeWatcher()
-    startWebMode(() => startOcrFallback(epoch))
+    startWebMode(() => {
+      if (wasDirectExtraction) exitSelectMode()
+      else startOcrFallback(epoch)
+    })
     return
   }
   // 자막(미디어)/웹(텍스트 위주) 페이지였다가 그 외 페이지로 바뀐 경우(예: 유튜브 영상을
-  // 보다가 채널/홈으로 이동) — OCR 로 자동 전환하지 않고 선택 모드 자체를 끈다(사용자 요청,
-  // 2026-07-29, 웹 모드에도 동일하게 적용). 그 페이지를 벗어난 건 "이 페이지도 계속
+  // 보다가 채널/홈으로 이동, 또는 브라우저 창 인식 자체가 안 되는 경우) — OCR 로 자동
+  // 전환하지 않고 선택 모드 자체를 끈다. 그 페이지를 벗어난 건 "이 페이지도 계속
   // 선택하고 싶다"는 의도가 아닐 가능성이 커서, 엉뚱한 페이지에 OCR 영역 지정 드래그가
   // 뜨는 것보다 조용히 꺼지는 쪽이 낫다고 판단.
-  if (isSubtitleModeActive() || isWebModeActive()) {
+  if (wasDirectExtraction) {
     exitSelectMode()
     return
   }
