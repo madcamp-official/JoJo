@@ -25,6 +25,14 @@ export function rangeRect(node: Text, start: number, end: number): RectPx | null
 // 여기서는 클릭 지점의 글자 하나만 정확히 짚으면 된다.
 const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
 
+// 태국어/라오어도 단어 사이 공백이 없지만(위 CJK와 같은 문제), 여긴 반대로 접근한다 —
+// 형태소 분석기가 없어(2026-07-30 결정) 글자 단위로 쪼개도 "정확한 단어 경계"를 흉내낼
+// 수조차 없으므로, 아예 시도하지 않고 hover 박스를 줄 전체로 보여준다(사용자 결정 —
+// "호버박스는 줄 단위, 팝업 연 다음 내부 선택만 글자 단위"). 팝업이 열린 뒤의 글자 단위
+// 선택은 popup/selection.ts의 NO_WORD_BOUNDARY_LANGUAGES가 담당 — 여기(hover)와
+// 그쪽(팝업 내부)이 "글자 단위"의 의미가 다르다는 점 주의.
+const THAI_LAO_CHAR_RE = /[฀-໿]/
+
 // 팝업의 단어 판정 핵심 규칙(콤마/마침표 등 문장부호 제외)을 공유하되, 하이픈만 의도적
 // 으로 다르게 처리한다 — 팝업은 하이픈을 경계로 보고 쪼개지만("well-to-do" → well/to/do),
 // hover 박스는 하이픈으로 이어진 구간을 한 단어로 묶어 보여준다(자막 화면에서 세 조각으로
@@ -34,6 +42,12 @@ const WORD_ATOM_RE = new RegExp(HOVER_WORD_ATOM_PATTERN, 'gu')
 
 function wordsFromTextNode(node: Text): SubWord[] {
   const full = node.textContent ?? ''
+  // 태국어/라오어는 통째로 줄 하나를 "단어" 하나로 취급한다(위 THAI_LAO_CHAR_RE 주석
+  // 참고) — 공백/CJK 분기를 아예 안 타고 이 노드 전체의 사각형 하나만 반환.
+  if (THAI_LAO_CHAR_RE.test(full)) {
+    const rect = rangeRect(node, 0, full.length)
+    return rect ? [{ text: full, rect }] : []
+  }
   const words: SubWord[] = []
   let i = 0
   while (i < full.length) {

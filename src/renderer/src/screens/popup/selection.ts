@@ -1,4 +1,5 @@
 import type {
+  AnyLanguage,
   ExtractedSelection,
   JaTokenizeResult,
   JaToken,
@@ -293,9 +294,25 @@ function atomsFromMergedTokens(jaResult: JaTokenizeResult): Atom[] {
   return atoms
 }
 
-function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWord[], charLevel?: boolean): Atom[] {
+// 태국어/라오어 — 단어 사이 공백이 없는 스크립트(scriptio continua)라 LATIN_ATOM_RE(공백/
+// 문자 경계 기반)로 자르면 문장 전체가 한 atom 으로 뭉쳐버린다. 형태소 분석기도 없어서
+// (2026-07-30 결정 — tier2는 사전/OCR 특화 없이 IPA 발음만 지원) 단어 경계를 알아낼
+// 방법 자체가 없으니, ja/zh charLevel=true 와 동일하게 글자 하나하나를 atom 으로 만드는
+// 걸 기본값(토글 없음)으로 삼는다.
+const NO_WORD_BOUNDARY_LANGUAGES: ReadonlySet<AnyLanguage> = new Set(['th', 'lo'])
+
+function tokenizeAtoms(
+  text: string,
+  jaResult?: JaTokenizeResult,
+  zhWords?: ZhWord[],
+  charLevel?: boolean,
+  language?: AnyLanguage,
+): Atom[] {
   if (jaResult && jaResult.tokens.length > 0 && !charLevel) {
     return atomsFromMergedTokens(jaResult)
+  }
+  if (language && NO_WORD_BOUNDARY_LANGUAGES.has(language)) {
+    return splitEveryChar(text)
   }
   // charLevel(글자 단위) 모드는 형태소 분석 결과를 아예 참조하지 않는다 — jaTokens/tokenAt
   // 을 null 로 둬서 아래 가나 분기가 무조건 splitEveryChar 로 떨어지게 한다.
@@ -452,7 +469,7 @@ export function buildSelectionModel(
   overrideRange?: { start: number; end: number },
 ): PopupSelectionModel {
   const { displayText, selStart, selEnd, windowStart, insertions } = buildDisplayText(extracted, overrideRange)
-  let atoms = tokenizeAtoms(displayText, jaResult, zhWords, charLevel)
+  let atoms = tokenizeAtoms(displayText, jaResult, zhWords, charLevel, extracted.language)
   // anchor(호버박스가 고른 범위) 경계에서 항상 atom 이 갈라지도록 강제 — 아래 초기 선택
   // 로직이 anchor 보다 넓은 atom 을 통째로 골라버리는 걸 막는다(splitAtomAt 주석 참고).
   atoms = splitAtomAt(atoms, selStart)
