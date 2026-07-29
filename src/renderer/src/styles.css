@@ -527,13 +527,13 @@ button:disabled { cursor: not-allowed; }
 .tb-btn:disabled { opacity: 0.5; cursor: default; }
 .google-icon { flex-shrink: 0; }
 .naver-icon { flex-shrink: 0; }
-/* 사전 소스 선택 드롭다운(디버깅용 임시, 2026-07-28) — tb-btn 과 톤을 맞춤 */
+/* 사전 소스 직접 선택 드롭다운 — tb-btn 과 톤을 맞춤 */
 .dict-source-select {
   font-size: 13px; padding: 4px 6px; border-radius: 6px;
   background: #fff; color: #374151; border: 1px solid #dbe0e6; cursor: pointer;
 }
 .dict-source-select:disabled { opacity: 0.5; cursor: default; }
-/* 폴백 체인/직접 선택 토글(디버깅용 임시, 2026-07-28) — 드롭다운 바로 앞에 붙는 체크박스 */
+/* 폴백 체인/직접 선택 토글 — 드롭다운 바로 앞에 붙는 체크박스 */
 .dict-force-toggle {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 12px; color: #6b7280; cursor: pointer; user-select: none;

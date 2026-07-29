@@ -119,15 +119,18 @@ export function Toolbar({
       )}
 
       {showCharLevelToggle && (
-        <label className="char-level-toggle">
-          <input
-            type="checkbox"
-            checked={charLevel}
-            disabled={disabled}
-            onChange={(e) => onToggleCharLevel(e.target.checked)}
-          />
-          문자 단위 선택
-        </label>
+        <>
+          <span className="tb-spacer" />
+          <label className="char-level-toggle">
+            <input
+              type="checkbox"
+              checked={charLevel}
+              disabled={disabled}
+              onChange={(e) => onToggleCharLevel(e.target.checked)}
+            />
+            문자 단위 선택
+          </label>
+        </>
       )}
 
       <span className="tb-spacer" />
