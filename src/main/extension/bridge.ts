@@ -41,7 +41,13 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   private keepalive: NodeJS.Timeout | null = null
   private lastActiveTab: ExtActiveTab | null = null
   private lastSubtitles: SubtitleSnapshot | null = null
-  private lastTranscript: Transcript | null = null
+  // videoId별 전체 자막 캐시 — 예전엔 마지막 것 하나만 들고 있었는데(`lastTranscript`),
+  // 유튜브↔넷플릭스 탭을 오가면 서로 상대 영상 자막을 덮어써서, 확장 쪽 dedup(content.ts
+  // `lastInterceptedSig`/`lastNetflixKey` — "이미 앱에 보냈으니 재전송 스킵")과 맞물려
+  // 탭을 되돌아온 뒤엔 그 영상 자막을 앱이 영영 다시 못 받는 구조적 버그가 있었다
+  // (2026-07-29 실사용 확정 — 탭 전환 후 팝업에 한 줄만 뜨는 문제의 진짜 원인).
+  // videoId별로 따로 저장하면 덮어쓰기 자체가 없어 재전송이 아예 필요 없다.
+  private transcripts = new Map<string, Transcript>()
   private lastCaptureActive = false
   // 이미 세그멘테이션을 요청/전송한 자막 줄 텍스트 — subtitles 스냅샷이 자주(폴링 300ms
   // 등) 갱신되므로 같은 줄을 반복해서 재분석하지 않는다.
@@ -120,11 +126,17 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         this.emit('subtitles', msg.snapshot)
         this.requestWordSegments(msg.snapshot?.lines.map((l) => l.text) ?? [])
         break
-      case 'transcript':
-        this.lastTranscript = { videoId: msg.videoId, cues: msg.cues }
+      case 'transcript': {
+        const transcript: Transcript = { videoId: msg.videoId, cues: msg.cues }
+        // 같은 videoId 재수신 시 최신으로 갱신(자막 언어 전환 등) — delete 후 set 으로
+        // Map 삽입 순서를 "최근 수신 순"으로 유지한다(buildContextWindow 가 최근 것부터
+        // 검색). Map 크기는 세션 중 방문한 영상 수만큼만 자라므로 별도 상한은 없다.
+        this.transcripts.delete(msg.videoId)
+        this.transcripts.set(msg.videoId, transcript)
         console.log(`[ext-bridge] transcript 수신: ${msg.cues.length} cues (video=${msg.videoId})`)
-        this.emit('transcript', this.lastTranscript)
+        this.emit('transcript', transcript)
         break
+      }
       case 'subtitleClick':
         this.emit('subtitleClick', {
           word: msg.word,
@@ -169,8 +181,8 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     return this.lastSubtitles
   }
 
-  getTranscript(): Transcript | null {
-    return this.lastTranscript
+  getTranscript(videoId: string): Transcript | null {
+    return this.transcripts.get(videoId) ?? null
   }
 
   // CJK 자막 줄을 감지해 앱의 zh/ja 세그멘터로 분석한 뒤 확장에 내려준다 — 브라우저는
@@ -189,7 +201,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     }
   }
 
-  // 화면에 뜬 한 줄(lineText)이 속한 cue를 전체 자막(lastTranscript)에서 찾아 앞뒤 cue까지
+  // 화면에 뜬 한 줄(lineText)이 속한 cue를 전체 자막 캐시(transcripts)에서 찾아 앞뒤 cue까지
   // 묶은 "문맥 윈도우" 텍스트를 만든다 — 형태소 분석기(스다치 등)는 Viterbi/lattice 방식이라
   // 주변 문맥에 따라 같은 글자열도 다르게 쪼갤 수 있다. 팝업은 이미 앞뒤 문맥이 다 붙은 긴
   // 텍스트를 통째로 분석하는데(popup/selection.ts), hover 세그멘테이션이 화면에 뜬 그 줄만
@@ -197,10 +209,19 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   // "ひとつ"가 한 단어로, 자막 hover에선 "ひと/つ"로 나뉘던 문제). 못 찾으면 null(줄만 분석
   // 하는 기존 폴백으로).
   private buildContextWindow(lineText: string): { windowText: string; lineOffset: number } | null {
-    const cues = this.lastTranscript?.cues
-    if (!cues || cues.length === 0) return null
-    const idx = cues.findIndex((c) => c.text.includes(lineText))
-    if (idx < 0) return null
+    // 이 줄이 어느 영상 것인지 여기서는 모른다 — 캐시된 transcript 전체에서 lineText를
+    // 포함하는 cue가 있는 것을 찾는다(최근 수신 순으로, Map은 삽입 순서 유지라 뒤에서부터).
+    let cues: TranscriptCue[] | null = null
+    let idx = -1
+    for (const t of [...this.transcripts.values()].reverse()) {
+      const i = t.cues.findIndex((c) => c.text.includes(lineText))
+      if (i >= 0) {
+        cues = t.cues
+        idx = i
+        break
+      }
+    }
+    if (!cues) return null
     const WINDOW_RADIUS = 3 // 앞뒤 몇 cue까지 포함할지 — 팝업 문맥(앞뒤 2줄)보다 넉넉히 잡음
     const from = Math.max(0, idx - WINDOW_RADIUS)
     const to = Math.min(cues.length, idx + WINDOW_RADIUS + 1)

@@ -346,6 +346,22 @@ function ensureAX(): boolean {
   if (axReady) return axOk
   axReady = true
   try {
+    // AX API 는 손쉬운 사용(Accessibility) 권한이 없으면 프롬프트도 없이 조용히 빈 결과만
+    // 준다 — 시스템 설정 목록에 앱을 추가해주지도 않아서, 사용자가 수동으로 넣어줄 방법도
+    // 마땅치 않다(실사용 확인, 2026-07-29: 목록에 Electron 항목 자체가 없었음). Electron 이
+    // 이를 위해 제공하는 `systemPreferences.isTrustedAccessibilityClient(true)` 로 확인하면
+    // 미허용 시 OS 권한 요청 다이얼로그가 뜨고 목록에도 추가된다 — 최초 1회만 프롬프트를
+    // 띄우고(ensureAX 는 axReady 로 1회만 실행됨), 사용자가 허용 전이면 이번 세션은
+    // 기존 폴백(activateApp, 앱 전체 활성화)으로 동작한다(허용 후 앱 재시작하면 반영).
+    const { systemPreferences } = require('electron') as typeof import('electron')
+    if (!systemPreferences.isTrustedAccessibilityClient(true)) {
+      console.warn(
+        '[macWindow] 손쉬운 사용(Accessibility) 권한 없음 — 같은 앱(PID)의 특정 창 포커스 기능이 비활성화됩니다. ' +
+          '시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서 허용 후 앱을 재시작하세요.',
+      )
+      axOk = false
+      return false
+    }
     if (!ensureCoreGraphics()) return false
     const ax = koffi.load('/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices')
     AXUIElementCreateApplication = ax.func('void* AXUIElementCreateApplication(int32_t pid)')
@@ -431,6 +447,9 @@ function raiseSpecificWindow(pid: number, targetBounds: MacWindowRect): boolean 
       AXUIElementSetAttributeValue!(app, axFocusedWindowAttr, win)
       return true
     }
+    // bounds 가 일치하는 AX 창을 못 찾음(최소화된 창은 AXWindows 에 안 잡히거나 bounds 가
+    // 다를 수 있음 등) — 진단용으로 남긴다(정상 폴백 경로라 warn 아님).
+    console.log(`[macWindow] AX 창 매칭 실패(pid=${pid}, 후보 ${count}개) — 앱 전체 활성화로 폴백`)
     return false
   } catch {
     return false
