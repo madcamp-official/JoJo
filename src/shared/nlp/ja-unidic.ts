@@ -24,7 +24,9 @@ function isShimauContraction(t: JaToken): boolean {
 // 수 있어야 한다는 요청(2026-07-29)으로 뺐다. baseForm 이 아니라 surface 로 판별하는데,
 // baseForm 은 각각 평범한 단정 조동사 だ/です 로 정규화돼(持つだろう→だ) 그 자체로는
 // だ/だった/で 등 계속 흡수해야 하는 활용형과 구분이 안 되기 때문이다.
-const CONJECTURE_AUX_SURFACES = new Set(['だろう', 'でしょう'])
+// う가 생략된 구어체 だろ/でしょ(すぎるだろ 등)도 같은 추량 용법이라 함께 분리한다 —
+// Sudachi 가 단독 토큰 だろ/でしょ 로 내는 경우는 추량뿐이다(だろう는 한 토큰으로 나옴).
+const CONJECTURE_AUX_SURFACES = new Set(['だろう', 'でしょう', 'だろ', 'でしょ'])
 
 function isConjectureAux(t: JaToken): boolean {
   return t.pos === '助動詞' && CONJECTURE_AUX_SURFACES.has(t.surface)
