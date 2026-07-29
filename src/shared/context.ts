@@ -124,6 +124,20 @@ export function sentenceEnd(text: string, p: number): number {
   return i
 }
 
+/** p가 이미 문장 시작 지점이면 그대로 두고, 문장 중간이면 그 문장을 통째로 버리고 다음
+ *  문장 시작까지 건너뛴다 — sentenceStart(뒤로 확장해 문장을 포함)와 반대로 창을 키우는
+ *  대신 줄이는 쪽. 한 문장이 여러 줄에 걸치는 산문(웹소설 등)에서 "N줄 전" 위치가 문장
+ *  중간에 걸리면 그 문장 전체를 뒤로 끌어와 문맥 창이 예상보다 훨씬 커지는 문제가 있어
+ *  도입했다(2026-07-30, PopupScreen.tsx가 웹 소스 문맥 표시 시작 경계에만 씀 — OCR/자막은
+ *  줄이 이미 문장에 가까워 이 문제가 거의 없다). */
+export function skipPartialSentenceForward(text: string, p: number): number {
+  const back = sentenceStart(text, p)
+  if (back === p) return p
+  let i = sentenceEnd(text, p)
+  while (i < text.length && /\s/.test(text[i])) i += 1
+  return i
+}
+
 /** 문자 인덱스로 표현한 문맥 범위 경계 */
 export interface ContextRange {
   extStart: number // 경계까지 확장된 시작(가장 바깥)

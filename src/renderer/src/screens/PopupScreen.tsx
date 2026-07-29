@@ -9,7 +9,7 @@ import type {
   QuestionResult,
   ZhWord,
 } from '@shared/types'
-import { sentenceEnd, sentenceStart } from '@shared/context'
+import { sentenceEnd, sentenceStart, skipPartialSentenceForward } from '@shared/context'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
 import { getNativeLanguageName, hasNaverDict, isFullLanguage, isRtlLanguage } from '@shared/languages'
 import { ContextView } from './popup/ContextView'
@@ -193,31 +193,9 @@ export function PopupScreen() {
       DISPLAY_CONTEXT_LINES_BEFORE,
       DISPLAY_CONTEXT_LINES_AFTER,
     )
-    // TEMP DEBUG(2026-07-30) — 문맥 표시 범위가 문장 경계보다 과하게 확장되는 문제 진단용.
-    // 원인 확인되면 이 블록 통째로 제거.
-    console.log('[measure-debug] anchor', baseCtx.anchor, 'sliceStart', sliceStart, 'measuredSpan', measuredSpan)
-    if (!measuredSpan) {
-      console.log('[measure-debug] measuredSpan is null — clientWidth=', el.clientWidth, 'textLen=', sliceEnd - sliceStart)
-      return
-    }
+    if (!measuredSpan) return
     const absStart = measuredSpan.start + sliceStart
     const absEnd = measuredSpan.end + sliceStart
-    console.log(
-      '[measure-debug] absStart',
-      absStart,
-      'nearText@absStart=',
-      JSON.stringify(fullText.slice(Math.max(0, absStart - 20), absStart + 20)),
-      'absEnd',
-      absEnd,
-      'nearText@absEnd=',
-      JSON.stringify(fullText.slice(Math.max(0, absEnd - 20), absEnd + 20)),
-    )
-    console.log(
-      '[measure-debug] sentenceStart result',
-      sentenceStart(fullText, absStart),
-      'text there=',
-      JSON.stringify(fullText.slice(sentenceStart(fullText, absStart), sentenceStart(fullText, absStart) + 40)),
-    )
     // sentenceEnd(text, p)는 "p가 아직 문장 중간이면 그 문장 끝까지 확장"하는 함수라,
     // absEnd(슬라이스 끝 — 다음 줄의 "첫 글자" 오프셋, exclusive)를 그대로 넘기면 그
     // 위치가 하필 다음 문장의 시작과 겹칠 때(줄 기반 자막처럼 "한 줄 = 한 문장"인
@@ -227,10 +205,21 @@ export function PopupScreen() {
     // (absEnd - 1) 기준으로 확인해야 이미 문장이 끝난 위치를 "아직 안 끝남"으로
     // 오판하지 않는다 — absStart(포함된 첫 글자, inclusive)는 애초에 이 문제가 없어
     // sentenceStart 는 그대로 둔다.
+    // 웹(article) 소스는 문장이 여러 줄에 걸쳐 이어지는 산문이 많아, "문장 시작까지 뒤로
+    // 확장"하면 창이 예상보다 훨씬 커진다(2026-07-30 사용자 제보 — RoyalRoad 등 웹소설에서
+    // 2줄이 순식간에 5~6줄로 불어남, 실측: "There was no way...exorbitant."라는 긴 문장
+    // 중간에 2줄 경계가 걸리자 그 문장 전체가 앞에 통째로 붙어 나옴). OCR/자막은 줄이 이미
+    // 문장에 가까워 이 문제가 거의 없으므로, 웹 소스에서만 "뒤로 확장" 대신 "그 문장을
+    // 통째로 버리고 다음 문장 시작까지 앞으로 건너뛰기"로 바꿔 창이 오히려 줄어드는 쪽을
+    // 택한다(skipPartialSentenceForward).
+    const start =
+      baseCtx.source.kind === 'web'
+        ? skipPartialSentenceForward(fullText, absStart)
+        : sentenceStart(fullText, absStart)
     setMeasured({
       ctx: baseCtx,
       range: {
-        start: sentenceStart(fullText, absStart),
+        start,
         end: sentenceEnd(fullText, Math.max(absStart, absEnd - 1)),
       },
     })
