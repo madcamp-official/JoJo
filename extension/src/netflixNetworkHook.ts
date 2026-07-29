@@ -14,6 +14,12 @@
 // supportsPartialHydration 을 함께 켜줘야 자막 트랙이 "hydrated"(다운로드 URL 포함) 상태로
 // 응답에 담긴다.
 ;(function () {
+  // MAIN world 스크립트는 페이지 JS 라 확장을 리로드해도 살아남는다 — background 가 기존
+  // 탭에 재주입할 때 이미 훅이 있으면 JSON.parse/stringify 가 이중 패치되므로 1회만 설치.
+  const w = window as typeof window & { __nuanceNfHooked?: boolean }
+  if (w.__nuanceNfHooked) return
+  w.__nuanceNfHooked = true
+
   const WEBVTT_PROFILE = 'webvtt-lssdh-ios8'
   console.log('[nuance netflixHook] 훅 등록됨 (MAIN world)')
 

@@ -9,6 +9,14 @@
 // MAIN 월드는 chrome.runtime 을 못 쓰므로, window.postMessage 로 격리된 content script
 // (content.ts)에 전달하고 거기서 background 로 중계한다.
 ;(function () {
+  // MAIN world 스크립트는 페이지 JS 라 확장을 리로드해도 살아남는다 — background 가 기존
+  // 탭에 재주입(injectContentScripts)할 때 이미 훅이 있으면 fetch/XHR 이 이중 패치되고
+  // 캐시·리스너가 중복되므로, 전역 플래그로 1회만 설치한다(기존 훅은 postMessage 기반이라
+  // 새 content script 와도 그대로 통신된다).
+  const w = window as typeof window & { __nuanceYtHooked?: boolean }
+  if (w.__nuanceYtHooked) return
+  w.__nuanceYtHooked = true
+
   const CAPTION_URL_PATTERN = /timedtext|get_transcript/i
 
   // 마지막으로 가로챈 자막 응답을 캐시한다 — 플레이어가 캡션을 요청하는 시점은 보통 영상
