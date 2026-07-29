@@ -52,6 +52,14 @@ function isSentenceEnder(text: string, i: number): boolean {
   return SENTENCE_ENDERS.test(text[i]) && !isAbbreviationDot(text, i)
 }
 
+// text 안 어디에든 문장 종결부호가 하나라도 있는지(약어 등 예외 없이 대충 훑어보는 용도).
+// 자막 전체에 문장부호가 아예 없으면(구두점 없는 자동 생성 자막 등) 문장 경계로 줄바꿈을
+// 판단할 방법이 없으므로, 그런 경우 판단 자체를 포기하고 다른 기준(자막 큐 단위)으로
+// 폴백하라는 신호로 쓴다.
+export function hasSentenceEnder(text: string): boolean {
+  return SENTENCE_ENDERS.test(text)
+}
+
 // 닫는 따옴표/괄호(TRAILING)까지 포함해 text 가 문장이 끝나는 지점에서 끝나는지 본다
 // (예: 자막 큐 이어붙이기 — 자막 유틸이 여러 곳에서 재사용).
 export function endsWithSentenceEnder(text: string): boolean {

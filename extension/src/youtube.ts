@@ -29,21 +29,38 @@ export function videoCurrentTime(): number {
   return v ? v.currentTime : 0
 }
 
+// 중국어/일본어는 단어 사이에 공백이 없다 — 공백 기준으로만 쪼개면 자막 한 줄 전체가
+// "단어 하나"로 잡혀 hover 박스·클릭 앵커가 줄 단위가 돼버린다(실사용 중 확인). 그래서
+// 한자/가나는 여기서 한 글자씩 개별 토큰으로 쪼갠다 — 실제 단어 경계(형태소 분석)는 팝업이
+// 열린 뒤 앱의 zh/ja 세그멘터(popup/selection.ts tokenizeAtoms)가 문맥을 보고 다시 묶어주므로,
+// 여기서는 클릭 지점의 글자 하나만 정확히 짚으면 된다.
+const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
+
 // 한 세그먼트(span) 텍스트를 단어 단위로 쪼개고, 각 단어의 뷰포트 사각형을 Range 로 잰다.
-// 공백/문장부호로 나누되, 표시 텍스트와 오프셋이 어긋나지 않도록 정규식 매칭으로 자른다.
 function wordsFromSegment(seg: HTMLElement): SubWord[] {
   const textNode = firstTextNode(seg)
   if (!textNode) return []
   const full = textNode.textContent ?? ''
   const words: SubWord[] = []
-  // 연속된 비공백 덩어리 = 단어(CJK 는 여기선 통째로 한 덩어리 → 후속 형태소 분해는 앱이 담당).
-  const re = /\S+/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(full))) {
-    const start = m.index
-    const end = start + m[0].length
-    const rect = rangeRect(textNode, start, end)
-    if (rect) words.push({ text: m[0], rect })
+  let i = 0
+  while (i < full.length) {
+    const ch = full[i]!
+    if (/\s/.test(ch)) {
+      i += 1
+      continue
+    }
+    if (CJK_CHAR_RE.test(ch)) {
+      const rect = rangeRect(textNode, i, i + 1)
+      if (rect) words.push({ text: ch, rect })
+      i += 1
+      continue
+    }
+    // 그 외(라틴 등)는 공백 또는 CJK 문자를 만날 때까지를 한 단어로 묶는다(기존 동작).
+    let j = i + 1
+    while (j < full.length && !/\s/.test(full[j]!) && !CJK_CHAR_RE.test(full[j]!)) j += 1
+    const rect = rangeRect(textNode, i, j)
+    if (rect) words.push({ text: full.slice(i, j), rect })
+    i = j
   }
   return words
 }
@@ -94,7 +111,12 @@ export function extractSubtitleSnapshot(): SubtitleSnapshot | null {
     for (const seg of Array.from(segs)) {
       const words = wordsFromSegment(seg)
       if (words.length === 0) continue
-      lines.push({ text: words.map((w) => w.text).join(' '), words })
+      // words 를 공백으로 join 하면 CJK 처럼 원문에 공백이 없던 구간에 가짜 공백이 끼어들어
+      // (wordsFromSegment 가 한자/가나를 글자 단위로 쪼개므로) 실제 자막 원문과 달라진다 —
+      // anchorInTranscript(subtitleSource.ts)가 이 lineText 를 timedtext cue 원문 안에서
+      // 그대로 찾아야 하므로, 세그먼트의 원문 그대로를 line.text 로 쓴다.
+      const raw = firstTextNode(seg)?.textContent ?? words.map((w) => w.text).join(' ')
+      lines.push({ text: raw, words })
     }
   }
   if (lines.length === 0) return null
