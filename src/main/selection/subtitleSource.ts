@@ -78,8 +78,8 @@ const timedOutVideoIds = new Set<string>()
 
 function waitForMatchingTranscript(videoId: string | null): Promise<void> {
   if (!videoId) return Promise.resolve()
-  const current = extensionBridge.getTranscript()
-  if (current && current.videoId === videoId && current.cues.length > 0) return Promise.resolve()
+  const current = extensionBridge.getTranscript(videoId)
+  if (current && current.cues.length > 0) return Promise.resolve()
   if (timedOutVideoIds.has(videoId)) return Promise.resolve()
   return new Promise((resolve) => {
     const onTranscript = (t: Transcript): void => {
@@ -119,17 +119,16 @@ async function onSubtitleClick(hit: SubtitleClickHit): Promise<void> {
 
 function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
   const source = getBrowserSource()?.source ?? { kind: 'youtube' as const }
-  const transcript = extensionBridge.getTranscript()
+  // videoId별 캐시(bridge.ts transcripts Map)라 탭/영상을 오가도 서로 덮어쓰지 않는다 —
+  // 이 영상 것이 있으면 그대로 신뢰하면 된다(엉뚱한 영상 자막이 섞일 일 자체가 없음).
+  const transcript = hit.videoId !== null ? extensionBridge.getTranscript(hit.videoId) : null
   console.log(
     `[subtitleSource] click hit.videoId=${hit.videoId} transcript.videoId=${transcript?.videoId ?? 'null'} cues=${transcript?.cues.length ?? 'null'}`,
   )
 
   // 전체 자막(timedtext)이 있으면 그걸 통째로 text 로 주고 anchor 만 클릭 단어에 맞춘다 —
   // 팝업이 설정 바이트(contextBytesBefore/After)만큼 앞뒤를 알아서 보여준다(OCR/텍스트와 동일).
-  // 선택 모드를 유지한 채 탭/사이트(또는 같은 사이트 안에서 영상)를 바꾸면, 새 영상의
-  // transcript가 아직 도착하기 전(네트워크 가로채기는 비동기) 캐시엔 이전 영상 것이 그대로
-  // 남아있다 — videoId가 일치할 때만 신뢰해서 엉뚱한(이전) 영상 자막이 문맥으로 새는 걸 막는다.
-  if (transcript && hit.videoId !== null && transcript.videoId === hit.videoId && transcript.cues.length > 0) {
+  if (transcript && transcript.cues.length > 0) {
     const anchored = anchorInTranscript(
       transcript.cues,
       hit.currentTime,
