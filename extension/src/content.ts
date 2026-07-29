@@ -91,7 +91,6 @@ function pushSnapshot(): void {
 }
 
 function startCapture(): void {
-  console.log('[nuance content] startCapture 호출됨 (이미capturing=' + capturing + ')')
   if (capturing) return
   capturing = true
   lastSent = ''
@@ -122,7 +121,6 @@ function stopCapture(): void {
 
 chrome.runtime.onMessage.addListener((msg: FromBackground, _sender, sendResponse) => {
   if (msg?.kind === 'setCapture') {
-    console.log(`[nuance content] setCapture 메시지 수신: active=${msg.active}`)
     if (msg.active) startCapture()
     else stopCapture()
   } else if (msg?.kind === 'setPlayback') {
