@@ -197,6 +197,34 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     }
   }
 
+  // 화면에 뜬 한 줄(lineText)이 속한 cue를 전체 자막(lastTranscript)에서 찾아 앞뒤 cue까지
+  // 묶은 "문맥 윈도우" 텍스트를 만든다 — 형태소 분석기(스다치 등)는 Viterbi/lattice 방식이라
+  // 주변 문맥에 따라 같은 글자열도 다르게 쪼갤 수 있다. 팝업은 이미 앞뒤 문맥이 다 붙은 긴
+  // 텍스트를 통째로 분석하는데(popup/selection.ts), hover 세그멘테이션이 화면에 뜬 그 줄만
+  // 따로 분석하면 서로 다른 경계가 나올 수 있었다(2026-07-29 사용자 제보 — 팝업에선
+  // "ひとつ"가 한 단어로, 자막 hover에선 "ひと/つ"로 나뉘던 문제). 못 찾으면 null(줄만 분석
+  // 하는 기존 폴백으로).
+  private buildContextWindow(lineText: string): { windowText: string; lineOffset: number } | null {
+    const cues = this.lastTranscript?.cues
+    if (!cues || cues.length === 0) return null
+    const idx = cues.findIndex((c) => c.text.includes(lineText))
+    if (idx < 0) return null
+    const WINDOW_RADIUS = 3 // 앞뒤 몇 cue까지 포함할지 — 팝업 문맥(앞뒤 2줄)보다 넉넉히 잡음
+    const from = Math.max(0, idx - WINDOW_RADIUS)
+    const to = Math.min(cues.length, idx + WINDOW_RADIUS + 1)
+    let windowText = ''
+    let lineOffset = -1
+    for (let i = from; i < to; i++) {
+      if (i === idx) {
+        const within = cues[i]!.text.indexOf(lineText)
+        lineOffset = windowText.length + (within >= 0 ? within : 0)
+      }
+      windowText += cues[i]!.text
+      if (i < to - 1) windowText += ' '
+    }
+    return lineOffset >= 0 ? { windowText, lineOffset } : null
+  }
+
   private async segmentAndSend(text: string, lang: 'ja' | 'zh-Hans' | 'zh-Hant'): Promise<void> {
     try {
       // ja는 원시 형태소(tokenizeJapanese)가 아니라 segmentJapaneseWords(OCR 단어 분리와
@@ -205,10 +233,25 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
       // 기준이어야, hover 박스에서 묶이는 단위와 클릭 후 팝업에서 묶이는 단위가 일치한다.
       // 원시 토큰을 그대로 쓰면 "食べられちゃった"가 자막에선 食べ/られちゃっ/た로 쪼개져
       // 보이는데 팝업에선 하나로 묶여 나오는 불일치가 생겼다(2026-07-29 사용자 제보).
-      const words: WordSegment[] =
+      const ctxWindow = this.buildContextWindow(text)
+      const targetText = ctxWindow?.windowText ?? text
+      const lineOffset = ctxWindow?.lineOffset ?? 0
+
+      const rawWords: WordSegment[] =
         lang === 'ja'
-          ? (await segmentJapaneseWords(text)).map((t) => ({ start: t.start, end: t.end }))
-          : (await segmentChineseWords(text, lang)).map((w) => ({ start: w.start, end: w.end }))
+          ? (await segmentJapaneseWords(targetText)).map((t) => ({ start: t.start, end: t.end }))
+          : (await segmentChineseWords(targetText, lang)).map((w) => ({ start: w.start, end: w.end }))
+
+      // 문맥 윈도우 기준 offset을 화면 줄(text) 기준으로 되돌린다 — 윈도우 밖으로 걸치는
+      // 세그먼트는 줄 경계로 잘라내고, 아예 줄과 안 겹치면 버린다.
+      const words: WordSegment[] = rawWords
+        .filter((w) => w.end > lineOffset && w.start < lineOffset + text.length)
+        .map((w) => ({
+          start: Math.max(0, w.start - lineOffset),
+          end: Math.min(text.length, w.end - lineOffset),
+        }))
+        .filter((w) => w.end > w.start)
+
       if (words.length === 0) return
       this.send({ type: 'wordSegments', lineText: text, words })
     } catch (err) {
