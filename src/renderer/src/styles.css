@@ -425,7 +425,12 @@ button:disabled { cursor: not-allowed; }
    동일하게 hover 강조를 끄고 커서도 항상 I자(text)로 고정한다(실제 선택된 글자는 아래
    .sel 로 여전히 진한 보라 배경으로 보인다 — 선택 결과 표시만 남기고 hover 예고만 뺌). */
 .ctx-text.char-level .atom { cursor: text; }
-.ctx-text.char-level .atom:hover { background: none; }
+/* :not(.sel) 필수 — 이게 없으면 이 규칙(클래스 4개, 명세도 .sel 규칙의 클래스 3개보다
+   높음)이 이미 선택된(.sel) 글자 위에 커서가 올라갔을 때도 배경을 지워버려서, .sel 이
+   준 흰 글자색(--theme-text)만 남고 배경은 흰색(부모 배경)이 돼 글자가 안 보이는 버그가
+   있었다(사용자 피드백, 2026-07-29) — 선택된 글자는 hover 여부와 무관하게 항상
+   .sel 스타일 그대로 유지되게 한다. */
+.ctx-text.char-level .atom:not(.sel):hover { background: none; }
 /* 드래그 도중엔 어떤 세그먼트(atom/gap) 위에 있든 커서를 텍스트(I-beam) 로 고정 —
    개별 span 의 cursor: pointer/text 로 매 순간 바뀌어 보이는 걸 막는다. */
 .ctx-text.dragging, .ctx-text.dragging * { cursor: text !important; }
