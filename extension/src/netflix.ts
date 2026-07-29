@@ -11,6 +11,14 @@ export function isNetflixWatch(): boolean {
   return location.hostname.endsWith('netflix.com') && location.pathname.startsWith('/watch/')
 }
 
+// URL의 /watch/<movieId> 에서 뽑는다 — netflixNetworkHook.ts 가 매니페스트에서 얻는
+// movieId 와 같은 값이어야, 클릭 시점에 지금 보고 있는 영상의 자막인지 검증할 수 있다
+// (content.ts onWordClicked, subtitleSource.ts buildSelection).
+export function currentNetflixMovieId(): string | null {
+  const m = location.pathname.match(/^\/watch\/(\d+)/)
+  return m ? m[1]! : null
+}
+
 function captionRoot(): HTMLElement | null {
   return (
     document.querySelector<HTMLElement>('.watch-video') ||

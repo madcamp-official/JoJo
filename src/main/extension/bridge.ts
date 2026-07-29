@@ -141,6 +141,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
           lineText: msg.lineText,
           wordOffsetInLine: msg.wordOffsetInLine,
           currentTime: msg.currentTime,
+          videoId: msg.videoId,
         })
         break
     }

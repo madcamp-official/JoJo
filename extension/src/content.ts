@@ -2,7 +2,7 @@
 // 유튜브/넷플릭스 화면 자막을 단어별 좌표와 함께 추출해(youtube.ts/netflix.ts) background 로
 // 보낸다. background 가 WS 로 앱에 중계한다. 자막 캡처는 앱이 선택 모드일 때만 켜진다(setCapture).
 import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles } from './youtube'
-import { extractNetflixSnapshot, isNetflixWatch, observeNetflixSubtitles } from './netflix'
+import { extractNetflixSnapshot, isNetflixWatch, observeNetflixSubtitles, currentNetflixMovieId } from './netflix'
 import { videoCurrentTime } from './domWords'
 import { currentVideoId } from './timedtext'
 import { startHighlight, setWordSegments, type WordHit } from './highlight'
@@ -44,6 +44,12 @@ function liveLines(): SubLine[] {
   return activeSnapshot()?.lines ?? []
 }
 
+function currentMediaId(): string | null {
+  if (isYoutubeWatch()) return currentVideoId()
+  if (isNetflixWatch()) return currentNetflixMovieId()
+  return null
+}
+
 function onWordClicked(hit: WordHit): void {
   chrome.runtime.sendMessage({
     kind: 'subtitleClick',
@@ -51,6 +57,7 @@ function onWordClicked(hit: WordHit): void {
     lineText: hit.lineText,
     wordOffsetInLine: hit.wordOffsetInLine,
     currentTime: videoCurrentTime(),
+    videoId: currentMediaId(),
   })
 }
 
