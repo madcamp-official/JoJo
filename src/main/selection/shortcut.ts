@@ -1,14 +1,12 @@
-import { globalShortcut } from 'electron'
+import { BrowserWindow, globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
-  getMainWindow,
   onWindowResized,
   openSettingsWindow,
   sendOverlayNotice,
   sendRegionSelectionNeeded,
   setOverlayMode,
 } from '../windows'
-import { isTrayMenuOpen } from '../tray'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
 import { getSelectedWindowId } from './capture'
@@ -184,16 +182,32 @@ export function currentMode(): AppMode {
   return mode
 }
 
-/** 지금 이 단축키를 눌러도 되는 상황인지 — "어디서나"가 아니라 (1) Nuance 자신의 창이
- *  포커싱돼 있을 때, (2) 트레이 메뉴(창 선택/설정/종료)가 떠 있을 때, (3) 선택된 대상
- *  창이 포커싱돼 있을 때로 한정한다(사용자 요청, 2026-07-29 — globalShortcut 은 원래
- *  다른 아무 앱에 포커스가 있어도 전역으로 반응하는데, 그러면 예를 들어 이 단축키와
- *  다른 앱의 단축키가 우연히 겹칠 때 사용자가 그 앱을 쓰다가 의도치 않게 설정 화면이
- *  뜨는 문제가 있었음). 선택된 대상 창 포커스 판정은 플랫폼 네이티브 호출이 필요해
- *  비동기다 — win32Capture.isWin32WindowForeground/macWindow.isMacWindowFocused. */
+/** 지금 이 단축키를 눌러도 되는 상황인지 — "어디서나"가 아니라 (1) Nuance 자신의 창(메인/
+ *  설정/피커/팝업/오버레이 전부 포함)이 포커싱돼 있을 때, (2) 선택된 대상 창이 포커싱돼
+ *  있을 때로 한정한다(사용자 요청, 2026-07-29 — globalShortcut 은 원래 다른 아무 앱에
+ *  포커스가 있어도 전역으로 반응하는데, 그러면 예를 들어 이 단축키와 다른 앱의 단축키가
+ *  우연히 겹칠 때 사용자가 그 앱을 쓰다가 의도치 않게 설정 화면이 뜨는 문제가 있었음).
+ *  (1)은 `getMainWindow()?.isFocused()`가 아니라 `BrowserWindow.getFocusedWindow()`로
+ *  판정한다 — 전자는 재사용되는 메인 창(main/settings/picker 라우트)만 포함하고 별도
+ *  BrowserWindow인 팝업은 안 걸려서, 팝업이 포커싱된 상태에선 이 단축키가 안 먹히는
+ *  버그가 있었음(2026-07-29 사용자 피드백) — 후자는 앱 소유의 어떤 창이든(팝업/오버레이
+ *  포함) OS 포커스가 있으면 그 창을 그대로 돌려주므로 이 앱의 창 전부를 한 번에 커버한다.
+ *
+ *  **트레이 메뉴가 떠 있는 동안엔 적용 안 됨(2026-07-29, 시도 후 포기)**: 처음엔 "트레이
+ *  메뉴(창 선택/설정/종료)가 떠 있을 때도 허용"을 `Menu`의 `menu-will-close` 이벤트로
+ *  추적해 시도했으나 실효가 없었다 — macOS 에서 네이티브 컨텍스트 메뉴(`Tray.
+ *  popUpContextMenu`)가 떠 있는 동안은 그 메뉴의 트래킹 루프가 Electron 메인 프로세스의
+ *  JS 이벤트 루프 자체를 막아서, `globalShortcut` 콜백이 그 순간엔 아예 실행되지 않는다
+ *  (메뉴를 닫아야 밀려있던 콜백이 뒤늦게 실행됨 — 사용자 실사용 확인). 즉 OS 네이티브
+ *  드롭다운 메뉴로는 구조적으로 불가능한 요구라 판단해 포기(대안은 네이티브 Menu 대신
+ *  커스텀 BrowserWindow 드롭다운으로 바꾸는 것뿐인데, 그 정도로 다시 만들 만큼의 가치가
+ *  없다고 판단). 트레이 메뉴 자체를 클릭해 여는 것("설정" 항목)은 이 제약과 무관하게
+ *  그대로 잘 동작한다 — 문제는 오직 "메뉴가 열려 있는 **동안** 전역 단축키를 누르는" 경우.
+ *
+ *  선택된 대상 창 포커스 판정은 플랫폼 네이티브 호출이 필요해 비동기다 —
+ *  win32Capture.isWin32WindowForeground/macWindow.isMacWindowFocused. */
 async function isSettingsShortcutAllowed(): Promise<boolean> {
-  if (getMainWindow()?.isFocused()) return true
-  if (isTrayMenuOpen()) return true
+  if (BrowserWindow.getFocusedWindow()) return true
 
   const selectedId = getSelectedWindowId()
   if (!selectedId) return false
