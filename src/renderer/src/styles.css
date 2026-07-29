@@ -162,7 +162,11 @@ button:disabled { cursor: not-allowed; }
   background: #2a2a33; border: 2px solid transparent; border-radius: 8px;
   padding: 8px; cursor: pointer; color: inherit; text-align: left;
 }
-.window-tile:hover { border-color: var(--theme); }
+/* hover(파랑)와 이미 선택된 창(보라)을 구분한다(2026-07-29 사용자 요청) — 전엔 둘 다
+   --theme(보라)라 새로 고르려는 창에 커서를 올려도 이미 선택된 창처럼 보였다.
+   `.selected`가 이 규칙 뒤에 와서 명세가 같아도(둘 다 클래스 2개) 소스 순서상 이겨,
+   이미 선택된 타일에 커서를 올려도 보라색 그대로 유지된다. */
+.window-tile:hover { border-color: var(--blue); }
 .window-tile.selected { border-color: var(--purple); }
 .window-tile .thumb {
   width: 100%; height: 170px; border-radius: 4px; background: #000; overflow: hidden;
