@@ -206,13 +206,34 @@ function anchorInTranscript(
     }
   }
 
-  // 현재 재생 시각이 속한(또는 직전) cue.
+  // 클릭한 cue를 찾는다 — 재생 시각(currentTime)만으로 판단하면, 클릭이 cue 전환 직전/
+  // 직후 타이밍에 걸렸을 때 엉뚱한(다음/이전) cue를 골라버릴 수 있다(사용자 제보 —
+  // "different"를 클릭했는데 팝업엔 다음 cue 첫 단어가 선택된 채로 뜸: currentTime 이
+  // 이미 다음 cue 로 넘어가 있어 그 cue 를 골랐고, 그 cue 텍스트엔 클릭한 줄/단어가 없어
+  // 결국 그 cue 맨 앞 글자로 폴백됐던 것). 화면에 실제로 뜬 줄(currentLine)을 알고 있으니
+  // 시간보다 그 줄을 실제로 포함하는 cue 를 직접 찾는 쪽이 훨씬 정확하다 — 같은 줄이
+  // 여러 cue 에 걸쳐 반복될 수 있어(자막 특성상 드묾) 시간이 가장 가까운 후보를 고른다.
   let idx = -1
-  for (let i = 0; i < cues.length; i++) {
-    if (cues[i].start <= currentTime + 0.25) idx = i
-    else break
+  if (currentLine) {
+    let bestDist = Infinity
+    for (let i = 0; i < cues.length; i++) {
+      if (!cues[i].text.includes(currentLine)) continue
+      const dist = Math.abs(cues[i].start - currentTime)
+      if (dist < bestDist) {
+        bestDist = dist
+        idx = i
+      }
+    }
   }
-  if (idx < 0) idx = 0
+  if (idx < 0) {
+    // 폴백: currentLine 을 포함하는 cue 를 못 찾았으면(줄 자체가 캡션 정규화 등으로 살짝
+    // 달라졌을 가능성) 기존처럼 재생 시각 기준으로 고른다.
+    for (let i = 0; i < cues.length; i++) {
+      if (cues[i].start <= currentTime + 0.25) idx = i
+      else break
+    }
+    if (idx < 0) idx = 0
+  }
 
   // cue 안에서 클릭 단어 위치: 화면 줄이 cue 안 어디에 있는지 먼저 찾고 그 안의 단어 offset 을 더한다.
   const cueText = cues[idx].text

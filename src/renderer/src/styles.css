@@ -433,7 +433,7 @@ button:disabled { cursor: not-allowed; }
    진짜 원인은 char-level 전용이 아니라 이 padding 자체였다(예전엔 char-level 에서만
    0으로 없앴는데, 단어 단위에 남은 padding과 비교되면서 전환 시 차이가 여전히 보였음).
    양쪽 모드 모두 padding 을 없애 원문과 자간이 완전히 같게 통일한다. */
-.ctx-text .atom { border-radius: 2px; padding: 0; cursor: pointer; }
+.ctx-text .atom { border-radius: 4px; padding: 0; cursor: pointer; }
 /* hover(연보라 예고)와 .sel(선택 결과, 아래) 박스 크기를 통일한다(2026-07-29 사용자
    요청) — 예전엔 hover 는 그냥 background 만 칠해서 글자 자체의 폭(padding:0)만큼만
    차지했는데, .sel 은 box-shadow 로 상하좌우를 1.5px 씩 넓혀서 서로 크기가 달라
@@ -487,17 +487,17 @@ button:disabled { cursor: not-allowed; }
 }
 .ctx-text .sel.sel-start {
   box-shadow: 0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple), -1.5px 0 0 0 var(--purple);
-  border-radius: 2px 0 0 2px;
+  border-radius: 4px 0 0 4px;
 }
 .ctx-text .sel.sel-end {
   box-shadow: 0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
-  border-radius: 0 2px 2px 0;
+  border-radius: 0 4px 4px 0;
 }
 .ctx-text .sel.sel-start.sel-end {
   box-shadow:
     0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple),
     -1.5px 0 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
-  border-radius: 2px;
+  border-radius: 4px;
 }
 /* 툴바 */
 .toolbar {
