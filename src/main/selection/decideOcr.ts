@@ -23,7 +23,10 @@ function selectedWindowIsChrome(): boolean {
 
 export interface ExtractionDecision {
   // subtitle = 확장으로 원어 자막 추출(유튜브/넷플릭스 미디어 페이지)
-  mode: 'direct' | 'ocr' | 'subtitle'
+  // web = 확장으로 일반 웹페이지 본문 DOM 텍스트 추출(비미디어 브라우저 페이지) — 낙관적
+  // 판정이라 실제 텍스트 충분 여부는 webSource.ts: startWebMode()가 확인 후 부족하면
+  // 스스로 OCR 경로로 넘어간다(§4.1 "텍스트 양으로 분기" 원칙).
+  mode: 'direct' | 'ocr' | 'subtitle' | 'web'
   source: SelectionSource
   language: Language
 }
@@ -79,9 +82,9 @@ export async function decideExtraction(): Promise<ExtractionDecision> {
     if (browser.isMedia) {
       return { mode: 'subtitle', source: browser.source, language }
     }
-    // 일반 웹페이지: DOM 텍스트 추출은 후속 작업 — 지금은 OCR 로 폴백.
-    // (kind 는 web/youtube/netflix 로 유지해 캐싱·디버깅에 쓴다)
-    return { mode: 'ocr', source: browser.source, language }
+    // 일반 웹페이지: 확장의 범용 본문 탐지로 direct 추출을 우선 시도한다(낙관적 판정).
+    // 실제 텍스트가 부족하면 webSource.ts가 스스로 OCR 경로로 넘어간다(shortcut.ts 참고).
+    return { mode: 'web', source: browser.source, language }
   }
 
   // 표준 텍스트 컨트롤(메모장 등)이면 OCR 없이 바로 정확한 텍스트를 얻을 수 있다 —
