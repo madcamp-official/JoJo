@@ -10,6 +10,7 @@
 // 세계에서 실행한다(MAIN 월드는 chrome.runtime 을 못 써 postMessage 로 content.ts에 전달).
 ;(function () {
   const WEBVTT_PROFILE = 'webvtt-lssdh-ios8'
+  console.log('[nuance netflixHook] 훅 등록됨 (MAIN world)')
 
   function post(movieId: string, tracks: unknown): void {
     window.postMessage({ source: 'nuance-mainworld', kind: 'netflixManifest', movieId, tracks }, '*')
@@ -19,13 +20,22 @@
   JSON.parse = function (text: string, reviver?: (key: string, value: unknown) => unknown): unknown {
     const data = origParse(text, reviver)
     try {
+      // 진단(임시): 실제 매니페스트 응답이 JSON.parse를 통해 우리 손에 들어오긴 하는지,
+      // 들어온다면 실제 최상위 모양이 result.timedtexttracks 가정과 맞는지 확인한다 —
+      // 넷플릭스가 Response.json() 등 JSON.parse를 안 거치는 경로로 파싱하면 이 후킹
+      // 자체가 원천적으로 안 통한다.
+      if (typeof text === 'string' && text.includes('timedtexttracks')) {
+        const topKeys = data && typeof data === 'object' ? Object.keys(data as object) : []
+        console.log('[nuance netflixHook] timedtexttracks 포함 응답 감지, 최상위 키:', topKeys)
+      }
       const result = (data as { result?: { movieId?: number | string; timedtexttracks?: unknown } } | null)
         ?.result
       if (result && result.timedtexttracks && result.movieId !== undefined) {
+        console.log(`[nuance netflixHook] 매니페스트 확보 movieId=${result.movieId}`)
         post(String(result.movieId), result.timedtexttracks)
       }
-    } catch {
-      /* 무시 — 가로채기 실패해도 원래 파싱 결과는 그대로 반환 */
+    } catch (err) {
+      console.log('[nuance netflixHook] JSON.parse 후킹 처리 중 오류:', (err as Error)?.message)
     }
     return data
   }
@@ -37,6 +47,7 @@
       const profiles = value?.params?.profiles
       if (Array.isArray(profiles) && !profiles.includes(WEBVTT_PROFILE)) {
         profiles.unshift(WEBVTT_PROFILE)
+        console.log('[nuance netflixHook] webvtt 프로필 요청에 주입함')
       }
     } catch {
       /* 무시 */

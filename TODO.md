@@ -181,20 +181,20 @@
 
 **브라우저 확장 · 자막 추출 (MV3)**
 
-원래 담당 A(팝업 전) 영역이었으나 **담당 B로 이관**(2026-07-28) — 자막 버퍼(앞뒤 문맥)가 팝업 표시·문맥 구성과 직결돼 B의 문맥 로직과 붙어 있는 게 자연스러워서. 확장은 크롬(MV3)만 우선 대응. 통신은 native messaging 대신 **로컬 WebSocket**(Electron main이 localhost 서버, 확장 background가 클라이언트)으로 결정 — native messaging host의 OS별 매니페스트 등록(레지스트리/plist) 없이 개발·배포가 단순해서. 넷플릭스는 **DOM 우선 + OCR 폴백**, 착수는 **유튜브 먼저**.
+원래 담당 A(팝업 전) 영역이었으나 **담당 B로 이관**(2026-07-28) — 자막 버퍼(앞뒤 문맥)가 팝업 표시·문맥 구성과 직결돼 B의 문맥 로직과 붙어 있는 게 자연스러워서. 확장은 크롬(MV3)만 대응. 통신은 native messaging 대신 **로컬 WebSocket**(Electron main이 localhost 서버, 확장 background가 클라이언트)으로 결정 — native messaging host의 OS별 매니페스트 등록(레지스트리/plist) 없이 개발·배포가 단순해서. **유튜브·넷플릭스 둘 다 구현 완료**(2026-07-29, `feat/browser-subtitles`에 `feat/netflix-subtitles` 통합, dev 병합됨) — 이후 유지보수는 이 브랜치가 두 사이트 모두 담당.
 
-**핵심 설계(유튜브)**: 화면 자막 DOM(`.ytp-caption-segment`)에서 `getBoundingClientRect()`로 픽셀 좌표를 얻어 hover 단어 매핑에 쓰고(OCR 불필요), 동시에 **timedtext API**(`youtube.com/api/timedtext`, `ytInitialPlayerResponse`의 caption track URL)로 전체 타임코드 자막을 받아 "클릭한 줄 앞뒤 범위 자막" 문맥 버퍼로 쓴다(Language Reactor도 timedtext 방식). 좌표는 뷰포트 기준이라 브라우저 창 좌표계로 보정 후 기존 오버레이(`Overlay.tsx`/`wordMapping.ts`) 재사용.
+**핵심 설계(최종, 여러 번 갈아엎은 뒤 정착)**: 화면 자막 DOM(유튜브 `.ytp-caption-segment` / 넷플릭스 `.player-timedtext-text-container`, 공용 유틸 `extension/src/domWords.ts`)에서 단어별 뷰포트 좌표를 얻어 **hover 박스·클릭을 확장이 페이지 안에서 직접 그린다**(`extension/src/highlight.ts`) — 오버레이로 좌표를 앱에 릴레이하던 초기 설계는 크로스 프로세스 지연으로 hover가 어긋나 폐기. 전체 자막(앞뒤 문맥)은 **플레이어 자신의 실제 네트워크 요청을 MAIN world 스크립트로 가로채는 방식**으로 확보(유튜브는 `networkHook.ts`가 fetch/XHR 패치, 넷플릭스는 MSL 암호화라 `netflixNetworkHook.ts`가 `JSON.parse`/`JSON.stringify` 후킹) — 유튜브는 timedtext 직접 호출→InnerTube API→native TextTrack 순으로 시도했다가 전부 세션 검증/빈 응답으로 막혀 이 방식으로 정착(`extension/src/timedtext.ts` 상단 주석 참고). 자막은 언어 무관하게 CJK(한자/가나)는 글자 단위로 앵커링해 팝업이 열린 뒤 앱의 zh/ja 형태소 분석기가 실제 단어 경계로 재조합한다(`wordSegments` 프로토콜).
 
-- [ ] 확장 번들 파이프라인(크롬 MV3) — `extension/src/*.ts`(background/content) → `*.js` 빌드(vite/esbuild), `chrome://extensions` 로드 가능한 산출물 생성. native messaging host 등록은 WebSocket 채택으로 불필요.
-- [ ] 확장↔앱 WebSocket 통신 계층 — Electron main에 localhost WS 서버, background에 WS 클라이언트 + 재연결. 메시지 프로토콜(탭 변화 통지 / 자막 추출 결과 / 좌표 등) 타입을 `shared`에 정의.
-- [ ] 탭/URL 변화 감지 → 앱에 재판정 통지 — background `chrome.tabs.onUpdated`/`onActivated`로 활성 탭 URL을 앱에 전송, `decideOcr` 재판정(youtube watch = 확장 자막 경로 / 그 외 = 기존 OCR)으로 분기.
-- [ ] 유튜브 자막 DOM 추출 + 좌표 — content script가 watch 페이지의 자막 세그먼트에서 텍스트+bbox 추출, `MutationObserver`로 자막 갱신 추적.
-- [ ] 유튜브 timedtext 전체 자막 버퍼 — 앞뒤 범위 자막 문맥용 전체 타임코드 자막 확보(클릭 줄 기준 앞/뒤 N개 구성).
-- [ ] 좌표 보정 + 오버레이 연동 — 뷰포트 좌표 → 브라우저 창 좌표계 보정, 기존 오버레이 hover 하이라이트/단어 매핑 재사용.
-- [ ] 클릭 → `ExtractedSelection`(앞뒤 자막 포함) → 팝업 — 클릭한 줄 자막 + 앞뒤 범위를 문맥으로 실어 팝업 트리거.
-- [ ] (진행 중, `feat/netflix-subtitles`) 넷플릭스 자막 추출 — 화면 DOM hover/클릭은 유튜브와 같은 공용 유틸(`domWords.ts`)로 완료. 전체 자막(앞뒤 문맥)은 매니페스트가 MSL 암호화라 유튜브의 fetch/XHR 가로채기가 안 통해, 페이지의 `JSON.parse`/`JSON.stringify`를 후킹해 이미 복호화된 `timedtexttracks`를 엿보고 WebVTT 다운로드 URL을 얻는 방식(`netflixNetworkHook.ts`, Language Reactor류 도구와 동일 기법)으로 구현 — 받은 자막은 유튜브와 같은 `transcript` 파이프라인 재사용. dev 미병합, 실브라우저 검증 필요.
-- [ ] (후속) 웹페이지 DOM 텍스트 추출(태그 제외·문단 잇기) + 좌표 — 일반 웹페이지 대상, 유튜브 이후.
-- [ ] 선택 모드 단어 하이라이트 렌더 — 확장 쪽 페이지 위 사각형 하이라이트(오버레이 방식으로 대체 가능한지 함께 검토).
+- [x] ~~확장 번들 파이프라인~~ → `scripts/build-extension.mjs`(esbuild), 엔트리 4개(`background`/`content`/`networkHook`/`netflixNetworkHook`) → `extension/dist`. 메인 워크트리는 이 `dist`를 그대로 복사해 로드(워크트리에서 빌드 후 수동 복사).
+- [x] ~~확장↔앱 WebSocket 통신 계층~~ → `bridge.ts`(main)/`background.ts`(확장). keepalive ping, 지수 백오프 재접속, `chrome.alarms`로 서비스워커 강제 기상, 재접속 시 desired 상태(자막 캡처 on/off) 재동기화까지 포함.
+- [x] ~~탭/URL 변화 감지 → 앱에 재판정 통지~~ → `activeTab.ts`(`activeTabTracker`), 분류(kind+isMedia)가 실제로 바뀔 때만 재판정/로그.
+- [x] ~~유튜브 자막 DOM 추출 + 좌표~~ → `youtube.ts` + 공용 `domWords.ts`(CJK 글자 단위 토큰화, 후리가나 `<rt>`/`<rp>` 제외, `MutationObserver`+300ms 폴링 폴백).
+- [x] ~~유튜브 timedtext 전체 자막 버퍼~~ → 네트워크 가로채기(`networkHook.ts`)로 확보, `subtitleSource.ts`가 문장 종결부호 기준(없으면 cue 단위) 줄바꿈으로 조립.
+- [x] ~~좌표 보정 + 오버레이 연동~~ → 오버레이 릴레이 방식 폐기, 확장이 페이지 안에서 직접 hover 박스를 그리는 방식(`highlight.ts`)으로 대체돼 좌표 보정 자체가 불필요해짐.
+- [x] ~~클릭 → `ExtractedSelection`(앞뒤 자막 포함) → 팝업~~ → `subtitleSource.ts`(`buildSelection`/`anchorInTranscript`), 팝업 열림/닫힘에 맞춰 영상 자동 일시정지/재생 + 팝업 닫힘 후 브라우저로 OS 포커스 복귀까지 구현.
+- [x] ~~넷플릭스 자막 추출~~ → `feat/netflix-subtitles`를 병합 통합(2026-07-29). 매니페스트 `JSON.parse`/`JSON.stringify` 후킹(`netflixNetworkHook.ts`, Language Reactor류 도구와 동일 기법)으로 WebVTT 다운로드 URL 확보 → `parseWebVtt`로 파싱 → 유튜브와 같은 `transcript` 파이프라인 재사용. 실브라우저 검증 중 발견한 버그 다수 수정: 매니페스트 재시도 차단(첫 매니페스트 실패 시 영영 재시도 안 함), 전체화면 중 hover 박스가 top layer 밖이라 안 보임, 후리가나가 자막 본문에 섞임. **미해결**: 넷플릭스에서 앞뒤 문맥 자막이 팝업에 안 뜨는 문제 — 아래 "미해결 문제" 참고.
+- [x] ~~선택 모드 단어 하이라이트 렌더~~ → `highlight.ts`(오버레이 대신 페이지 내부 직접 렌더로 확정). hover 시 커서를 pointer로 변경.
+- [ ] (후속) 웹페이지 DOM 텍스트 추출(태그 제외·문단 잇기) + 좌표 — 일반 웹페이지 대상, 유튜브·넷플릭스 이후.
 
 <a id="공동"></a>
 
@@ -243,3 +243,4 @@
 - [ ] (담당 B) 팝업에서 선택 영역을 바꿨는데도 AI 질문에 이전 선택 영역이 들어간다는 사용자 제보 — **재현 실패**. Electron 앱을 실제로 띄워(Playwright `_electron` 드라이버) 드래그 직후 질문, 드래그→드래그→질문, 클릭 선택→채팅 입력창으로 질문 세 시나리오를 확인했으나 매번 `currentCtx.selectedText`(`PopupScreen.tsx`)가 최신 선택과 정확히 일치했음(디버그 로그로 직접 확인). `send()`가 매 렌더마다 새로 생성되는 클로저라 구조적으로도 최신 값을 참조해야 정상. 재현되는 정확한 조작 순서(스트리밍 응답 도중 선택 변경 여부, 팝업 재사용 상태였는지 등) 확인 필요 — 사용자에게 재문의 요청함, 답 오면 재조사.
 - [ ] (담당 B) 팝업에서 마우스 커서가 가만히 있어도 "진동"한다는 사용자 제보 — **원인 특정 실패**. 5초간 완전 idle 상태에서 `MutationObserver`로 DOM 변화를 관찰했으나 0건(리렌더 루프 아님). 다만 OS 마우스 커서 아이콘 자체의 문제라면 페이지 스크린샷/DOM 관찰로는 원천적으로 확인이 안 되는 영역이라 이 방법으로는 검증 한계가 있음 — 정확히 무엇이 진동하는지(마우스 커서 아이콘 vs 화면 특정 UI 요소, 발생 조건) 사용자에게 재문의 필요.
 - [ ] (담당 A) NDLOCR-Lite 세로쓰기 인식 — 縦中横 숫자·"……" 등이 스페이스 마커도 없이 조용히 빠지는 "완전 침묵" 케이스를 여러 방향으로 시도했으나 못 잡음(2026-07-29, 페이지 전체 실측으로 확정) — 상세 근거는 위 "OCR 엔진 연동 → 언어별 특화 엔진" 항목 참고. 시도했다가 효과 없어서 되돌린 것들: (1) 줄 자신의 bbox 안 잉크 픽셀 합산을 기대치와 비교(미검출/과다인식 양방향) — 신호가 40자 안에 묻혀 소수 글자 차이는 감지 안 됨. (2) 줄 끝 반복 문자(예: "………")의 마지막 칸 국소 잉크 검사 — 효과 제한적이고 판단 근거 자체가 case-by-case. (3) PaddleOCR 검출 전용 API로 NDLOCR bbox 밖에 내용이 더 있는지 확인 — 페이지 17줄 전부에서 PaddleOCR 독자 경계가 NDLOCR bbox 를 넘어선 줄이 하나도 없어서(NDLOCR bbox 가 이미 정확/넉넉), 이 접근 자체가 원리적으로 이 종류의 누락엔 신호를 못 준다는 게 확인됨. 남은 선택지는 의심 여부와 무관하게 다른 엔진(Yomitoku 등)으로 상시 재대조하는 것 정도인데 속도 트레이드오프가 있어 보류 중.
+- [ ] (담당 B) 넷플릭스에서 클릭 시 팝업에 앞뒤 문맥 자막이 안 뜨고 현재 줄만 보임(2026-07-29 사용자 제보) — **원인 특정 중**. 같은 세션에서 이미 한 번 확인된 것과 같은 종류의 문제(`bridge.ts`의 `lastTranscript`가 지금 보고 있는 영상 것인지 검증 안 됨 — 유튜브에서 넷플릭스로 탭 전환 시 이전 유튜브 자막이 새던 버그)는 `subtitleClick`에 videoId를 실어 검증하도록 이미 수정·병합함(`subtitleSource.ts` `buildSelection`). 그런데도 넷플릭스 단독 사용 시에도 문맥이 안 뜬다는 제보라 별도 원인일 가능성 — `pickNetflixTrack`이 webvtt 프로필 트랙을 못 찾거나(매니페스트에 `JSON.stringify` 후킹이 프로필 주입을 못 했거나) WebVTT fetch/파싱이 실패하는 넷플릭스 고유 경로 문제로 추정. 재현 시 확인할 로그를 심어둠: 넷플릭스 탭 콘솔의 `[nuance content] 넷플릭스 매니페스트 수신/webvtt 트랙 없음/자막 확보` 계열과, 앱 터미널의 `[subtitleSource] click hit.videoId=... transcript.videoId=... cues=...`(둘 다 `subtitleSource.ts`/`content.ts`) — 이 로그로 videoId 불일치인지 transcript 자체가 없는지부터 가른다.

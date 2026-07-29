@@ -159,7 +159,7 @@
 - **앱**: Electron(메인 = Node, 렌더러·오버레이 = 웹) + TypeScript + React(렌더러 UI).
 - **캡처/오버레이**: 창 열거·캡처는 Windows 네이티브 win32(user32/gdi32/dwmapi, `koffi` FFI 바인딩)를 우선 사용(가려진/최소화된 창까지 캡처, `desktopCapturer`는 win32 네이티브 열거가 실패했을 때만 쓰는 최종 폴백). macOS는 창 "목록"엔 `desktopCapturer`(현재 가상 데스크탑/Space에 보이는 창만)를 그대로 쓴다 — 다른 Space의 창까지 열거하는 확장을 시도했으나(`CGWindowListCopyWindowInfo`를 `kCGWindowListExcludeDesktopElements`로 직접 호출) 목록이 지저분해지는 등 UX가 나빠져 원복했다(TODO.md 참고). 테두리 정렬·창 raise는 macOS도 CoreGraphics/AppKit을 `koffi`로 직접 바인딩(`main/selection/macWindow.ts`)해서 하고, 실제 화면 캡처엔 내장 `screencapture -l<windowID>`를 사용. koffi FFI는 Windows 전용이 아니라 두 플랫폼 모두에서 쓰인다. 투명·클릭스루 BrowserWindow, `globalShortcut`.
 - **OCR**: Tesseract.js(로컬) 또는 클라우드 OCR(정확도 우선 시) — 벤치 후 결정. 중국어는 `chi_sim+chi_tra` 언어팩을 함께 로드해 간체/번체를 자동 판별. 일/중 단어 경계는 OCR 결과를 일본어(Lindera/Sudachi 중 택1)/중국어(zh-Hans는 jieba 고정, zh-Hant는 Intl.Segmenter/chinese-tokenizer 중 택1)(`main/nlp/`)로 재분할해 의미 단위로 맞춘다.
-- **확장**: 브라우저 확장(Manifest V3) + native messaging.
+- **확장**: 브라우저 확장(Manifest V3) + 로컬 WebSocket(Electron main이 서버, 확장 background가 클라이언트) — native messaging은 OS별 호스트 매니페스트 등록이 번거로워 실제 구현 단계에서 WebSocket으로 결정(TODO.md 참고).
 - **API**: LLM 3종 어댑터(GPT/Gemini/Claude), 사전 API(언어별), 구글 웹/이미지 탭.
 - **보안**: API 키는 Electron `safeStorage`로 로컬 암호화 저장.
 - **언어 감지**: 자동 감지 + OCR 필요 시, 언어 특화 OCR 전에 경량 분류 모델 또는 범용 OCR로 언어를 먼저 특정.
@@ -187,7 +187,7 @@ flowchart TB
 
     SVC["☁️ 외부 서비스<br/>LLM(GPT/Gemini/Claude) · 사전 API · Google"]
 
-    EXT -- "native messaging" --> MAIN
+    EXT -- "로컬 WebSocket" --> MAIN
     MAIN --> PA
     MAIN --> PB
     MAIN --> OVL
@@ -212,8 +212,8 @@ flowchart TB
 - 창 선택/화면 캡처(win32는 네이티브 우선·desktopCapturer 폴백, macOS는 창 목록에 desktopCapturer 그대로 사용), 오버레이 윈도우, 전역 단축키, 모드 전환.
 - OCR 파이프라인(캡처→언어 감지→언어 특화 OCR→좌표 매핑) + 노이즈 제거.
 - 소스별 직접 추출(txt/epub/PDF) + 접근성 API(AX/UIA)로 전자책 뷰어 렌더 텍스트 추출, OCR 여부 판정 로직·판정 시점 캐싱.
-- 브라우저 확장(DOM 텍스트, 유튜브/넷플릭스 자막, 단어 하이라이트) + 앱과 native messaging.
-- 접근성 API로 탭/URL 변화 감지.
+- 브라우저 확장(유튜브/넷플릭스 자막, 단어 하이라이트) + 앱과 로컬 WebSocket — 실제 구현은 자막 문맥 로직과의 결합도 때문에 담당 B로 이관됨(TODO.md 참고), DOM 텍스트(일반 웹페이지)는 A 영역으로 후속 예정.
+- 확장이 `chrome.tabs` API로 탭/URL 변화를 감지해 WS로 앱에 보고.
 - 단어 hover 피드백·클릭 감지 → 팝업 트리거.
 - **산출**: 클릭 시점의 `ExtractedSelection`(근방 텍스트 + 단어 좌표 + 클릭 기준점)을 B로 넘긴다(최종 선택 확정은 B가 팝업에서).
 
@@ -390,13 +390,18 @@ JoJo/
 │                   ├── mockSelection.ts     #   데모용 목업 ExtractedSelection(영/일/중)
 │                   ├── frequentStore.ts     #   자주 쓰는 질문 렌더러측 얇은 IPC 래퍼
 │                   └── types.ts             #   ChatMessage 등 팝업 전용 타입
-└── extension/                   # 🅰️ 브라우저 확장(MV3) — 담당 A, 전혀 미구현
+└── extension/                   # 🅱️ 브라우저 확장(MV3) — 유튜브/넷플릭스 자막 구현 완료(담당 B로 이관)
     ├── manifest.json
     └── src/
-        ├── background.ts        #   native messaging 브릿지 + 탭/URL 감지(TODO만 존재)
-        └── content.ts           #   DOM 텍스트·자막 추출 + 하이라이트(TODO만 존재)
+        ├── background.ts        #   WS 브릿지 + 탭/URL 감지 + 확장↔content 메시지 중계
+        ├── content.ts           #   화면 자막 hover/클릭 + 전체 자막 확보 결과 취합
+        ├── youtube.ts / netflix.ts  # 사이트별 DOM 자막 추출
+        ├── domWords.ts          #   공용 단어 좌표 유틸(CJK 글자 단위, 후리가나 제외)
+        ├── highlight.ts         #   hover 박스/클릭을 페이지 안에서 직접 렌더
+        ├── networkHook.ts / netflixNetworkHook.ts  # MAIN world 네트워크 가로채기(전체 자막 확보)
+        └── timedtext.ts / captionParse.ts          # videoId 파싱 / 자막 응답 포맷 파서
 ```
 
-**시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `chrome://extensions`에서 `extension/`을 로드하고 native messaging host를 등록해야 함(추후 번들러 설정 TODO).
+**시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `npm run build:ext`로 빌드한 `extension/dist`를 `chrome://extensions`에서 로드(개발자 모드 → 압축해제된 확장 프로그램 로드) — native messaging host 등록 불필요(로컬 WebSocket 사용).
 
-**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, 직접 추출(epub/pdf/web)·접근성 API(AX/UIA)·언어 자동 감지·브라우저 확장은 아직 미구현/스텁. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)·브라우저 확장(유튜브·넷플릭스 자막)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract/NDLOCR/PaddleOCR→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, 직접 추출(epub/pdf/web)·접근성 API(AX/UIA)·언어 자동 감지는 아직 미구현/스텁. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
