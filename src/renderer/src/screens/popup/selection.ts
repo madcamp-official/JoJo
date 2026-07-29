@@ -305,15 +305,14 @@ function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWo
   const atoms: Atom[] = []
   let i = 0
   while (i < text.length) {
-    LATIN_ATOM_RE.lastIndex = i
-    const latin = LATIN_ATOM_RE.exec(text)
-    if (latin) {
-      atoms.push({ start: i, end: i + latin[0].length })
-      i += latin[0].length
-      continue
-    }
-    // OCR 단어 클릭(main/nlp/chinese.ts segmentChineseWords)과 동일하게, 확정된 단어
-    // 경계가 이 위치에서 시작하면 한자 하나가 아니라 단어 전체를 atom 하나로 쓴다.
+    // CJK 전용 분기(zhWord/가나/한자)를 LATIN_ATOM_RE 보다 먼저 검사한다 — LATIN_ATOM_RE
+    // 가 공유 패턴(WORD_ATOM_PATTERN, `\p{L}\p{N}` 기반)으로 바뀌면서 한글·키릴 등을
+    // 포함하도록 넓어졌는데, 유니코드 `\p{L}`은 한자·가나도 "문자"로 분류해서 CJK 런
+    // 전체를 통째로 한 atom 으로 greedy 매칭해버리는 회귀가 있었다(사용자 피드백,
+    // 2026-07-29 — "팝업 선택 영역이 줄 단위로 바뀜": 일본어는 형태소 분석 엔진 단위,
+    // 중국어는 zhWords 단어 단위를 유지해야 하는데 문장 전체가 한 atom 이 돼버림).
+    // CJK 분기를 먼저 시도해 각 언어의 원래 세분화 로직이 우선 적용되게 하고, 그 외
+    // (라틴/한글/키릴 등 진짜 비-CJK 문자)만 LATIN_ATOM_RE 로 떨어지게 한다.
     const zhWordEnd = zhWordEndAt?.(i)
     if (zhWordEnd !== undefined) {
       atoms.push({ start: i, end: zhWordEnd })
@@ -335,6 +334,13 @@ function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWo
     if (KANJI_CHAR_RE.test(text[i]!)) {
       atoms.push({ start: i, end: i + 1 })
       i += 1
+      continue
+    }
+    LATIN_ATOM_RE.lastIndex = i
+    const latin = LATIN_ATOM_RE.exec(text)
+    if (latin) {
+      atoms.push({ start: i, end: i + latin[0].length })
+      i += latin[0].length
       continue
     }
     i += 1
