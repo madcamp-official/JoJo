@@ -12,7 +12,7 @@ import {
   type WordSegment,
 } from '@shared/extension'
 import { segmentChineseWords } from '../nlp/chinese'
-import { tokenizeJapanese } from '../nlp/japanese'
+import { segmentJapaneseWords } from '../nlp/japanese'
 
 export interface Transcript {
   videoId: string
@@ -199,9 +199,15 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
 
   private async segmentAndSend(text: string, lang: 'ja' | 'zh-Hans' | 'zh-Hant'): Promise<void> {
     try {
+      // ja는 원시 형태소(tokenizeJapanese)가 아니라 segmentJapaneseWords(OCR 단어 분리와
+      // 동일 — JA_ENGINE에 맞는 mergeJaTokens/mergeJaTokensUnidic으로 문절 단위까지 병합)를
+      // 써야 한다 — 팝업의 atom 경계(popup/selection.ts mergeJaTokensForEngine)와 동일한
+      // 기준이어야, hover 박스에서 묶이는 단위와 클릭 후 팝업에서 묶이는 단위가 일치한다.
+      // 원시 토큰을 그대로 쓰면 "食べられちゃった"가 자막에선 食べ/られちゃっ/た로 쪼개져
+      // 보이는데 팝업에선 하나로 묶여 나오는 불일치가 생겼다(2026-07-29 사용자 제보).
       const words: WordSegment[] =
         lang === 'ja'
-          ? (await tokenizeJapanese(text)).map((t) => ({ start: t.start, end: t.start + t.surface.length }))
+          ? (await segmentJapaneseWords(text)).map((t) => ({ start: t.start, end: t.end }))
           : (await segmentChineseWords(text, lang)).map((w) => ({ start: w.start, end: w.end }))
       if (words.length === 0) return
       this.send({ type: 'wordSegments', lineText: text, words })
