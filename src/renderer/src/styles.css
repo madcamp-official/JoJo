@@ -373,6 +373,9 @@ button:disabled { cursor: not-allowed; }
 .ctx-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; padding: 0 12px; }
 .ctx-label { font-size: 14px; font-weight: 600; color: #374151; }
 .ctx-hint { font-size: 13px; color: #8b93a1; }
+/* 범위 지정 헤더 우측 상단(2026-07-30, 툴바에서 이동) — margin-left:auto 로 같은 줄 안에서
+   맨 오른쪽으로 밀어낸다. */
+.ctx-char-level-toggle { margin-left: auto; }
 .ctx-text {
   /* OCR 단계(ocr.ts: normalizeOcrText)에서 이미 "캡처 당시 창 폭 기준으로 어쩌다 끊긴"
      단일 개행은 공백으로 합치고 진짜 문단 구분(연속 개행)만 남겨뒀다 — 그래서 여기서는

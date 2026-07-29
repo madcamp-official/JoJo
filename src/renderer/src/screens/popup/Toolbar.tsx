@@ -14,10 +14,9 @@ import type { DictionarySourceId, DictionarySourceOption } from '@shared/types'
 // 드롭다운 자체는 항상 보여주되(토글과 무관하게 다음 소스 목록 확인용), 토글이 꺼져
 // 있을 땐 disabled 로 "지금은 이 선택이 반영 안 됨"을 시각적으로 알린다.
 //
-// showCharLevelToggle/charLevel/onToggleCharLevel: ja/zh 전용 "문자 단위" 선택 토글
-// (2026-07-28) — 한자 하나하나의 뜻이 궁금할 수 있어, 팝업 범위 지정 단위를 기본
-// 단어 단위에서 한 글자씩으로 바꿔볼 수 있게 한다(selection.ts 참고). en 은 애초에
-// 단어 단위 개념만 있어 showCharLevelToggle=false 로 토글 자체를 숨긴다.
+// "문자 단위" 선택 토글은 여기 없다 — PopupScreen.tsx의 "범위 지정" 헤더(.ctx-head)로
+// 이동함(2026-07-30, 사용자 요청) — 그 범위 지정 영역에 적용되는 옵션이라 툴바보다
+// 거기 붙어있는 게 더 자연스럽다는 판단.
 //
 // showNaverDict/showAiDictionary: 언어 tier(2026-07-30 도입)별 기능 게이팅 — 계산은
 // PopupScreen.tsx가 하고(shared/languages.ts hasNaverDict/isFullLanguage) 여기는 그
@@ -41,9 +40,6 @@ interface Props {
   onSelectSource: (id: DictionarySourceId) => void
   forceSource: boolean
   onToggleForceSource: (value: boolean) => void
-  showCharLevelToggle: boolean
-  charLevel: boolean
-  onToggleCharLevel: (value: boolean) => void
 }
 
 function GoogleIcon() {
@@ -91,9 +87,6 @@ export function Toolbar({
   onSelectSource,
   forceSource,
   onToggleForceSource,
-  showCharLevelToggle,
-  charLevel,
-  onToggleCharLevel,
 }: Props) {
   return (
     <div className="toolbar">
@@ -116,18 +109,6 @@ export function Toolbar({
             사전
           </button>
         </>
-      )}
-
-      {showCharLevelToggle && (
-        <label className="char-level-toggle">
-          <input
-            type="checkbox"
-            checked={charLevel}
-            disabled={disabled}
-            onChange={(e) => onToggleCharLevel(e.target.checked)}
-          />
-          문자 단위 선택
-        </label>
       )}
 
       <span className="tb-spacer" />

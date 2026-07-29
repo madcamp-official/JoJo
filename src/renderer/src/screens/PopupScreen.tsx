@@ -482,6 +482,17 @@ export function PopupScreen() {
           <div className="ctx-head">
             <span className="ctx-label">범위 지정</span>
             <span className="ctx-hint">선택한 표현은 자동으로 클립보드에 복사돼요</span>
+            {isCjkLikeLanguage(baseCtx.language) && (
+              <label className="char-level-toggle ctx-char-level-toggle">
+                <input
+                  type="checkbox"
+                  checked={charLevel}
+                  disabled={busy}
+                  onChange={(e) => setCharLevel(e.target.checked)}
+                />
+                문자 단위 선택
+              </label>
+            )}
           </div>
           <ContextView
             rootRef={ctxRootRef}
@@ -514,9 +525,6 @@ export function PopupScreen() {
           onSelectSource={setSelectedSource}
           forceSource={forceSource}
           onToggleForceSource={setForceSource}
-          showCharLevelToggle={isCjkLikeLanguage(baseCtx.language)}
-          charLevel={charLevel}
-          onToggleCharLevel={setCharLevel}
         />
 
         <Chat messages={messages} onSend={ask} busy={busy} />
