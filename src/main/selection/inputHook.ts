@@ -8,11 +8,10 @@
 // "이동"(hover 의 원인, WM_MOUSEMOVE)은 명시적으로 무시한다.
 //
 // 크로스플랫폼(타깃: Windows/macOS): 이 방식(SetWindowsHookEx)은 win32 전용 API라
-// macOS 에는 없다(대응하려면 CGEventTap+손쉬운 사용 권한 필요 — 아직 없음, TODO.md
-// 참고). 그래서 이 모듈은 win32Capture.ts 와 같은 패턴으로 macOS 에서 아예 안
-// 불러지게 하고, changeWatcher.ts 는 이 훅이 없는 플랫폼에서는 "입력 게이트"를 그냥
-// 통과시켜(항상 최신 입력이 있었던 것으로 간주) 기존 동작(픽셀 diff만으로 판단)을
-// 그대로 유지한다 — 새 필터링 기능이 없을 뿐 기존 동작이 깨지지는 않는다.
+// macOS 에는 없다 — 그래서 이 모듈은 win32Capture.ts 와 같은 패턴으로 macOS 에서 아예
+// 안 불러지게 한다. macOS 는 대신 macInput.ts 가 훨씬 가벼운 공개 API
+// (CGEventSourceSecondsSinceLastEventType, 권한 불필요)로 동일한 게이트를 제공한다
+// (2026-07-29 추가). changeWatcher.ts: getLastInputTime 이 플랫폼별로 알맞은 쪽을 부른다.
 //
 // 저수준 후크는 설치한 스레드의 메시지 루프가 계속 펌핑돼야 콜백이 실행된다 —
 // Electron 메인 프로세스는 자신의 창(BrowserWindow 등)을 위해 이미 Windows 메시지

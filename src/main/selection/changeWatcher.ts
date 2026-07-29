@@ -18,21 +18,29 @@ const DIFF_RATIO_THRESHOLD = 0.02
 
 // 실측 확인(사용자 보고): 브라우저 같은 화면은 hover 로 생기는 밑줄/툴팁 등 작은
 // 시각 변화가 잦아서, 픽셀 diff 만으로 재추출을 걸면 스크롤/클릭/키 입력과 무관한
-// 변화에도 너무 민감하게 반응했다. inputHook.ts(Windows 전용 저수준 후크)가 기록해둔
-// "마지막 스크롤/클릭/키보드 입력 시각"이 이 시간(ms) 이내여야만 diff 를 진짜 변화로
-// 인정한다 — 폴링 주기(500ms)+처리 지연을 감안한 여유치.
+// 변화에도 너무 민감하게 반응했다. inputHook.ts(win32 저수준 후크)/macInput.ts(mac
+// CGEventSourceSecondsSinceLastEventType 폴링)가 알려주는 "마지막 스크롤/클릭/키보드
+// 입력 시각"이 이 시간(ms) 이내여야만 diff 를 진짜 변화로 인정한다 — 폴링 주기(500ms)+
+// 처리 지연을 감안한 여유치.
 const INPUT_FRESHNESS_MS = 1500
 
 /**
- * 마지막으로 "진짜 사용자 입력"(스크롤/클릭/키보드)이 있었던 시각을 얻는다.
- * Windows 전용 기능(inputHook.ts)이라 다른 플랫폼에서는 이 게이트 자체를 항상
- * 통과시킨다(현재 시각을 반환) — 새 필터링 기능이 없을 뿐 기존 동작(픽셀 diff 만으로
- * 판단)은 그대로 유지된다.
+ * 마지막으로 "진짜 사용자 입력"(스크롤/클릭/키보드)이 있었던 시각을 얻는다. win32 는
+ * 저수준 후크(inputHook.ts), mac 은 권한이 필요 없는 `CGEventSourceSecondsSinceLastEventType`
+ * 폴링(macInput.ts, 2026-07-29 추가 — win32/mac 격차 감사로 발견된 gap 을 메움)으로
+ * 각각 구현한다. 그 외 플랫폼(미지원)에서는 이 게이트 자체를 항상 통과시킨다(현재 시각을
+ * 반환) — 새 필터링 기능이 없을 뿐 기존 동작(픽셀 diff 만으로 판단)은 그대로 유지된다.
  */
 async function getLastInputTime(): Promise<number> {
-  if (process.platform !== 'win32') return Date.now()
-  const { getLastQualifyingInputTime } = await import('./inputHook')
-  return getLastQualifyingInputTime()
+  if (process.platform === 'win32') {
+    const { getLastQualifyingInputTime } = await import('./inputHook')
+    return getLastQualifyingInputTime()
+  }
+  if (process.platform === 'darwin') {
+    const { getMacLastQualifyingInputTime } = await import('./macInput')
+    return getMacLastQualifyingInputTime()
+  }
+  return Date.now()
 }
 
 let running = false
