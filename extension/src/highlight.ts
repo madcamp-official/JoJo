@@ -35,6 +35,7 @@ function ensureBox(): HTMLDivElement {
 
 function hideBox(): void {
   if (box) box.style.display = 'none'
+  setHoveringCursor(false)
 }
 
 function showBoxAt(rect: RectPx): void {
@@ -45,6 +46,18 @@ function showBoxAt(rect: RectPx): void {
   el.style.width = `${rect.width + p * 2}px`
   el.style.height = `${rect.height + p * 2}px`
   el.style.display = 'block'
+  setHoveringCursor(true)
+}
+
+// 박스 자신은 pointerEvents:none 이라 실제 마우스는 유튜브 자막 DOM(밑에 깔린 요소)이
+// 받는다 — 그래서 박스에 cursor 를 줘도 반영이 안 되고, 대신 문서 전체 cursor 를 강제해야
+// 커서가 클릭 가능함을 나타내는 손 모양(검지 편 모양, pointer)으로 바뀐다.
+let cursorOverridden = false
+function setHoveringCursor(hovering: boolean): void {
+  if (hovering === cursorOverridden) return
+  cursorOverridden = hovering
+  if (hovering) document.documentElement.style.setProperty('cursor', 'pointer', 'important')
+  else document.documentElement.style.removeProperty('cursor')
 }
 
 function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect: RectPx }) | null {
