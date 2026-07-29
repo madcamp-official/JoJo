@@ -44,19 +44,24 @@ export function findLineWordsAtPoint(words: Word[], point: Point): Word[] {
   return words.filter((w) => w.lineId === hit.lineId)
 }
 
-/** Word[] 전체를 감싸는 bbox(합집합) — bbox 없는 단어는 무시. 하나도 없으면 null. */
-export function unionBbox(words: Word[]): Rect | null {
+/** x/y/width/height 를 가진 사각형 여럿의 합집합(bounding box) — 하나도 없으면 null.
+ *  Word.bbox, 확장의 RectPx, DOMRect(getClientRects()) 모두 이 셰이프를 만족해 그대로 쓸 수 있다. */
+export function unionRects(rects: { x: number; y: number; width: number; height: number }[]): Rect | null {
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
-  for (const w of words) {
-    if (!w.bbox) continue
-    minX = Math.min(minX, w.bbox.x)
-    minY = Math.min(minY, w.bbox.y)
-    maxX = Math.max(maxX, w.bbox.x + w.bbox.width)
-    maxY = Math.max(maxY, w.bbox.y + w.bbox.height)
+  for (const r of rects) {
+    minX = Math.min(minX, r.x)
+    minY = Math.min(minY, r.y)
+    maxX = Math.max(maxX, r.x + r.width)
+    maxY = Math.max(maxY, r.y + r.height)
   }
   if (minX === Infinity) return null
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
+/** Word[] 전체를 감싸는 bbox(합집합) — bbox 없는 단어는 무시. 하나도 없으면 null. */
+export function unionBbox(words: Word[]): Rect | null {
+  return unionRects(words.filter((w) => w.bbox).map((w) => w.bbox!))
 }

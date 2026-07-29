@@ -1,6 +1,7 @@
 import { Jieba } from '@node-rs/jieba'
 import { dict } from '@node-rs/jieba/dict.js'
 import type { ZhWord } from '@shared/types'
+import { HAN_CHAR_RE } from '@shared/cjkDetect'
 
 // jieba(@node-rs/jieba, Rust/NAPI-RS) — zh-Hans(간체) 전용 엔진. main/nlp/chinese.ts 의
 // 디스패처가 호출한다. 실측 비교(사내 비교 보고서)에서 간체 F1 1.00(참조 문장 전부 일치),
@@ -15,8 +16,6 @@ function getJieba(): Jieba {
   return jiebaInstance
 }
 
-const HAS_HAN_CHAR_RE = /[一-鿿㐀-䶿]/
-
 export function segmentJiebaWords(text: string): ZhWord[] {
   if (!text) return []
   const jieba = getJieba()
@@ -25,7 +24,7 @@ export function segmentJiebaWords(text: string): ZhWord[] {
   for (const w of jieba.cut(text)) {
     const start = offset
     offset += w.length
-    if (HAS_HAN_CHAR_RE.test(w)) words.push({ text: w, start, end: offset })
+    if (HAN_CHAR_RE.test(w)) words.push({ text: w, start, end: offset })
   }
   return words
 }

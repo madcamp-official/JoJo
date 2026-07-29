@@ -11,23 +11,13 @@ import {
   type TranscriptCue,
   type WordSegment,
 } from '@shared/extension'
+import { detectCjkLanguage } from '@shared/cjkDetect'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
 
 export interface Transcript {
   videoId: string
   cues: TranscriptCue[]
-}
-
-// 자막 줄이 CJK(ja/zh)인지 판별 — 라틴 등 그 외는 null(브라우저의 공백 기준 단어 분리로
-// 이미 충분해 세그멘테이션 불필요). subtitleSource.ts의 언어 판별과 같은 휴리스틱이지만,
-// 그쪽을 그대로 import 하면 bridge.ts ↔ subtitleSource.ts 순환 참조가 생겨 여기 따로 둔다.
-function detectCjkLine(text: string): 'ja' | 'zh-Hans' | 'zh-Hant' | null {
-  if (/[぀-ヿ]/.test(text)) return 'ja'
-  if (/[一-鿿]/.test(text)) {
-    return /[们么这来国对时会说无个开关问题东买卖车马语门]/.test(text) ? 'zh-Hans' : 'zh-Hant'
-  }
-  return null
 }
 
 // 담당 B — 크롬 확장 브릿지 (Electron main 쪽 WebSocket 서버).
@@ -190,7 +180,9 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   private requestWordSegments(lineTexts: string[]): void {
     for (const text of lineTexts) {
       if (!text || this.segmentedLines.has(text)) continue
-      const lang = detectCjkLine(text)
+      // CJK(ja/zh)가 아니면 세그멘테이션 불필요 — 라틴 등은 브라우저의 공백 기준
+      // 단어 분리로 이미 충분하다.
+      const lang = detectCjkLanguage(text)
       if (!lang) continue
       this.segmentedLines.add(text)
       void this.segmentAndSend(text, lang)
