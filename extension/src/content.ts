@@ -106,7 +106,12 @@ interface NetflixTrack {
   ttDownloadables?: Record<string, NetflixDownloadable>
 }
 
-let lastNetflixMovieId = ''
+// movieId 만이 아니라 "movieId|언어" 단위로 확보 여부를 기억한다 — 같은 영상을 보다가
+// 넷플릭스 자막 언어를 바꾸면(영어→일본어 등) 화면 자막 언어가 바뀌므로, movieId만 잠그면
+// 재요청이 아예 안 돼 예전 언어 문맥이 계속 팝업에 뜬다(2026-07-29 사용자 제보). 매니페스트
+// 는 이미 pendingNetflix.tracks 에 모든 언어 트랙이 다 들어있으므로, 언어가 바뀐 걸
+// 감지하면 새 네트워크 요청 없이(캐시된 트랙 목록에서 다시 고르기만) 재확보한다.
+let lastNetflixKey = ''
 // 매니페스트로 받은 트랙 목록을 저장해뒀다가, 화면에 자막이 실제로 떠서 언어를 판정할 수
 // 있을 때 그 언어에 맞는 트랙을 골라 fetch 한다 — 매니페스트는 재생 극초반(자막 아직 안
 // 뜸)에 오므로, 그 시점에 언어를 정하면 화면 자막이 뭐든 항상 기본값(en)으로 잘못 고른다.
@@ -147,15 +152,24 @@ function pickNetflixTrack(tracks: NetflixTrack[], domText: string): NetflixTrack
 
 // pendingNetflix(매니페스트)가 있고 화면에 자막이 떠 있으면, 그 언어로 트랙을 골라 확보한다.
 // 화면 자막이 아직 없으면(재생 초반) 언어 판정을 못 하니 다음 스냅샷에서 재시도한다.
+// movieId 뿐 아니라 화면 자막 언어까지 키에 넣어서, 같은 영상에서 자막 언어를 바꾸면
+// (캐시된 매니페스트 안에서) 새 언어 트랙으로 다시 확보하도록 한다.
 function maybeFetchNetflixTranscript(): void {
   const p = pendingNetflix
-  if (!p || p.movieId === lastNetflixMovieId) return
+  if (!p) return
   const domText = extractNetflixSnapshot()?.lines.map((l) => l.text).join(' ') ?? ''
   if (!domText.trim()) return // 화면 자막이 아직 없음 — 언어 판정 불가, 다음 프레임 대기
-  void fetchNetflixTranscript(p.movieId, p.tracks, domText)
+  const key = `${p.movieId}|${detectDomLanguagePrefix(domText)}`
+  if (key === lastNetflixKey) return
+  void fetchNetflixTranscript(p.movieId, p.tracks, domText, key)
 }
 
-async function fetchNetflixTranscript(movieId: string, tracks: NetflixTrack[], domText: string): Promise<void> {
+async function fetchNetflixTranscript(
+  movieId: string,
+  tracks: NetflixTrack[],
+  domText: string,
+  key: string,
+): Promise<void> {
   const track = pickNetflixTrack(tracks, domText)
   const url = track ? trackWebvttUrl(track) : undefined
   if (!url) {
@@ -173,7 +187,7 @@ async function fetchNetflixTranscript(movieId: string, tracks: NetflixTrack[], d
       console.log('[nuance content] 넷플릭스 WebVTT 파싱 결과 0 cues')
       return
     }
-    lastNetflixMovieId = movieId // 성공했을 때만 잠가 같은 영화의 재시도를 막는다.
+    lastNetflixKey = key // 성공했을 때만 잠가 같은 영화·언어 조합의 재시도를 막는다.
     console.log(`[nuance content] 넷플릭스 매니페스트로 자막 확보: ${cues.length} cues (lang=${track?.language})`)
     chrome.runtime.sendMessage({ kind: 'transcript', videoId: movieId, cues })
   } catch (err) {
