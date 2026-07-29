@@ -6,7 +6,6 @@ import type {
   Word,
   ZhWord,
 } from '@shared/types'
-import { computeContextRange } from '@shared/context'
 import { mergeJaTokens } from '@shared/nlp/ja'
 import { mergeJaTokensUnidic } from '@shared/nlp/ja-unidic'
 
@@ -41,11 +40,48 @@ export interface PopupSelectionModel {
   insertions: number[]
 }
 
-// 팝업 원문 문맥 표시 범위 — 선택 앞뒤 각 256 바이트.
-// 순수 바이트 경계에서 문장이 잘리면 가장 가까운 문장 경계까지 더 넣어서 보여주고,
-// 원문이 그만큼 없으면(문서 시작/끝 근처) 있는 만큼만 보여준다 — @shared/context 공유 로직.
-const DISPLAY_CONTEXT_BYTES_BEFORE = 256
-const DISPLAY_CONTEXT_BYTES_AFTER = 256
+// 팝업 원문 문맥 표시 범위 — 선택한 표현이 속한 줄 기준 앞 3줄 · 뒤 3줄(문단 단위,
+// extracted.text 의 '\n' 구분). 예전엔 앞뒤 각 256바이트 + 문장 경계 확장
+// (computeContextRange, @shared/context)을 썼으나, 바이트 예산은 "몇 줄이 보일지"
+// 감이 안 온다는 사용자 피드백으로 줄 수 기준으로 교체(2026-07-29) — 바이트 예산
+// 개념 자체를 폐기한다. LLM 문맥(설정 화면의 Byte 범위, settings.contextBytesBefore/
+// After)은 이 표시와 완전히 별개이며 여전히 바이트 기준 그대로다(buildContextBlock 참고).
+const DISPLAY_CONTEXT_LINES_BEFORE = 3
+const DISPLAY_CONTEXT_LINES_AFTER = 3
+
+/** text 안에서 [selStart, selEnd) 선택이 속한 줄('\n' 구분)을 찾아, 그 앞 linesBefore줄 ·
+ *  뒤 linesAfter줄까지 포함하는 문자 오프셋 범위를 반환한다. 문서 시작/끝 근처라 그만큼
+ *  줄이 없으면 있는 만큼만 반환(clamp) — 바이트 버전과 달리 문장 경계 확장은 하지 않는다
+ *  (줄 자체가 이미 문단 경계라 추가 확장이 필요 없음). */
+function computeLineContextRange(
+  text: string,
+  selStart: number,
+  selEnd: number,
+  linesBefore: number,
+  linesAfter: number,
+): { start: number; end: number } {
+  const lineStarts: number[] = [0]
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') lineStarts.push(i + 1)
+  }
+  const lineIndexOf = (pos: number): number => {
+    let lo = 0
+    let hi = lineStarts.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (lineStarts[mid] <= pos) lo = mid
+      else hi = mid - 1
+    }
+    return lo
+  }
+  const startLine = lineIndexOf(selStart)
+  const endLine = lineIndexOf(Math.max(selStart, selEnd - 1))
+  const windowStartLine = Math.max(0, startLine - linesBefore)
+  const windowEndLine = Math.min(lineStarts.length - 1, endLine + linesAfter)
+  const start = lineStarts[windowStartLine]
+  const end = windowEndLine + 1 < lineStarts.length ? lineStarts[windowEndLine + 1] : text.length
+  return { start, end }
+}
 
 // 문단(줄바꿈) 시작에 넣는 들여쓰기 — 설정 화면 미리보기(SettingsScreen.tsx PREVIEW_TEXT)와
 // 동일한 1칸 공백 관례를 그대로 따른다. 원문에 이미 들여쓰기(공백/탭)가 있으면 건드리지 않고,
@@ -58,9 +94,10 @@ const PARAGRAPH_INDENT = '　'
 
 /**
  * displayText 의 각 문단 시작에 들여쓰기를 넣고, selStart/selEnd 를 삽입된 만큼 보정해
- * 반환한다. 창은 문장 경계로만 확장되므로(computeContextRange) 첫 줄이 항상 문단 시작인
- * 건 아니다 — 문단 중간에서 창이 시작하면 그 첫 줄은 이어지는 텍스트일 뿐이므로
- * firstIsParagraphStart 가 false 일 때만 첫 줄 들여쓰기를 건너뛴다.
+ * 반환한다. firstIsParagraphStart 인자는 옛 바이트 기반 창(문장 경계로만 확장돼 첫 줄이
+ * 문단 중간일 수 있었음)의 흔적 — 지금의 줄(라인) 기반 창(computeLineContextRange)은
+ * 항상 '\n' 바로 다음(=문단 시작)에서 시작하므로 buildDisplayText 는 이제 이 값을 항상
+ * true 로 넘긴다. 그래도 이 함수 자체는 범용으로 남겨 인자를 계속 받는다.
  *
  * insertions(출력 문자열 상 들여쓰기가 삽입된 위치, 오름차순)도 함께 반환한다 — LLM 문맥
  * 구성 시 displayText 오프셋을 들여쓰기 이전(windowedText) 오프셋으로 되돌리는 데 쓰인다
@@ -322,25 +359,25 @@ interface DisplayText {
  * 것일 뿐, 그 자체가 LLM 문맥의 상한이 되지 않는다.
  */
 export function buildDisplayText(extracted: ExtractedSelection): DisplayText {
-  // 원문 전체(extracted.text) 중 선택 앞뒤 256바이트(+문장 경계 확장)만 "표시"에 쓴다.
-  const range = computeContextRange(
+  // 원문 전체(extracted.text) 중 선택한 표현이 속한 줄 기준 앞 3줄·뒤 3줄만 "표시"에 쓴다.
+  const range = computeLineContextRange(
     extracted.text,
     extracted.anchor.start,
     extracted.anchor.end,
-    DISPLAY_CONTEXT_BYTES_BEFORE,
-    DISPLAY_CONTEXT_BYTES_AFTER,
+    DISPLAY_CONTEXT_LINES_BEFORE,
+    DISPLAY_CONTEXT_LINES_AFTER,
   )
-  const windowedText = extracted.text.slice(range.extStart, range.extEnd)
-  const windowedSelStart = extracted.anchor.start - range.extStart
-  const windowedSelEnd = extracted.anchor.end - range.extStart
-  const firstIsParagraphStart = range.extStart === 0 || extracted.text[range.extStart - 1] === '\n'
+  const windowedText = extracted.text.slice(range.start, range.end)
+  const windowedSelStart = extracted.anchor.start - range.start
+  const windowedSelEnd = extracted.anchor.end - range.start
+  // 줄 기반 창은 항상 '\n' 바로 다음(=문단 시작)에서 시작한다 — 위 indentParagraphs 주석 참고.
   const { text: displayText, selStart, selEnd, insertions } = indentParagraphs(
     windowedText,
     windowedSelStart,
     windowedSelEnd,
-    firstIsParagraphStart,
+    true,
   )
-  return { displayText, selStart, selEnd, windowStart: range.extStart, insertions }
+  return { displayText, selStart, selEnd, windowStart: range.start, insertions }
 }
 
 /**
