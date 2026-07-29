@@ -76,13 +76,30 @@ function showBoxAt(rect: RectPx): void {
 
 // 박스 자신은 pointerEvents:none 이라 실제 마우스는 유튜브 자막 DOM(밑에 깔린 요소)이
 // 받는다 — 그래서 박스에 cursor 를 줘도 반영이 안 되고, 대신 문서 전체 cursor 를 강제해야
-// 커서가 클릭 가능함을 나타내는 손 모양(검지 편 모양, pointer)으로 바뀐다.
+// 한다. 처음엔 `document.documentElement.style.setProperty('cursor', 'pointer', 'important')`
+// 로 했으나 실사용 확인 결과 안 먹혔다(유튜브는 진행바 드래그용 grab, 넷플릭스는 자체
+// 커서를 자막 컨테이너/조상에 인라인으로 직접 지정해둔 경우가 있어서) — CSS 상속은 "그
+// 요소 자신에게 지정된 값이 하나도 없을 때만" 일어나므로, 조상(html)의 인라인
+// `!important` 값이 있어도 자손 요소 자신에게 어떤 값이든(비-important 라도) 지정돼
+// 있으면 그게 그대로 이기고 상속 자체가 발생하지 않는다 — 조상의 !important 는 자손의
+// "값 없음" 상태를 이길 대상이 없어 아무 효과가 없다. 대신 `*` 전체 선택자에 `!important`
+// 를 건 스타일시트 규칙을 주입하면, 그 규칙이 각 자손 요소에 직접 매치돼(상속이 아니라
+// 매치) 자손의 비-important 인라인 스타일까지 이긴다.
 let cursorOverridden = false
+let cursorStyleEl: HTMLStyleElement | null = null
+function ensureCursorStyle(): HTMLStyleElement {
+  if (cursorStyleEl) return cursorStyleEl
+  const el = document.createElement('style')
+  el.textContent = 'html.nuance-hover-pointer, html.nuance-hover-pointer * { cursor: pointer !important; }'
+  document.documentElement.appendChild(el)
+  cursorStyleEl = el
+  return el
+}
 function setHoveringCursor(hovering: boolean): void {
   if (hovering === cursorOverridden) return
   cursorOverridden = hovering
-  if (hovering) document.documentElement.style.setProperty('cursor', 'pointer', 'important')
-  else document.documentElement.style.removeProperty('cursor')
+  ensureCursorStyle()
+  document.documentElement.classList.toggle('nuance-hover-pointer', hovering)
 }
 
 function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect: RectPx }) | null {
