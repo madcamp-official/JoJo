@@ -532,6 +532,14 @@ export interface AppSettings {
   language: Language | 'auto'
   modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑). 빈 문자열 = 단축키 해제
   settingsShortcut: string // 어디서나 설정 화면을 여는 전역 단축키. 기본값: macOS 'Command+,' / 그 외 'Control+,'(settingsStore.ts). 빈 문자열 = 단축키 해제
+  // 트레이 메뉴 "창 선택"/"창 선택 전환"(선택 여부와 무관하게 같은 동작: 창 선택 화면 열기) 공용 단축키.
+  // 기본값: 'Alt+1' (macOS 는 Option+1). 빈 문자열 = 단축키 해제.
+  windowSelectShortcut: string
+  // 트레이 메뉴 "창 선택 해제" 단축키. 기본값: 'Alt+2'. 빈 문자열 = 단축키 해제.
+  windowDeselectShortcut: string
+  // 트레이 메뉴 "영역 수동 선택" 단축키(선택 모드가 아닐 때는 눌러도 아무 동작 안 함,
+  // shortcut.ts: requestManualRegionSelection 이 이미 방어). 기본값: 'Alt+3'. 빈 문자열 = 단축키 해제.
+  manualRegionShortcut: string
   // 선택 앞/뒤로 포함할 문맥 바이트 예산(자유 지정). 실제로는 문장 경계까지 확장됨.
   contextBytesBefore: number
   contextBytesAfter: number

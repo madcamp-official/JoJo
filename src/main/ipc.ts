@@ -39,7 +39,7 @@ import {
   trackSelectionOverlay,
   type MainRoute,
 } from './windows'
-import { resetToNormalMode, updateModeShortcut } from './selection/shortcut'
+import { resetToNormalMode, updateModeShortcut, updateNamedShortcut } from './selection/shortcut'
 import { getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
@@ -155,6 +155,10 @@ export function registerIpc(): void {
     const next = setSettings(patch)
     if (patch.llm) setActiveProvider(patch.llm)
     if (patch.modeShortcut !== undefined) updateModeShortcut(patch.modeShortcut)
+    if (patch.windowSelectShortcut !== undefined) updateNamedShortcut('windowSelect', patch.windowSelectShortcut)
+    if (patch.windowDeselectShortcut !== undefined)
+      updateNamedShortcut('windowDeselect', patch.windowDeselectShortcut)
+    if (patch.manualRegionShortcut !== undefined) updateNamedShortcut('manualRegion', patch.manualRegionShortcut)
     // settingsShortcut 은 더 이상 메인 프로세스에 등록할 게 없다 — 각 렌더러가 로컬
     // keydown 으로 직접 판정하며, 매 keydown 마다 window.nuance.getSettings() 로 최신
     // 값을 그때그때 조회하므로(App.tsx) 저장만 해두면 된다.

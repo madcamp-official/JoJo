@@ -211,7 +211,14 @@ export function SettingsScreen() {
   const [keyVisible, setKeyVisible] = useState(false)
   // 지금 키 입력을 기다리는 단축키 필드 — null 이면 녹화 중이 아님. 두 단축키(모드 전환/설정
   // 화면 열기)가 같은 녹화 UI 를 공유하므로 어느 필드를 채울지 여기서 구분한다.
-  const [recordingField, setRecordingField] = useState<'modeShortcut' | 'settingsShortcut' | null>(null)
+  const [recordingField, setRecordingField] = useState<
+    | 'modeShortcut'
+    | 'settingsShortcut'
+    | 'windowSelectShortcut'
+    | 'windowDeselectShortcut'
+    | 'manualRegionShortcut'
+    | null
+  >(null)
   // 현재 provider 의 키 검증 결과(유효성 + 사용 가능 모델). 무과금 GET 기반.
   const [validation, setValidation] = useState<ProviderValidation | null>(null)
   const [validating, setValidating] = useState(false)
@@ -625,6 +632,54 @@ export function SettingsScreen() {
               onDelete={() => void patch({ settingsShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.settingsShortcut}
+            />
+          </div>
+        </div>
+        <div className="shortcut-row">
+          <span className="label">창 선택 해제</span>
+          <div className="shortcut-control">
+            <span className={`shortcut-keys${recordingField === 'windowDeselectShortcut' ? ' recording' : ''}`}>
+              {recordingField === 'windowDeselectShortcut'
+                ? '수식키+키 입력 (Esc 취소)'
+                : formatAccelerator(settings.windowDeselectShortcut)}
+            </span>
+            <EditDeleteGroup
+              onEdit={() => setRecordingField('windowDeselectShortcut')}
+              onDelete={() => void patch({ windowDeselectShortcut: '' })}
+              deleteTitle="단축키 해제"
+              deleteDisabled={!settings.windowDeselectShortcut}
+            />
+          </div>
+        </div>
+        <div className="shortcut-row">
+          <span className="label">창 선택 / 창 선택 전환</span>
+          <div className="shortcut-control">
+            <span className={`shortcut-keys${recordingField === 'windowSelectShortcut' ? ' recording' : ''}`}>
+              {recordingField === 'windowSelectShortcut'
+                ? '수식키+키 입력 (Esc 취소)'
+                : formatAccelerator(settings.windowSelectShortcut)}
+            </span>
+            <EditDeleteGroup
+              onEdit={() => setRecordingField('windowSelectShortcut')}
+              onDelete={() => void patch({ windowSelectShortcut: '' })}
+              deleteTitle="단축키 해제"
+              deleteDisabled={!settings.windowSelectShortcut}
+            />
+          </div>
+        </div>
+        <div className="shortcut-row">
+          <span className="label">영역 수동 선택</span>
+          <div className="shortcut-control">
+            <span className={`shortcut-keys${recordingField === 'manualRegionShortcut' ? ' recording' : ''}`}>
+              {recordingField === 'manualRegionShortcut'
+                ? '수식키+키 입력 (Esc 취소)'
+                : formatAccelerator(settings.manualRegionShortcut)}
+            </span>
+            <EditDeleteGroup
+              onEdit={() => setRecordingField('manualRegionShortcut')}
+              onDelete={() => void patch({ manualRegionShortcut: '' })}
+              deleteTitle="단축키 해제"
+              deleteDisabled={!settings.manualRegionShortcut}
             />
           </div>
         </div>

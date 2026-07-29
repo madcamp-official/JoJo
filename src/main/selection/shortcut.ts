@@ -63,7 +63,7 @@ onWindowResized(() => {
  * 바로 모드까지 바뀌어버리는 게 불편하다는 피드백. 블록이 없으면(자동 탐지 결과가
  * 아니었거나 이미 한 번 지운 뒤) 평소처럼 바로 모드를 토글한다.
  */
-function toggleMode(): void {
+export function toggleMode(): void {
   if (consumeDebugBlocksVisible()) return
   mode = mode === 'normal' ? 'select' : 'normal'
   setOverlayMode(mode) // 오버레이 테두리 색(일반=파랑/선택=보라) 갱신 + MODE_CHANGED 통지
@@ -217,6 +217,38 @@ export function updateModeShortcut(accelerator: string): void {
 
 export function currentMode(): AppMode {
   return mode
+}
+
+// 트레이 메뉴 항목(창 선택/창 선택 전환/창 선택 해제/영역 수동 선택) 전용 전역 단축키
+// (2026-07-29, 기본 Opt+1/2/3) — modeShortcut 처럼 콜백이 이 파일에 고정돼 있지 않고
+// 항목마다 다른 곳(tray.ts)에 있어, id 별로 콜백을 등록해두고 재사용하는 범용 레지스트리로
+// 둔다. tray.ts 가 createTray() 시 한 번 등록(registerNamedShortcut)하고, 설정 화면에서
+// 단축키를 바꾸면 updateNamedShortcut 으로 재등록한다(updateModeShortcut과 동일 패턴).
+export type NamedShortcutId = 'windowSelect' | 'windowDeselect' | 'manualRegion'
+const namedAccelerators: Record<NamedShortcutId, string[]> = {
+  windowSelect: [],
+  windowDeselect: [],
+  manualRegion: [],
+}
+const namedCallbacks: Partial<Record<NamedShortcutId, () => void>> = {}
+
+function applyNamedShortcut(id: NamedShortcutId, accelerator: string): void {
+  namedAccelerators[id].forEach((a) => globalShortcut.unregister(a))
+  namedAccelerators[id] = []
+  const cb = namedCallbacks[id]
+  if (!accelerator || !cb) return // 빈 문자열 = 단축키 해제 상태(등록 안 함)
+  const accelerators = expandAccelerator(accelerator)
+  accelerators.forEach((a) => globalShortcut.register(a, cb))
+  namedAccelerators[id] = accelerators
+}
+
+export function registerNamedShortcut(id: NamedShortcutId, accelerator: string, cb: () => void): void {
+  namedCallbacks[id] = cb
+  applyNamedShortcut(id, accelerator)
+}
+
+export function updateNamedShortcut(id: NamedShortcutId, accelerator: string): void {
+  applyNamedShortcut(id, accelerator)
 }
 
 // "설정 화면 열기" 단축키(기본 Cmd/Ctrl+,)는 더 이상 여기(globalShortcut)에 없다

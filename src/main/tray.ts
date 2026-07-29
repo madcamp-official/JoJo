@@ -3,7 +3,13 @@ import { IPC } from '@shared/channels'
 import { getSelectedWindowId, setSelectedWindowId, setSelectedWindowName } from './selection/capture'
 import { invalidateExtractionCache } from './selection/extractionCache'
 import { clearRegion } from './selection/regionSelection'
-import { currentMode, requestManualRegionSelection } from './selection/shortcut'
+import { getSettings } from './settingsStore'
+import {
+  currentMode,
+  registerNamedShortcut,
+  requestManualRegionSelection,
+  toggleMode,
+} from './selection/shortcut'
 import {
   getMainWindow,
   hideSelectionOverlay,
@@ -25,7 +31,7 @@ import {
 
 let tray: Tray | null = null
 
-function deselectWindow(): void {
+export function deselectWindow(): void {
   setSelectedWindowId(null)
   setSelectedWindowName(null)
   invalidateExtractionCache()
@@ -37,9 +43,15 @@ function deselectWindow(): void {
   navigateMainWindow('main')
 }
 
-function openWindowPicker(): void {
+export function openWindowPicker(): void {
   getMainWindow()?.show()
   navigateMainWindow('picker')
+}
+
+// 단축키가 해제(빈 문자열)돼 있으면 Electron MenuItem 에 accelerator 를 아예 안 준다 —
+// 빈 문자열을 그대로 넘기면 Electron 이 이상한 표시를 만들 수 있어서다.
+function accel(a: string): string | undefined {
+  return a || undefined
 }
 
 function buildTrayMenu(): Menu {
@@ -47,16 +59,38 @@ function buildTrayMenu(): Menu {
   // 자동 탐지 결과가 마음에 안 들 때 강제로 드래그 선택으로 전환하는 버튼(사용자 요청,
   // 2026-07-29) — 선택 모드가 아닐 때는 뜻이 없어(영역 자체가 아직 안 쓰임) 그때만 보여준다.
   const inSelectMode = currentMode() === 'select'
+  const settings = getSettings()
 
   return Menu.buildFromTemplate([
     ...(hasSelection
       ? [
-          { label: '창 선택 해제', click: deselectWindow },
-          { label: '창 선택 전환', click: openWindowPicker },
+          {
+            label: '창 선택 해제',
+            accelerator: accel(settings.windowDeselectShortcut),
+            click: deselectWindow,
+          },
+          {
+            label: '창 선택 전환',
+            accelerator: accel(settings.windowSelectShortcut),
+            click: openWindowPicker,
+          },
+          // 모드 전환(일반 ↔ 선택, 2026-07-29 트레이 노출 요청) — 대상 창이 있어야 뜻이
+          // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+Q)을 그대로 표시.
+          {
+            label: `모드 전환 (현재: ${inSelectMode ? '선택 모드' : '일반 모드'})`,
+            accelerator: accel(settings.modeShortcut),
+            click: toggleMode,
+          },
         ]
-      : [{ label: '창 선택', click: openWindowPicker }]),
+      : [{ label: '창 선택', accelerator: accel(settings.windowSelectShortcut), click: openWindowPicker }]),
     ...(inSelectMode
-      ? [{ label: '영역 수동 선택', click: requestManualRegionSelection }]
+      ? [
+          {
+            label: '영역 수동 선택',
+            accelerator: accel(settings.manualRegionShortcut),
+            click: requestManualRegionSelection,
+          },
+        ]
       : []),
     { label: '설정', click: openSettingsWindow },
     { type: 'separator' },
@@ -81,6 +115,14 @@ export function createTray(): Tray {
   // 사용자 요청) — 안 그러면 오버레이는 사라졌는데 트레이 메뉴엔 "선택 해제"만 남아있는
   // 상태로 굳어버렸다. 수동 "선택 해제"와 동일한 동작(메인 창으로 복귀)을 그대로 재사용.
   onTargetWindowGone(deselectWindow)
+
+  // 트레이 메뉴 항목 전역 단축키 등록(2026-07-29, 기본 Opt+1/2/3) — 메뉴가 떠 있지
+  // 않아도 어디서나 동작해야 하므로 globalShortcut 기반(shortcut.ts: registerNamedShortcut).
+  // 설정 화면에서 바꾸면 updateNamedShortcut 으로 재등록(ipc.ts).
+  const settings = getSettings()
+  registerNamedShortcut('windowDeselect', settings.windowDeselectShortcut, deselectWindow)
+  registerNamedShortcut('windowSelect', settings.windowSelectShortcut, openWindowPicker)
+  registerNamedShortcut('manualRegion', settings.manualRegionShortcut, requestManualRegionSelection)
 
   return tray
 }
