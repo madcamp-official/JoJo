@@ -5,15 +5,16 @@ import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles } from './you
 import { extractNetflixSnapshot, isNetflixWatch, observeNetflixSubtitles } from './netflix'
 import { videoCurrentTime } from './domWords'
 import { currentVideoId } from './timedtext'
-import { startHighlight, type WordHit } from './highlight'
+import { startHighlight, setWordSegments, type WordHit } from './highlight'
 import { parseAnyCaptionPayload, parseWebVtt } from './captionParse'
-import type { SubLine, SubtitleSnapshot } from '@shared/extension'
+import type { SubLine, SubtitleSnapshot, WordSegment } from '@shared/extension'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).
 type FromBackground =
   | { kind: 'setCapture'; active: boolean }
   | { kind: 'requestSnapshot' }
   | { kind: 'setPlayback'; play: boolean }
+  | { kind: 'wordSegments'; lineText: string; words: WordSegment[] }
 
 function setVideoPlayback(play: boolean): void {
   const v = document.querySelector<HTMLVideoElement>('video')
@@ -166,7 +167,6 @@ function pushSnapshot(): void {
 }
 
 function startCapture(): void {
-  console.log('[nuance content] startCapture 호출됨 (이미capturing=' + capturing + ')')
   if (capturing) return
   capturing = true
   lastSent = ''
@@ -198,7 +198,6 @@ function stopCapture(): void {
 
 chrome.runtime.onMessage.addListener((msg: FromBackground, _sender, sendResponse) => {
   if (msg?.kind === 'setCapture') {
-    console.log(`[nuance content] setCapture 메시지 수신: active=${msg.active}`)
     if (msg.active) startCapture()
     else stopCapture()
   } else if (msg?.kind === 'setPlayback') {
@@ -207,6 +206,10 @@ chrome.runtime.onMessage.addListener((msg: FromBackground, _sender, sendResponse
     // 최신 좌표+재생시간으로 한 프레임 즉시 반환(hover/클릭 직전 앱 요청용).
     sendResponse({ snapshot: activeSnapshot() })
     return true
+  } else if (msg?.kind === 'wordSegments') {
+    // 앱이 CJK 자막 줄을 형태소 분석한 결과 — hover 박스를 글자 단위가 아니라 단어
+    // 단위로 묶는 데 쓴다(highlight.ts).
+    setWordSegments(msg.lineText, msg.words)
   }
   return undefined
 })

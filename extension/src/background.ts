@@ -86,8 +86,22 @@ function onAppMessage(raw: unknown): void {
     case 'focusTab':
       void focusCapturedTab()
       break
+    case 'wordSegments':
+      void relayWordSegments(msg.lineText, msg.words)
+      break
     case 'welcome':
       break
+  }
+}
+
+// 앱이 CJK 자막 줄을 세그멘테이션한 결과를 캡처 중인 탭의 content script로 그대로 전달한다
+// (hover 박스를 형태소 단위로 묶는 데 씀, highlight.ts).
+async function relayWordSegments(lineText: string, words: { start: number; end: number }[]): Promise<void> {
+  if (capturedTabId === null) return
+  try {
+    await chrome.tabs.sendMessage(capturedTabId, { kind: 'wordSegments', lineText, words })
+  } catch {
+    /* content script 미로드/비대상 무시 */
   }
 }
 
@@ -136,9 +150,8 @@ let capturedTabId: number | null = null
 async function sendCapture(tabId: number, active: boolean): Promise<void> {
   try {
     await chrome.tabs.sendMessage(tabId, { kind: 'setCapture', active })
-  } catch (err) {
+  } catch {
     // content script 미로드/비대상 페이지면 무시.
-    console.log(`[nuance bg] sendCapture 실패 tabId=${tabId} active=${active}:`, (err as Error)?.message)
   }
 }
 
@@ -152,7 +165,6 @@ async function syncCapture(): Promise<void> {
   }
   const tab = await activeNormalTab()
   const activeId = tab?.id ?? null
-  console.log(`[nuance bg] syncCapture desired=${captureDesired} activeTab=${activeId}(${tab?.url ?? ''}) prevCaptured=${capturedTabId}`)
   if (activeId === capturedTabId) return
   if (capturedTabId !== null) await sendCapture(capturedTabId, false) // 이전 탭 끄기
   if (activeId !== null) await sendCapture(activeId, true) // 새 활성 탭 켜기

@@ -5,12 +5,21 @@
 // 좌표를 그대로 쓸 수 있어 브라우저 크롬 오프셋 보정도 필요 없다. 스타일은
 // shared/highlightStyle.ts(오버레이와 동일 소스)를 그대로 읽어 인라인 스타일로 적용한다.
 import { WORD_BOX_STYLE } from '@shared/highlightStyle'
-import type { RectPx, SubLine } from '@shared/extension'
+import type { RectPx, SubLine, WordSegment } from '@shared/extension'
 
 export interface WordHit {
   text: string
   lineText: string
   wordOffsetInLine: number
+}
+
+// CJK(중국어/일본어) 자막 줄은 youtube.ts가 공백 없이 글자 단위로 쪼개서 넘긴다(브라우저가
+// 스스로 단어 경계를 알 방법이 없어서) — 앱이 자신의 zh/ja 세그멘터로 분석한 결과를
+// 받으면(content.ts 경유) 여기 캐시해뒀다가, hover 히트테스트 시 같은 세그먼트에 속한
+// 글자들의 rect 를 하나로 묶어 보여준다. 아직 분석 결과가 없는 줄은 글자 단위로 폴백한다.
+const wordSegmentsByLine = new Map<string, WordSegment[]>()
+export function setWordSegments(lineText: string, words: WordSegment[]): void {
+  wordSegmentsByLine.set(lineText, words)
 }
 
 let box: HTMLDivElement | null = null
@@ -60,20 +69,52 @@ function setHoveringCursor(hovering: boolean): void {
   else document.documentElement.style.removeProperty('cursor')
 }
 
+function unionRects(rects: RectPx[]): RectPx {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const r of rects) {
+    x0 = Math.min(x0, r.x)
+    y0 = Math.min(y0, r.y)
+    x1 = Math.max(x1, r.x + r.width)
+    y1 = Math.max(y1, r.y + r.height)
+  }
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
+}
+
 function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect: RectPx }) | null {
   for (const line of lines) {
-    // line.text 는 이제 세그먼트 원문 그대로(youtube.ts) — 단어 사이 간격이 공백 한 칸이라는
+    // line.text 는 세그먼트 원문 그대로(youtube.ts) — 단어 사이 간격이 공백 한 칸이라는
     // 보장이 없다(CJK 는 글자 사이 간격이 0). 각 단어의 실제 위치를 line.text 안에서 순서대로
     // 찾아 offset 을 구한다(searchFrom 부터 찾아 같은 글자가 반복돼도 이전 단어와 안 섞임).
     let searchFrom = 0
+    const offsets: number[] = []
     for (const w of line.words) {
-      const r = w.rect
       const found = line.text.indexOf(w.text, searchFrom)
-      const wordOffsetInLine = found >= 0 ? found : searchFrom
-      if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height) {
-        return { text: w.text, lineText: line.text, wordOffsetInLine, rect: r }
+      const off = found >= 0 ? found : searchFrom
+      offsets.push(off)
+      searchFrom = off + w.text.length
+    }
+    const segments = wordSegmentsByLine.get(line.text)
+    for (let i = 0; i < line.words.length; i++) {
+      const w = line.words[i]!
+      const r = w.rect
+      if (!(x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) continue
+      const off = offsets[i]!
+      const seg = segments?.find((s) => off >= s.start && off < s.end)
+      if (!seg) return { text: w.text, lineText: line.text, wordOffsetInLine: off, rect: r }
+      // CJK 형태소 분석 결과가 있으면 같은 세그먼트에 속한 글자들의 rect 를 하나로 묶는다.
+      const groupRects: RectPx[] = []
+      for (let j = 0; j < line.words.length; j++) {
+        if (offsets[j]! >= seg.start && offsets[j]! < seg.end) groupRects.push(line.words[j]!.rect)
       }
-      searchFrom = wordOffsetInLine + w.text.length
+      return {
+        text: line.text.slice(seg.start, seg.end),
+        lineText: line.text,
+        wordOffsetInLine: seg.start,
+        rect: unionRects(groupRects),
+      }
     }
   }
   return null
