@@ -57,6 +57,7 @@ let boundsKey: unknown = null // CFString "kCGWindowBounds" (재사용 위해 �
 let ownerPidKey: unknown = null // CFString "kCGWindowOwnerPID"
 let ownerNameKey: unknown = null // CFString "kCGWindowOwnerName"
 let numberKey: unknown = null // CFString "kCGWindowNumber"
+let layerKey: unknown = null // CFString "kCGWindowLayer"
 
 const kCGWindowListOptionIncludingWindow = 1 << 3
 const kCGWindowListOptionOnScreenOnly = 1 << 0
@@ -90,6 +91,7 @@ function ensureCoreGraphics(): boolean {
     ownerPidKey = CFStringCreateWithCString(null, 'kCGWindowOwnerPID', kCFStringEncodingUTF8)
     ownerNameKey = CFStringCreateWithCString(null, 'kCGWindowOwnerName', kCFStringEncodingUTF8)
     numberKey = CFStringCreateWithCString(null, 'kCGWindowNumber', kCFStringEncodingUTF8)
+    layerKey = CFStringCreateWithCString(null, 'kCGWindowLayer', kCFStringEncodingUTF8)
     return true
   } catch {
     cg = cf = null
