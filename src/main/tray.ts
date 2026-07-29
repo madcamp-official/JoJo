@@ -51,8 +51,8 @@ function buildTrayMenu(): Menu {
   return Menu.buildFromTemplate([
     ...(hasSelection
       ? [
-          { label: '창 선택 전환', click: openWindowPicker },
           { label: '창 선택 해제', click: deselectWindow },
+          { label: '창 선택 전환', click: openWindowPicker },
         ]
       : [{ label: '창 선택', click: openWindowPicker }]),
     ...(inSelectMode

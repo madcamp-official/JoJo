@@ -271,9 +271,14 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     ...initialBounds,
     transparent: true,
     frame: false,
-    // alwaysOnTop 을 안 쓴다 — 항상 최상위면 다른 창이 대상 창을 덮어도 테두리가 계속
-    // 그 위에 떠서 이상해 보인다. 대신 z-order 상 대상 창 바로 위 한 칸에만 꽂아서
-    // (syncOverlayZOrder), 다른 창이 대상 창을 덮으면 테두리도 자연스럽게 같이 가려지게 한다.
+    // alwaysOnTop — 다른 창이 대상 창을 덮어도 테두리가 안 보이던 문제 수정(2026-07-29,
+    // 사용자 요청) — 예전엔 z-order 상 대상 창 바로 위 한 칸에만 꽂아서(syncOverlayZOrder)
+    // 다른 창이 덮으면 테두리도 같이 가려지게 뒀는데, 이제는 항상 최상위로 띄워 테두리가
+    // 계속 보이게 한다(대상 창이 실제로 안 보여도 "지금 이 창을 선택 중"이라는 표시는
+    // 계속 남아있는 게 낫다는 판단). win32는 아래 syncOverlayZOrder 가 여전히 대상 창
+    // 바로 위로 재배치를 시도하지만, alwaysOnTop 자체가 이미 다른 일반 창들보다 위라
+    // 실질적으로 항상 보인다.
+    alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
     focusable: false,
@@ -290,8 +295,8 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   if (process.platform === 'darwin') {
     // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
     win.setHiddenInMissionControl(true)
-    // 대상 창(일반 레벨) 바로 위에 테두리가 보이도록 floating 레벨 + 모든 스페이스에서 표시.
-    // (다른 창이 대상을 덮을 때 사이에 끼는 문제는 showMacSelectionOverlay 의 가림 판정으로 숨겨 처리)
+    // floating 레벨 + 모든 스페이스에서 표시 — 다른 창이 대상을 덮어도 테두리는 계속
+    // 보이게 한다(2026-07-29, 위 alwaysOnTop 주석 참고).
     win.setAlwaysOnTop(true, 'floating')
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
@@ -452,12 +457,9 @@ export function hideSelectionOverlay(): void {
 }
 
 let trackedMacWindowId: number | null = null
-let macCovered = false
 
 // 위치/크기 추적은 단일 창 조회라 가벼워 빠르게(16ms) 돌려 딜레이를 줄인다.
-// 가림 판정은 전체 창 열거라 무거워 ~100ms(16*OCCLUSION_EVERY)마다만 한다.
 const MAC_TRACK_INTERVAL_MS = 16
-const MAC_OCCLUSION_EVERY = 6
 
 function showMacOverlayAt(rawBounds: { x: number; y: number; width: number; height: number }): void {
   // macOS 는 "진짜 OS 최대화" 개념이 win32 의 IsZoomed 처럼 명확하지 않아(Zoom 버튼은
@@ -486,23 +488,20 @@ function hideMacOverlay(): void {
 /**
  * macOS 선택 오버레이 — Windows 의 trackSelectionOverlay 에 대응하는 mac 경로.
  * CoreGraphics(koffi, selection/macWindow.ts)로 대상 창을 앞으로 올리고 bounds 를 얻어
- * 테두리 오버레이를 그 창에 정확히 맞춘다. 이후 16ms 폴링으로 이동/리사이즈를 바로 따라가고,
- * 대상 창이 다른 앱 창에 가려지면(z-순서 판정) 테두리를 숨겨 "창 사이에 끼는" 걸 막는다.
+ * 테두리 오버레이를 그 창에 정확히 맞춘다. 이후 16ms 폴링으로 이동/리사이즈를 바로 따라간다.
+ * 대상 창이 다른 앱 창에 가려져도(z-순서상 뒤로 밀려도) 테두리는 계속 보인다(2026-07-29,
+ * 사용자 요청 — 예전엔 "창 사이에 끼는" 걸 막으려고 가려지면 테두리를 숨겼었는데,
+ * 오버레이 창 자체가 alwaysOnTop이라 그 문제가 없어져서 숨길 이유가 사라짐).
  * 호출부(ipc.ts)에서 process.platform !== 'win32' 일 때만 부른다.
  */
 export async function showMacSelectionOverlay(windowId: number): Promise<void> {
-  const { raiseAndGetBounds, getMacWindowBounds, isMacTargetCovered } = await import(
-    './selection/macWindow'
-  )
-  const ownPid = process.pid
+  const { raiseAndGetBounds, getMacWindowBounds } = await import('./selection/macWindow')
 
   trackedMacWindowId = windowId
-  macCovered = false
   const first = raiseAndGetBounds(windowId) // 앞으로 올리고 최초 bounds
   if (first) showMacOverlayAt(first)
 
   if (trackTimer) clearInterval(trackTimer)
-  let tick = 0
   // getMacWindowBounds 는 CGWindowListCopyWindowInfo 에 kCGWindowListOptionIncludingWindow
   // 만 줘서(onScreenOnly 없음) 최소화된 창도 여전히 잡힌다 — null 이 반복되면 "가려짐"이
   // 아니라 "창이 진짜로 닫힘"으로 볼 수 있다. 다만 CG 호출이 순간적으로 실패할 수도
@@ -511,14 +510,6 @@ export async function showMacSelectionOverlay(windowId: number): Promise<void> {
   const MAC_GONE_STREAK_THRESHOLD = 15 // 16ms * 15 ≈ 240ms
   trackTimer = setInterval(() => {
     if (trackedMacWindowId === null) return
-    if (tick % MAC_OCCLUSION_EVERY === 0) {
-      macCovered = isMacTargetCovered(trackedMacWindowId, ownPid)
-    }
-    tick++
-    if (macCovered) {
-      hideMacOverlay()
-      return
-    }
     const b = getMacWindowBounds(trackedMacWindowId)
     if (b) {
       missingBoundsStreak = 0

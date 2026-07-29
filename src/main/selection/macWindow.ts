@@ -44,7 +44,6 @@ let boundsKey: unknown = null // CFString "kCGWindowBounds" (재사용 위해 �
 let ownerPidKey: unknown = null // CFString "kCGWindowOwnerPID"
 let ownerNameKey: unknown = null // CFString "kCGWindowOwnerName"
 let numberKey: unknown = null // CFString "kCGWindowNumber"
-let layerKey: unknown = null // CFString "kCGWindowLayer"
 
 const kCGWindowListOptionIncludingWindow = 1 << 3
 const kCGWindowListOptionOnScreenOnly = 1 << 0
@@ -78,7 +77,6 @@ function ensureCoreGraphics(): boolean {
     ownerPidKey = CFStringCreateWithCString(null, 'kCGWindowOwnerPID', kCFStringEncodingUTF8)
     ownerNameKey = CFStringCreateWithCString(null, 'kCGWindowOwnerName', kCFStringEncodingUTF8)
     numberKey = CFStringCreateWithCString(null, 'kCGWindowNumber', kCFStringEncodingUTF8)
-    layerKey = CFStringCreateWithCString(null, 'kCGWindowLayer', kCFStringEncodingUTF8)
     return true
   } catch {
     cg = cf = null
@@ -138,8 +136,6 @@ export function getMacWindowBounds(windowId: number): MacWindowRect | null {
   return getWindowInfo(windowId)?.bounds ?? null
 }
 
-// ---- z-순서 가림 판정 --------------------------------------------------------
-
 /** dict 에서 int32 값 하나를 읽는다(CFNumber). */
 function readInt(dict: unknown, key: unknown): number | null {
   const num = CFDictionaryGetValue!(dict, key)
@@ -147,48 +143,6 @@ function readInt(dict: unknown, key: unknown): number | null {
   const p = koffi.alloc('int32_t', 1)
   if (CFNumberGetValue!(num, kCFNumberSInt32Type, p)) return koffi.decode(p, 'int32_t') as number
   return null
-}
-
-interface OnScreenWindow {
-  windowId: number
-  pid: number
-  bounds: MacWindowRect
-}
-
-/** 화면에 보이는 일반(layer 0) 창들을 앞→뒤 z-순서로 반환(메뉴바/독 등 비-0 레이어 제외). */
-function getOnScreenLayer0Windows(): OnScreenWindow[] {
-  if (!ensureCoreGraphics()) return []
-  let arr: unknown = null
-  try {
-    arr = CGWindowListCopyWindowInfo!(kCGWindowListOptionOnScreenOnly, 0)
-    if (!arr) return []
-    const count = Number(CFArrayGetCount!(arr))
-    const out: OnScreenWindow[] = []
-    for (let i = 0; i < count; i++) {
-      const dict = CFArrayGetValueAtIndex!(arr, i)
-      if (!dict) continue
-      if (readInt(dict, layerKey) !== 0) continue // 일반 앱 창만
-      const boundsDict = CFDictionaryGetValue!(dict, boundsKey)
-      if (!boundsDict) continue
-      const rectPtr = koffi.alloc(CGRect, 1)
-      if (!CGRectMakeWithDictionaryRepresentation!(boundsDict, rectPtr)) continue
-      const r = koffi.decode(rectPtr, CGRect) as MacWindowRect
-      const pid = readInt(dict, ownerPidKey) ?? -1
-      const wid = readInt(dict, numberKey) ?? -1
-      out.push({ windowId: wid, pid, bounds: { x: r.x, y: r.y, width: r.width, height: r.height } })
-    }
-    return out
-  } catch {
-    return []
-  } finally {
-    if (arr) {
-      try {
-        CFRelease!(arr)
-      } catch {
-        /* ignore */
-      }
-    }
-  }
 }
 
 /** CFStringRef를 JS 문자열로 변환한다(실패 시 null). */
@@ -234,30 +188,6 @@ export function listMacWindowOwnerNames(): Map<number, string> {
       }
     }
   }
-}
-
-function intersects(a: MacWindowRect, b: MacWindowRect): boolean {
-  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
-}
-
-/**
- * 대상 창이 (우리 앱이 아닌) 다른 창에 가려졌는지 z-순서로 판정한다.
- * 앞→뒤 목록에서 대상보다 앞에 있으면서 bounds 가 겹치는 다른 pid 창이 있으면 true.
- * ownPid(우리 Electron 앱 = 오버레이 자신 등)의 창은 제외한다. 대상이 화면에서
- * 사라졌으면(최소화 등) true(=가려짐)로 취급해 테두리를 숨긴다.
- */
-
-export function isMacTargetCovered(windowId: number, ownPid: number): boolean {
-  const list = getOnScreenLayer0Windows()
-  const idx = list.findIndex((w) => w.windowId === windowId)
-  if (idx < 0) return true
-  const target = list[idx]!.bounds
-  for (let i = 0; i < idx; i++) {
-    const w = list[i]!
-    if (w.pid === ownPid) continue
-    if (intersects(w.bounds, target)) return true
-  }
-  return false
 }
 
 // ---- objc: NSRunningApplication 으로 소유 앱을 앞으로 --------------------------
