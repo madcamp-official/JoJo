@@ -122,7 +122,14 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     // 판정). 실제 텍스트가 부족하면(startWebMode 콜백) direct 추출 상태에서 넘어온
     // 것이었으면 조용히 선택 모드를 끄고(아래와 동일 이유), 애초에 OCR 이 필요한 곳에
     // 방금 막 진입한 것이었으면(fresh 진입) 정상적으로 OCR 흐름으로 폴백한다.
+    //
+    // stopWebMode() 를 먼저 불러야 한다 — activeTab.ts 의 classKey 가 2026-07-30부터
+    // isMedia:false 페이지는 URL까지 재판정 키에 포함해, 같은 web 분류 안에서 페이지만
+    // 바뀌어도(웹소설 다음 챕터 등) 이 분기가 다시 호출된다. startWebMode() 는 이미
+    // active 면 즉시 반환하는 가드가 있어서(자체 재시작 안 함), 먼저 끄지 않으면 새
+    // 페이지의 pageReady 를 다시 기다리지 않고 조용히 아무 일도 안 하게 된다.
     stopSubtitleMode()
+    stopWebMode()
     stopChangeWatcher()
     startWebMode(() => {
       if (wasDirectExtraction) exitSelectMode()
