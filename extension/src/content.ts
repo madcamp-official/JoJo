@@ -117,16 +117,27 @@ async function fetchNetflixTranscript(movieId: string, tracks: NetflixTrack[]): 
   const track = pickNetflixTrack(tracks)
   const urls = track?.ttDownloadables?.[WEBVTT_PROFILE]?.downloadUrls
   const url = urls ? Object.values(urls)[0] : undefined
-  if (!url) return
+  if (!url) {
+    // 첫 매니페스트는 아직 webvtt 프로필 요청 주입 전에 온 것일 수 있다(재시도 대기) —
+    // lastNetflixMovieId 를 여기서 잠그면 이후 성공할 매니페스트도 무시되니 잠그지 않는다.
+    console.log(
+      `[nuance content] 넷플릭스 매니페스트에 webvtt 트랙 없음(tracks=${tracks.length}) — 다음 매니페스트 대기`,
+    )
+    return
+  }
   try {
     const res = await fetch(url)
     const text = await res.text()
     const cues = parseWebVtt(text)
-    if (cues.length === 0) return
+    if (cues.length === 0) {
+      console.log('[nuance content] 넷플릭스 WebVTT 파싱 결과 0 cues')
+      return
+    }
+    lastNetflixMovieId = movieId // 성공했을 때만 잠가 같은 영화의 재시도를 막는다.
     console.log(`[nuance content] 넷플릭스 매니페스트로 자막 확보: ${cues.length} cues (lang=${track?.language})`)
     chrome.runtime.sendMessage({ kind: 'transcript', videoId: movieId, cues })
-  } catch {
-    /* CDN fetch 실패 — 다음 매니페스트 갱신을 기다린다 */
+  } catch (err) {
+    console.log('[nuance content] 넷플릭스 WebVTT fetch 실패:', (err as Error)?.message)
   }
 }
 
@@ -135,8 +146,8 @@ window.addEventListener('message', (ev) => {
   const data = ev.data as { source?: string; kind?: string; movieId?: string; tracks?: NetflixTrack[] } | undefined
   if (!data || data.source !== 'nuance-mainworld' || data.kind !== 'netflixManifest') return
   if (!data.movieId || !data.tracks) return
-  if (data.movieId === lastNetflixMovieId) return
-  lastNetflixMovieId = data.movieId
+  if (data.movieId === lastNetflixMovieId) return // 이미 이 영화 자막을 확보했으면 스킵
+  console.log(`[nuance content] 넷플릭스 매니페스트 수신: movieId=${data.movieId} tracks=${data.tracks.length}`)
   void fetchNetflixTranscript(data.movieId, data.tracks)
 })
 

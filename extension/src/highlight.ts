@@ -24,6 +24,14 @@ export function setWordSegments(lineText: string, words: WordSegment[]): void {
 
 let box: HTMLDivElement | null = null
 
+// 전체화면 API는 전체화면으로 전환된 엘리먼트(보통 플레이어 div, <html> 전체가 아님)와 그
+// 자손만 "top layer"에 그린다 — 박스가 document.documentElement 에 그대로 붙어있으면 그
+// top layer 바깥이라 전체화면 중엔 안 보인다(실사용 확인). 지금 전체화면 엘리먼트가 있으면
+// 그 안에, 없으면 documentElement 에 붙인다.
+function boxParent(): HTMLElement {
+  return (document.fullscreenElement as HTMLElement | null) ?? document.documentElement
+}
+
 function ensureBox(): HTMLDivElement {
   if (box) return box
   const el = document.createElement('div')
@@ -37,9 +45,15 @@ function ensureBox(): HTMLDivElement {
     zIndex: '2147483647',
     display: 'none',
   })
-  document.documentElement.appendChild(el)
+  boxParent().appendChild(el)
   box = el
   return el
+}
+
+// 전체화면 진입/해제 시 박스를 새 top layer 대상 안으로 옮긴다(appendChild 는 이미 자식인
+// 노드를 다시 넣으면 같은 부모 안에서 이동만 하므로 항상 안전하게 재부착된다).
+function onFullscreenChange(): void {
+  if (box) boxParent().appendChild(box)
 }
 
 function hideBox(): void {
@@ -144,9 +158,11 @@ export function startHighlight(getLinesFn: () => SubLine[], onClickFn: (hit: Wor
   onWordClick = onClickFn
   window.addEventListener('mousemove', onMouseMove, true)
   window.addEventListener('click', onClick, true)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
   return () => {
     window.removeEventListener('mousemove', onMouseMove, true)
     window.removeEventListener('click', onClick, true)
+    document.removeEventListener('fullscreenchange', onFullscreenChange)
     hideBox()
     getLines = null
     onWordClick = null
