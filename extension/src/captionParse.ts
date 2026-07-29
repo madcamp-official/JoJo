@@ -66,15 +66,61 @@ export function parseJson3(data: unknown): TranscriptCue[] {
   return cues
 }
 
-// 어떤 포맷인지 모르는 캡처된 응답 본문(text)을 JSON 파싱 후 두 포맷 다 시도해본다.
+// srv3 포맷(유튜브 플레이어 자신이 실제로 받는 기본 포맷 — fmt=json3 를 우리가 붙이지
+// 않는 한 XML로 온다): <timedtext format="3"><body><p t="ms" d="ms">word<s t="ms"> word</s>...</p></body></timedtext>
+// <p> 하위의 텍스트(자신+<s> 자식들)를 이어 붙이면 그 큐의 전체 텍스트가 된다(카라오케용
+// 단어별 타이밍(<s t=".."/>)은 무시하고 큐 단위 start/text만 취한다).
+function parseSrv3Xml(doc: Document): TranscriptCue[] {
+  const ps = Array.from(doc.getElementsByTagName('p'))
+  const cues: TranscriptCue[] = []
+  for (const p of ps) {
+    const startMs = Number(p.getAttribute('t') ?? '')
+    if (!Number.isFinite(startMs)) continue
+    const text = (p.textContent ?? '').replace(/\s+/g, ' ').trim()
+    if (!text) continue
+    cues.push({ start: startMs / 1000, text })
+  }
+  return cues
+}
+
+// srv1 포맷(구식): <transcript><text start="0.34" dur="4.3">...</text>...</transcript>
+function parseSrv1Xml(doc: Document): TranscriptCue[] {
+  const texts = Array.from(doc.getElementsByTagName('text'))
+  const cues: TranscriptCue[] = []
+  for (const t of texts) {
+    const start = Number(t.getAttribute('start') ?? '')
+    if (!Number.isFinite(start)) continue
+    const text = (t.textContent ?? '').replace(/\s+/g, ' ').trim()
+    if (!text) continue
+    cues.push({ start, text })
+  }
+  return cues
+}
+
+function parseXml(text: string): TranscriptCue[] {
+  if (typeof DOMParser === 'undefined') return [] // 안전망(서비스 워커 등 DOM 없는 컨텍스트)
+  const doc = new DOMParser().parseFromString(text, 'text/xml')
+  if (doc.getElementsByTagName('parsererror').length > 0) return []
+  const srv3 = parseSrv3Xml(doc)
+  if (srv3.length > 0) return srv3
+  return parseSrv1Xml(doc)
+}
+
+// 어떤 포맷인지 모르는 캡처된 응답 본문(text)을 파싱한다. 유튜브 플레이어 자신의 실제
+// timedtext 요청은 보통 XML(srv3, 드물게 srv1)로 오고, 우리가 InnerTube에 직접 물어본
+// get_transcript 응답만 JSON이라 둘 다 시도한다.
 export function parseAnyCaptionPayload(text: string): TranscriptCue[] {
+  const trimmed = text.trimStart()
+  if (trimmed.startsWith('<')) return parseXml(text)
   let data: unknown
   try {
     data = JSON.parse(text)
   } catch {
-    return []
+    return parseXml(text) // JSON도 아니고 '<' 로 시작 안 해도(BOM 등) 마지막으로 XML 시도
   }
   const innertube = parseInnertubeTranscript(data)
   if (innertube.length > 0) return innertube
-  return parseJson3(data)
+  const json3 = parseJson3(data)
+  if (json3.length > 0) return json3
+  return parseXml(text)
 }
