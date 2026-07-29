@@ -1,5 +1,6 @@
-// 담당 B — 유튜브 자막 응답 파서(포맷 무관 공용). InnerTube get_transcript 응답과, 네트워크
-// 가로채기(networkHook.ts)로 잡은 임의의 자막 응답 payload를 같은 로직으로 해석한다.
+// 담당 B — 유튜브/넷플릭스 자막 응답 파서(포맷 무관 공용). InnerTube get_transcript 응답,
+// 네트워크 가로채기(networkHook.ts)로 잡은 유튜브 자막, 넷플릭스 WebVTT(netflixNetworkHook.ts
+// 로 확보한 다운로드 URL을 fetch한 결과)를 같은 로직으로 해석한다.
 import type { TranscriptCue } from './timedtext'
 
 function dig(obj: unknown, path: (string | number)[]): unknown {
@@ -123,4 +124,35 @@ export function parseAnyCaptionPayload(text: string): TranscriptCue[] {
   const json3 = parseJson3(data)
   if (json3.length > 0) return json3
   return parseXml(text)
+}
+
+// 넷플릭스 자막(webvtt-lssdh-ios8 프로파일) 파서. 표준 WebVTT — cue 타임코드 줄
+// (HH:MM:SS.mmm --> HH:MM:SS.mmm) 다음에 오는 빈 줄 전까지를 cue 텍스트로 본다. 화면 태그
+// (<i>, <c.xxx> 등)와 위치 지정 cue setting은 무시하고 텍스트만 취한다.
+const VTT_TIME_RE = /^(\d{2,}):(\d{2}):(\d{2})[.,](\d{3})\s*-->/
+export function parseWebVtt(text: string): TranscriptCue[] {
+  const lines = text.replace(/\r/g, '').split('\n')
+  const cues: TranscriptCue[] = []
+  let i = 0
+  while (i < lines.length) {
+    const m = lines[i]?.match(VTT_TIME_RE)
+    if (!m) {
+      i += 1
+      continue
+    }
+    const start = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 1000
+    i += 1
+    const textLines: string[] = []
+    while (i < lines.length && lines[i]!.trim() !== '') {
+      textLines.push(lines[i]!)
+      i += 1
+    }
+    const cueText = textLines
+      .join(' ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (cueText) cues.push({ start, text: cueText })
+  }
+  return cues
 }
