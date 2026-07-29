@@ -6,7 +6,8 @@ import type {
   SelectionContext,
 } from '@shared/types'
 import { getApiKey } from '@main/keyStore'
-import { tokenizeJapanese } from '@main/nlp/japanese'
+import { segmentJapaneseWords, tokenizeJapanese } from '@main/nlp/japanese'
+import { segmentChineseWords } from '@main/nlp/chinese'
 import { getSettings } from '@main/settingsStore'
 import { DEFAULT_MODELS } from '@shared/providers'
 import { getLanguageName, isFullLanguage } from '@shared/languages'
@@ -36,12 +37,15 @@ import { buildErrorResult } from './errors'
 // 사전 API는 원어 뜻만 제공, 한국어 설명·번역은 LLM 담당). 채팅창에 보일 최종 텍스트는
 // 그 번역 결과와 사전 원본 데이터(품사·출처·활용형 등)를 조합해 여기서 직접 구성한다.
 //
-// 다중 단어 선택 폴백(TODO.md 참고, en 전용 — 공백으로 단어가 갈리는 언어만 의미가 있음):
+// 다중 단어 선택 폴백(TODO.md 참고, en/ja/zh 전부 적용, 2026-07-30 ja/zh로 확장):
 // 선택 텍스트 전체를 표제어로 먼저 조회하고("kick the bucket" 같은 관용구는 통째로
-// 사전에 있을 수 있음), 못 찾으면 단어 단위로 쪼개 각각 독립적으로 같은 폴백 체인
+// 사전에 있을 수 있음), 못 찾으면 단어 단위로 쪼개(splitIntoDictionaryWords — en 은
+// 공백/하이픈, ja/zh 는 형태소 분석기) 각각 독립적으로 같은 폴백 체인
 // (lookupThroughFallbackChain)을 병렬 호출한다. 단어별 뜻은 서로 무관해 하나의
 // 프롬프트/판정으로 억지로 합칠 필요가 없어 이 구조를 택함 — 단, 체인 호출이 단어
-// 수만큼 늘어나므로 MAX_FALLBACK_WORDS 로 상한을 둔다.
+// 수만큼 늘어나므로 MAX_FALLBACK_WORDS 로 상한을 둔다. forceSource(디버깅 강제 소스
+// 선택)도 동일한 분해 로직을 공유한다(lookupForcedSourceOnce) — "강제"는 소스 하나만
+// 고정한다는 뜻이지, 그 소스 내부의 단어 분해 폴백까지 건너뛴다는 뜻이 아니다.
 
 const DICTIONARY_JUDGE_TEMPERATURE = 0.2
 const DICTIONARY_JUDGE_MAX_TOKENS = 500
@@ -136,13 +140,11 @@ export async function lookupDictionary(
     return emit(onChunk, buildErrorResult('dictionary', classifyLlmError(outcome.error), provider))
   }
 
-  // 통째 조회가 체인 끝까지 실패 — 공백으로 단어가 갈리는 en 만 단어 단위로 쪼개
-  // 각각 같은 체인을 재시도한다(ja/zh 는 popup 이 이미 원자 단위로 정확히 선택돼 있어
-  // 이런 재분할이 의미가 없다).
-  if (ctx.language !== 'en') {
-    return emit(onChunk, notFoundResult(word, whole.suggestions))
-  }
-  const words = splitIntoWords(word)
+  // 통째 조회가 체인 끝까지 실패 — 단어 단위로 쪼개 각각 같은 체인을 재시도한다
+  // (2026-07-30, en 전용이던 걸 ja/zh 로 확장 — "popup 이 이미 원자 단위로 선택해줘서
+  // 재분할이 의미 없다"는 예전 가정은, 드래그로 여러 단어/문장 범위를 잡을 수 있다는
+  // 걸 놓친 것이었다. "must have been exorbitant" 류 다중 단어 사전 못 찾음 제보로 발견).
+  const words = await splitIntoDictionaryWords(word, ctx.language)
   if (words.length <= 1) {
     return emit(onChunk, notFoundResult(word, whole.suggestions))
   }
@@ -438,6 +440,15 @@ function splitIntoWords(text: string): string[] {
     .filter(Boolean)
 }
 
+/** 통째 조회 실패 후 단어 단위 폴백에 쓸 분해 — en 은 위 splitIntoWords(공백/하이픈),
+ *  ja/zh 는 main/nlp 형태소 분석기(segmentJapaneseWords/segmentChineseWords)로 실제
+ *  단어 경계를 얻는다. lookupDictionary/lookupForcedSource 양쪽이 공유. */
+async function splitIntoDictionaryWords(text: string, language: Language): Promise<string[]> {
+  if (language === 'en') return splitIntoWords(text)
+  if (language === 'ja') return (await segmentJapaneseWords(text)).map((w) => w.text)
+  return (await segmentChineseWords(text, language)).map((w) => w.text)
+}
+
 function notFoundResult(word: string, suggestions?: string[]): QuestionResult {
   const suggestion = suggestions?.length ? ` (제안: ${suggestions.slice(0, 5).join(', ')})` : ''
   return { kind: 'dictionary', content: `사전에서 "${word}"를 찾지 못했습니다.${suggestion}` }
@@ -624,19 +635,30 @@ function describeSourceError(source: DictionarySourceId, err: unknown): string {
 // forceSource 분기 + registry.ts + 팝업 토글/드롭다운만 지우면 되고, fetchSourceEntries/
 // judgeAndFormat 등 폴백 체인이 계속 쓰는 헬퍼는 그대로 둔다.
 // ============================================================================
-async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelectionContext): Promise<QuestionResult> {
-  const word = ctx.selectedText.trim()
-  if (!word) {
-    return { kind: 'dictionary', content: '선택된 표현이 없습니다.' }
-  }
+interface ForcedSourceOnceResult {
+  formatted?: string
+  entries?: DictionaryEntry<Language>[]
+  suggestions?: string[]
+  firstCandidateError?: unknown
+  llmError?: unknown
+}
 
-  // 강제 소스 선택도 정식 폴백 체인(lookupThroughFallbackChain)과 동일하게 활용형→기본형
-  // 후보(japaneseWordCandidates/englishWordCandidates)를 전부 시도해 entries 를 합친다
-  // (2026-07-29) — 이전엔 표면형 하나만 쿼리해서 "行って"(行く의 て형)처럼 daijisen/
-  // JMdict/Wiktionary 어느 소스를 골라도 항상 "못 찾음"이었다. 후보 중 하나가 그 자체로도
-  // 표제어일 수 있어도(실측: "食べられる"가 JMdict에 가능형 "to be able to eat"으로 직접
-  // 등재돼 있음) 첫 성공에서 멈추지 않고 기본형("食べる") 후보까지 마저 시도해 entries 를
-  // 합친다 — 그래야 LLM 후보 목록에 원형 타동사 "먹다" 뜻도 함께 들어가 문맥에 맞게 고를
+/** 강제 소스 선택 한 단어(또는 phrase) 조회 — lookupForcedSource가 통째 조회와 en 단어별
+ *  폴백(아래) 양쪽에서 공유한다. */
+async function lookupForcedSourceOnce(
+  source: DictionarySourceId,
+  ctx: DictSelectionContext,
+  word: string,
+  client: ReturnType<typeof createClient>,
+  model: string,
+  cacheableContext: string,
+): Promise<ForcedSourceOnceResult> {
+  // 활용형→기본형 후보(japaneseWordCandidates/englishWordCandidates)를 전부 시도해
+  // entries 를 합친다(2026-07-29) — 이전엔 표면형 하나만 쿼리해서 "行って"(行く의 て형)처럼
+  // daijisen/JMdict/Wiktionary 어느 소스를 골라도 항상 "못 찾음"이었다. 후보 중 하나가 그
+  // 자체로도 표제어일 수 있어도(실측: "食べられる"가 JMdict에 가능형 "to be able to eat"으로
+  // 직접 등재돼 있음) 첫 성공에서 멈추지 않고 기본형("食べる") 후보까지 마저 시도해 entries
+  // 를 합친다 — 그래야 LLM 후보 목록에 원형 타동사 "먹다" 뜻도 함께 들어가 문맥에 맞게 고를
   // 수 있다(체인 쪽 "closed"/"close" 사례와 동일한 이유, 위 lookupThroughFallbackChain
   // 주석 참고). 표면형(첫 후보) 조회 실패만 설정 문제(키 미설정 등)일 수 있어 그대로
   // 보여주고, 그 다음 후보들의 실패는 체인과 동일하게 조용히 다음 후보로 넘어간다.
@@ -659,13 +681,30 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelection
     }
   }
 
-  if (!collectedEntries.length) {
-    if (firstCandidateError) return { kind: 'dictionary', content: describeSourceError(source, firstCandidateError) }
-    return notFoundResult(word, suggestions)
-  }
+  if (!collectedEntries.length) return { suggestions, firstCandidateError }
   const senses = numberSenses(collectedEntries)
-  if (!senses.length) {
-    return notFoundResult(word, suggestions)
+  if (!senses.length) return { suggestions, firstCandidateError }
+
+  const outcome = await judgeAndFormat({
+    word: matchedCandidates.includes(word) ? word : (matchedCandidates[0] ?? word),
+    source: collectedEntries[0].source,
+    senses,
+    ctx,
+    client,
+    model,
+    cacheableContext,
+  })
+  if (!outcome.ok) return { llmError: outcome.error, entries: collectedEntries }
+  return {
+    formatted: withDebugCountsLine(outcome.formatted, collectedEntries, senses.length, outcome.selected), // TEMP DEBUG
+    entries: collectedEntries,
+  }
+}
+
+async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelectionContext): Promise<QuestionResult> {
+  const word = ctx.selectedText.trim()
+  if (!word) {
+    return { kind: 'dictionary', content: '선택된 표현이 없습니다.' }
   }
 
   const provider = getActiveProvider()
@@ -675,24 +714,61 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelection
 
   const settings = getSettings()
   const client = createClient(provider, { apiKey: llmKey })
+  const model = settings.models[provider] || DEFAULT_MODELS[provider]
   const cacheableContext = buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter)
 
-  const outcome = await judgeAndFormat({
-    word: matchedCandidates.includes(word) ? word : (matchedCandidates[0] ?? word),
-    source: collectedEntries[0].source,
-    senses,
-    ctx,
-    client,
-    model: settings.models[provider] || DEFAULT_MODELS[provider],
-    cacheableContext,
-  })
-
-  if (!outcome.ok) {
-    return buildErrorResult('dictionary', classifyLlmError(outcome.error), provider)
+  const whole = await lookupForcedSourceOnce(source, ctx, word, client, model, cacheableContext)
+  if (whole.formatted) {
+    return {
+      kind: 'dictionary',
+      content: whole.formatted,
+      meta: { provider, source: whole.entries?.[0]?.source },
+    }
   }
+  if (whole.llmError) return buildErrorResult('dictionary', classifyLlmError(whole.llmError), provider)
+  if (whole.firstCandidateError) {
+    return { kind: 'dictionary', content: describeSourceError(source, whole.firstCandidateError) }
+  }
+
+  // 정식 폴백(lookupDictionary)과 동일하게 다중 단어는 단어 단위로 쪼개 강제 소스를
+  // 각각 재시도한다(2026-07-30) — 이 강제 소스 선택 경로엔 원래 이 분해 로직이 아예
+  // 없어서 "must have been exorbitant" 같은 phrase가 (표제어가 아니니 당연히) 통째로
+  // "못 찾음" 처리됐다. "직접 선택" 토글 기본값이 켜져 있어(Toolbar.tsx) 실사용에서도
+  // 이 경로를 자주 타므로 정식 경로와 동작을 맞춘다. "강제"는 소스 하나만 고정한다는
+  // 뜻이지 그 소스 내부 폴백(단어 분해 포함)까지 건너뛴다는 뜻이 아니다.
+  const words = await splitIntoDictionaryWords(word, ctx.language)
+  if (words.length <= 1) return notFoundResult(word, whole.suggestions)
+  if (words.length > MAX_FALLBACK_WORDS) {
+    const suggestion = whole.suggestions?.length
+      ? ` (제안: ${whole.suggestions.slice(0, 5).join(', ')})`
+      : ''
+    return {
+      kind: 'dictionary',
+      content: `선택 범위가 너무 넓어 사전 검색을 건너뜁니다(단어 ${words.length}개, 최대 ${MAX_FALLBACK_WORDS}개).${suggestion}`,
+    }
+  }
+
+  const perWordResults = await Promise.allSettled(
+    words.map((w) => lookupForcedSourceOnce(source, ctx, w, client, model, cacheableContext)),
+  )
+  const formattedBlocks = perWordResults
+    .map((r) => (r.status === 'fulfilled' ? r.value.formatted : undefined))
+    .filter((f): f is string => Boolean(f))
+
+  if (!formattedBlocks.length) {
+    const llmErrorResult = perWordResults.find(
+      (r): r is PromiseFulfilledResult<ForcedSourceOnceResult> =>
+        r.status === 'fulfilled' && r.value.llmError !== undefined,
+    )
+    if (llmErrorResult) {
+      return buildErrorResult('dictionary', classifyLlmError(llmErrorResult.value.llmError), provider)
+    }
+    return notFoundResult(word, whole.suggestions)
+  }
+
   return {
     kind: 'dictionary',
-    content: withDebugCountsLine(outcome.formatted, collectedEntries, senses.length, outcome.selected), // TEMP DEBUG
-    meta: { provider, source: collectedEntries[0].source },
+    content: formattedBlocks.join('\n\n---\n\n'),
+    meta: { provider, source },
   }
 }
