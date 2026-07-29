@@ -1,4 +1,4 @@
-import type { Language, SelectionSource } from '@shared/types'
+import type { AnyLanguage, SelectionSource } from '@shared/types'
 import { readWindowText } from './accessibility'
 import { getSelectedWindowId, getSelectedWindowName } from './capture'
 import { detectLanguage } from './langDetect'
@@ -25,7 +25,7 @@ export interface ExtractionDecision {
   // subtitle = 확장으로 원어 자막 추출(유튜브/넷플릭스 미디어 페이지)
   mode: 'direct' | 'ocr' | 'subtitle'
   source: SelectionSource
-  language: Language
+  language: AnyLanguage
 }
 
 const cache = new Map<string, ExtractionDecision>() // key: url ?? appName

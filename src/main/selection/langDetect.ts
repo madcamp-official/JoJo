@@ -1,7 +1,8 @@
 import { nativeImage } from 'electron'
 import { createWorker, OEM, type Worker } from 'tesseract.js'
-import type { Language, Rect } from '@shared/types'
-import { detectHanziVariant } from '@shared/languageDetect'
+import type { AnyLanguage, Rect } from '@shared/types'
+import { detectHanziVariant, detectRawLanguage } from '@shared/languageDetect'
+import { getOcrLangCode } from '@shared/languages'
 
 // 담당 A — 언어 자동 감지 (PLAN.md §4.1 / §5 / §6)
 // 파이프라인 순서: 본문 영역 탐지(DocLayout-YOLO) → 언어 감지(여기) → 읽기 순서/OCR.
@@ -10,11 +11,15 @@ import { detectHanziVariant } from '@shared/languageDetect'
 //
 // Tesseract 의 OSD(Orientation & Script Detection, `osd.traineddata`)를 그대로
 // 쓴다 — 전체 인식을 돌리지 않고 스크립트(문자 체계)만 빠르게 판별해주는 경량
-// 기능이라 별도 모델을 새로 붙일 필요가 없다. 스크립트 → 우리 Language 타입(en/ja/
-// zh-Hans/zh-Hant) 매핑은 근사치다: 일본어는 히라가나/가타카나가 섞이면 "Japanese"로
-// 뚜렷이 나오지만, 한자만 있는 텍스트는 중국어와 구분이 안 돼 "Han"으로만 나온다 —
-// 이 경우 아래 detectChineseScript() 로 간체/번체까지 한 번 더 가른다(PLAN.md §5).
-// 한글(Korean)은 Language 타입에 아직 자리가 없어 감지는 로그로 남기되 en 폴백.
+// 기능이라 별도 모델을 새로 붙일 필요가 없다. 문제는 OSD가 "문자 체계"까지만
+// 알려주고 "어느 언어"인지는 모른다는 것 — 스크립트 하나에 언어가 딱 하나면
+// 문제없지만(태국어=Thai 스크립트, 히브리어=Hebrew 스크립트 등), 라틴/키릴/아랍/
+// 데바나가리 문자는 tier2 확장(2026-07-30) 이후 여러 언어가 같은 스크립트를 공유한다
+// (예: 라틴 문자만 en/프랑스어/독일어/스페인어 등 20개 이상). 이 경우
+// resolveAmbiguousScript() 가 그 스크립트의 "대표 언어팩"으로 러프하게 한 번 OCR을
+// 미리 돌려 텍스트를 뽑은 뒤, eld(자막 판별에 쓰는 것과 동일한 텍스트 기반 판별기)로
+// 정확한 언어를 한 번 더 가른다 — zh-Hans/zh-Hant를 표본 문자로 가르던 것과 같은
+// "1차 대충 인식 → 텍스트로 재판별" 패턴을 일반화한 것.
 
 let osdWorker: Worker | null = null
 
@@ -26,25 +31,25 @@ async function getOsdWorker(): Promise<Worker> {
   return osdWorker
 }
 
-let zhSampleWorker: Worker | null = null
+// 스크립트별 표본 추출 워커 재사용 풀 — 언어팩 로드 비용이 커서 매번 새로 만들지 않는다.
+const probeWorkers = new Map<string, Worker>()
 
-async function getZhSampleWorker(): Promise<Worker> {
-  // 표본 추출 전용으로 chi_sim 언어팩을 쓰지만, 인식 자체는 이미지 속 글자 "형태"를
-  // 그대로 읽어내는 것이라(언어팩은 주로 사전/후처리에 영향, 스크립트를 다른 형태로
-  // "변환"하진 않음) 번체 문서에도 대체로 번체 코드포인트 그대로 인식된다 — 판별용
-  // 표본 추출엔 이 정도로 충분해서 간체/번체 두 언어팩을 다 돌릴 필요가 없다.
-  if (!zhSampleWorker) zhSampleWorker = await createWorker('chi_sim')
-  return zhSampleWorker
+async function getProbeWorker(ocrLang: string): Promise<Worker> {
+  const existing = probeWorkers.get(ocrLang)
+  if (existing) return existing
+  const worker = await createWorker(ocrLang)
+  probeWorkers.set(ocrLang, worker)
+  return worker
 }
 
 /**
- * OSD 가 "Han"(간체/번체 구분이 안 되는 한자)으로만 판정했을 때, 실제 스크립트를 표본
+ * OSD가 "Han"(간체/번체 구분이 안 되는 한자)으로만 판정했을 때, 실제 스크립트를 표본
  * 문자 카운트(@shared/languageDetect 의 detectHanziVariant, OpenCC 전체 간체/번체
  * 전용 한자 매핑 기반)로 가른다. 인식 실패 시 기본값 zh-Hans 로 폴백한다.
  */
 async function detectChineseScript(target: Buffer): Promise<'zh-Hans' | 'zh-Hant'> {
   try {
-    const worker = await getZhSampleWorker()
+    const worker = await getProbeWorker('chi_sim')
     const { data } = await worker.recognize(target)
     const variant = detectHanziVariant(data.text)
     console.log(`[langDetect] 간체/번체 판별 결과: ${variant}`)
@@ -55,12 +60,59 @@ async function detectChineseScript(target: Buffer): Promise<'zh-Hans' | 'zh-Hant
   }
 }
 
-const SCRIPT_TO_LANGUAGE: Record<string, Language | 'zh'> = {
+/** 한 스크립트를 공유하는 언어가 여럿일 때(예: 라틴 문자), 첫 번째 후보를 "러프 인식용
+ *  대표 언어팩"으로 써서 텍스트를 뽑고, eld로 그 텍스트의 실제 언어를 재판별한다. eld가
+ *  이 스크립트 후보 목록 밖의 언어를 감지하거나 실패하면 대표 언어(candidates[0])로
+ *  폴백한다 — 화면 캡처는 자막보다 텍스트 표본이 훨씬 짧을 수 있어(단어 하나 등) eld가
+ *  실패할 가능성이 자막 경로보다 높다는 점을 감안한 안전망. */
+async function resolveAmbiguousScript(target: Buffer, candidates: AnyLanguage[]): Promise<AnyLanguage> {
+  const representative = candidates[0]!
+  try {
+    const worker = await getProbeWorker(getOcrLangCode(representative))
+    const { data } = await worker.recognize(target)
+    const raw = detectRawLanguage(data.text)
+    const resolved = candidates.find((c) => c === raw)
+    if (resolved) {
+      console.log(`[langDetect] 스크립트 내 언어 재판별: ${raw} → ${resolved}`)
+      return resolved
+    }
+    console.log(`[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) — 대표 언어(${representative})로 폴백`)
+    return representative
+  } catch (err) {
+    console.error('[langDetect] 스크립트 내 언어 재판별 오류 — 대표 언어로 폴백:', err)
+    return representative
+  }
+}
+
+// OSD 스크립트 이름 → 언어 매핑. 값이 배열이면 "이 스크립트를 공유하는 후보들"이라는
+// 뜻으로 resolveAmbiguousScript를 태운다(배열의 첫 원소가 그 스크립트의 대표/폴백 언어).
+// 'zh'는 detectChineseScript로 별도 처리(간체/번체 세분화)하므로 여기 값에는 없다.
+const SCRIPT_TO_LANGUAGE: Record<string, AnyLanguage | 'zh' | AnyLanguage[]> = {
   Japanese: 'ja',
   Hiragana: 'ja',
   Katakana: 'ja',
-  Han: 'zh', // 아래에서 detectChineseScript() 로 zh-Hans/zh-Hant 까지 한 번 더 가른다.
-  Latin: 'en',
+  Han: 'zh',
+  Hangul: 'ko',
+  Thai: 'th',
+  Lao: 'lo',
+  Hebrew: 'he',
+  Armenian: 'hy',
+  Georgian: 'ka',
+  Greek: 'el',
+  Bengali: 'bn',
+  Gujarati: 'gu',
+  Gurmukhi: 'pa',
+  Kannada: 'kn',
+  Malayalam: 'ml',
+  Oriya: 'or',
+  Tamil: 'ta',
+  Telugu: 'te',
+  Ethiopic: 'am',
+  // 대표(폴백)를 맨 앞에 — 라틴 문자는 영어를 기본값으로 유지(tier1 우선순위 존중).
+  Latin: ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'tr', 'vi', 'ro', 'cs', 'hu', 'sv', 'da', 'no', 'fi', 'hr', 'sq', 'tl', 'az', 'ca', 'et', 'eu', 'lt', 'lv', 'ms', 'sk', 'sl'],
+  Cyrillic: ['ru', 'uk', 'bg', 'be', 'sr'],
+  Arabic: ['ar', 'fa', 'ur'],
+  Devanagari: ['hi', 'mr'],
 }
 
 /**
@@ -70,7 +122,7 @@ const SCRIPT_TO_LANGUAGE: Record<string, Language | 'zh'> = {
  * 검증용으로 스크립트/신뢰도를 콘솔에 항상 로그로 남긴다 — 언어별 테스트 콘텐츠로
  * 실제로 잘 잡히는지 눈으로 바로 확인할 수 있게.
  */
-export async function detectLanguage(image?: Buffer, region?: Rect): Promise<Language> {
+export async function detectLanguage(image?: Buffer, region?: Rect): Promise<AnyLanguage> {
   if (!image) return 'en'
   try {
     const worker = await getOsdWorker()
@@ -98,13 +150,14 @@ export async function detectLanguage(image?: Buffer, region?: Rect): Promise<Lan
       console.warn('[langDetect] 스크립트를 못 잡음 — en 으로 폴백')
       return 'en'
     }
-    const lang = SCRIPT_TO_LANGUAGE[data.script]
-    if (!lang) {
-      console.warn(`[langDetect] 매핑 안 된 스크립트("${data.script}") — en 으로 폴백`)
+    const mapped = SCRIPT_TO_LANGUAGE[data.script]
+    if (!mapped) {
+      console.warn(`[langDetect] 매핑 안 된 스크립트("${data.script}") — en 으로 폴백(tier3 스크립트, OCR 자체는 시도)`)
       return 'en'
     }
-    if (lang === 'zh') return detectChineseScript(target)
-    return lang
+    if (mapped === 'zh') return detectChineseScript(target)
+    if (Array.isArray(mapped)) return resolveAmbiguousScript(target, mapped)
+    return mapped
   } catch (err) {
     console.error('[langDetect] 감지 실패 — en 으로 폴백:', err)
     return 'en'

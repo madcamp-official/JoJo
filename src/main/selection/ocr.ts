@@ -1,6 +1,7 @@
 import { nativeImage } from 'electron'
 import { createWorker, type Worker } from 'tesseract.js'
-import type { Language, Rect, Word } from '@shared/types'
+import type { AnyLanguage, Rect, Word } from '@shared/types'
+import { getOcrLangCode } from '@shared/languages'
 import type { Extracted } from './extractDirect'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
@@ -29,22 +30,20 @@ const BLOCK_PADDING_Y = 12
 // 판정된 스크립트에 맞는 언어팩 하나만 로드한다(간체/번체 결합 로드는 스크립트를 미리
 // 모를 때의 임시방편이었는데, 사전 판별 단계가 생기면서 더 이상 필요 없어짐 — 결합 로드
 // 대비 다운로드/메모리도 줄고, Tesseract 가 두 사전 사이에서 헷갈릴 여지도 없어짐).
-const TESS_LANG: Record<Language, string> = {
-  en: 'eng',
-  ja: 'jpn',
-  'zh-Hans': 'chi_sim',
-  'zh-Hant': 'chi_tra',
-}
+// Tesseract 언어팩 코드는 language 레지스트리(shared/languages.ts getOcrLangCode)의
+// 단일 소스를 그대로 쓴다 — tier1/tier2 언어별 코드를 여기서 따로 들고 있지 않는다(예전엔
+// tier1 4개만 하드코딩한 맵이 있었는데, tier2 56개까지 똑같이 하드코딩하면 레지스트리와
+// 두 곳에서 따로 관리하게 돼 어긋날 위험이 있었음).
 
 // 언어별 워커를 재사용한다 — 언어팩 로드 비용이 커서(수 MB 다운로드/초기화) 매 호출마다
 // 새로 만들지 않는다. 언어가 바뀌면 이전 워커를 정리하고 새로 만든다.
 let worker: Worker | null = null
-let workerLang: Language | null = null
+let workerLang: AnyLanguage | null = null
 
-async function getWorker(language: Language): Promise<Worker> {
+async function getWorker(language: AnyLanguage): Promise<Worker> {
   if (worker && workerLang === language) return worker
   if (worker) await worker.terminate()
-  worker = await createWorker(TESS_LANG[language])
+  worker = await createWorker(getOcrLangCode(language))
   workerLang = language
   return worker
 }
@@ -113,7 +112,7 @@ async function resolveLayout(image: Buffer, region: Rect | undefined): Promise<L
  * 단일 패스로 처리한다. 열이 1개 이하거나 레이아웃 검출 자체가 실패하면(Python 환경
  * 미설치 등) 기존 단일 패스로 폴백한다.
  */
-export async function runOcr(image: Buffer, language: Language, region?: Rect): Promise<Extracted> {
+export async function runOcr(image: Buffer, language: AnyLanguage, region?: Rect): Promise<Extracted> {
   const { blocks: rawBlocks, vertical: shapeVertical, fallbackLines } = await resolveLayout(image, region)
   // regionSelection.ts(autoDetectRegion)는 본문 영역 경계를 계산할 때 본문 라벨
   // (BODY_LABELS: doc_title/paragraph_title/text)만 남기고 header/image/aside_text/
@@ -315,7 +314,7 @@ async function runNonTesseractOcr(
 async function recognizeRegion(
   w: Worker,
   image: Buffer,
-  language: Language,
+  language: AnyLanguage,
   region?: Rect,
 ): Promise<{ text: string; words: Word[] }> {
   // blocks 출력은 기본 꺼져 있음 — 단어별 bbox 를 얻으려면 명시적으로 켜야 한다.
