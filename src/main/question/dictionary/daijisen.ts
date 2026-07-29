@@ -13,8 +13,14 @@ import type { DictionaryEntry, DictionaryReading, DictionarySense } from '@share
 //
 // **URL 조회**: 정확한 ID(`kotobank.jp/word/{표제어}-{ID}`)를 몰라도 `/word/{표제어}`로
 // 직접 접근하면 검색 없이 정확한 ID 페이지로 자동 리다이렉트됨을 실측 확인(2026-07-28, 花/
-// 食べる/犬/美しい 4개 표제어 curl 직접 검증) — 별도 검색 API 호출 불필요. 존재하지 않는
-// 표제어는 HTTP 404(실측: title "お探しのページは見つかりません").
+// 食べる/犬/美しい 4개 표제어 curl 직접 검증). 존재하지 않는 표제어는 HTTP 404(실측: title
+// "お探しのページは見つかりません"). **단, 리다이렉트가 모든 표기 변형을 흡수해주진 않는다**
+// (2026-07-29 실측 발견): 大辞泉 표기가 오쿠리가나 괄호 생략형(【落（と）す】)인 표제어는
+// URL 슬러그도 생략형(`/word/落す-453451`)이라, 표준 표기("落とす")로 접근하면 리다이렉트
+// 없이 404가 난다 — 이 경우에 한해 `kotobank.jp/search?q={조회어}` 검색 결과에서 조회어의
+// 오쿠리가나 생략 변형(같은 첫 글자 + 히라가나만 빠진 부분수열)에 해당하는 표제어 URL을
+// 찾아 재시도한다(searchFallback, 404일 때만 — 리다이렉트가 무관한 페이지로 간 경우까지
+// 검색으로 넓히면 なる→ナル류 오탐이 다시 생길 수 있어 넓히지 않는다).
 //
 // **동형이의 항목 처리**: 한 daijisen article 안에 `<div class="ex cf">`로 나뉘는 여러
 // 하위 항목이 있을 수 있다(실측: "花" 페이지 — ①はな【花／華】(일반 단어) ②か【花】［漢字項目］
@@ -45,6 +51,7 @@ import type { DictionaryEntry, DictionaryReading, DictionarySense } from '@share
 // `synonyms`로 붙인다. 예문(「…」)·고전 인용(〈…〉)은 각각 examples로 추출/버림.
 
 const KOTOBANK_WORD_ENDPOINT = 'https://kotobank.jp/word'
+const KOTOBANK_SEARCH_ENDPOINT = 'https://kotobank.jp/search'
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
@@ -158,6 +165,19 @@ function stripBoundaryMarkers(s: string): string {
   return s.replace(/[・‐]/g, '')
 }
 
+interface HeadwordAndReading {
+  headword: string[]
+  /** 관련성 확인용 표기 변형 전체 — headword(괄호만 벗긴 표준 표기)에 더해 오쿠리가나
+   *  괄호 생략형(괄호째 제거, "落（と）す"→"落す")까지 포함한다. 화면 표시(headword)와
+   *  조회어 매칭(matchForms)을 분리하기 위한 필드. */
+  matchForms: string[]
+  reading?: string
+  /** 읽기의 "・"(어간 경계) 뒤 오쿠리가나 부분("た・べる"→"べる") — 예문의 "―"(표제어
+   *  대용 기호) 복원 시 어간을 계산하는 데 쓴다(restoreHeadwordPlaceholders 참고).
+   *  경계가 없으면(명사 등) undefined. */
+  okuriganaSuffix?: string
+}
+
 /** `<h3>` 표기에서 읽기와 한자 표기(들)를 분리한다. 대부분(예: "はな【花／華】",
  *  "た・べる【食べる】", "か【花】［漢字項目］")은 읽기+【한자】 형태지만, **가타카나
  *  외래어는 【】 표기 자체가 없다**(실측: "コンピューター（computer）" — 원어 병기가
@@ -165,25 +185,61 @@ function stripBoundaryMarkers(s: string): string {
  *  article이 실제로 있는데도 예전 코드(【】 필수)로는 이 표기를 못 뽑아 entry 전체가
  *  통째로 드롭되고 있었음). 【】가 없으면 h3 텍스트 자체를 headword로 쓰고(가타카나어는
  *  표기=읽기라 reading도 동일값), 끝에 붙는 원어 병기 괄호는 headword가 아니라 어원
- *  표시라 제거한다. */
-function extractHeadwordAndReading(entryHtml: string): { headword: string[]; reading?: string } {
+ *  표시라 제거한다.
+ *
+ *  **오쿠리가나 괄호 생략형**(2026-07-29 실측 발견, "落とす"): 브래킷 안 표기가
+ *  "落（と）す"처럼 생략 가능한 오쿠리가나를 전각 괄호로 감싼 형태일 수 있다 — 괄호만
+ *  벗긴 표준 표기("落とす")를 headword(화면 표시·매칭 기본형)로 쓰고, 괄호째 지운
+ *  생략형("落す", kotobank URL 슬러그가 이 표기)은 matchForms에만 추가한다. 예전엔
+ *  "落（と）す"가 그대로 headword로 들어가 관련성 확인("…".includes("落とす"))에서
+ *  정상 항목까지 걸러졌다. */
+function extractHeadwordAndReading(entryHtml: string): HeadwordAndReading {
   const h3Match = entryHtml.match(/<h3>([\s\S]*?)<\/h3>/)
-  if (!h3Match) return { headword: [] }
+  if (!h3Match) return { headword: [], matchForms: [] }
   const text = stripDaijisenHtml(h3Match[1])
 
   const bracketMatch = text.match(/【([^】]*)】/)
   if (bracketMatch) {
-    const headword = bracketMatch[1]
-      .split(/[／/]/)
-      .map((s) => stripBoundaryMarkers(s).trim())
-      .filter(Boolean)
-    const readingRaw = stripBoundaryMarkers(text.slice(0, bracketMatch.index)).trim()
-    return { headword, reading: readingRaw || undefined }
+    const headword: string[] = []
+    const matchForms: string[] = []
+    for (const segment of bracketMatch[1].split(/[／/]/)) {
+      const cleaned = stripBoundaryMarkers(segment).trim()
+      if (!cleaned) continue
+      const canonical = cleaned.replace(/[（）]/g, '')
+      const omitted = cleaned.replace(/（[^）]*）/g, '')
+      if (canonical && !headword.includes(canonical)) headword.push(canonical)
+      for (const form of [canonical, omitted]) {
+        if (form && !matchForms.includes(form)) matchForms.push(form)
+      }
+    }
+    const readingWithBoundary = text.slice(0, bracketMatch.index).trim()
+    const boundaryIdx = readingWithBoundary.lastIndexOf('・')
+    const okuriganaSuffix =
+      boundaryIdx !== -1 ? stripBoundaryMarkers(readingWithBoundary.slice(boundaryIdx + 1)).trim() || undefined : undefined
+    const readingRaw = stripBoundaryMarkers(readingWithBoundary).trim()
+    return { headword, matchForms, reading: readingRaw || undefined, okuriganaSuffix }
   }
 
   const withoutOrigin = stripBoundaryMarkers(text.replace(/[（(][^）)]*[）)]\s*$/, '')).trim()
   const headword = withoutOrigin || stripBoundaryMarkers(text).trim()
-  return headword ? { headword: [headword], reading: headword } : { headword: [] }
+  return headword
+    ? { headword: [headword], matchForms: [headword], reading: headword }
+    : { headword: [], matchForms: [] }
+}
+
+/** 예문 속 "―"(U+2015, 표제어 대용 기호)를 실제 표제어로 복원한다 — daijisen 예문은
+ *  표제어 자리를 "―"로 표기하는데(명사: "わが―"=わが君, 활용어: "生で―・べる"=生で食べる),
+ *  이걸 그대로 화면에 내보내면 예문에 표제어가 아예 안 보인다(실사용 피드백, 2026-07-29:
+ *  君 예문 "―、一緒に行こう"). 활용어는 "―"가 표제어 전체가 아니라 **어간**(오쿠리가나
+ *  앞부분)을 대신하므로, 읽기의 "・" 경계에서 얻은 오쿠리가나(okuriganaSuffix)를 headword
+ *  끝에서 떼어 어간을 계산하고 "―・" 통째를 어간으로 치환한다("―・べる"→食+べる=食べる).
+ *  headword가 오쿠리가나로 안 끝나면(한자만 있는 이표기 등) headword 그대로 치환. */
+function restoreHeadwordPlaceholders(text: string, headword: string, okuriganaSuffix?: string): string {
+  const stem =
+    okuriganaSuffix && headword.endsWith(okuriganaSuffix)
+      ? headword.slice(0, -okuriganaSuffix.length)
+      : headword
+  return text.replace(/―・?/g, stem)
 }
 
 function extractDescriptionSection(entryHtml: string): string | null {
@@ -313,13 +369,90 @@ export interface DaijisenLookupResult {
 }
 
 /** word 를 kotobank.jp 에서 조회한다(daijisen 소스만 채택, 위 파일 상단 주석 참고).
- *  표제어를 못 찾으면(HTTP 404) entry 없이 빈 객체를 반환 — 다음 폴백(JMdict)으로 넘어가라는
- *  신호. daijisen article 자체가 없거나(드묾, 실측상 daijisen 없는 페이지는 못 봤으나 방어적
- *  으로 처리) 뜻풀이를 하나도 못 뽑아도 마찬가지. */
+ *  표제어를 못 찾으면 entry 없이 빈 객체를 반환 — 다음 폴백(JMdict)으로 넘어가라는 신호.
+ *  daijisen article 자체가 없거나(드묾, 실측상 daijisen 없는 페이지는 못 봤으나 방어적
+ *  으로 처리) 뜻풀이를 하나도 못 뽑아도 마찬가지. HTTP 404는 곧바로 포기하지 않고 검색
+ *  폴백(searchFallback — 오쿠리가나 괄호 생략형 표제어 대응, 위 파일 상단 "URL 조회" 주석
+ *  참고)을 한 번 거친다. */
 export async function fetchDaijisenEntry(word: string): Promise<DaijisenLookupResult> {
-  const url = `${KOTOBANK_WORD_ENDPOINT}/${encodeURIComponent(word)}`
+  const direct = await fetchDaijisenPage(`${KOTOBANK_WORD_ENDPOINT}/${encodeURIComponent(word)}`, word)
+  if (direct !== 'not-found') return direct
+  return searchFallback(word)
+}
+
+/** kotobank 검색(`/search?q=`) 결과에서 조회어의 오쿠리가나 생략 변형에 해당하는 표제어
+ *  URL을 찾아 재시도한다 — `/word/{조회어}` 직접 접근이 404일 때만 호출된다(실측: "落とす"
+ *  → 검색 결과에 `/word/落す-453451`). 검색 자체의 실패는 어차피 "여기선 못 찾음"과 같은
+ *  결과라 조용히 삼키고 빈 객체를 반환한다(폴백 체인이 JMdict로 넘어감). */
+async function searchFallback(word: string): Promise<DaijisenLookupResult> {
+  let paths: string[]
+  try {
+    paths = await searchKotobankCandidatePaths(word)
+  } catch (err) {
+    console.warn('[daijisen] kotobank 검색 폴백 실패:', err)
+    return {}
+  }
+  for (const path of paths.slice(0, 3)) {
+    try {
+      const result = await fetchDaijisenPage(`https://kotobank.jp${path}`, word)
+      if (result !== 'not-found' && result.entry) return result
+    } catch (err) {
+      console.warn(`[daijisen] 검색 폴백 후보(${path}) 조회 실패:`, err)
+    }
+  }
+  return {}
+}
+
+/** 검색 결과 페이지에서 `/word/{슬러그}-{ID}` 링크를 긁어, 슬러그가 조회어와 정확히
+ *  같거나 오쿠리가나 생략 변형(isOkuriganaOmittedVariant)인 것만 순서 유지로 돌려준다. */
+async function searchKotobankCandidatePaths(word: string): Promise<string[]> {
+  const res = await fetch(`${KOTOBANK_SEARCH_ENDPOINT}?q=${encodeURIComponent(word)}`, {
+    headers: { 'User-Agent': USER_AGENT },
+  })
+  if (!res.ok) {
+    throw new DaijisenHttpError(res.status, `daijisen(kotobank.jp) 검색 실패: HTTP ${res.status}`)
+  }
+  const html = await res.text()
+  const paths: string[] = []
+  // 검색 결과 링크는 대부분 `#w-{ID}` 프래그먼트가 붙어 있다(실측: /word/落す-453451#w-453451)
+  // — 프래그먼트는 버리고 경로만 취한다.
+  for (const m of html.matchAll(/href="(\/word\/[^"#]+)(?:#[^"]*)?"/g)) {
+    const path = m[1]
+    if (paths.includes(path)) continue
+    const slugEncoded = path.slice('/word/'.length).replace(/-\d+$/, '')
+    let slug: string
+    try {
+      slug = decodeURIComponent(slugEncoded)
+    } catch {
+      continue
+    }
+    if (slug === word || isOkuriganaOmittedVariant(slug, word)) paths.push(path)
+  }
+  return paths
+}
+
+/** slug 가 word 의 오쿠리가나 생략 표기인지("落す" vs "落とす") — 첫 글자가 같고, word 에서
+ *  히라가나만 몇 글자 빠진 부분수열이면 참. 검색 결과의 무관한 복합어("打落す"/"目を落とす"
+ *  등)는 첫 글자 불일치·길이 초과로 자연히 걸러진다. */
+function isOkuriganaOmittedVariant(slug: string, word: string): boolean {
+  const slugChars = [...slug]
+  const wordChars = [...word]
+  if (slugChars.length >= wordChars.length) return false
+  if (slugChars[0] !== wordChars[0]) return false
+  let i = 0
+  const omitted: string[] = []
+  for (const ch of wordChars) {
+    if (i < slugChars.length && slugChars[i] === ch) i++
+    else omitted.push(ch)
+  }
+  return i === slugChars.length && omitted.every((ch) => /^[ぁ-ゖ]$/.test(ch))
+}
+
+/** 표제어 페이지 하나를 내려받아 daijisen entry 로 파싱한다 — 직접 URL 경로와 검색 폴백
+ *  경로가 공유. HTTP 404 만 'not-found' 로 구분해 돌려준다(검색 폴백을 탈지 판단용). */
+async function fetchDaijisenPage(url: string, word: string): Promise<DaijisenLookupResult | 'not-found'> {
   const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
-  if (res.status === 404) return {}
+  if (res.status === 404) return 'not-found'
   if (!res.ok) {
     throw new DaijisenHttpError(res.status, `daijisen(kotobank.jp) 요청 실패: HTTP ${res.status}`)
   }
@@ -335,7 +468,12 @@ export async function fetchDaijisenEntry(word: string): Promise<DaijisenLookupRe
   const readings: DictionaryReading<'ja'>[] = []
 
   for (const entryBlock of entryBlocks) {
-    const { headword: blockHeadword, reading: readingText } = extractHeadwordAndReading(entryBlock)
+    const {
+      headword: blockHeadword,
+      matchForms,
+      reading: readingText,
+      okuriganaSuffix,
+    } = extractHeadwordAndReading(entryBlock)
     if (!blockHeadword.length) continue
     // 관련성 확인(2026-07-28 실측 후 추가) — kotobank.jp의 ID 없는 리다이렉트가 항상
     // 조회어와 관련된 페이지로 가는 게 아니다: 순수 히라가나 상용 동사(예: "なる")가
@@ -348,14 +486,27 @@ export async function fetchDaijisenEntry(word: string): Promise<DaijisenLookupRe
     // 처럼 희귀/방언 읽기를 나타내는 "▽" 마커(`<sup>▽</sup>`)가 브래킷 안에 붙는 표기가
     // 있는데, 이걸 정확히 일치로 비교하면 "▽水" ≠ "水"라 진짜 水의 이표기까지 잘못
     // 걸러진다 — 포함 관계("▽水".includes("水"))로 비교하면 이런 마커는 자연히 통과되고,
-    // なる→ナル처럼 문자 자체가 다른 완전 별개 단어는 여전히 걸러진다.
-    if (!blockHeadword.some((h) => h.includes(word)) && readingText !== word) continue
+    // なる→ナル처럼 문자 자체가 다른 완전 별개 단어는 여전히 걸러진다. 비교 대상은
+    // headword(표준 표기)가 아니라 matchForms — 오쿠리가나 괄호 생략형("落す")으로 조회된
+    // 경우도 통과시키기 위함(검색 폴백 경로, extractHeadwordAndReading 주석 참고).
+    if (!matchForms.some((h) => h.includes(word)) && readingText !== word) continue
 
     const descriptionHtml = extractDescriptionSection(entryBlock)
     if (!descriptionHtml) continue
 
     const { senses } = parseDaijisenSenses(descriptionHtml)
     if (!senses.length) continue
+
+    // 예문 속 "―"(표제어 대용 기호)를 실제 표제어로 복원 — 첫 headword(주 표기)를 쓴다.
+    // [補説](usageNote)에도 같은 기호가 나올 수 있어 함께 처리한다.
+    for (const sense of senses) {
+      if (sense.examples) {
+        sense.examples = sense.examples.map((e) => restoreHeadwordPlaceholders(e, blockHeadword[0], okuriganaSuffix))
+      }
+      if (sense.usageNote) {
+        sense.usageNote = restoreHeadwordPlaceholders(sense.usageNote, blockHeadword[0], okuriganaSuffix)
+      }
+    }
 
     for (const h of blockHeadword) if (!headword.includes(h)) headword.push(h)
     readings.push({
