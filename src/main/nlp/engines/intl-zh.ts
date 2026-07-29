@@ -1,5 +1,5 @@
 import type { ZhWord } from '@shared/types'
-import { HAN_CHAR_RE } from '@shared/cjkDetect'
+import { HAN_CHAR_RE } from '@shared/languageDetect'
 
 // Intl.Segmenter(ICU 내장) — zh-Hant(번체) 후보 엔진 중 하나. main/nlp/chinese.ts 의
 // ZH_HANT_ENGINE 스위치가 'intl' 일 때 쓴다. 별도 의존성·사전 파일 없이 Node/Electron

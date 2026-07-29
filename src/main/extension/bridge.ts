@@ -11,13 +11,18 @@ import {
   type TranscriptCue,
   type WordSegment,
 } from '@shared/extension'
-import { detectCjkLanguage } from '@shared/cjkDetect'
+import { detectCjkVariant, detectLanguage } from '@shared/languageDetect'
+import type { Language } from '@shared/types'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
 
 export interface Transcript {
   videoId: string
   cues: TranscriptCue[]
+  // 전체 cue 를 이어붙인 텍스트로 1회만 판별해 저장한다(자막 줄 하나가 아니라 영상
+  // 전체 분량을 봐야 zh-Hans/zh-Hant 오판이 줄고, 클릭마다 매번 재판별할 필요도 없다 —
+  // 2026-07-29, "한 줄만 쓰지 말고 더 써도 되지 않냐"는 사용자 지적으로 도입).
+  language: Language
 }
 
 // 담당 B — 크롬 확장 브릿지 (Electron main 쪽 WebSocket 서버).
@@ -127,13 +132,23 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         this.requestWordSegments(msg.snapshot?.lines.map((l) => l.text) ?? [])
         break
       case 'transcript': {
-        const transcript: Transcript = { videoId: msg.videoId, cues: msg.cues }
+        // 전체 cue 를 이어붙인 텍스트로 언어를 1회 판별해 캐시한다(아래 language 필드
+        // 참고) — 자막 줄 하나보다 훨씬 큰 표본이라 zh-Hans/zh-Hant 오판 가능성이
+        // 줄고, subtitleSource.ts 가 클릭마다 매번 재판별할 필요도 없어진다.
+        const fullText = msg.cues.map((c) => c.text).join(' ')
+        const transcript: Transcript = {
+          videoId: msg.videoId,
+          cues: msg.cues,
+          language: detectLanguage(fullText),
+        }
         // 같은 videoId 재수신 시 최신으로 갱신(자막 언어 전환 등) — delete 후 set 으로
         // Map 삽입 순서를 "최근 수신 순"으로 유지한다(buildContextWindow 가 최근 것부터
         // 검색). Map 크기는 세션 중 방문한 영상 수만큼만 자라므로 별도 상한은 없다.
         this.transcripts.delete(msg.videoId)
         this.transcripts.set(msg.videoId, transcript)
-        console.log(`[ext-bridge] transcript 수신: ${msg.cues.length} cues (video=${msg.videoId})`)
+        console.log(
+          `[ext-bridge] transcript 수신: ${msg.cues.length} cues, language=${transcript.language} (video=${msg.videoId})`,
+        )
         this.emit('transcript', transcript)
         break
       }
@@ -194,7 +209,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
       if (!text || this.segmentedLines.has(text)) continue
       // CJK(ja/zh)가 아니면 세그멘테이션 불필요 — 라틴 등은 브라우저의 공백 기준
       // 단어 분리로 이미 충분하다.
-      const lang = detectCjkLanguage(text)
+      const lang = detectCjkVariant(text)
       if (!lang) continue
       this.segmentedLines.add(text)
       void this.segmentAndSend(text, lang)
