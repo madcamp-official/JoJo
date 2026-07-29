@@ -43,10 +43,16 @@ button:disabled { cursor: not-allowed; }
      반지름은 "border-radius − outline-width"다 — 예전엔 둘 다 6px라 안쪽 반지름이
      0(뾰족한 직각)이 되어 바깥쪽만 둥글고 안쪽은 각져 보였다(사용자 피드백). 두께를
      3px로 줄인 김에 반지름을 14px로 크게 잡아 안쪽 반지름(14−3=11px)도 뚜렷하게
-     둥글게 보이도록 함께 조정 — 아래 .region-border-topcoat(같은 테두리를 대신
-     그리는 사본)도 반드시 같은 값으로 맞춰야 한다. */
-  outline: 3px solid var(--blue); outline-offset: -3px; border-radius: 14px;
+     둥글게 보이도록 함께 조정.
+     **OS 별 모서리(2026-07-29)**: Windows 창은 각져 있으므로 기본값은 0 — macOS 는
+     창 자체가 둥글어서 .is-mac 일 때만 라운드를 켠다(Overlay.tsx: IS_MAC 이 클래스를
+     붙임). --overlay-radius 변수 하나로 값을 묶어 아래 .region-border-topcoat(같은
+     테두리를 대신 그리는 사본)가 항상 같은 값을 상속받게 한다 — 두 곳에 값을 따로
+     맞춰 적을 필요가 없다. */
+  --overlay-radius: 0px;
+  outline: 3px solid var(--blue); outline-offset: -3px; border-radius: var(--overlay-radius);
 }
+.overlay-root.is-mac { --overlay-radius: 14px; }
 .overlay-root.mode-select { outline-color: var(--purple); }
 .overlay-root.hovering-word { cursor: pointer; }
 
@@ -72,11 +78,12 @@ button:disabled { cursor: not-allowed; }
 }
 /* region-dim(자식)이 부모(overlay-root)의 outline 을 덮어버려서, 같은 테두리를 DOM
    순서상 맨 뒤(=항상 맨 위)에 한 번 더 그린다 — 위치를 딱 맞출 필요 없이 덮어씌운다.
-   두께/반지름은 위 .overlay-root 의 outline 과 반드시 같은 값으로 맞춘다(같은 테두리의
-   대체 렌더링이라 어긋나면 드래그 시작 전후로 테두리 두께·모서리가 바뀌어 보인다). */
+   반지름은 --overlay-radius 를 상속받아 위 .overlay-root 의 outline 과 자동으로
+   같은 값을 쓴다(두께는 3px 로 직접 맞춰둠 — 어긋나면 드래그 시작 전후로 테두리
+   두께가 바뀌어 보인다). */
 .region-border-topcoat {
   position: absolute; inset: 0; box-sizing: border-box;
-  border: 3px solid var(--purple); border-radius: 14px;
+  border: 3px solid var(--purple); border-radius: var(--overlay-radius);
   pointer-events: none;
 }
 
