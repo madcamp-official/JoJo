@@ -94,19 +94,30 @@ function stepForward(text: string, from: number, byteBudget: number): number {
   return i
 }
 
-/** p 를 포함하는 문장의 시작 인덱스 (직전 종결부호 다음, 선행 공백 스킵) */
+// sentenceStart/sentenceEnd 가 확장을 멈춰야 하는 지점 — 문장 종결부호뿐 아니라
+// 줄바꿈('\n')도 경계로 본다. 구두점이 아예 없는 자동 생성 자막처럼(한 줄 = 한 문맥
+// 단위, 문장 종결부호 자체가 없는 텍스트) 종결부호만 찾으면 다음 종결부호가 나올 때까지
+// (문서 끝까지도) 끝없이 확장돼버리는 문제가 있었다(실사용 확인, 2026-07-29 — 구두점
+// 없는 유튜브 자막에서 선택 범위가 영상 첫 줄까지 통째로 확장됨). '\n'은 이미 문단/자막
+// 큐 경계라 그 자체로 안전한 정지 지점 — 종결부호가 없으면 최소한 그 줄만큼만 확장된다.
+function isSentenceBoundaryStop(text: string, i: number): boolean {
+  return text[i] === '\n' || isSentenceEnder(text, i)
+}
+
+/** p 를 포함하는 문장의 시작 인덱스 (직전 종결부호 또는 줄바꿈 다음, 선행 공백 스킵) */
 export function sentenceStart(text: string, p: number): number {
   let i = p
-  while (i > 0 && !isSentenceEnder(text, i - 1)) i -= 1
+  while (i > 0 && !isSentenceBoundaryStop(text, i - 1)) i -= 1
   while (i < p && /\s/.test(text[i])) i += 1
   return i
 }
 
-/** p 를 포함하는 문장의 끝 인덱스 (다음 종결부호 + 뒤따르는 닫는 따옴표 포함) */
+/** p 를 포함하는 문장의 끝 인덱스 (다음 종결부호 + 뒤따르는 닫는 따옴표 포함, 또는
+ *  종결부호 없이 줄바꿈을 먼저 만나면 그 줄바꿈 앞까지) */
 export function sentenceEnd(text: string, p: number): number {
   let i = p
-  while (i < text.length && !isSentenceEnder(text, i)) i += 1
-  if (i < text.length) {
+  while (i < text.length && !isSentenceBoundaryStop(text, i)) i += 1
+  if (i < text.length && text[i] !== '\n') {
     i += 1 // 종결부호 포함
     while (i < text.length && TRAILING.test(text[i])) i += 1
   }

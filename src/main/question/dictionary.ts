@@ -286,14 +286,15 @@ function englishWordCandidates(word: string): string[] {
  *  ("犬も歩けば棒に当たる")도 첫 토큰("犬")이 그 자체로 유효한 표제어라 관용구 자체의
  *  뜻과 "犬"(개) 단독의 여러 뜻이 함께 후보에 섞인다 — 틀린 답이 되는 건 아니고
  *  후보만 늘어나는 정도라 감수하기로 함(2026-07-29). */
+async function wordCandidatesFor(word: string, language: Language): Promise<string[]> {
+  if (language === 'ja') return japaneseWordCandidates(word)
+  if (language === 'en') return englishWordCandidates(word)
+  return [word]
+}
+
 async function lookupThroughFallbackChain(word: string, ctx: SelectionContext): Promise<ChainLookupResult> {
   const chain = FALLBACK_CHAINS[ctx.language]
-  const candidates =
-    ctx.language === 'ja'
-      ? await japaneseWordCandidates(word)
-      : ctx.language === 'en'
-        ? englishWordCandidates(word)
-        : [word]
+  const candidates = await wordCandidatesFor(word, ctx.language)
   let suggestions: string[] | undefined
   for (const source of chain) {
     const collectedEntries: DictionaryEntry<Language>[] = []
@@ -601,19 +602,42 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: SelectionCont
     return { kind: 'dictionary', content: '선택된 표현이 없습니다.' }
   }
 
-  let result: { entries?: DictionaryEntry<Language>[]; suggestions?: string[] }
-  try {
-    result = await fetchSourceEntries(source, ctx, word)
-  } catch (err) {
-    return { kind: 'dictionary', content: describeSourceError(source, err) }
+  // 강제 소스 선택도 정식 폴백 체인(lookupThroughFallbackChain)과 동일하게 활용형→기본형
+  // 후보(japaneseWordCandidates/englishWordCandidates)를 전부 시도해 entries 를 합친다
+  // (2026-07-29) — 이전엔 표면형 하나만 쿼리해서 "行って"(行く의 て형)처럼 daijisen/
+  // JMdict/Wiktionary 어느 소스를 골라도 항상 "못 찾음"이었다. 후보 중 하나가 그 자체로도
+  // 표제어일 수 있어도(실측: "食べられる"가 JMdict에 가능형 "to be able to eat"으로 직접
+  // 등재돼 있음) 첫 성공에서 멈추지 않고 기본형("食べる") 후보까지 마저 시도해 entries 를
+  // 합친다 — 그래야 LLM 후보 목록에 원형 타동사 "먹다" 뜻도 함께 들어가 문맥에 맞게 고를
+  // 수 있다(체인 쪽 "closed"/"close" 사례와 동일한 이유, 위 lookupThroughFallbackChain
+  // 주석 참고). 표면형(첫 후보) 조회 실패만 설정 문제(키 미설정 등)일 수 있어 그대로
+  // 보여주고, 그 다음 후보들의 실패는 체인과 동일하게 조용히 다음 후보로 넘어간다.
+  const candidates = await wordCandidatesFor(word, ctx.language)
+  const collectedEntries: DictionaryEntry<Language>[] = []
+  const matchedCandidates: string[] = []
+  let suggestions: string[] | undefined
+  let firstCandidateError: unknown
+  for (const [i, candidate] of candidates.entries()) {
+    try {
+      const r = await fetchSourceEntries(source, ctx, candidate)
+      suggestions ??= r.suggestions
+      if (r.entries?.length) {
+        collectedEntries.push(...r.entries)
+        matchedCandidates.push(candidate)
+      }
+    } catch (err) {
+      if (i === 0) firstCandidateError = err
+      else console.warn(`[dictionary] ${source}(${candidate}) 강제 조회 실패, 다음 후보로:`, err)
+    }
   }
 
-  if (!result.entries?.length) {
-    return notFoundResult(word, result.suggestions)
+  if (!collectedEntries.length) {
+    if (firstCandidateError) return { kind: 'dictionary', content: describeSourceError(source, firstCandidateError) }
+    return notFoundResult(word, suggestions)
   }
-  const senses = numberSenses(result.entries)
+  const senses = numberSenses(collectedEntries)
   if (!senses.length) {
-    return notFoundResult(word, result.suggestions)
+    return notFoundResult(word, suggestions)
   }
 
   const provider = getActiveProvider()
@@ -626,8 +650,8 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: SelectionCont
   const cacheableContext = buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter)
 
   const outcome = await judgeAndFormat({
-    word,
-    source: result.entries[0].source,
+    word: matchedCandidates.includes(word) ? word : (matchedCandidates[0] ?? word),
+    source: collectedEntries[0].source,
     senses,
     ctx,
     client,
@@ -640,7 +664,7 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: SelectionCont
   }
   return {
     kind: 'dictionary',
-    content: withDebugCountsLine(outcome.formatted, result.entries, senses.length), // TEMP DEBUG
-    meta: { provider, source: result.entries[0].source },
+    content: withDebugCountsLine(outcome.formatted, collectedEntries, senses.length), // TEMP DEBUG
+    meta: { provider, source: collectedEntries[0].source },
   }
 }
