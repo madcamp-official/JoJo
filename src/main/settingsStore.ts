@@ -14,9 +14,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   // 에 뭉뚱그리지 않음) — 관례상 Cmd. Windows 는 Ctrl 밖에 없으니 그대로 Ctrl.
   settingsShortcut: process.platform === 'darwin' ? 'Command+,' : 'Control+,',
   // Alt 는 macOS 에서 Option 으로 자동 매핑된다(shortcut.ts 주석 참고) — 트레이 메뉴
-  // 순서(창 선택 해제 / 창 선택 전환 / 영역 수동 선택)대로 Opt+1/2/3 을 기본 배정(2026-07-29).
-  windowSelectShortcut: 'Alt+2',
-  windowDeselectShortcut: 'Alt+1',
+  // 순서(창 선택 전환 / 창 선택 해제 / 영역 수동 선택)대로 Opt+1/2/3 을 기본 배정
+  // (2026-07-29, 재수정 — 전환/해제 순서와 단축키를 서로 교체).
+  windowSelectShortcut: 'Alt+1',
+  windowDeselectShortcut: 'Alt+2',
   manualRegionShortcut: 'Alt+3',
   contextBytesBefore: 1024,
   contextBytesAfter: 1024,

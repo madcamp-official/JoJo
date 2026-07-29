@@ -22,7 +22,8 @@ import {
 // 담당 A — 백그라운드 실행 + 트레이 아이콘 (PLAN.md §3)
 // 창을 선택하면 메인 창은 숨고(windows.ts: SELECT_WINDOW 핸들러) 트레이 아이콘만 남는다.
 // 트레이 메뉴는 선택 상태에 따라 달라진다:
-//   - 선택된 창이 있을 때: 창 선택 전환 / 창 선택 해제 / (선택 모드면) 영역 수동 선택 / 설정 / 종료
+//   - 선택된 창이 있을 때: 창 선택 전환 / 창 선택 해제 / 모드 전환 / (선택 모드면) 영역 수동 선택 / 설정 / 종료
+//     (2026-07-29 재수정 — "전환"이 "해제"보다 앞, 단축키도 전환=Opt+1/해제=Opt+2로 서로 교체)
 //   - 없을 때: 창 선택 / 설정 / 종료 ("창 선택 해제"는 뜻이 없고, "창 선택 전환"은 그냥 "창 선택")
 // "영역 수동 선택"(선택 모드에서만 노출)은 자동 탐지 설정(autoDetectRegion)이 켜져 있어도
 // 그 결과가 마음에 안 들 때 강제로 드래그 선택으로 덮어쓰는 용도 — shortcut.ts:
@@ -65,14 +66,14 @@ function buildTrayMenu(): Menu {
     ...(hasSelection
       ? [
           {
-            label: '창 선택 해제',
-            accelerator: accel(settings.windowDeselectShortcut),
-            click: deselectWindow,
-          },
-          {
             label: '창 선택 전환',
             accelerator: accel(settings.windowSelectShortcut),
             click: openWindowPicker,
+          },
+          {
+            label: '창 선택 해제',
+            accelerator: accel(settings.windowDeselectShortcut),
+            click: deselectWindow,
           },
           // 모드 전환(일반 ↔ 선택, 2026-07-29 트레이 노출 요청) — 대상 창이 있어야 뜻이
           // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+Q)을 그대로 표시.
@@ -92,7 +93,7 @@ function buildTrayMenu(): Menu {
           },
         ]
       : []),
-    { label: '설정', click: openSettingsWindow },
+    { label: '설정', accelerator: accel(settings.settingsShortcut), click: openSettingsWindow },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
   ])
@@ -120,8 +121,8 @@ export function createTray(): Tray {
   // 않아도 어디서나 동작해야 하므로 globalShortcut 기반(shortcut.ts: registerNamedShortcut).
   // 설정 화면에서 바꾸면 updateNamedShortcut 으로 재등록(ipc.ts).
   const settings = getSettings()
-  registerNamedShortcut('windowDeselect', settings.windowDeselectShortcut, deselectWindow)
   registerNamedShortcut('windowSelect', settings.windowSelectShortcut, openWindowPicker)
+  registerNamedShortcut('windowDeselect', settings.windowDeselectShortcut, deselectWindow)
   registerNamedShortcut('manualRegion', settings.manualRegionShortcut, requestManualRegionSelection)
 
   return tray

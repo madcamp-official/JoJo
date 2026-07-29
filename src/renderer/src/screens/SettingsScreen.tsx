@@ -652,7 +652,7 @@ export function SettingsScreen() {
           </div>
         </div>
         <div className="shortcut-row">
-          <span className="label">창 선택 / 창 선택 전환</span>
+          <span className="label">창 선택 / 전환</span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recordingField === 'windowSelectShortcut' ? ' recording' : ''}`}>
               {recordingField === 'windowSelectShortcut'
