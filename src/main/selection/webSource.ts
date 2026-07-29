@@ -1,5 +1,6 @@
+import { Notification } from 'electron'
 import type { ExtractedSelection } from '@shared/types'
-import { detectLanguage } from '@shared/languageDetect'
+import { detectSupportedLanguage } from '@shared/languageDetect'
 import { MIN_WEB_TEXT_LENGTH } from '@shared/extension'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
@@ -82,19 +83,32 @@ interface PageClickHit {
   url: string
 }
 
+// subtitleSource.ts와 동일한 이유로(2026-07-30, 언어 tier 확장) tier3(미지원 언어)는
+// 팝업 대신 짧은 OS 알림만 띄운다.
+function notifyUnsupportedLanguage(): void {
+  new Notification({ title: 'Nuance', body: '이 언어는 아직 지원하지 않습니다.' }).show()
+}
+
 function onPageClick(hit: PageClickHit): void {
   const selection = buildSelection(hit)
+  if (selection === null) {
+    notifyUnsupportedLanguage()
+    return
+  }
   if (!selection.text.trim()) return
   createPopupWindow(selection)
 }
 
-function buildSelection(hit: PageClickHit): ExtractedSelection {
+// null = tier3(미지원 언어) — 호출부가 팝업 대신 토스트로 처리한다.
+function buildSelection(hit: PageClickHit): ExtractedSelection | null {
   const source = getBrowserSource()?.source ?? { kind: 'web' as const, url: hit.url }
+  const language = detectSupportedLanguage(hit.text)
+  if (language === null) return null
   return {
     text: hit.text,
     anchor: { start: hit.anchorStart, end: hit.anchorEnd },
     words: [],
-    language: detectLanguage(hit.text),
+    language,
     source,
     extraction: 'direct',
   }
