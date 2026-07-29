@@ -20,9 +20,20 @@ export async function runSelectionPipeline(point: {
   const word = findWordAtPoint(extracted.words, point)
   const anchor = word ? findLineSpan(extracted.words, extracted.words.indexOf(word)) : { start: 0, end: 0 }
 
+  if (process.env.DEBUG_OCR_DUMP) {
+    console.log(
+      `[selectionDebug] point=(${point.x.toFixed(1)},${point.y.toFixed(1)}) hitWord=${JSON.stringify(word?.text)} hitBbox=${JSON.stringify(word?.bbox)} anchorText=${JSON.stringify(extracted.text.slice(anchor.start, anchor.end))}`,
+    )
+  }
+
   // 클릭한 줄 기준으로 직전 회차 캐시에 더 넓은 문맥이 있으면 병합한다(extractionCache.ts:
   // mergeWithPreviousContext) — 못 찾으면 원본 그대로 반환되므로 항상 안전하다.
   const merged = mergeWithPreviousContext(extracted.text, anchor.start, anchor.end)
+  if (process.env.DEBUG_OCR_DUMP) {
+    console.log(
+      `[selectionDebug] after merge: anchor=[${merged.anchorStart},${merged.anchorEnd}) anchorText=${JSON.stringify(merged.text.slice(merged.anchorStart, merged.anchorEnd))} textChanged=${merged.text !== extracted.text} textLenDelta=${merged.text.length - extracted.text.length}`,
+    )
+  }
 
   return {
     text: merged.text,

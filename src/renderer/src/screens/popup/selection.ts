@@ -149,6 +149,22 @@ function toWindowedOffset(displayPos: number, insertions: number[]): number {
   return displayPos - removed
 }
 
+/**
+ * displayText 오프셋을 extracted.text(원문) 절대 오프셋으로 변환한다 — PopupScreen 의
+ * "선택 유지 재매핑"(lastSpanRef)이 표시 창이 바뀌어도(measuredRange 도착 전 근사 창 →
+ * 측정 후 창) 같은 원문 문자 범위를 계속 가리킬 수 있도록, 선택 위치를 표시 좌표가
+ * 아니라 원문 절대 좌표로 기억하는 데 쓴다(2026-07-30 수정 — 표시 좌표로 기억하던
+ * 예전 방식은 창 시작점(windowStart)이 근사→측정으로 바뀌면 낡은 좌표가 새 창의
+ * 엉뚱한 위치(수십 자 뒤)에 얹혀, 클릭한 단어와 무관한 단어(들)가 선택된 채로 남았다
+ * — 실사용 확인: "yet 을 눌렀는데 sandy hole 이 선택됨").
+ */
+export function displayOffsetToAbsolute(
+  model: Pick<PopupSelectionModel, 'windowStart' | 'insertions'>,
+  displayPos: number,
+): number {
+  return model.windowStart + toWindowedOffset(displayPos, model.insertions)
+}
+
 // 영어 등 비-CJK 문자권 atom: 문자/숫자 연속(내부 아포스트로피 허용). 하이픈은 경계로
 // 취급 → "well-to-do" 는 well / to / do 세 atom, "left-hand" 는 left / hand 두 atom
 // 이 된다. 확장(extension/src/domWords.ts)의 hover 박스 단어 판정과 규칙을 공유한다

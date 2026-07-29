@@ -78,9 +78,26 @@ async function runExtraction(): Promise<CachedExtraction> {
     sendDebugBlocks(aligned.map((w) => w.bbox).filter((b): b is Rect => b !== undefined))
   }
 
+  const alignedWords = await alignWordsToOverlay(extracted.words)
+  // 담당 A — 클릭 매핑 어긋남 진단용(2026-07-30, 사용자 제보). 물리 픽셀→DIP 보정
+  // (alignWordsToOverlay) 전후 bbox 를 나란히 남겨, 이 변환 자체가 어긋남을 만드는지
+  // 확인한다.
+  if (process.env.DEBUG_OCR_DUMP) {
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    writeFileSync(
+      join(process.env.DEBUG_OCR_DUMP, `align-${Date.now()}.json`),
+      JSON.stringify(
+        extracted.words.map((w, i) => ({ text: w.text, raw: w.bbox ?? null, aligned: alignedWords[i]?.bbox ?? null })),
+        null,
+        2,
+      ),
+    )
+  }
+
   return {
     text: extracted.text,
-    words: await alignWordsToOverlay(extracted.words),
+    words: alignedWords,
     language: extracted.language,
     source: { kind: 'ocr' },
     extraction: 'ocr',
