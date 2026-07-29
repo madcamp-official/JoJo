@@ -34,7 +34,7 @@ export const IPC = {
   // 지정했으면 안 보냄), 개발 모드에서는 그 조건과 무관하게 항상 보낸다(디버깅용).
   DEBUG_BLOCKS: 'debug:blocks',
 
-  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout-YOLO/PaddleOCR/manga-ocr
+  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout-YOLO/PaddleOCR
   // Python 엔진 예열 상태. 앱 시작 시 백그라운드로 예열을 시작하는데(main/index.ts),
   // 다 끝나기 전에 사용자가 창 선택을 누르면 첫 선택 모드 진입 때 예열 대기 시간을
   // 그대로 겪게 된다 — 그래서 예열 중엔 창 선택 버튼을 막고 안내를 보여준다.

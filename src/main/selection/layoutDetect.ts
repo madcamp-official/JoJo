@@ -52,7 +52,7 @@ export interface DetectedLayout {
    * is_vertical_layout`(본문/제목 블록 대부분이 폭보다 높이가 뚜렷이 큰 좁고 긴
    * 모양인지로 판정). 열 순서 자체는 이미 서버에서 방향에 맞게(세로쓰기면 오른쪽→
    * 왼쪽) 정렬돼서 오므로 별도 처리가 필요 없고, 이 플래그는 나중에 인식 엔진을
-   * 고를 때(가로쓰기는 PaddleOCR, 세로쓰기는 manga-ocr 등) 쓰기 위해 노출해둔다.
+   * 방향별로 고를 때 쓰기 위해 노출해둔다.
    */
   vertical: boolean
 }

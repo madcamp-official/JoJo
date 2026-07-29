@@ -88,7 +88,7 @@ def get_detector() -> TextDetection:
 
 
 def detect_lines(image_path: str, _language: str) -> list[dict]:
-    """줄 단위 박스만 필요할 때(세로쓰기 일본어 등 — ocr.ts/ocrManga.ts 참고) 쓴다.
+    """줄 단위 박스만 필요할 때(세로쓰기 일본어 등 — ocr.ts 참고) 쓴다.
 
     예전엔 `PaddleOCR.predict()`(검출+인식 풀 파이프라인)를 통째로 돌리고 인식된 텍스트
     (rec_texts)만 버리는 식이었는데, 실측 확인 결과 이러면 우리가 안 쓰는 인식 단계까지
