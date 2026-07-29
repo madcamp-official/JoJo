@@ -9,6 +9,19 @@ import koffi from 'koffi'
 //    창 목록 표시에 이미 화면기록 권한을 받았고, 창 geometry 조회 자체는 권한이 필요 없다).
 //  - 앞으로 올리기: 창의 owner PID → NSRunningApplication(objc) activate.
 // 좌표는 CGWindow 전역 디스플레이 포인트(좌상단 원점) = Electron DIP 와 동일 좌표계.
+//
+// **PID 만으로는 부족한 경우(2026-07-29)**: 크롬 개발자도구를 별도 창으로 띄운 상태에서
+// 크롬의 "다른" 창(원래 선택 대상)을 고르면, activateApp(pid) 는 그 앱(크롬) 전체를
+// 앞으로 올릴 뿐 "어느 창"이 key window 가 될지는 macOS 가 그 앱의 마지막 포커스 기준으로
+// 알아서 정한다 — devtools 창이 최근에 포커싱돼 있었으면 그게 앞으로 온다(실사용 확인).
+// 이걸 막으려면 "이 PID 의 어느 창"인지까지 지정해야 하는데 CoreGraphics 는 그 API가
+// 없어 Accessibility(AX) API 로 보완한다: AXUIElementCreateApplication(pid) 로 앱의
+// AX 루트를 얻고, AXWindows 목록에서 bounds(AXPosition/AXSize)가 우리가 아는 대상 창의
+// CGWindow bounds 와 일치하는 AXUIElement 를 찾아 AXRaise 액션 + AXFocusedWindow 지정으로
+// "그 창"만 특정해 앞으로 올린다. **손쉬운 사용(Accessibility) 권한이 필요**(TODO.md
+// 배포 항목에 이미 명시된 권한) — 권한이 없으면 AX 호출이 실패해 조용히 기존 방식
+// (activateApp 만, 앱 전체 활성화)으로 폴백한다(권한 프롬프트가 안 뜨는 케이스에서도
+// 동작 자체가 나빠지진 않음, 그냥 창 특정이 안 될 뿐).
 
 export interface MacWindowRect {
   x: number
@@ -309,11 +322,132 @@ function activateApp(pid: number): boolean {
   }
 }
 
+// ---- Accessibility(AX): PID 의 여러 창 중 "이 창" 하나만 특정해 앞으로 올리기 --------
+
+const CGPoint = koffi.struct('CGPoint', { x: 'double', y: 'double' })
+const CGSize = koffi.struct('CGSize', { width: 'double', height: 'double' })
+const kAXValueCGPointType = 1
+const kAXValueCGSizeType = 2
+
+let axReady = false
+let axOk = false
+let AXUIElementCreateApplication: KFn | null = null
+let AXUIElementCopyAttributeValue: KFn | null = null
+let AXUIElementSetAttributeValue: KFn | null = null
+let AXUIElementPerformAction: KFn | null = null
+let AXValueGetValue: KFn | null = null
+let axWindowsAttr: unknown = null
+let axPositionAttr: unknown = null
+let axSizeAttr: unknown = null
+let axFocusedWindowAttr: unknown = null
+let axRaiseAction: unknown = null
+
+function ensureAX(): boolean {
+  if (axReady) return axOk
+  axReady = true
+  try {
+    if (!ensureCoreGraphics()) return false
+    const ax = koffi.load('/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices')
+    AXUIElementCreateApplication = ax.func('void* AXUIElementCreateApplication(int32_t pid)')
+    AXUIElementCopyAttributeValue = ax.func(
+      'int32_t AXUIElementCopyAttributeValue(void* element, void* attribute, void* value)',
+    )
+    AXUIElementSetAttributeValue = ax.func(
+      'int32_t AXUIElementSetAttributeValue(void* element, void* attribute, void* value)',
+    )
+    AXUIElementPerformAction = ax.func('int32_t AXUIElementPerformAction(void* element, void* action)')
+    AXValueGetValue = ax.func('bool AXValueGetValue(void* value, int32_t type, void* out)')
+    const CFStringCreateWithCString = cf!.func(
+      'void* CFStringCreateWithCString(void* alloc, const char* cstr, uint32_t encoding)',
+    )
+    axWindowsAttr = CFStringCreateWithCString(null, 'AXWindows', kCFStringEncodingUTF8)
+    axPositionAttr = CFStringCreateWithCString(null, 'AXPosition', kCFStringEncodingUTF8)
+    axSizeAttr = CFStringCreateWithCString(null, 'AXSize', kCFStringEncodingUTF8)
+    axFocusedWindowAttr = CFStringCreateWithCString(null, 'AXFocusedWindow', kCFStringEncodingUTF8)
+    axRaiseAction = CFStringCreateWithCString(null, 'AXRaise', kCFStringEncodingUTF8)
+    axOk = true
+    return true
+  } catch {
+    axOk = false
+    return false
+  }
+}
+
+/** AX 창의 bounds(AXPosition+AXSize)를 읽는다. 실패 시 null. */
+function readAxWindowBounds(win: unknown): MacWindowRect | null {
+  try {
+    const posValPtr = koffi.alloc('void*', 1)
+    if (Number(AXUIElementCopyAttributeValue!(win, axPositionAttr, posValPtr)) !== 0) return null
+    const posVal = koffi.decode(posValPtr, 'void*')
+    const posOut = koffi.alloc(CGPoint, 1)
+    if (!AXValueGetValue!(posVal, kAXValueCGPointType, posOut)) return null
+    const pos = koffi.decode(posOut, CGPoint) as { x: number; y: number }
+
+    const sizeValPtr = koffi.alloc('void*', 1)
+    if (Number(AXUIElementCopyAttributeValue!(win, axSizeAttr, sizeValPtr)) !== 0) return null
+    const sizeVal = koffi.decode(sizeValPtr, 'void*')
+    const sizeOut = koffi.alloc(CGSize, 1)
+    if (!AXValueGetValue!(sizeVal, kAXValueCGSizeType, sizeOut)) return null
+    const size = koffi.decode(sizeOut, CGSize) as { width: number; height: number }
+
+    return { x: pos.x, y: pos.y, width: size.width, height: size.height }
+  } catch {
+    return null
+  }
+}
+
+function boundsClose(a: MacWindowRect, b: MacWindowRect): boolean {
+  const TOLERANCE = 2
+  return (
+    Math.abs(a.x - b.x) < TOLERANCE &&
+    Math.abs(a.y - b.y) < TOLERANCE &&
+    Math.abs(a.width - b.width) < TOLERANCE &&
+    Math.abs(a.height - b.height) < TOLERANCE
+  )
+}
+
+/**
+ * pid 소유 창들 중 targetBounds 와 일치하는 창을 찾아 그 창만 특정해 앞으로 올린다
+ * (AXRaise + AXFocusedWindow). 같은 pid 에 다른 창(devtools 등)이 더 있어도 이 창만
+ * 골라 포커스한다. 손쉬운 사용 권한이 없거나 API 실패 시 false(호출부가 activateApp
+ * 만으로 폴백).
+ */
+function raiseSpecificWindow(pid: number, targetBounds: MacWindowRect): boolean {
+  if (!ensureAX()) return false
+  try {
+    const app = AXUIElementCreateApplication!(pid)
+    if (!app) return false
+    const windowsPtr = koffi.alloc('void*', 1)
+    if (Number(AXUIElementCopyAttributeValue!(app, axWindowsAttr, windowsPtr)) !== 0) return false
+    const windows = koffi.decode(windowsPtr, 'void*')
+    if (!windows) return false
+    const count = Number(CFArrayGetCount!(windows))
+    for (let i = 0; i < count; i++) {
+      const win = CFArrayGetValueAtIndex!(windows, i)
+      if (!win) continue
+      const bounds = readAxWindowBounds(win)
+      if (!bounds || !boundsClose(bounds, targetBounds)) continue
+      AXUIElementPerformAction!(win, axRaiseAction)
+      AXUIElementSetAttributeValue!(app, axFocusedWindowAttr, win)
+      return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
 /** windowId 로 대상 창을 앞으로 올리고 bounds 를 반환한다(실패 시 null). */
 export function raiseAndGetBounds(windowId: number): MacWindowRect | null {
   const info = getWindowInfo(windowId)
   if (!info) return null
-  if (info.pid != null) activateApp(info.pid)
+  if (info.pid != null) {
+    // 같은 pid 안에 여러 창(예: 크롬 + 별도 devtools 창)이 있을 수 있어, 앱 전체를
+    // 활성화하기 전에 먼저 AX 로 "이 창"만 특정해 raise+focus 해둔다 — 그래야 이어지는
+    // activateApp 이 앱을 앞으로 올릴 때 이미 포커스가 맞춰진 이 창이 key window 로 유지된다.
+    raiseSpecificWindow(info.pid, info.bounds)
+    activateApp(info.pid)
+  }
   return info.bounds
 }
 

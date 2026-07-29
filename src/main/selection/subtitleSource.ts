@@ -1,7 +1,7 @@
 import type { ExtractedSelection, Language } from '@shared/types'
 import { byteLength, endsWithSentenceEnder } from '@shared/context'
 import { detectCjkLanguage } from '@shared/cjkDetect'
-import { extensionBridge } from '../extension/bridge'
+import { extensionBridge, type Transcript } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
 import { createPopupWindow, sendOverlayWords } from '../windows'
 
@@ -31,7 +31,7 @@ export function startSubtitleMode(): void {
   // 기존 배선을 그대로 재사용해 배너를 즉시 끈다(오버레이가 자체 하이라이트를 그리지
   // 않게 되는 효과도 겸함 — 자막은 확장이 그리므로 의도한 동작).
   sendOverlayWords([])
-  const handler = (hit: SubtitleClickHit): void => onSubtitleClick(hit)
+  const handler = (hit: SubtitleClickHit): void => void onSubtitleClick(hit)
   extensionBridge.on('subtitleClick', handler)
   unsubscribeClick = () => extensionBridge.off('subtitleClick', handler)
 }
@@ -52,7 +52,36 @@ interface SubtitleClickHit {
   videoId: string | null
 }
 
-function onSubtitleClick(hit: SubtitleClickHit): void {
+// 선택 모드 진입 직후 첫 클릭은, 진짜 전체 자막(transcript)이 아직 도착하기 전일 수 있다
+// — 넷플릭스는 캡처를 켤 때 매니페스트 재요청→WebVTT fetch(비동기 네트워크 왕복)로 전체
+// 자막을 새로 받아오고, 유튜브도 플레이어 자신의 timedtext 요청이 확장→백그라운드→WS로
+// 릴레이되는 데 약간의 시간이 걸린다. 이 사이에 클릭하면 transcript.videoId 가 아직
+// null/이전 값이라 "화면 자막 한 줄만" 으로 폴백해버린다(실사용 확인, 2026-07-29) — 팝업을
+// 열기 전 짧게(최대 TRANSCRIPT_WAIT_MS) 일치하는 transcript 가 도착하는지 기다려본다.
+// 이미 도착해 있으면 대기 없이 즉시 진행되고, 끝내 안 오면 기존처럼 한 줄 폴백으로 연다.
+const TRANSCRIPT_WAIT_MS = 800
+
+function waitForMatchingTranscript(videoId: string | null): Promise<void> {
+  if (!videoId) return Promise.resolve()
+  const current = extensionBridge.getTranscript()
+  if (current && current.videoId === videoId && current.cues.length > 0) return Promise.resolve()
+  return new Promise((resolve) => {
+    const onTranscript = (t: Transcript): void => {
+      if (t.videoId !== videoId || t.cues.length === 0) return
+      clearTimeout(timer)
+      extensionBridge.off('transcript', onTranscript)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      extensionBridge.off('transcript', onTranscript)
+      resolve()
+    }, TRANSCRIPT_WAIT_MS)
+    extensionBridge.on('transcript', onTranscript)
+  })
+}
+
+async function onSubtitleClick(hit: SubtitleClickHit): Promise<void> {
+  await waitForMatchingTranscript(hit.videoId)
   const selection = buildSelection(hit)
   if (!selection.text.trim()) return
   const win = createPopupWindow(selection)
