@@ -474,11 +474,12 @@ JoJo/
         ├── content.ts           #   화면 자막 hover/클릭 + 전체 자막 확보 결과 취합
         ├── youtube.ts / netflix.ts  # 사이트별 DOM 자막 추출
         ├── domWords.ts          #   공용 단어 좌표 유틸(CJK 글자 단위, 후리가나 제외)
-        ├── highlight.ts         #   hover 박스/클릭을 페이지 안에서 직접 렌더
+        ├── wordSegments.ts      #   자막·본문 공용 CJK 형태소 분석 결과 캐시(pageParagraphText 요청/응답)
+        ├── highlight.ts         #   hover 박스/클릭을 페이지 안에서 직접 렌더 — wordSegments.ts 캐시로 CJK 형태소 단위 hover
         ├── networkHook.ts / netflixNetworkHook.ts  # MAIN world 네트워크 가로채기(전체 자막 확보)
         ├── timedtext.ts / captionParse.ts          # videoId 파싱 / 자막 응답 포맷 파서
         ├── webArticle.ts        #   🅰️ [담당: milleion, 2026-07-30 구현 완료] 일반 웹페이지(뉴스·웹소설) 본문 DOM 추출 — 사이트별 셀렉터 등록 없이 범용 본문 탐지 알고리즘(텍스트 밀도 스코어링)
-        └── articleHighlight.ts  #   🅰️ [담당: milleion] 본문 hover/클릭(highlight.ts와 같은 페이지 내 직접 처리 방식, 문단 단위 지연 계산으로 성능 대응)
+        └── articleHighlight.ts  #   🅰️ [담당: milleion] 본문 hover/클릭(highlight.ts와 같은 페이지 내 직접 처리 방식, 문단 단위 지연 계산으로 성능 대응) — wordSegments.ts 캐시로 CJK 형태소 단위 hover 연결(2026-07-30)
 ```
 
 **시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `npm run build:ext`로 빌드한 `extension/dist`를 `chrome://extensions`에서 로드(개발자 모드 → 압축해제된 확장 프로그램 로드) — native messaging host 등록 불필요(로컬 WebSocket 사용).
