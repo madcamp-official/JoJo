@@ -47,6 +47,11 @@ function connect(): void {
     if (socket === ws) socket = null
     console.log('[nuance] WS 끊김 → 재접속 예약')
     scheduleReconnect()
+    // 앱이 완전히 종료됐을 수도 있다 — 그 경우 다시는 연결이 안 돌아올 수 있는데, 여기서
+    // 캡처를 끄지 않으면 확장은 마지막 상태(hover 박스 등)를 탭 새로고침 전까지 계속
+    // 띄운다. 끊기면 일단 꺼두고, 재연결되면(bridge.ts) 앱이 원하는 상태를 다시 알려준다.
+    captureDesired = false
+    void syncCapture()
   }
   ws.onerror = () => {
     try {
@@ -86,9 +91,18 @@ function onAppMessage(raw: unknown): void {
   }
 }
 
+// 탭 조회는 `windowType: 'normal'`만 본다 — `lastFocusedWindow: true`를 쓰면 개발자 도구를
+// 별도 창으로 띄우고 거기 포커스가 가 있을 때(디버깅 중 새로고침 등) "마지막 포커스 창"이
+// devtools 자신이 돼버려 매칭되는 탭이 없다고(null) 잘못 판정된다 — 그러면 앱이 브라우저를
+// 놓쳤다고 보고 OCR로 폴백해 영역 선택을 요구하는 등 엉뚱하게 튄다.
+async function activeNormalTab(): Promise<chrome.tabs.Tab | undefined> {
+  const [tab] = await chrome.tabs.query({ active: true, windowType: 'normal' })
+  return tab
+}
+
 // 팝업 열림/닫힘에 맞춰 활성 탭 영상을 정지/재생한다.
 async function sendPlaybackToActiveTab(play: boolean): Promise<void> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  const tab = await activeNormalTab()
   if (tab?.id === undefined) return
   try {
     await chrome.tabs.sendMessage(tab.id, { kind: 'setPlayback', play })
@@ -136,7 +150,7 @@ async function syncCapture(): Promise<void> {
     }
     return
   }
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  const tab = await activeNormalTab()
   const activeId = tab?.id ?? null
   console.log(`[nuance bg] syncCapture desired=${captureDesired} activeTab=${activeId}(${tab?.url ?? ''}) prevCaptured=${capturedTabId}`)
   if (activeId === capturedTabId) return
@@ -170,7 +184,7 @@ async function reportActiveTab(): Promise<void> {
 }
 
 async function currentActiveTab(): Promise<ExtActiveTab | null> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  const tab = await activeNormalTab()
   if (!tab || tab.id === undefined || !tab.url) return null
   return { tabId: tab.id, url: tab.url, title: tab.title }
 }
@@ -191,9 +205,17 @@ chrome.tabs.onActivated.addListener(() => {
   void syncCapture()
 })
 // 같은 탭 안에서 URL 이 바뀌는 경우(유튜브 SPA 네비게이션 = /watch 이동 등은 url 갱신으로 잡힘)
-chrome.tabs.onUpdated.addListener((_tabId, info, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if ((info.url || info.status === 'complete') && tab.active) {
     scheduleReport()
+    // 페이지 새로고침(F5)은 같은 탭 id 를 유지한 채 content script 상태를 완전히 초기화한다
+    // (capturing=false 로 리셋). syncCapture() 는 activeId 가 capturedTabId 와 같으면 "이미
+    // 켜져 있다"고 보고 재전송을 건너뛰므로, 새로고침이 끝난 그 탭이 캡처 대상 탭이면
+    // 여기서 명시적으로 다시 켜준다 — 안 그러면 선택 모드를 유지한 채 새로고침했을 때
+    // hover 박스가 영영 안 뜬다.
+    if (info.status === 'complete' && captureDesired && tabId === capturedTabId) {
+      void sendCapture(tabId, true)
+    }
     void syncCapture()
   }
 })

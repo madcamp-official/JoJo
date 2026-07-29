@@ -2,7 +2,7 @@
 // 유튜브 화면 자막을 단어별 좌표와 함께 추출해(youtube.ts) background 로 보낸다.
 // background 가 WS 로 앱에 중계한다. 자막 캡처는 앱이 선택 모드일 때만 켜진다(setCapture).
 import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles, videoCurrentTime } from './youtube'
-import { currentVideoId, loadTranscript, subtitleLangHint } from './timedtext'
+import { currentVideoId } from './timedtext'
 import { startHighlight, type WordHit } from './highlight'
 import { parseAnyCaptionPayload } from './captionParse'
 import type { SubLine } from '@shared/extension'
@@ -26,12 +26,6 @@ let stopHighlightUi: (() => void) | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSent = ''
 let lastDiag = -1
-let transcriptKey: string | null = null // `${videoId}|${langHint}`
-// 네트워크 가로채기로 이미 자막을 확보한 videoId — ensureTranscript(native/InnerTube 경로)가
-// 이 video 에 대해 다시 시도해 실패(0 cues)로 덮어쓰지 않도록 videoId 단위로 완전히 막는다.
-// (transcriptKey 는 `${vid}|${hint}` 형식이라 `${vid}|intercepted` 와는 절대 일치하지 않아
-// 예전엔 이 차단이 사실상 동작하지 않았다.)
-let interceptedVideoId: string | null = null
 
 // hover/클릭 판정용 자막 줄+좌표를 그 순간 즉석에서 다시 측정한다(캐시 안 씀) — 컨트롤바
 // 자동 표시/숨김으로 자막 위치가 바뀌어도(유튜브가 이때 childList/attribute 변화를 항상
@@ -60,37 +54,10 @@ function debugCounts(): void {
   }
 }
 
-// timedtext 전체 자막을 로드해 앱으로 보낸다(앱이 팝업 문맥으로 씀). 화면 자막 언어(langHint)
-// 까지 키에 넣어, 같은 영상이라도 자막 언어가 바뀌면 그 언어 트랙을 새로 받아 문맥 언어를
-// 일치시킨다. langHint 는 지금 화면 자막 텍스트에서 뽑는다(없으면 로드 보류).
-function ensureTranscript(screenText: string): void {
-  const vid = currentVideoId()
-  const hint = subtitleLangHint(screenText)
-  if (!vid || !hint) return
-  if (vid === interceptedVideoId) return // 이미 네트워크 가로채기로 확보됨 — 폴백 재시도 안 함
-  const key = `${vid}|${hint}`
-  if (key === transcriptKey) return
-  transcriptKey = key
-  loadTranscript(vid, hint)
-    .then((cues) => {
-      if (transcriptKey !== key) return
-      console.log(`[nuance content] transcript 로드: ${cues.length} cues (video=${vid}, lang=${hint})`)
-      chrome.runtime.sendMessage({
-        kind: 'transcript',
-        videoId: vid,
-        cues: cues.map((c) => ({ start: c.start, text: c.text })),
-      })
-    })
-    .catch((err) => {
-      transcriptKey = null // 실패는 다음 프레임에서 재시도
-      console.log('[nuance content] transcript 로드 실패:', err?.message ?? err)
-    })
-}
-
 // 페이지 메인 JS 세계(networkHook.ts, manifest.json "world":"MAIN")가 가로챈 자막 관련
-// 네트워크 응답을 postMessage로 받는다. 우리가 직접 만든 fetch(native track/InnerTube)가
-// 전부 막혀도, 플레이어 자신의 요청은 성공하므로(화면에 자막이 실제로 뜸) 그 응답을 그대로
-// 엿들으면 세션/토큰 문제 없이 전체 자막을 확보할 수 있다 — 이게 도착하면 최우선으로 쓴다.
+// 네트워크 응답을 postMessage로 받는다. 플레이어 자신의 실제 timedtext 요청을 엿듣는
+// 이 경로만 실제로 자막을 확보한다(native TextTrack/InnerTube 는 둘 다 실측으로 항상
+// 실패해 폐기 — timedtext.ts 상단 주석 참고). 이게 도착하면 그대로 앱에 전달한다.
 let lastInterceptedSig = ''
 window.addEventListener('message', (ev) => {
   if (ev.source !== window) return
@@ -104,7 +71,6 @@ window.addEventListener('message', (ev) => {
   if (sig === lastInterceptedSig) return
   lastInterceptedSig = sig
   console.log(`[nuance content] 네트워크 가로채기로 자막 확보: ${cues.length} cues (url=${data.url})`)
-  interceptedVideoId = vid // ensureTranscript 의 native/InnerTube 재시도를 막음
   chrome.runtime.sendMessage({
     kind: 'transcript',
     videoId: vid,
@@ -116,10 +82,6 @@ function pushSnapshot(): void {
   if (!capturing) return
   debugCounts()
   const snapshot = isYoutubeWatch() ? extractSubtitleSnapshot() : null
-  if (snapshot) {
-    // 화면 자막 언어에 맞는 timedtext 트랙을 (필요 시) 로드해 앱에 보낸다(영상/자막언어 변경 대응).
-    ensureTranscript(snapshot.lines.map((l) => l.text).join(' '))
-  }
   // 동일 프레임 중복 전송 방지(디버그 로그용, 좌표+텍스트가 같으면 스킵). null 도 한 번만 보낸다.
   const sig = snapshot ? JSON.stringify(snapshot) : 'null'
   if (sig === lastSent) return
