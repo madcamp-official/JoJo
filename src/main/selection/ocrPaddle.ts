@@ -799,17 +799,18 @@ async function recognizeOrderedLines(
     }),
   )
   console.log(`[timing]     격자 분할(groupCjkCharsGrid, ${orderedLines.length}줄): ${Date.now() - gridStart}ms`)
-  if (!vertical) return grouped.flat()
-  // 담당 A — 세로쓰기(주로 중국어 — 일본어 세로쓰기는 보통 NDLOCR 경로가 처리) 열 경계마다
-  // '\n' 마커를 끼워 넣는다(2026-07-29, 사용자 요청). 이 마커가 없으면 페이지 전체 텍스트가
-  // '\n' 하나 없는 거대 단일 문자열이 되는데, 팝업의 1차 문맥 표시 범위(popup/selection.ts:
-  // computeLineContextRange, '\n' 기준 앞뒤 2줄)가 페이지 전체로 잡혀 첫 렌더가 한자 수천
-  // 개 atom + 글자별 DOM 측정으로 1.5초를 넘기고 — 그러면 팝업의 "내용 준비되면 보여주기"
-  // 안전망(windows.ts: POPUP_SHOW_FALLBACK_MS)이 먼저 발동해 빈 창이 뜨는 문제가 실사용
-  // 확인됐다("본문이 비어있는 팝업"). NDLOCR 경로의 문단 마커와 같은 방식(bbox 없는 순수
-  // 텍스트 Word — hover/클릭 대상 아님, lineId 도 없어 findLineSpan 그룹 확장도 여기서
-  // 끊김)이라 `text = words.join('')` 불변조건이 그대로 유지된다. 빈 줄(인식 결과 없음)
-  // 앞뒤로는 마커를 겹쳐 넣지 않는다('\n\n' 방지).
+  // 담당 A — 줄(가로쓰기)/열(세로쓰기) 경계마다 '\n' 마커를 끼워 넣는다. 세로쓰기는
+  // 2026-07-29 사용자 요청으로 먼저 추가됐었고, 가로쓰기도 2026-07-30 같은 문제가 확인돼
+  // 뒤늦게 통일했다 — 가로쓰기 OCR 결과도 원래 줄 사이에 '\n'이 전혀 없어서(zh/ja 는
+  // 띄어쓰기 없는 문자 체계라 그냥 이어붙임), 페이지 전체가 '\n' 하나 없는 거대 단일
+  // 문자열이 됐다. 그 상태에서 팝업의 1차 문맥 표시 범위(popup/selection.ts:
+  // computeLineContextRange, '\n' 기준 앞뒤 2줄)가 "줄이 하나뿐"으로 보여 무조건 텍스트
+  // 전체를 문맥 범위로 반환해버렸다(실사용 제보 — 다른 텍스트 박스를 선택했는데 팝업에
+  // 엉뚱한 다른 줄이 선택된 것처럼 보임. 세로쓰기가 먼저 겪었던 "본문이 비어있는 팝업"과
+  // 근본 원인이 같음). NDLOCR 경로의 문단 마커와 같은 방식(bbox 없는 순수 텍스트 Word —
+  // hover/클릭 대상 아님, lineId 도 없어 findLineSpan 그룹 확장도 여기서 자연히 끊김)
+  // 이라 `text = words.join('')` 불변조건이 그대로 유지된다. 빈 줄(인식 결과 없음) 앞뒤로는
+  // 마커를 겹쳐 넣지 않는다('\n\n' 방지).
   const flat: Word[] = []
   for (const words of grouped) {
     if (words.length === 0) continue

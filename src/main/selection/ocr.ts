@@ -119,8 +119,30 @@ export async function runOcr(image: Buffer, language: AnyLanguage, region?: Rect
   // number 등은 거르는데, 정작 여기(실제 인식 단계)서는 그 필터가 전혀 적용 안 되고
   // 있었다(실사용 중 확인: 비본문 블록까지 "열"로 취급돼 순서가 뒤섞이고 그 텍스트까지
   // 인식 대상이 됨) — 같은 기준으로 여기서도 걸러낸다.
-  const blocks = rawBlocks.filter((b) => BODY_LABELS.has(b.label))
-  const columns = mergeIntoColumns(blocks)
+  let blocks = rawBlocks.filter((b) => BODY_LABELS.has(b.label))
+  let columns = mergeIntoColumns(blocks)
+  // 담당 A — "선택 영역 일부만 인식됨" 수정(2026-07-30, 사용자 제보 + 재현 이미지로 확인
+  // — 큰 폰트 제목 + 그 아래 구분선을 DocLayout이 표(table) 헤더/테두리로 오분류해서,
+  // BODY_LABELS 가 그 거대한 table 블록을 걸러내고 나면 본문 중 극히 일부(우연히 별도로
+  // 잡힌 작은 text 블록들)만 남는 사례를 실측 확인함 — 선택 영역 916px 높이 중 231px만
+  // 인식 대상이 됨). 세로쓰기는 이미 "DocLayout 블록 경계를 못 믿는다"는 원칙으로 실제
+  // 열 구분을 자체 로직에 맡기도록 고쳐뒀는데, 가로쓰기는 이 안전장치가 없어서 본문
+  // 라벨 블록의 합계 면적이 선택 영역에 비해 너무 작으면 그대로 그 좁은 영역만 인식하고
+  // 나머지는 조용히 스킵했다. 합계 면적이 선택 영역의 절반에도 못 미치면 이 블록들을
+  // 아예 못 찾은 것(blocks=0)과 동일하게 취급해, 아래 blocksFound=false 폴백 경로(영역
+  // 전체를 직접 줄 단위로 스캔)를 타게 한다 — English Tesseract 경로(열이 1개면 이미
+  // region 전체를 그대로 씀, columns.length > 1 일 때만 블록으로 좁힘)와도 일관된 동작이 됨.
+  const MIN_BODY_COVERAGE_RATIO = 0.5
+  const targetRect = region ?? fullImageRect(image)
+  const targetArea = targetRect.width * targetRect.height
+  const columnsArea = columns.reduce((sum, c) => sum + c.bbox.width * c.bbox.height, 0)
+  if (targetArea > 0 && columnsArea / targetArea < MIN_BODY_COVERAGE_RATIO) {
+    console.log(
+      `[layoutDetect] 본문 블록 커버리지 부족(${((columnsArea / targetArea) * 100).toFixed(1)}% < ${MIN_BODY_COVERAGE_RATIO * 100}%) — 블록 무시하고 영역 전체 스캔으로 폴백`,
+    )
+    blocks = []
+    columns = []
+  }
   // 개발 전용 디버그(사용자 요청) — 실제로 OCR 인식에 넘긴 블록/열 경계를 기억해뒀다가
   // extractionCache.ts 가 오버레이에 반투명 사각형으로 보여줄 수 있게 한다. 열이
   // 여러 개면 열마다, 하나도 안 나뉘면(다단 아님) 영역 전체를 "블록 하나"로 기록한다.
@@ -128,9 +150,13 @@ export async function runOcr(image: Buffer, language: AnyLanguage, region?: Rect
   if (process.env.DEBUG_OCR_DUMP) {
     const { writeFileSync } = require('node:fs') as typeof import('node:fs')
     const { join } = require('node:path') as typeof import('node:path')
+    // 담당 A — 가로쓰기 "선택 영역 일부만 인식됨" 진단용(2026-07-30, 사용자 제보). 기존
+    // 덤프는 BODY_LABELS 필터를 통과한(=실제 인식 대상이 된) blocks만 남겨서, 필터에서
+    // 걸러진 블록이 애초에 뭐였는지(진짜 비본문이었는지, DocLayout이 본문을 다른 라벨로
+    // 오분류했는지) 알 수 없었다 — rawBlocks(필터 전 전체, 라벨 포함)와 region 을 같이 남긴다.
     writeFileSync(
       join(process.env.DEBUG_OCR_DUMP, `blocks-${Date.now()}.json`),
-      JSON.stringify({ blocks, columns }, null, 2),
+      JSON.stringify({ region, rawBlocks, blocks, columns }, null, 2),
     )
   }
 
