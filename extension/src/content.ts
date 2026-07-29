@@ -207,6 +207,18 @@ window.addEventListener('message', (ev) => {
   maybeFetchNetflixTranscript()
 })
 
+// 선택 모드에 들어가기 전(capturing=false)이어도, 유튜브/넷플릭스 영상 탭에 있는 동안은
+// 백그라운드에서 계속 전체 자막 확보를 미리 시도해둔다(사용자 요청, 2026-07-29 — "새로고침
+// 안 해도 알아서 미리 받아올 수 없냐") — 그래야 나중에 실제로 선택 모드에 들어가 클릭할
+// 때는 이미 도착해 있을 확률이 훨씬 높아진다. `maybeFetchNetflixTranscript` 자체가
+// "이미 이 영화·언어 조합을 확보했으면 즉시 반환"(`lastNetflixKey`)이라 매초 불러도
+// 저렴하다. 유튜브는 이 폴링이 필요 없다 — 네트워크 가로채기(`networkHook.ts`)가
+// capturing 여부와 무관하게 이미 항상 켜져 있어서 별도 트리거가 없어도 된다.
+const PREFETCH_INTERVAL_MS = 1000
+setInterval(() => {
+  if (isNetflixWatch()) maybeFetchNetflixTranscript()
+}, PREFETCH_INTERVAL_MS)
+
 function pushSnapshot(): void {
   if (!capturing) return
   const snapshot = activeSnapshot()
