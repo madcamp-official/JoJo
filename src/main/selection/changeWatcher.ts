@@ -15,6 +15,25 @@ const SETTLE_DELAY_MS = 800
 // 등 미세한 렌더링 노이즈로 매 폴링마다 재추출이 걸리지 않도록 하는 임계값.
 const DIFF_RATIO_THRESHOLD = 0.02
 
+// 실측 확인(사용자 보고): 브라우저 같은 화면은 hover 로 생기는 밑줄/툴팁 등 작은
+// 시각 변화가 잦아서, 픽셀 diff 만으로 재추출을 걸면 스크롤/클릭/키 입력과 무관한
+// 변화에도 너무 민감하게 반응했다. inputHook.ts(Windows 전용 저수준 후크)가 기록해둔
+// "마지막 스크롤/클릭/키보드 입력 시각"이 이 시간(ms) 이내여야만 diff 를 진짜 변화로
+// 인정한다 — 폴링 주기(500ms)+처리 지연을 감안한 여유치.
+const INPUT_FRESHNESS_MS = 1500
+
+/**
+ * 마지막으로 "진짜 사용자 입력"(스크롤/클릭/키보드)이 있었던 시각을 얻는다.
+ * Windows 전용 기능(inputHook.ts)이라 다른 플랫폼에서는 이 게이트 자체를 항상
+ * 통과시킨다(현재 시각을 반환) — 새 필터링 기능이 없을 뿐 기존 동작(픽셀 diff 만으로
+ * 판단)은 그대로 유지된다.
+ */
+async function getLastInputTime(): Promise<number> {
+  if (process.platform !== 'win32') return Date.now()
+  const { getLastQualifyingInputTime } = await import('./inputHook')
+  return getLastQualifyingInputTime()
+}
+
 let running = false
 let pollTimer: NodeJS.Timeout | null = null
 let settleTimer: NodeJS.Timeout | null = null
@@ -72,6 +91,15 @@ async function poll(): Promise<void> {
   if (!running) return
   if (bitmap) {
     if (lastBitmap && bitmapsDiffer(lastBitmap, bitmap)) {
+      const lastInput = await getLastInputTime()
+      // 스크롤/클릭/키보드 입력이 최근에 없었으면(hover 로 생긴 밑줄/툴팁, 배너 애니
+      // 메이션 등) 픽셀은 달라졌어도 재추출을 걸지 않는다 — lastBitmap 은 아래에서
+      // 어차피 갱신되므로 다음 폴링부터는 이 상태를 기준으로 다시 비교한다.
+      if (Date.now() - lastInput > INPUT_FRESHNESS_MS) {
+        lastBitmap = bitmap
+        pollTimer = setTimeout(poll, POLL_INTERVAL_MS)
+        return
+      }
       // 변화가 인식된 순간부터 새 OCR 결과가 올 때까지 기존 단어 박스는 더 이상 화면
       // 내용과 안 맞으므로 바로 지운다(재추출이 끝나면 refreshExtractionCache 가
       // sendOverlayWords 로 새 박스를 채워 넣는다). 스크롤처럼 계속 바뀌는 동안엔 매

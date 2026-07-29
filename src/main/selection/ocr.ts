@@ -10,7 +10,6 @@ import {
   isVerticalByLineShape,
   recognizeLinesWithPaddle,
   recognizeVerticalColumnWithPaddle,
-  recognizeWithPaddle,
 } from './ocrPaddle'
 import { recognizeVerticalColumnWithNdlocr } from './ocrNdlocr'
 import { BODY_LABELS, getCachedDetection } from './regionSelection'
@@ -54,6 +53,17 @@ async function getWorker(language: Language): Promise<Worker> {
 function fullImageRect(image: Buffer): Rect {
   const { width, height } = nativeImage.createFromBuffer(image).getSize()
   return { x: 0, y: 0, width, height }
+}
+
+// 개발 전용 디버그(사용자 요청, 2026-07-29) — 가장 최근 runOcr() 호출이 실제로 인식에
+// 넘긴 블록/열 경계. extractionCache.ts 가 이걸 읽어 오버레이에 반투명 사각형으로
+// 보여준다(캡처 이미지 기준 물리 픽셀 좌표 — words 와 마찬가지로 오버레이에 보내기
+// 전 DIP 보정이 필요하다). 크로스플랫폼 — 이 값 자체는 순수 JS 라 플랫폼과 무관하다.
+let lastExtractionBlocks: Rect[] = []
+
+/** 개발 전용 디버그 시각화(extractionCache.ts)에서만 쓴다 — 실제 인식 로직과 무관. */
+export function getLastExtractionBlocks(): Rect[] {
+  return lastExtractionBlocks
 }
 
 interface LayoutInfo {
@@ -110,6 +120,10 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
   // 인식 대상이 됨) — 같은 기준으로 여기서도 걸러낸다.
   const blocks = rawBlocks.filter((b) => BODY_LABELS.has(b.label))
   const columns = mergeIntoColumns(blocks)
+  // 개발 전용 디버그(사용자 요청) — 실제로 OCR 인식에 넘긴 블록/열 경계를 기억해뒀다가
+  // extractionCache.ts 가 오버레이에 반투명 사각형으로 보여줄 수 있게 한다. 열이
+  // 여러 개면 열마다, 하나도 안 나뉘면(다단 아님) 영역 전체를 "블록 하나"로 기록한다.
+  lastExtractionBlocks = columns.length > 0 ? columns.map((c) => c.bbox) : [region ?? fullImageRect(image)]
   if (process.env.DEBUG_OCR_DUMP) {
     const { writeFileSync } = require('node:fs') as typeof import('node:fs')
     const { join } = require('node:path') as typeof import('node:path')
@@ -120,7 +134,7 @@ export async function runOcr(image: Buffer, language: Language, region?: Rect): 
   }
 
   // 중국어/일본어는 PaddleOCR을 먼저 시도한다(세로쓰기면 recognizeVerticalColumnWithPaddle,
-  // 가로쓰기면 recognizeWithPaddle/recognizeLinesWithPaddle) — 일본어 스캔 파일에서
+  // 가로쓰기면 recognizeLinesWithPaddle) — 일본어 스캔 파일에서
   // Tesseract 인식률이 낮았던 문제(실사용 확인)로 도입. 실패하면(Python 환경 없음 등)
   // null 이 와서 그대로 아래 Tesseract 경로로 흘러간다.
   if (language === 'zh-Hans' || language === 'zh-Hant' || language === 'ja') {
@@ -217,11 +231,13 @@ async function runVerticalOcr(
 
 /**
  * 가로쓰기 전용 — PaddleOCR(en 은 이 함수 자체를 안 씀, 항상 Tesseract)로 열 단위 인식을
- * 시도한다. DocLayout 이 열을 여러 개 찾아줬으면(다단 성공) 열마다 이미 적당히 작은
- * 크롭이라 recognizeWithPaddle 한 번으로 충분하고(PaddleOCR 자체 검출기가 그 안에서
- * 알아서 줄을 찾아 인식), 열 구분이 없으면(다단 아님/레이아웃 검출 실패) region(또는
- * 이미지 전체) 하나를 recognizeLinesWithPaddle 로 줄 단위 병렬 인식한다(그 크롭이 페이지
- * 전체 크기라 한 번에 넘기면 느림 — 실측 38초). 열 하나라도 실패하면 전체를 null 로
+ * 시도한다. 열 구분이 있든(다단 성공) 없든(다단 아님/레이아웃 검출 실패) 항상
+ * recognizeLinesWithPaddle 로 줄 단위 병렬 인식한다 — DocLayout 이 나눈 "열" 하나가
+ * 항상 작다는 보장이 없어서(실측 확인: 다단으로 나뉜 블록 중 하나가 그 자체로 본문
+ * 전체만큼 클 수 있음, NHK "やさしいことば" 뉴스 페이지에서 250단어+ 블록 하나가
+ * 57~74초 걸림) 열 개수와 무관하게 항상 줄 단위로 쪼개 병렬화한다(그 크롭이 페이지
+ * 전체 크기라 한 번에 넘기면 느림 — 실측 38초, 다단 큰 블록도 마찬가지). 이 경로는
+ * 후리가나도 걸러낸다(excludeFuriganaHorizontal). 열 하나라도 실패하면 전체를 null 로
  * 반환해 호출부가 통째로 Tesseract 로 폴백하게 한다 — 열마다 다른 엔진이 섞이는 것보다
  * 일관된 폴백이 안전하다.
  */
@@ -243,15 +259,22 @@ async function runNonTesseractOcr(
   // (실사용 중 "다단/세로쓰기 페이지 인식이 오래 걸림"으로 확인). 전부 한꺼번에 보내야
   // 여러 워커에 나뉘어 실제로 동시에 처리된다 — Promise.all 은 입력 순서(=열 순서)를
   // 그대로 보존해서 반환하므로 완료 순서와 무관하게 결과가 올바르게 이어붙는다.
+  //
+  // 실측 확인(사용자 보고, 2026-07-29): 열이 여러 개(다단)일 때 "이미 적당히 작은
+  // 크롭이니 recognizeWithPaddle 한 번으로 충분하다"고 가정했었는데, DocLayout이 다단
+  // 으로 나눈 블록 중 하나가 그 자체로 본문 전체(252~343단어)만큼 클 수도 있어서
+  // 이 가정이 항상 맞지는 않았다 — 그런 큰 블록을 recognizeWithPaddle 로 통째로 넘기면
+  // 줄 단위 병렬화가 전혀 안 먹어 57~74초까지 걸렸다(NHK "やさしいことば" 뉴스 페이지로
+  // 실측). recognizeLinesWithPaddle 은 크롭 크기와 무관하게 항상 줄 단위로 쪼개
+  // 워커 풀에 병렬로 돌리고 후리가나도 걸러내므로(excludeFuriganaHorizontal), 열 개수와
+  // 상관없이 항상 이쪽을 쓴다 — precomputedLines 재사용은 여전히 열이 1개일 때만
+  // 안전하다(위 주석 참고).
   const perColumn = await Promise.all(
     targets.map(async (bbox, i) => {
       const padded = padRect(bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
       const start = Date.now()
       const lines = targets.length === 1 ? precomputedLines : undefined
-      const words =
-        targets.length === 1
-          ? await recognizeLinesWithPaddle(image, language, padded, lines)
-          : await recognizeWithPaddle(image, language, padded)
+      const words = await recognizeLinesWithPaddle(image, language, padded, lines)
       console.log(`[timing]   column ${i}: ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
       return words
     }),

@@ -65,6 +65,15 @@ if (!app.requestSingleInstanceLock()) {
     warmJapaneseTokenizer() // 일본어 형태소 분석 엔진 로드를 미리 시작 — 첫 사용 시 지연 없게
     warmChineseSegmenter() // ZH_HANT_ENGINE 이 chinese-tokenizer 면 CC-CEDICT 파싱(~350ms) 예열
 
+    // 담당 A — changeWatcher.ts 의 화면 변화 감지(픽셀 diff)가 스크롤/클릭/키보드와
+    // 무관한 변화(hover 밑줄 등)에도 반응하던 문제 보완 — 저수준 전역 입력 후크로 마지막
+    // 입력 시각을 기록해둔다(inputHook.ts 주석 참고). **Windows 전용**(win32Capture.ts 와
+    // 같은 이유로 동적 import — 다른 플랫폼에선 이 파일을 아예 안 불러서 koffi.load 도
+    // 안 돈다).
+    if (process.platform === 'win32') {
+      void import('./selection/inputHook').then(({ startInputHook }) => startInputHook())
+    }
+
     // 담당 A — 실험용 브랜치(experiment/doclayout-yolo). DocLayout-YOLO/PaddleOCR/
     // manga-ocr 은 Python 서브프로세스라 첫 호출에 모델 로딩만 8~20초씩 걸린다(실측
     // 확인) — 사용자가 실제로 선택 모드에 들어가서 처음 쓸 때 이 지연을 겪지 않도록,
@@ -95,6 +104,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     setQuitting(true)
     killAllPythonServers()
+    if (process.platform === 'win32') {
+      void import('./selection/inputHook').then(({ stopInputHook }) => stopInputHook())
+    }
   })
 
   app.on('window-all-closed', () => {

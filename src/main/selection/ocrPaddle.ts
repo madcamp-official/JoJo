@@ -211,6 +211,45 @@ export function excludeFurigana<T extends Rect>(lines: T[], widthRatio: number =
   })
 }
 
+function xOverlapFraction(a: Rect, b: Rect): number {
+  const left = Math.max(a.x, b.x)
+  const right = Math.min(a.x + a.width, b.x + b.width)
+  const overlap = Math.max(0, right - left)
+  const minWidth = Math.min(a.width, b.width)
+  return minWidth > 0 ? overlap / minWidth : 0
+}
+
+function yGap(a: Rect, b: Rect): number {
+  return Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height))
+}
+
+// 실측 확인(사용자 보고): 가로쓰기 후리가나는 본문 글자 "옆"이 아니라 "위"에 붙는다 —
+// excludeFurigana(세로쓰기용)는 폭이 좁고 y 범위가 겹치는 이웃을 찾는데, 가로쓰기는
+// 반대로 **높이가 낮고 x 범위가 겹치는** 이웃(본문 줄)이 있으면 후리가나다. 그래서
+// excludeFurigana 를 그대로 재사용할 수 없고(기하학 자체가 90도 다름), 별도 함수로
+// 둔다. 이 필터가 가로쓰기 경로(recognizeLinesWithPaddle)에 아예 연결이 안 돼 있어서
+// 후리가나가 그대로 본문 줄과 섞여 인식됐고, 후리가나 줄마다 별도의 PaddleOCR 호출이
+// 추가로 발생해(글자 수만큼 줄 수가 거의 두 배로 늘어남) 속도도 느려지는 문제가
+// 같이 실측 확인됨.
+const FURIGANA_HEIGHT_RATIO = 1.8
+const FURIGANA_X_OVERLAP_MIN = 0.5
+const FURIGANA_MAX_GAP_RATIO_VERTICAL = 2
+
+export function excludeFuriganaHorizontal<T extends Rect>(
+  lines: T[],
+  heightRatio: number = FURIGANA_HEIGHT_RATIO,
+): T[] {
+  return lines.filter((line) => {
+    const hasTallerNeighbor = lines.some((other) => {
+      if (other === line) return false
+      if (other.height < line.height * heightRatio) return false
+      if (xOverlapFraction(line, other) < FURIGANA_X_OVERLAP_MIN) return false
+      return yGap(line, other) <= line.height * FURIGANA_MAX_GAP_RATIO_VERTICAL
+    })
+    return !hasTallerNeighbor
+  })
+}
+
 // 세로쓰기 열이 여러 개인 페이지에서 DocLayout 이 열을 못 나눠주면(blocks=0) 줄 검출
 // 결과가 열 구분 없이 전부 섞여서 온다 — 이걸 그냥 y좌표로만 정렬하면 서로 다른 열의
 // 줄이 뒤섞여 읽힌다(예: A열 3번째 줄 다음에 B열 1번째 줄이 오는 식). x좌표로 다시 열을
@@ -726,6 +765,12 @@ export async function recognizeVerticalColumnWithPaddle(
  * 안 하고 y좌표로만 정렬한다. `recognizeWithPaddle` 을 영역 전체에 한 번 호출하는 대신
  * 줄 단위로 나눠 병렬 호출하는 이유는 recognizeVerticalColumnWithPaddle 과 같다(실측:
  * 페이지 전체를 한 번에 넘기면 38초, 열/줄 병렬화가 전혀 안 먹는 경로였음).
+ *
+ * recognizeVerticalColumnWithPaddle 과 마찬가지로 후리가나를 먼저 걸러낸다
+ * (excludeFuriganaHorizontal 주석 참고) — 걸러내기 전엔 후리가나 줄마다 별도의
+ * recognizeWithPaddle 호출이 추가로 발생해 줄 수가 거의 두 배로 늘어나면서 속도가
+ * 크게 느려지고, 후리가나 자체도 본문 텍스트에 섞여 나오는 문제가 실측 확인됨
+ * (2026-07-29, NHK "やさしいことば" 뉴스 페이지).
  */
 export async function recognizeLinesWithPaddle(
   image: Buffer,
@@ -735,7 +780,8 @@ export async function recognizeLinesWithPaddle(
 ): Promise<Word[] | null> {
   const lines = precomputedLines ?? (await detectLinesWithPaddle(image, bbox))
   if (!lines || lines.length === 0) return []
-  const ordered = [...lines].sort((a, b) => a.y - b.y)
+  const bodyLines = excludeFuriganaHorizontal(lines)
+  const ordered = [...bodyLines].sort((a, b) => a.y - b.y)
   return recognizeOrderedLines(image, language, ordered, false)
 }
 
