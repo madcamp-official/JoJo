@@ -469,6 +469,18 @@ let trackedMacWindowId: number | null = null
 const MAC_TRACK_INTERVAL_MS = 16
 
 function showMacOverlayAt(rawBounds: { x: number; y: number; width: number; height: number }): void {
+  // 대상 창이 모니터를 진짜로 꽉 채운 전체화면(유튜브/넷플릭스 영상 전체화면, F11 류 등)
+  // 이면 오버레이 자체를 숨긴다(2026-07-29 사용자 요청 — "전체화면일 땐 테두리 안
+  // 나왔으면 좋겠다") — win32 의 applyOverlayBounds 와 동일한 판정(coversWholeDisplay)을
+  // 그대로 재사용. 자막 모드는 확장이 페이지 안에 직접 하이라이트를 그려서 이 오버레이
+  // 창과 무관하니 숨겨도 지장이 없고, OCR 선택 모드는 전체화면인 동안만 hover/클릭이
+  // 잠깐 안 되는 트레이드오프를 감수한다.
+  const display = screen.getDisplayMatching(rawBounds)
+  if (coversWholeDisplay(rawBounds, display)) {
+    hideMacOverlay()
+    lastBounds = null // 전체화면을 벗어나면 다음 호출에서 bounds 를 무조건 다시 맞추게
+    return
+  }
   // macOS 는 "진짜 OS 최대화" 개념이 win32 의 IsZoomed 처럼 명확하지 않아(Zoom 버튼은
   // 단순 토글이라 최대화 여부를 안정적으로 구분하기 어려움) 항상 false — 모니터 진짜
   // 경계에 거의 닿아있을 때만(F11 류 전체화면) 스냅하는 기본 동작만 적용된다.
