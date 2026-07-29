@@ -244,10 +244,18 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         }))
         .filter((w) => w.end > w.start)
 
-      if (words.length === 0) return
+      // 분석 결과가 비어도(엔진이 그 줄을 통째로 못 쪼갠 경우 등) segmentedLines 에 남겨두면
+      // hover 는 그 줄에 대해 영원히 글자 단위로 고정된다 — 다음에 같은 줄이 다시 보일 때
+      // 재시도할 수 있게 표시를 지운다(2026-07-29 사용자 제보로 발견).
+      if (words.length === 0) {
+        this.segmentedLines.delete(text)
+        return
+      }
       this.send({ type: 'wordSegments', lineText: text, words })
     } catch (err) {
       console.warn('[ext-bridge] 자막 줄 세그멘테이션 실패:', (err as Error)?.message)
+      // 실패도 마찬가지로 재시도 가능하게 표시를 지운다.
+      this.segmentedLines.delete(text)
     }
   }
 

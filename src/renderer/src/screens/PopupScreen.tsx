@@ -44,19 +44,31 @@ import { newId, type ChatMessage } from './popup/types'
 // 데이터 진입:
 //   - 실제(담당 A 통합): main 이 createPopupWindow(ctx) 로 넘긴 ExtractedSelection 을
 //     getPopupContext()/onPopupContext() 로 받는다.
-//   - 데모(현재): ctx 가 없으면 목업으로 fallback한다 — 기본은 호빗 "well-to-do",
-//     MainScreen 의 언어별 데모 버튼으로 열었을 때(#/popup?demo=ja 또는 zh)는
-//     각각 《容疑者Xの献身》"新大橋" / 《三体》"天线"(간체).
+//   - 데모: MainScreen 의 팝업 미리보기 버튼으로 열었을 때만(#/popup?demo=hobbit 등)
+//     목업으로 채운다. 기본(영어)은 호빗 "well-to-do", 그 외엔 각각 《容疑者Xの献身》
+//     "新大橋" / 《三体》"天线"(간체) 등.
+//
+// **demo 쿼리가 없으면 절대 목업으로 fallback 하지 않는다**(2026-07-29 수정) — 예전엔
+// MainScreen 의 기본(영어) 데모 버튼이 demo 인자 없이 openPopup() 을 호출해서, 그 URL
+// 해시가 실사용(선택 확정 → createPopupWindow(ctx))과 똑같이 '#/popup'(쿼리 없음)이 됐다.
+// 그래서 실사용 중 어떤 이유로든(레이스 등) getPopupContext() 가 null 을 반환하면 실제
+// 클릭과 무관하게 호빗 "well-to-do" 데모가 뜨는 문제가 있었다(사용자 제보, "자막 누르면
+// 뜬금없이 호빗 데모창이 뜬다"). MainScreen 의 기본 데모 버튼도 이제 명시적으로
+// openPopup('hobbit') 을 호출하도록 바꿔서, "demo 쿼리가 아예 없음"은 이제 항상
+// "실사용인데 ctx 가 아직 없음(로딩 중)"만을 뜻한다 — 이 경우 목업 대신 빈 화면을 유지한다.
 // ============================================================================
 
-/** 팝업 창 URL 해시(#/popup?demo=zh)에서 demo 쿼리값을 읽는다. */
+/** 팝업 창 URL 해시(#/popup?demo=hobbit)에서 demo 쿼리값을 읽는다. */
 function getDemoParam(): string | null {
   const query = window.location.hash.split('?')[1] ?? ''
   return new URLSearchParams(query).get('demo')
 }
 
-function initialMockExtraction(): ExtractedSelection {
-  switch (getDemoParam()) {
+/** demo 쿼리에 매칭되는 목업이 있으면 반환, 없으면(실사용) null. */
+function mockExtractionForDemoParam(demo: string | null): ExtractedSelection | null {
+  switch (demo) {
+    case 'hobbit':
+      return mockHobbitExtraction()
     case 'ja':
       return mockDevotionExtraction()
     case 'zh-Hans':
@@ -66,17 +78,11 @@ function initialMockExtraction(): ExtractedSelection {
     case 'en-bank':
       return mockBankExtraction()
     default:
-      return mockHobbitExtraction()
+      return null
   }
 }
 
-// 실제 ctx 도착 전(getPopupContext() IPC 왕복이 끝나기 전) 첫 렌더용 빈 자리표시자 —
-// 실사용(선택 확정 → createPopupWindow(ctx))도 데모 버튼(openPopup(), demo 인자 없음)도
-// URL 해시가 똑같이 '#/popup'(쿼리 없음)이라, 첫 렌더 시점엔 실사용인지 호빗 데모인지
-// 구분할 방법이 없다(2026-07-29 실사용 확인 — 팝업을 띄우면 잠깐 호빗 "well-to-do" 데모
-// 텍스트가 보였다가 실제로 클릭한 텍스트로 바뀌는 현상). 그래서 첫 렌더는 항상 빈 텍스트로
-// 그리고, getPopupContext() 응답이 오면 그때 실제 ctx 든 데모 목업이든 확정해서 채운다 —
-// "틀린 내용이 잠깐 보이는 것"과 "아주 잠깐 빈 화면"중 후자를 택함.
+// 실제 ctx 도착 전(getPopupContext() IPC 왕복이 끝나기 전) 첫 렌더용 빈 자리표시자.
 function emptyExtraction(): ExtractedSelection {
   return {
     text: '',
@@ -92,13 +98,18 @@ export function PopupScreen() {
   const [baseCtx, setBaseCtx] = useState<ExtractedSelection>(emptyExtraction)
 
   // main 에서 실제 컨텍스트를 받으면 교체(초기 조회 + 창 재사용 시 갱신 통지). 초기 조회가
-  // null 이면(데모 버튼으로 열렸거나, 실사용인데 아직 A 파이프라인이 ctx 를 안 넘긴 경우)
-  // 그때 가서야 데모 목업으로 확정한다 — 위 emptyExtraction 주석 참고.
+  // null 이어도 demo 쿼리가 없으면(=실사용) 목업으로 fallback 하지 않는다 — demo 쿼리가
+  // 있을 때(MainScreen 미리보기 버튼)만 그 목업으로 확정한다. 위 모듈 주석 참고.
   useEffect(() => {
     let active = true
     window.nuance.getPopupContext().then((ctx) => {
       if (!active) return
-      setBaseCtx(ctx ?? initialMockExtraction())
+      if (ctx) {
+        setBaseCtx(ctx)
+        return
+      }
+      const mock = mockExtractionForDemoParam(getDemoParam())
+      if (mock) setBaseCtx(mock)
     })
     return window.nuance.onPopupContext((ctx) => {
       if (ctx) setBaseCtx(ctx)
