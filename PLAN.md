@@ -402,9 +402,10 @@ JoJo/
         ├── highlight.ts         #   hover 박스/클릭을 페이지 안에서 직접 렌더
         ├── networkHook.ts / netflixNetworkHook.ts  # MAIN world 네트워크 가로채기(전체 자막 확보)
         ├── timedtext.ts / captionParse.ts          # videoId 파싱 / 자막 응답 포맷 파서
-        └── webArticle.ts (계획)  #   🅰️ [담당: milleion] 일반 웹페이지(뉴스·웹소설) 본문 DOM 추출 — 사이트별 셀렉터 등록 없이 범용 본문 탐지 알고리즘으로 구현 예정, 상세는 TODO.md 참고
+        ├── webArticle.ts        #   🅰️ [담당: milleion, 2026-07-30 구현 완료] 일반 웹페이지(뉴스·웹소설) 본문 DOM 추출 — 사이트별 셀렉터 등록 없이 범용 본문 탐지 알고리즘(텍스트 밀도 스코어링)
+        └── articleHighlight.ts  #   🅰️ [담당: milleion] 본문 hover/클릭(highlight.ts와 같은 페이지 내 직접 처리 방식, 문단 단위 지연 계산으로 성능 대응)
 ```
 
 **시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `npm run build:ext`로 빌드한 `extension/dist`를 `chrome://extensions`에서 로드(개발자 모드 → 압축해제된 확장 프로그램 로드) — native messaging host 등록 불필요(로컬 WebSocket 사용).
 
-**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)·브라우저 확장(유튜브·넷플릭스 자막)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract/NDLOCR/PaddleOCR→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, 직접 추출(epub/pdf/web)·접근성 API(AX/UIA)·언어 자동 감지는 아직 미구현/스텁. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)·브라우저 확장(유튜브·넷플릭스 자막)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract/NDLOCR/PaddleOCR→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, DOM 텍스트(일반 웹페이지, 담당: milleion)도 2026-07-30 구현 완료(범용 본문 탐지+자막 경로와 동일한 확장 hover/클릭 direct 추출 구조, 상세는 TODO.md). 직접 추출(epub/pdf/txt)·접근성 API(AX/UIA)·언어 자동 감지는 아직 미구현/스텁. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
