@@ -1,6 +1,6 @@
 import type { ExtractedSelection, Word } from '@shared/types'
 import { findWordAtPoint } from '@shared/wordMapping'
-import { getExtraction } from './extractionCache'
+import { getExtraction, mergeWithPreviousContext } from './extractionCache'
 
 // ============================================================================
 // 담당 A — 선택 준비 & 추출 파이프라인 (PLAN.md §4.1 / §8) — 팝업 전까지
@@ -20,9 +20,13 @@ export async function runSelectionPipeline(point: {
   const word = findWordAtPoint(extracted.words, point)
   const anchor = word ? findLineSpan(extracted.words, extracted.words.indexOf(word)) : { start: 0, end: 0 }
 
+  // 클릭한 줄 기준으로 직전 회차 캐시에 더 넓은 문맥이 있으면 병합한다(extractionCache.ts:
+  // mergeWithPreviousContext) — 못 찾으면 원본 그대로 반환되므로 항상 안전하다.
+  const merged = mergeWithPreviousContext(extracted.text, anchor.start, anchor.end)
+
   return {
-    text: extracted.text,
-    anchor,
+    text: merged.text,
+    anchor: { start: merged.anchorStart, end: merged.anchorEnd },
     words: extracted.words,
     language: extracted.language,
     source: extracted.source,

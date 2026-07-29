@@ -23,7 +23,7 @@ import {
   setSelectedWindowId,
   setSelectedWindowName,
 } from './selection/capture'
-import { invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
+import { clearExtractionHistory, invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
 import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
 import { isWarmedUp } from './selection/warmup'
 import {
@@ -79,6 +79,7 @@ export function registerIpc(): void {
     setSelectedWindowId(source.id)
     setSelectedWindowName(source.name)
     invalidateExtractionCache() // 이전 창(재선택 포함)의 캐시가 새 창으로 넘어가지 않게
+    clearExtractionHistory() // 창을 전환했으니 직전 회차 문맥도 함께 비운다
     clearRegion() // 이전 창 기준 좌표라 새 창에 그대로 쓰면 안 맞음
     resetToNormalMode() // 재선택 시 선택 모드였다면 일반 모드로 — 새 창엔 아직 캐시된 단어가 없음
     getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, source)
