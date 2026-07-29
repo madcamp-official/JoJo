@@ -133,18 +133,9 @@ export function Toolbar({
           강제 호출한다. */}
       {dictSources.length > 0 && (
         <>
-          <label className="dict-force-toggle" title="켜면 폴백 체인 대신 아래에서 고른 소스만 강제 호출(디버깅용)">
-            <input
-              type="checkbox"
-              checked={forceSource}
-              disabled={disabled}
-              onChange={(e) => onToggleForceSource(e.target.checked)}
-            />
-            직접 선택
-          </label>
           <select
             className="dict-source-select"
-            title="강제 호출할 소스(위 토글이 켜져 있을 때만 적용)"
+            title="강제 호출할 소스(오른쪽 토글이 켜져 있을 때만 적용)"
             value={selectedSource ?? ''}
             disabled={disabled || !forceSource}
             onChange={(e) => onSelectSource(e.target.value as DictionarySourceId)}
@@ -155,6 +146,15 @@ export function Toolbar({
               </option>
             ))}
           </select>
+          <label className="dict-force-toggle" title="켜면 폴백 체인 대신 왼쪽 드롭다운에서 고른 소스만 강제 호출(디버깅용)">
+            <input
+              type="checkbox"
+              checked={forceSource}
+              disabled={disabled}
+              onChange={(e) => onToggleForceSource(e.target.checked)}
+            />
+            직접 선택
+          </label>
         </>
       )}
     </div>
