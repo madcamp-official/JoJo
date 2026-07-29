@@ -20,6 +20,9 @@
   let lastCaption: { url: string; text: string } | null = null
 
   function post(url: string, text: string): void {
+    // 진단(임시, 2026-07-29): 위와 같은 이유 — 이 훅이 실제로 몇 번, 어떤 url 로 caption
+    // 응답을 잡는지 눈으로 확인한다(원인 확정되면 이 로그와 위 로그 모두 제거).
+    console.log(`[nuance networkHook] post 호출 url=${url} len=${text.length}`)
     lastCaption = { url, text }
     window.postMessage({ source: 'nuance-mainworld', kind: 'captionResponse', url, text }, '*')
   }
@@ -28,6 +31,10 @@
     if (ev.source !== window) return
     const d = ev.data as { source?: string; kind?: string } | undefined
     if (d?.source !== 'nuance-content' || d.kind !== 'requestLastCaption') return
+    // 진단(임시, 2026-07-29): "넷플릭스에서 유튜브로 탭 전환 시 새로고침 없이 한 줄만"
+    // 재현 원인 특정용 — 재전송 요청 시점에 캐시가 애초에 있었는지 확인한다. 캐시가
+    // 없다고 찍히면 이 훅이 그 영상의 timedtext 요청 자체를 한 번도 못 본 것.
+    console.log(`[nuance networkHook] requestLastCaption 수신, 캐시=${lastCaption ? '있음(' + lastCaption.url + ')' : '없음'}`)
     if (lastCaption) post(lastCaption.url, lastCaption.text)
   })
 
