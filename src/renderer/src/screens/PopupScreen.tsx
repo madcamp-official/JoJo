@@ -535,8 +535,21 @@ export function PopupScreen() {
 // 잘라 "..."을 붙여두면, 뒤에 오는 언어 라벨은 항상 보이는 폭 안에 들어온다.
 const SOURCE_LABEL_MAX_LENGTH = 60
 
+// youtube/netflix는 URL(시청 기록·영상 ID 노출)을 그대로 보여주지 않고 서비스 이름으로,
+// txt/ocr/pdf/epub은 appName이 아직 없어(readActiveWindow 미구현) kind 자체를 라벨로 쓰되
+// 대문자 표기로 통일한다(사용자 요청, 2026-07-30).
+const SOURCE_KIND_LABEL: Partial<Record<ExtractedSelection['source']['kind'], string>> = {
+  youtube: 'Youtube',
+  netflix: 'Netflix',
+  txt: 'TXT',
+  ocr: 'OCR',
+  pdf: 'PDF',
+  epub: 'EPUB'
+}
+
 function sourceLabel(ex: ExtractedSelection): string {
-  const raw = ex.source.appName ?? ex.source.url ?? ex.source.kind
+  const fixed = SOURCE_KIND_LABEL[ex.source.kind]
+  const raw = fixed ?? ex.source.appName ?? ex.source.url ?? ex.source.kind
   return raw.length > SOURCE_LABEL_MAX_LENGTH ? `${raw.slice(0, SOURCE_LABEL_MAX_LENGTH)}...` : raw
 }
 
