@@ -7,7 +7,8 @@
   "license": "MIT",
   "scripts": {
     "postinstall": "node scripts/resign-electron.mjs",
-    "predev": "bash scripts/ensure-resources.sh",
+    "kill": "bash scripts/kill-nuance.sh",
+    "predev": "bash scripts/kill-nuance.sh && bash scripts/ensure-resources.sh",
     "dev": "electron-vite dev",
     "prebuild": "bash scripts/ensure-resources.sh",
     "build": "electron-vite build",
