@@ -9,4 +9,7 @@ export const WORD_BOX_STYLE = {
   background: 'rgba(124, 58, 237, 0.18)',
   // 박스 테두리가 글자 획과 겹치지 않게 사방으로 두는 여백(px)
   padding: 2,
+  // 모서리가 각져 보인다는 사용자 피드백(2026-07-29)으로 살짝 둥글게 — 글자 하나~두 개
+  // 정도의 좁은 박스도 있어 너무 크게 잡으면 옆면이 다 잘려 보이므로 작게만.
+  borderRadius: 3, // px
 } as const

@@ -41,6 +41,7 @@ function ensureBox(): HTMLDivElement {
     boxSizing: 'border-box',
     border: `${WORD_BOX_STYLE.borderWidth}px solid ${WORD_BOX_STYLE.borderColor}`,
     background: WORD_BOX_STYLE.background,
+    borderRadius: `${WORD_BOX_STYLE.borderRadius}px`,
     pointerEvents: 'none',
     zIndex: '2147483647',
     display: 'none',

@@ -269,6 +269,7 @@ export function Overlay() {
             height: hoveredBox.height + WORD_BOX_STYLE.padding * 2,
             border: `${WORD_BOX_STYLE.borderWidth}px solid ${WORD_BOX_STYLE.borderColor}`,
             background: WORD_BOX_STYLE.background,
+            borderRadius: WORD_BOX_STYLE.borderRadius,
           }}
         />
       )}

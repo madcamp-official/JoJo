@@ -198,7 +198,7 @@
 - [x] ~~좌표 보정 + 오버레이 연동~~ → 오버레이 릴레이 방식 폐기, 확장이 페이지 안에서 직접 hover 박스를 그리는 방식(`highlight.ts`)으로 대체돼 좌표 보정 자체가 불필요해짐.
 - [x] ~~클릭 → `ExtractedSelection`(앞뒤 자막 포함) → 팝업~~ → `subtitleSource.ts`(`buildSelection`/`anchorInTranscript`), 팝업 열림/닫힘에 맞춰 영상 자동 일시정지/재생 + 팝업 닫힘 후 브라우저로 OS 포커스 복귀까지 구현.
 - [x] ~~넷플릭스 자막 추출~~ → `feat/netflix-subtitles`를 병합 통합(2026-07-29). 매니페스트 `JSON.parse`/`JSON.stringify` 후킹(`netflixNetworkHook.ts`, Language Reactor류 도구와 동일 기법)으로 WebVTT 다운로드 URL 확보 → `parseWebVtt`로 파싱 → 유튜브와 같은 `transcript` 파이프라인 재사용. 실브라우저 검증 중 발견한 버그 다수 수정: 매니페스트 재시도 차단(첫 매니페스트 실패 시 영영 재시도 안 함), 전체화면 중 hover 박스가 top layer 밖이라 안 보임, 후리가나가 자막 본문에 섞임. **매니페스트 필드명 신포맷 대응(2026-07-29)**: 넷플릭스가 매니페스트 필드 이름을 `timedtexttracks`/`ttDownloadables`에서 `textTracks`/`downloadables`로 바꿔, 옛 이름만 보던 후킹이 매니페스트를 한 번도 못 잡아 넷플릭스 문맥 자막이 아예 안 떴었다(Worker 파싱 문제로 오판했으나 실제 원인은 필드명 변경 — Chrome에 설치된 Language Reactor 확장의 `pageScript_lln.min.js`를 실측 분석해 확정). 두 이름을 모두 받아 구포맷 모양으로 정규화하고, 요청(JSON.stringify)에 `supportsPartialHydration`/`showAllSubDubTracks`를 함께 켜(트랙에 실제 다운로드 URL이 hydrated로 담기게) 넷플릭스 자신의 객체는 사본에만 변형을 가하도록 수정. URL 추출도 `downloadUrls`(신)/`urls`(구) 양쪽 지원, `rawTrackType` 대소문자 무관 비교. `parseWebVtt`에 `MM:SS.mmm`(시간 생략) 허용 + TTML(dfxp) 폴백 파서 추가.
-- [x] ~~선택 모드 단어 하이라이트 렌더~~ → `highlight.ts`(오버레이 대신 페이지 내부 직접 렌더로 확정). hover 시 커서를 pointer로 변경.
+- [x] ~~선택 모드 단어 하이라이트 렌더~~ → `highlight.ts`(오버레이 대신 페이지 내부 직접 렌더로 확정). hover 시 커서를 pointer로 변경. → **모서리가 각져 보인다는 피드백으로 살짝 둥글게(2026-07-29)**: `shared/highlightStyle.ts`(Electron 오버레이·크롬 확장 공용 단일 소스)의 `WORD_BOX_STYLE`에 `borderRadius: 3`(px) 추가 — `Overlay.tsx`(단어 hover 박스)와 `extension/src/highlight.ts`(유튜브/넷플릭스 자막 hover 박스) 둘 다 이 값을 그대로 반영.
 - [ ] (후속) 웹페이지 DOM 텍스트 추출(태그 제외·문단 잇기) + 좌표 — 일반 웹페이지 대상, 유튜브·넷플릭스 이후.
 
 <a id="공동"></a>
