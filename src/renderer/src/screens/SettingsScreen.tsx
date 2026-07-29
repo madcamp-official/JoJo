@@ -813,7 +813,7 @@ export function SettingsScreen() {
                     void patch({ language: code })
                   }}
                 >
-                  {LANGUAGES[code].name}
+                  {LANGUAGES[code].koName}
                 </button>
               ))}
             </div>

@@ -11,6 +11,7 @@ import type {
 } from '@shared/types'
 import { sentenceEnd, sentenceStart } from '@shared/context'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
+import { getNativeLanguageName, hasNaverDict, isFullLanguage } from '@shared/languages'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
@@ -335,6 +336,13 @@ export function PopupScreen() {
   // 정식 폴백 체인을 다시 켤 수도 있다(디버깅/비교용).
   const [forceSource, setForceSource] = useState(true)
   useEffect(() => {
+    // tier2/3(사전 소스 자체가 없는 언어)는 조회할 필요가 없다 — 빈 배열로 두면
+    // Toolbar 가 이미 showAiDictionary=false 로 드롭다운 자체를 숨긴다.
+    if (!isFullLanguage(currentCtx.language)) {
+      setDictSources([])
+      setSelectedSource(undefined)
+      return
+    }
     let active = true
     void window.nuance.getDictionarySources(currentCtx.language).then((sources) => {
       if (!active) return
@@ -453,7 +461,7 @@ export function PopupScreen() {
     <div className="screen popup-screen">
       <header className="popup-header">
         <span className="src">
-          {sourceLabel(baseCtx)} · {LANGUAGE_LABEL[baseCtx.language]}
+          {sourceLabel(baseCtx)} · {getNativeLanguageName(baseCtx.language)}
         </span>
         <span className="esc-hint">ESC</span>
         <button className="icon-btn close" title="닫기" onClick={() => window.close()}>
@@ -490,12 +498,14 @@ export function PopupScreen() {
           onGoogle={google}
           onNaverDict={naverDict}
           disabled={busy}
+          showNaverDict={hasNaverDict(baseCtx.language)}
+          showAiDictionary={isFullLanguage(baseCtx.language)}
           dictSources={dictSources}
           selectedSource={selectedSource}
           onSelectSource={setSelectedSource}
           forceSource={forceSource}
           onToggleForceSource={setForceSource}
-          showCharLevelToggle={baseCtx.language !== 'en'}
+          showCharLevelToggle={isCjkLikeLanguage(baseCtx.language)}
           charLevel={charLevel}
           onToggleCharLevel={setCharLevel}
         />
@@ -510,9 +520,9 @@ export function PopupScreen() {
 
 // 넷플릭스 워치 URL처럼 트래킹 쿼리스트링이 길게 붙는 출처는 원문 그대로 보여주면
 // (CSS 말줄임만 믿으면) 전체 헤더 폭을 URL 혼자 다 잡아먹어, 그 뒤에 이어 붙는 언어
-// 라벨(LANGUAGE_LABEL)이 화면 밖으로 밀려 아예 안 보이는 문제가 있었다(사용자 피드백,
-// 2026-07-29 — 넷플릭스 URL 헤더에서 "· English/日本語" 부분이 안 보임). 여기서 먼저
-// 적당한 길이로 잘라 "..."을 붙여두면, 뒤에 오는 언어 라벨은 항상 보이는 폭 안에 들어온다.
+// 라벨이 화면 밖으로 밀려 아예 안 보이는 문제가 있었다(사용자 피드백, 2026-07-29 —
+// 넷플릭스 URL 헤더에서 "· English/日本語" 부분이 안 보임). 여기서 먼저 적당한 길이로
+// 잘라 "..."을 붙여두면, 뒤에 오는 언어 라벨은 항상 보이는 폭 안에 들어온다.
 const SOURCE_LABEL_MAX_LENGTH = 60
 
 function sourceLabel(ex: ExtractedSelection): string {
@@ -520,9 +530,10 @@ function sourceLabel(ex: ExtractedSelection): string {
   return raw.length > SOURCE_LABEL_MAX_LENGTH ? `${raw.slice(0, SOURCE_LABEL_MAX_LENGTH)}...` : raw
 }
 
-const LANGUAGE_LABEL: Record<ExtractedSelection['language'], string> = {
-  en: 'English',
-  ja: '日本語',
-  'zh-Hans': '中文(简体)',
-  'zh-Hant': '中文(繁體)',
+// ja/zh-Hans/zh-Hant만 "글자 단위" 토글이 있다 — 형태소 분석(jaResult/zhWords)으로 만든
+// 단어 단위 atom이 있어야 그걸 글자 단위로 재분할하는 토글이 의미가 있다. 태국어/라오어
+// (공백 없는 tier2 언어)는 애초에 단어 단위 옵션 자체가 없어(형태소 분석기 미지원,
+// 2026-07-30 결정) 토글 없이 항상 글자 단위다 — buildSelectionModel/selection.ts 참고.
+function isCjkLikeLanguage(lang: ExtractedSelection['language']): boolean {
+  return lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant'
 }
