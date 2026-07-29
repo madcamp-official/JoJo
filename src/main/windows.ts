@@ -702,6 +702,11 @@ export function createPopupWindow(
   demo?: string,
 ): BrowserWindow {
   popupContext = ctx
+  // 임시 진단 로그(2026-07-29, "가끔 빈 팝업이 뜬다" 제보 확인용) — 텍스트 원문은
+  // 안 찍고 존재 여부/길이만 남긴다.
+  console.log(
+    `[windows] createPopupWindow ctx=${ctx ? `len=${ctx.text.length} source=${ctx.source.kind}` : 'null'} demo=${demo ?? 'none'}`,
+  )
   // 팝업이 이미 떠 있는 상태에서 다른 단어를 새로 고르면, 예전엔 기존 창 내용만 갱신하고
   // 앞으로 올렸다(forceWindowToFront) — 그런데 이전 대화(채팅 로그 등) 상태가 그대로 남아
   // 헷갈린다는 피드백(2026-07-29)으로, 기존 창은 즉시 없애고 항상 새 팝업을 띄우도록 변경.

@@ -226,7 +226,10 @@ export function registerIpc(): void {
 
   // 담당 B: 팝업 렌더러가 마운트 시 현재 ExtractedSelection 을 조회
   ipcMain.handle(IPC.POPUP_GET_CONTEXT, async (): Promise<ExtractedSelection | null> => {
-    return getPopupContext()
+    const ctx = getPopupContext()
+    // 임시 진단 로그(2026-07-29, "가끔 빈 팝업이 뜬다" 제보 확인용).
+    console.log(`[ipc] POPUP_GET_CONTEXT -> ${ctx ? `len=${ctx.text.length} source=${ctx.source.kind}` : 'null'}`)
+    return ctx
   })
 
   // 팝업이 실제 내용을 그리고 첫 페인트까지 끝냈을 때 통지 — 그때까지 숨겨뒀던 창을 보여준다.
