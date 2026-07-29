@@ -110,6 +110,11 @@ function splitGlossAndExamples(text: string): { gloss: string; examples: string[
     }
     return trimmed
   })
+  // "⇔"(반의어 표시, 예: "幼稚園の子供⇔大人")는 원문에서 인용부호「」안에 붙어있어
+  // 괄호가 붙어 있는 동안엔 괄호 자체가 시각적 구분을 해줬는데, 위에서 「」를 벗겨내면
+  // 양옆 단어에 바로 들러붙어 "子供⇔大人"처럼 빽빽해 보인다(사용자 피드백, 2026-07-29) —
+  // 괄호를 벗긴 뒤에도 구분이 유지되도록 앞뒤에 공백을 넣는다.
+  gloss = gloss.replace(/\s*⇔\s*/g, ' ⇔ ')
   return { gloss: gloss.trim(), examples }
 }
 
