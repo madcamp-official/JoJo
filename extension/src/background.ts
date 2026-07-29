@@ -283,6 +283,8 @@ chrome.runtime.onMessage.addListener((msg) => {
     send({ type: 'pageReady', url: msg.url, textLength: msg.textLength })
   } else if (msg?.kind === 'pageClick') {
     send({ type: 'pageClick', text: msg.text, anchorStart: msg.anchorStart, anchorEnd: msg.anchorEnd, url: msg.url })
+  } else if (msg?.kind === 'pageParagraphText') {
+    send({ type: 'pageParagraphText', text: msg.text })
   }
   return undefined
 })
