@@ -12,6 +12,7 @@ import {
   recognizeVerticalColumnWithPaddle,
 } from './ocrPaddle'
 import { recognizeVerticalColumnWithNdlocr } from './ocrNdlocr'
+import { detectLinesWithYomitoku } from './ocrYomitoku'
 import { BODY_LABELS, getCachedDetection } from './regionSelection'
 
 // YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
@@ -273,7 +274,19 @@ async function runNonTesseractOcr(
     targets.map(async (bbox, i) => {
       const padded = padRect(bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
       const start = Date.now()
-      const lines = targets.length === 1 ? precomputedLines : undefined
+      let lines = targets.length === 1 ? precomputedLines : undefined
+      // 담당 A — 가로쓰기 후리가나 노이즈 대응(2026-07-29, ocrYomitoku.ts 상단 주석
+      // 참고). 일본어는 줄 검출을 Yomitoku 로 먼저 시도한다 — PaddleOCR 가로쓰기 검출이
+      // 후리가나를 본문과 한 박스로 합쳐버리는 페이지가 있어(rect 필터로 못 잡음) 검출
+      // 모델 자체가 다른 Yomitoku 로 회피를 시도. 실제 텍스트 인식은 그대로 PaddleOCR
+      // (아래 recognizeLinesWithPaddle, 워커 풀 병렬화)에 맡긴다 — Yomitoku 자체 인식은
+      // 워커 풀이 없어 느리다(실측: 검출 4.7초 vs 인식 44.8초, ocrYomitoku.ts 주석 참고).
+      // 검출 실패하면(Python 환경 없음 등) null 이 와서 기존 줄(precomputedLines 또는
+      // undefined→PaddleOCR 자체 검출)로 그대로 폴백한다. zh 는 대상 아님(일본어 전용).
+      if (language === 'ja') {
+        const yomiLines = await detectLinesWithYomitoku(image, padded)
+        if (yomiLines) lines = yomiLines
+      }
       const words = await recognizeLinesWithPaddle(image, language, padded, lines)
       console.log(`[timing]   column ${i}: ${Date.now() - start}ms (words=${words?.length ?? 'null'})`)
       return words

@@ -1,6 +1,7 @@
 import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
+  consumeDebugBlocksVisible,
   onWindowResized,
   sendOverlayNotice,
   sendRegionSelectionNeeded,
@@ -56,7 +57,14 @@ onWindowResized(() => {
   }, RESIZE_SETTLE_DELAY_MS)
 })
 
+/**
+ * 자동 탐지 블록이 오버레이에 떠 있는 동안 이 단축키를 누르면(사용자 요청, 2026-07-29)
+ * 첫 번째 누름은 그 블록만 지우고 모드는 그대로 유지한다 — 블록을 보다가 무심코 눌렀는데
+ * 바로 모드까지 바뀌어버리는 게 불편하다는 피드백. 블록이 없으면(자동 탐지 결과가
+ * 아니었거나 이미 한 번 지운 뒤) 평소처럼 바로 모드를 토글한다.
+ */
 function toggleMode(): void {
+  if (consumeDebugBlocksVisible()) return
   mode = mode === 'normal' ? 'select' : 'normal'
   setOverlayMode(mode) // 오버레이 테두리 색(일반=파랑/선택=보라) 갱신 + MODE_CHANGED 통지
   if (mode !== 'select') {
