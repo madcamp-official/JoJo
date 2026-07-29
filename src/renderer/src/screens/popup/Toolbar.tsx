@@ -110,7 +110,7 @@ export function Toolbar({
             disabled={disabled}
             onChange={(e) => onToggleCharLevel(e.target.checked)}
           />
-          글자 단위
+          글자 단위 선택
         </label>
       )}
 

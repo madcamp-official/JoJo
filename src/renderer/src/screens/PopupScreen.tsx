@@ -216,10 +216,48 @@ export function PopupScreen() {
     [baseCtx, jaResult, zhWords, charLevel, measuredRange],
   )
   const [range, setRange] = useState({ from: model.initialFrom, to: model.initialTo })
+  // range 가 가리키는 atom 인덱스는 model(atoms 배열)이 바뀌면 의미가 달라진다(아래 참고) —
+  // "지금 선택된 문자 범위"를 atom 인덱스와 별개로 기억해뒀다가, model 이 바뀌어도 같은
+  // 문자 범위를 새 atom 인덱스로 재매핑하는 데 쓴다.
+  const lastSpanRef = useRef<{ start: number; end: number } | null>(null)
+  const prevBaseCtxRef = useRef(baseCtx)
 
-  // baseCtx(=model)가 바뀌면 초기 선택으로 리셋
+  function updateRange(from: number, to: number): void {
+    setRange({ from, to })
+    const a = model.atoms[from]
+    const b = model.atoms[to]
+    if (a && b) lastSpanRef.current = { start: Math.min(a.start, b.start), end: Math.max(a.end, b.end) }
+  }
+
+  // model 이 바뀔 때(baseCtx 자체가 바뀜 / charLevel 토글 / jaResult·zhWords 도착 등) 항상
+  // model.initialFrom/To(=처음 클릭된 anchor)로 리셋하면, "글자 단위" 토글처럼 atom
+  // 경계만 재분할되고 사용자가 실제로 드래그해둔 선택은 그대로 유지돼야 하는 경우에도
+  // 선택이 초기화돼버리는 버그가 있었다(실사용 확인, 2026-07-29 — 글자 단위 선택 토글을
+  // 누르면 드래그해둔 범위가 사라짐). baseCtx 자체가 바뀐 경우(진짜 다른 선택으로 교체)만
+  // initialFrom/To로 리셋하고, 그 외(같은 baseCtx인데 atoms 구조만 바뀐 경우)는 직전
+  // 선택의 문자 범위(lastSpanRef)와 겹치는 새 atom 인덱스로 재매핑해 선택을 유지한다.
   useEffect(() => {
-    setRange({ from: model.initialFrom, to: model.initialTo })
+    const baseCtxChanged = prevBaseCtxRef.current !== baseCtx
+    prevBaseCtxRef.current = baseCtx
+    const span = baseCtxChanged ? null : lastSpanRef.current
+
+    if (span) {
+      let newFrom = -1
+      let newTo = -1
+      for (let i = 0; i < model.atoms.length; i++) {
+        const atom = model.atoms[i]!
+        if (atom.end > span.start && atom.start < span.end) {
+          if (newFrom < 0) newFrom = i
+          newTo = i
+        }
+      }
+      if (newFrom >= 0) {
+        updateRange(newFrom, newTo)
+        return
+      }
+    }
+    updateRange(model.initialFrom, model.initialTo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model])
 
   // 현재 선택 범위로부터 질문에 넘길 컨텍스트를 파생
@@ -378,7 +416,7 @@ export function PopupScreen() {
             model={model}
             from={range.from}
             to={range.to}
-            onChange={(from, to) => setRange({ from, to })}
+            onChange={(from, to) => updateRange(from, to)}
             charLevel={charLevel}
             className={
               baseCtx.language === 'ja'
