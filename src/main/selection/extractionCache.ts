@@ -29,6 +29,14 @@ export interface CachedExtraction {
 let cached: CachedExtraction | null = null
 let inFlight: Promise<CachedExtraction> | null = null
 
+// 직전 회차 추출 결과 — 다음 추출의 문맥으로 재사용하기 위한 히스토리(요청, 2026-07-29).
+// 항상 "바로 직전 1회차"만 보관한다: 3번째 추출이 끝나면 1번째 기록은 버려지고 2번째
+// 기록으로 교체된다(refreshExtractionCache 참고, cached → previousExtraction 으로 밀어냄
+// 뒤 새 결과를 cached 에 넣는 순서). 형식은 팝업 본문에 실제로 쓰이는 것과 동일한
+// CachedExtraction.text(=extracted.text, words 결합 원문)를 그대로 저장한다 — 별도
+// 가공/재포맷 없음. 선택된 창을 전환/해제하면 clearExtractionHistory() 로 비운다.
+let previousExtraction: CachedExtraction | null = null
+
 // 단계별 소요 시간 확인용(임시 계측) — 어느 단계가 병목인지 실사용 로그로 바로 보려고
 // 붙였다. 콘솔에 [timing] 접두어로 남는다.
 async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
@@ -163,6 +171,7 @@ export function refreshExtractionCache(): Promise<void> {
   return promise
     .then((result) => {
       if (inFlight === promise) {
+        previousExtraction = cached // 새 결과로 덮어쓰기 전에 직전 회차로 한 칸 밀어둔다
         cached = result
         inFlight = null
         sendOverlayWords(result.words) // 오버레이가 실제 단어 bbox 로 hover/클릭 판정하게 통지
@@ -188,9 +197,73 @@ export async function getExtraction(): Promise<CachedExtraction> {
   return inFlight!
 }
 
-/** 창 재선택/선택 해제 시 호출 — 이전 창의 캐시가 다음 선택 모드 진입까지 남아있지 않게. */
+/** 창 재선택/선택 해제 시 호출 — 이전 창의 캐시가 다음 선택 모드 진입까지 남아있지 않게.
+ *  리사이즈·영역 재선택(shortcut.ts) 등 "같은 창 안에서"도 호출되는 함수라, 회차
+ *  히스토리(previousExtraction)는 건드리지 않는다 — 그건 clearExtractionHistory() 가
+ *  실제 창 전환/해제 지점(ipc.ts, tray.ts)에서만 별도로 비운다. */
 export function invalidateExtractionCache(): void {
   cached = null
   inFlight = null
   sendOverlayWords([]) // 이전 창의 단어 박스가 오버레이에 남아있지 않게
+}
+
+/** 직전 회차 추출 결과 조회 — 다음 추출의 문맥 재사용 등에 쓴다. 없으면(첫 회차 등) null. */
+export function getPreviousExtraction(): CachedExtraction | null {
+  return previousExtraction
+}
+
+/**
+ * 클릭 지점이 속한 줄(anchorLine)을 기준으로 현재 추출 텍스트에 직전 회차 캐시의 문맥을
+ * 병합한다(요청, 2026-07-29 — 클릭 시 설정된 범위(팝업 표시 줄 수 / LLM 문맥 바이트) 안에
+ * 이전 회차에서 봤던 내용이 있다면 포함). 팝업 표시(buildDisplayText)와 LLM 문맥
+ * (buildContextBlock) 모두 결국 ExtractedSelection.text/anchor 에서 앞뒤로 잘라 쓰므로,
+ * 이 함수 하나로 병합해두면 둘 다 자동으로 혜택을 본다.
+ *
+ * anchorLine 이 직전 회차 텍스트에 정확히 한 번만 나타날 때만 그 지점을 정렬 기준으로
+ * 삼는다 — 못 찾거나(내용이 완전히 바뀜) 두 번 이상 나오면(어느 쪽인지 모호함) 오정렬로
+ * 문맥이 뒤섞이는 것보다 "이전 문맥 없음"이 안전하므로 병합을 포기하고 원본을 그대로
+ * 돌려준다. 찾으면 앞/뒤 각각 이전 회차 쪽이 더 길 때만(스크롤 등으로 지금은 안 보이지만
+ * 이전엔 보였던 부분이 있을 때만) 그쪽 텍스트로 교체한다 — 현재가 더 길면 그대로 둔다.
+ */
+export function mergeWithPreviousContext(
+  text: string,
+  anchorStart: number,
+  anchorEnd: number,
+): { text: string; anchorStart: number; anchorEnd: number } {
+  const prev = previousExtraction
+  if (!prev) return { text, anchorStart, anchorEnd }
+
+  const lineStart = text.lastIndexOf('\n', anchorStart - 1) + 1
+  const nextBreak = text.indexOf('\n', anchorEnd)
+  const lineEnd = nextBreak === -1 ? text.length : nextBreak
+  const anchorLine = text.slice(lineStart, lineEnd)
+  if (!anchorLine.trim()) return { text, anchorStart, anchorEnd }
+
+  const prevIdx = prev.text.indexOf(anchorLine)
+  if (prevIdx === -1 || prev.text.indexOf(anchorLine, prevIdx + 1) !== -1) {
+    return { text, anchorStart, anchorEnd }
+  }
+
+  const before = text.slice(0, lineStart)
+  const after = text.slice(lineEnd)
+  const prevBefore = prev.text.slice(0, prevIdx)
+  const prevAfter = prev.text.slice(prevIdx + anchorLine.length)
+
+  const mergedBefore = prevBefore.length > before.length ? prevBefore : before
+  const mergedAfter = prevAfter.length > after.length ? prevAfter : after
+  if (mergedBefore === before && mergedAfter === after) return { text, anchorStart, anchorEnd }
+
+  return {
+    text: mergedBefore + anchorLine + mergedAfter,
+    anchorStart: mergedBefore.length + (anchorStart - lineStart),
+    anchorEnd: mergedBefore.length + (anchorEnd - lineStart),
+  }
+}
+
+/** 선택된 창을 전환하거나 선택 해제할 때 호출 — 회차 히스토리를 완전히 비운다
+ *  (ipc.ts: SELECT_WINDOW, tray.ts: deselectWindow). invalidateExtractionCache 와 달리
+ *  "실제 창이 바뀌는" 지점에서만 불러야 한다 — 리사이즈/영역 재선택처럼 같은 창 안에서
+ *  일어나는 재추출까지 여기에 끼워 넣으면 직전 회차 문맥이 매번 날아가 버린다. */
+export function clearExtractionHistory(): void {
+  previousExtraction = null
 }

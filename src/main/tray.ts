@@ -1,7 +1,7 @@
 import { Menu, Tray, app, nativeImage } from 'electron'
 import { IPC } from '@shared/channels'
 import { getSelectedWindowId, setSelectedWindowId, setSelectedWindowName } from './selection/capture'
-import { invalidateExtractionCache } from './selection/extractionCache'
+import { clearExtractionHistory, invalidateExtractionCache } from './selection/extractionCache'
 import { clearRegion } from './selection/regionSelection'
 import { getSettings } from './settingsStore'
 import {
@@ -36,6 +36,7 @@ export function deselectWindow(): void {
   setSelectedWindowId(null)
   setSelectedWindowName(null)
   invalidateExtractionCache()
+  clearExtractionHistory() // 선택 해제도 "전환"과 동일하게 직전 회차 문맥을 비운다
   clearRegion()
   hideSelectionOverlay()
   const main = getMainWindow()
