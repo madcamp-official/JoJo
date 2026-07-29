@@ -65,6 +65,13 @@ function mapPos(type: string | undefined): CanonicalPos<'zh-Hant'>[] | undefined
   return mapped ? [mapped] : undefined
 }
 
+// 萌典 example 필드는 "如：「...」。"처럼 예시임을 알리는 문구가 원문에 그대로 붙어있다
+// (실측). UI가 예문을 이미 별도 블록(인용 스타일)으로 구분해 보여줘서(senseSelect.ts
+// formatDictionaryAnswer) "如："는 군더더기라 잘라낸다.
+function stripExampleMarker(example: string): string {
+  return example.replace(/^如[：:]\s*/, '')
+}
+
 // ---- GuoyuCidianHeteronym[] → DictionaryReading[] -----------------------------
 
 function toSeeAlso(link: string[] | undefined): SeeAlsoRef[] | undefined {
@@ -80,7 +87,7 @@ function heteronymToReading(heteronym: GuoyuCidianHeteronym): DictionaryReading<
         pos: mapPos(def.type),
         posRaw: def.type,
         gloss: [def.def],
-        examples: def.example?.length ? def.example : undefined,
+        examples: def.example?.length ? def.example.map(stripExampleMarker) : undefined,
         seeAlso: toSeeAlso(def.link),
       }
     })
