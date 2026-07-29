@@ -25,6 +25,7 @@
   "dependencies": {
     "@node-rs/jieba": "^2.0.1",
     "chinese-tokenizer": "^2.4.0",
+    "eld": "^2.0.3",
     "electron-context-menu": "^4.1.2",
     "lindera-wasm-nodejs-ipadic": "^2.0.0",
     "lucide-react": "^1.27.0",
