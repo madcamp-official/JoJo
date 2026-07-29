@@ -43,12 +43,24 @@ button:disabled { cursor: not-allowed; }
      반지름은 "border-radius − outline-width"다 — 예전엔 둘 다 6px라 안쪽 반지름이
      0(뾰족한 직각)이 되어 바깥쪽만 둥글고 안쪽은 각져 보였다(사용자 피드백). 두께를
      3px로 줄인 김에 반지름을 14px로 크게 잡아 안쪽 반지름(14−3=11px)도 뚜렷하게
-     둥글게 보이도록 함께 조정.
+     둥글게 보이도록 함께 조정(이후 10px로 재조정됨 — 아래 "반지름 값 14→10px 정정"
+     참고, 안쪽 반지름 10−3=7px로도 여전히 뚜렷하게 둥글어 이 문제는 안 재발함).
      **OS 별 모서리(2026-07-29)**: Windows 창은 각져 있으므로 기본값은 0 — macOS 는
      창 자체가 둥글어서 .is-mac 일 때만 라운드를 켠다(Overlay.tsx: IS_MAC 이 클래스를
      붙임). --overlay-radius 변수 하나로 값을 묶어 아래 .region-border-topcoat(같은
      테두리를 대신 그리는 사본)가 항상 같은 값을 상속받게 한다 — 두 곳에 값을 따로
      맞춰 적을 필요가 없다.
+     **반지름 값 14→10px 정정(2026-07-29)**: 14px는 "안쪽 반지름이 뚜렷이 보이게"라는
+     내부 대비 목적으로 고른 값일 뿐 실제 macOS 창 모서리 곡률과는 무관했다 — 사용자
+     지적으로 재조사: Big Sur(2020)에서 확정돼 Monterey/Ventura/Sonoma까지 유지된 표준
+     타이틀 창 모서리 반지름은 10pt(예: Mozilla Bugzilla #1670150 "Update corner radius
+     of various elements of Firefox's UI to match macOS Big Sur"에서 재확인된 값 — Control
+     Center 같은 다른 패널은 16px로 다름, 혼동 주의). 이 앱이 실제 지원하는 macOS 버전대와
+     일치해 10px로 정정. **주의**: macOS는 CSS border-radius 같은 순수 원호가 아니라
+     "continuous"(스퀴클에 가까운) 곡선을 쓰고(Chromium/Electron 31은 이 곡선을 그리는
+     CSS `corner-shape`를 아직 지원 안 함, 2024년 W3C 초안 단계), 최신 macOS Tahoe(26)는
+     창 종류별로 반지름 자체가 달라지는(툴바 有無) 것으로 재설계됨 — 이 앱의 대상
+     버전(Sonoma 등)에선 10px 원호가 실제 곡률에 가장 가까운 근사치다. */
      **OS 별 두께(2026-07-29)**: 원래 3px 를 mac/Windows 가 공유했는데, 같은 값이라도
      Windows 쪽이 유독 얇아 보인다는 사용자 피드백으로 분리 — 기본값(Windows/Linux)은
      기존의 1.5배(3px→4.5px), mac 은 기존 3px 그대로 유지(.is-mac). --overlay-radius
@@ -60,7 +72,7 @@ button:disabled { cursor: not-allowed; }
   outline-offset: calc(-1 * var(--overlay-border-width));
   border-radius: var(--overlay-radius);
 }
-.overlay-root.is-mac { --overlay-radius: 14px; --overlay-border-width: 3px; }
+.overlay-root.is-mac { --overlay-radius: 10px; --overlay-border-width: 3px; }
 .overlay-root.mode-select { outline-color: var(--purple); }
 .overlay-root.hovering-word { cursor: pointer; }
 /* 영역 수동 선택(드래그) 대기 중 — 캡처 도구처럼 십자가 커서로 안내한다(사용자 요청, 2026-07-29). */
