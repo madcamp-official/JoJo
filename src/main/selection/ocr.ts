@@ -347,6 +347,19 @@ async function recognizeRegion(
       words.push(...(await buildCjkLineWords(line, language, region)))
       continue
     }
+    // 태국어/라오어는 형태소 분석기가 없어(2026-07-30 결정, tier2는 OCR만 지원) Tesseract
+    // 단어 경계를 신뢰할 수 없다 — 대신 ocrNdlocr.ts(세로쓰기 일본어)와 동일한 방식으로
+    // 줄마다 하나의 lineId 를 만들어 그 줄의 모든 단어에 붙인다. wordMapping.ts
+    // findLineWordsAtPoint 가 lineId 로 자동으로 묶어 hover/클릭이 줄 단위가 되고, 팝업
+    // 내부 선택은(popup/selection.ts NO_WORD_BOUNDARY_LANGUAGES) 그대로 글자 단위다.
+    if (language === 'th' || language === 'lo') {
+      const lineId = Math.random().toString(36).slice(2)
+      for (const word of line.words) {
+        if (region && (isWordClippedByRegion(word.bbox, region) || looksTruncated(word))) continue
+        words.push(...splitWordBySymbols(word, line.bbox).map((w) => ({ ...w, lineId })))
+      }
+      continue
+    }
     for (const word of line.words) {
       // 잘린 단어는 통째로 제외한다 — 두 가지 다른 원인을 각각 다른 방법으로 잡는다.
       //  1) 우리가 지정한 영역 경계 자체가 단어 중간을 가로지르는 경우: Tesseract 는
