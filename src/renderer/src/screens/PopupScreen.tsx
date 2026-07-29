@@ -332,18 +332,17 @@ export function PopupScreen() {
     })
   }, [currentCtx.selectedText])
 
-  // ---- 사전 소스 선택(임시 디버깅용, 2026-07-28) -----------------------------
-  // en/ja/zh 사전 어댑터가 각자 다른 워크트리에서 병렬 구현 중이라, 실제 폴백
-  // 오케스트레이션이 갖춰지기 전까지 어느 소스로 검색할지 직접 골라볼 수 있게 한다.
+  // ---- 사전 소스 직접 선택(정식 기능, 2026-07-30 격상) -----------------------
+  // 사용자가 특정 사전 소스(MW/JMdict/汉典 등)로 직접 검색하고 싶을 때 골라 쓰는 기능.
   // 언어가 바뀔 때마다 그 언어에 실제로 구현된(파일이 존재하는) 소스 목록을 다시
   // 조회하고, 폴백 순위 1순위를 기본 선택값으로 삼는다 — main/question/dictionary/
   // registry.ts 가 자동 감지하므로 여기서는 그냥 받아서 보여주기만 하면 된다.
   const [dictSources, setDictSources] = useState<DictionarySourceOption[]>([])
   const [selectedSource, setSelectedSource] = useState<DictionarySourceId | undefined>(undefined)
-  // 기본값은 켜짐(직접 선택) — 사용자 요청(2026-07-28)으로 정식 폴백 체인(dictionary.ts
-  // FALLBACK_CHAINS) 대신 위 드롭다운에서 고른 소스를 기본으로 강제 호출한다. 꺼서
-  // 정식 폴백 체인을 다시 켤 수도 있다(디버깅/비교용).
-  const [forceSource, setForceSource] = useState(true)
+  // 기본값은 꺼짐(정식 폴백 체인, dictionary.ts FALLBACK_CHAINS) — "직접 선택"은 사용자가
+  // 드롭다운에서 고른 소스 하나로 강제 조회하고 싶을 때 직접 켜는 정식 기능(2026-07-30
+  // 격상, 원래는 디버깅용으로 기본 켜짐이었음).
+  const [forceSource, setForceSource] = useState(false)
   useEffect(() => {
     // tier2/3(사전 소스 자체가 없는 언어)는 조회할 필요가 없다 — 빈 배열로 두면
     // Toolbar 가 이미 showAiDictionary=false 로 드롭다운 자체를 숨긴다.

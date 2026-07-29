@@ -4,16 +4,15 @@ import type { DictionarySourceId, DictionarySourceOption } from '@shared/types'
 // [발음]·[사전] 버튼 — 누르면 즉시 채팅에 질문을 넣고 LLM 요청 · 구글 발음/이미지 버튼.
 // 통합 질문 입력은 하단 채팅 입력창.
 //
-// dictSources/selectedSource/onSelectSource: 사전 어댑터 병렬 구현 디버깅용 임시
-// 드롭다운(2026-07-28) — "AI" 배지 옆에 그 언어에 실제로 구현된 소스만 보여주고, 사용자가
+// dictSources/selectedSource/onSelectSource: 사전 소스 직접 선택 드롭다운(정식 기능,
+// 2026-07-30 격상) — "AI" 배지 옆에 그 언어에 실제로 구현된 소스만 보여주고, 사용자가
 // 직접 골라 검색해볼 수 있게 한다. 구현된 소스가 없으면(dictSources 비어있음) 드롭다운
 // 자체를 숨긴다.
 //
-// forceSource/onToggleForceSource: 정식 폴백 오케스트레이션(dictionary.ts FALLBACK_CHAINS)
-// 구현 완료(2026-07-28) 후 추가한 토글 — 기본값은 켜짐(사용자 요청, 아래 드롭다운에서
-// 고른 소스를 강제 호출), 끄면 정식 폴백 체인을 탄다(디버깅/비교용). 드롭다운 자체는
-// 항상 보여주되(토글과 무관하게 다음 소스 목록 확인용), 토글이 꺼져 있을 땐 disabled 로
-// "지금은 이 선택이 반영 안 됨"을 시각적으로 알린다.
+// forceSource/onToggleForceSource: "직접 선택" 토글 — 기본값은 꺼짐(정식 폴백 체인,
+// dictionary.ts FALLBACK_CHAINS), 켜면 아래 드롭다운에서 고른 소스를 강제 호출한다.
+// 드롭다운 자체는 항상 보여주되(토글과 무관하게 다음 소스 목록 확인용), 토글이 꺼져
+// 있을 땐 disabled 로 "지금은 이 선택이 반영 안 됨"을 시각적으로 알린다.
 //
 // showCharLevelToggle/charLevel/onToggleCharLevel: ja/zh 전용 "문자 단위" 선택 토글
 // (2026-07-28) — 한자 하나하나의 뜻이 궁금할 수 있어, 팝업 범위 지정 단위를 기본
@@ -147,14 +146,14 @@ export function Toolbar({
             사전
           </button>
 
-          {/* 임시 디버깅 토글+드롭다운(2026-07-28) — 구현된 사전 소스가 없으면 아예 안 보여준다.
+          {/* 사전 소스 직접 선택(정식 기능) — 구현된 사전 소스가 없으면 아예 안 보여준다.
               토글이 꺼져 있으면(기본값) 정식 폴백 체인을 쓰고, 켜면 드롭다운에서 고른 소스를
               강제 호출한다. */}
           {dictSources.length > 0 && (
             <>
               <select
                 className="dict-source-select"
-                title="강제 호출할 소스(오른쪽 토글이 켜져 있을 때만 적용)"
+                title="직접 조회할 소스(오른쪽 토글이 켜져 있을 때만 적용)"
                 value={selectedSource ?? ''}
                 disabled={disabled || !forceSource}
                 onChange={(e) => onSelectSource(e.target.value as DictionarySourceId)}
@@ -165,7 +164,7 @@ export function Toolbar({
                   </option>
                 ))}
               </select>
-              <label className="dict-force-toggle" title="켜면 폴백 체인 대신 왼쪽 드롭다운에서 고른 소스만 강제 호출(디버깅용)">
+              <label className="dict-force-toggle" title="켜면 정식 폴백 체인 대신 왼쪽 드롭다운에서 고른 소스만 조회">
                 <input
                   type="checkbox"
                   checked={forceSource}

@@ -43,9 +43,9 @@ import { buildErrorResult } from './errors'
 // 공백/하이픈, ja/zh 는 형태소 분석기) 각각 독립적으로 같은 폴백 체인
 // (lookupThroughFallbackChain)을 병렬 호출한다. 단어별 뜻은 서로 무관해 하나의
 // 프롬프트/판정으로 억지로 합칠 필요가 없어 이 구조를 택함 — 단, 체인 호출이 단어
-// 수만큼 늘어나므로 MAX_FALLBACK_WORDS 로 상한을 둔다. forceSource(디버깅 강제 소스
-// 선택)도 동일한 분해 로직을 공유한다(lookupForcedSourceOnce) — "강제"는 소스 하나만
-// 고정한다는 뜻이지, 그 소스 내부의 단어 분해 폴백까지 건너뛴다는 뜻이 아니다.
+// 수만큼 늘어나므로 MAX_FALLBACK_WORDS 로 상한을 둔다. forceSource(사전 소스 직접 선택,
+// 정식 기능)도 동일한 분해 로직을 공유한다(lookupForcedSourceOnce) — "직접 선택"은 소스
+// 하나만 고정한다는 뜻이지, 그 소스 내부의 단어 분해 폴백까지 건너뛴다는 뜻이 아니다.
 
 const DICTIONARY_JUDGE_TEMPERATURE = 0.2
 const DICTIONARY_JUDGE_MAX_TOKENS = 500
@@ -82,13 +82,11 @@ export async function lookupDictionary(
   const ctx: DictSelectionContext = { ...rawCtx, language: rawCtx.language }
 
   // ============================================================================
-  // 임시 디버깅 강제 소스 선택 — 제거 예정(팝업 드롭다운+토글, registry.ts 와 한 세트).
-  // 사용자가 팝업의 "폴백/직접 선택" 토글을 "직접 선택"으로 켰을 때만 forceSource 가
-  // 채워져 들어온다(기본값은 토글 꺼짐=폴백, PopupScreen.tsx 참고) — 이 경로는 정식
-  // 폴백 체인을 완전히 건너뛰고 고른 소스 하나만 호출한다. 이 기능 자체를 나중에
-  // 걷어낼 때는 이 if 블록 + forceSource 매개변수 + registry.ts + 팝업 토글/드롭다운
-  // (Toolbar.tsx/PopupScreen.tsx)만 지우면 되고, 아래 폴백 체인 로직은 전혀 안
-  // 건드려도 된다.
+  // 사전 소스 직접 선택 — 정식 기능(2026-07-30 격상, 팝업 드롭다운+토글, registry.ts 와
+  // 한 세트). 사용자가 팝업의 "폴백/직접 선택" 토글을 "직접 선택"으로 켰을 때만
+  // forceSource 가 채워져 들어온다(기본값은 토글 꺼짐=정식 폴백, PopupScreen.tsx 참고) —
+  // 이 경로는 정식 폴백 체인 대신 사용자가 고른 소스 하나만 호출한다(다중 단어 분해 등
+  // 나머지 동작은 lookupForcedSourceOnce 가 정식 폴백과 동일하게 공유).
   if (forceSource) {
     return emit(onChunk, await lookupForcedSource(forceSource, ctx))
   }
@@ -600,14 +598,14 @@ function describeMerriamWebsterError(err: MerriamWebsterHttpError): string {
   return 'Merriam-Webster 사전 조회에 실패했습니다.'
 }
 
-/** fetchSourceEntries 가 던진 에러를 forceSource(디버깅 강제 호출) 전용으로 사람이 읽을
- *  메시지로 바꾼다 — 폴백 체인은 이 함수를 쓰지 않고 에러를 그냥 흡수한다(위
+/** fetchSourceEntries 가 던진 에러를 forceSource(사전 소스 직접 선택) 전용으로 사람이
+ *  읽을 메시지로 바꾼다 — 폴백 체인은 이 함수를 쓰지 않고 에러를 그냥 흡수한다(위
  *  lookupThroughFallbackChain 참고). 개별 소스 실패 원인을 사용자에게 바로 보여줘야
  *  하는 건 forceSource 뿐이라 여기 몰아뒀다. */
 function describeSourceError(source: DictionarySourceId, err: unknown): string {
   if (err instanceof UnsupportedLanguageDictionaryError) return err.message
   if (err instanceof SourceNotImplementedError) {
-    return `"${source}" 어댑터는 아직 디버깅 강제 호출에 연결되지 않았습니다.`
+    return `"${source}" 어댑터는 아직 직접 선택 기능에 연결되지 않았습니다.`
   }
   if (err instanceof MissingDictionaryApiKeyError) {
     return 'Merriam-Webster 사전 API 키가 설정되어 있지 않습니다. 설정에서 키를 입력해 주세요.'
@@ -627,13 +625,11 @@ function describeSourceError(source: DictionarySourceId, err: unknown): string {
 }
 
 // ============================================================================
-// 임시 디버깅 강제 소스 선택 구현부 — 위 forceSource 블록과 한 세트, 제거 예정.
+// 사전 소스 직접 선택 구현부 — 정식 기능(2026-07-30 격상, 위 forceSource 블록과 한 세트).
 // fetchSourceEntries(위, 정식 폴백 체인과 공유)로 고른 소스 하나만 호출하고, 그 뒤(sense
-// 번호매김 → LLM 판정/번역 → 서식화)는 위 정식 플로우와 완전히 같은 judgeAndFormat/
-// numberSenses(senseSelect.ts)를 그대로 재사용한다 — 로직을 복붙하지 않기 위함.
-// 정식 폴백 오케스트레이션이 이미 완성됐으니, 이 기능을 걷어낼 땐 이 함수 전체 + 위
-// forceSource 분기 + registry.ts + 팝업 토글/드롭다운만 지우면 되고, fetchSourceEntries/
-// judgeAndFormat 등 폴백 체인이 계속 쓰는 헬퍼는 그대로 둔다.
+// 번호매김 → LLM 판정/번역 → 서식화)는 정식 폴백 플로우와 완전히 같은 judgeAndFormat/
+// numberSenses(senseSelect.ts)를 그대로 재사용한다 — 로직을 복붙하지 않기 위함. 다중 단어
+// 분해(splitIntoDictionaryWords)도 정식 폴백과 동일하게 적용된다(lookupForcedSourceOnce).
 // ============================================================================
 interface ForcedSourceOnceResult {
   formatted?: string
