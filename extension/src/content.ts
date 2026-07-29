@@ -91,12 +91,19 @@ window.addEventListener('message', (ev) => {
 // URL을 fetch(일반 CORS, MSL 암호화 안 걸림)해서 파싱한 뒤 유튜브와 같은 'transcript'
 // 메시지로 앱에 보낸다 — 이후 흐름(anchorInTranscript 등)은 유튜브와 완전히 동일하다.
 const WEBVTT_PROFILE = 'webvtt-lssdh-ios8'
+// 넷플릭스 자막 다운로드 정보. downloadUrls(신) 와 urls(구) 두 형태 모두 실측됨(Language
+// Reactor 코드 확인, 2026-07-29) — 어느 쪽이든 첫 URL을 쓴다.
+interface NetflixDownloadable {
+  downloadUrls?: Record<string, string>
+  urls?: { url: string }[]
+}
 interface NetflixTrack {
   language?: string
   isNoneTrack?: boolean
   isForcedNarrative?: boolean
-  rawTrackType?: string
-  ttDownloadables?: Record<string, { downloadUrls?: Record<string, string> }>
+  rawTrackType?: string // 실측: 대문자 'SUBTITLES' / 'CLOSEDCAPTIONS'
+  hydrated?: boolean
+  ttDownloadables?: Record<string, NetflixDownloadable>
 }
 
 let lastNetflixMovieId = ''
@@ -110,10 +117,24 @@ function detectDomLanguagePrefix(text: string): string {
   return 'en'
 }
 
+function trackWebvttUrl(t: NetflixTrack): string | undefined {
+  const d = t.ttDownloadables?.[WEBVTT_PROFILE]
+  if (!d) return undefined
+  if (d.downloadUrls) return Object.values(d.downloadUrls)[0]
+  if (d.urls && d.urls.length) return d.urls[0]!.url
+  return undefined
+}
+
 function pickNetflixTrack(tracks: NetflixTrack[]): NetflixTrack | null {
-  const candidates = tracks.filter(
-    (t) => !t.isNoneTrack && !t.isForcedNarrative && t.rawTrackType === 'subtitles' && t.ttDownloadables?.[WEBVTT_PROFILE],
-  )
+  // rawTrackType 은 대소문자가 포맷에 따라 달라(SUBTITLES/subtitles) 소문자로 맞춰 비교하고,
+  // 강제 자막(isForcedNarrative)·끄기 트랙(isNoneTrack)은 제외한다. 실제 다운로드 URL이
+  // 있는(=hydrated) 트랙만 후보로 본다.
+  const candidates = tracks.filter((t) => {
+    if (t.isNoneTrack || t.isForcedNarrative) return false
+    const type = (t.rawTrackType ?? '').toLowerCase()
+    if (type !== 'subtitles' && type !== 'closedcaptions') return false
+    return !!trackWebvttUrl(t)
+  })
   if (candidates.length === 0) return null
   const domText = extractNetflixSnapshot()?.lines.map((l) => l.text).join(' ') ?? ''
   const prefix = detectDomLanguagePrefix(domText)
@@ -122,13 +143,13 @@ function pickNetflixTrack(tracks: NetflixTrack[]): NetflixTrack | null {
 
 async function fetchNetflixTranscript(movieId: string, tracks: NetflixTrack[]): Promise<void> {
   const track = pickNetflixTrack(tracks)
-  const urls = track?.ttDownloadables?.[WEBVTT_PROFILE]?.downloadUrls
-  const url = urls ? Object.values(urls)[0] : undefined
+  const url = track ? trackWebvttUrl(track) : undefined
   if (!url) {
     // 첫 매니페스트는 아직 webvtt 프로필 요청 주입 전에 온 것일 수 있다(재시도 대기) —
     // lastNetflixMovieId 를 여기서 잠그면 이후 성공할 매니페스트도 무시되니 잠그지 않는다.
+    const withUrl = tracks.filter((t) => !!trackWebvttUrl(t)).length
     console.log(
-      `[nuance content] 넷플릭스 매니페스트에 webvtt 트랙 없음(tracks=${tracks.length}) — 다음 매니페스트 대기`,
+      `[nuance content] 넷플릭스 webvtt 트랙 선택 실패(tracks=${tracks.length}, url보유=${withUrl}) — 다음 매니페스트 대기`,
     )
     return
   }
