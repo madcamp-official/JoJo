@@ -348,6 +348,25 @@ function tokenizeAtoms(text: string, jaResult?: JaTokenizeResult, zhWords?: ZhWo
   return atoms
 }
 
+/**
+ * atoms 중 pos 가 내부(경계 아님)에 걸쳐 있는 atom 을 pos 기준으로 둘로 쪼갠다.
+ * 호버박스(overlay)가 고른 범위(anchor = displayText 상 [selStart, selEnd))가
+ * ja/zh 형태소 병합 결과의 atom 하나 중간에 걸치면(예: 병합 규칙이 "そう"+"なると"를
+ * 하나로 묶어버린 경우), 팝업 초기 선택이 anchor 보다 넓어져 "そう"만 호버했는데
+ * "そうなると"가 선택된 채로 뜨는 문제가 있었다(2026-07-29 사용자 피드백) — 무조건
+ * 호버박스가 고른 범위 그대로 선택된 채 열려야 한다는 요청으로, anchor 의 시작/끝
+ * 위치에서 항상 atom 경계가 생기도록 강제한다. pos 가 이미 어떤 atom 의 경계(또는
+ * atom 사이 공백/기호 구간)라면 아무 것도 하지 않는다(no-op) — 그래서 이미 정상 동작하는
+ * 언어(영어 등)의 기존 동작은 그대로 유지된다. */
+function splitAtomAt(atoms: Atom[], pos: number): Atom[] {
+  const idx = atoms.findIndex((a) => a.start < pos && pos < a.end)
+  if (idx < 0) return atoms
+  const a = atoms[idx]!
+  const next = atoms.slice()
+  next.splice(idx, 1, { start: a.start, end: pos }, { start: pos, end: a.end })
+  return next
+}
+
 interface DisplayText {
   displayText: string
   selStart: number
@@ -420,7 +439,11 @@ export function buildSelectionModel(
   overrideRange?: { start: number; end: number },
 ): PopupSelectionModel {
   const { displayText, selStart, selEnd, windowStart, insertions } = buildDisplayText(extracted, overrideRange)
-  const atoms = tokenizeAtoms(displayText, jaResult, zhWords, charLevel)
+  let atoms = tokenizeAtoms(displayText, jaResult, zhWords, charLevel)
+  // anchor(호버박스가 고른 범위) 경계에서 항상 atom 이 갈라지도록 강제 — 아래 초기 선택
+  // 로직이 anchor 보다 넓은 atom 을 통째로 골라버리는 걸 막는다(splitAtomAt 주석 참고).
+  atoms = splitAtomAt(atoms, selStart)
+  atoms = splitAtomAt(atoms, selEnd)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.
   let initialFrom = atoms.findIndex((a) => a.end > selStart && a.start < selEnd)
