@@ -49,13 +49,18 @@ function showBoxAt(rect: RectPx): void {
 
 function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect: RectPx }) | null {
   for (const line of lines) {
-    let offset = 0
+    // line.text 는 이제 세그먼트 원문 그대로(youtube.ts) — 단어 사이 간격이 공백 한 칸이라는
+    // 보장이 없다(CJK 는 글자 사이 간격이 0). 각 단어의 실제 위치를 line.text 안에서 순서대로
+    // 찾아 offset 을 구한다(searchFrom 부터 찾아 같은 글자가 반복돼도 이전 단어와 안 섞임).
+    let searchFrom = 0
     for (const w of line.words) {
       const r = w.rect
+      const found = line.text.indexOf(w.text, searchFrom)
+      const wordOffsetInLine = found >= 0 ? found : searchFrom
       if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height) {
-        return { text: w.text, lineText: line.text, wordOffsetInLine: offset, rect: r }
+        return { text: w.text, lineText: line.text, wordOffsetInLine, rect: r }
       }
-      offset += w.text.length + 1 // line.text 는 단어를 공백으로 이었으므로 +1
+      searchFrom = wordOffsetInLine + w.text.length
     }
   }
   return null
