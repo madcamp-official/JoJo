@@ -9,6 +9,8 @@ import { startHighlight, setWordSegments, type WordHit } from './highlight'
 import { parseAnyCaptionPayload, parseWebVtt } from './captionParse'
 import type { SubLine, SubtitleSnapshot, WordSegment } from '@shared/extension'
 import { detectRawLanguage } from '@shared/languageDetect'
+import { findMainContent, extractArticleText, MIN_WEB_TEXT_LENGTH } from './webArticle'
+import { startArticleHighlight, type ArticleWordHit } from './articleHighlight'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).
 type FromBackground =
@@ -16,6 +18,7 @@ type FromBackground =
   | { kind: 'requestSnapshot' }
   | { kind: 'setPlayback'; play: boolean }
   | { kind: 'wordSegments'; lineText: string; words: WordSegment[] }
+  | { kind: 'setPageCapture'; active: boolean }
 
 function setVideoPlayback(play: boolean): void {
   const v = document.querySelector<HTMLVideoElement>('video')
@@ -303,6 +306,41 @@ function stopCapture(): void {
   chrome.runtime.sendMessage({ kind: 'subtitles', snapshot: null })
 }
 
+// 담당 milleion — 일반 웹페이지(유튜브/넷플릭스가 아닌 탭) 본문 캡처. 자막처럼 매 프레임
+// 재추출하지 않는다 — 페이지 안에서 본문이 중간에 통째로 바뀌는 경우(SPA 네비게이션 등)는
+// 이번 범위 밖이라, setPageCapture(true) 시 1회만 탐지+조립하고 그대로 캐시해 쓴다.
+let pageCapturing = false
+let stopArticleHighlightUi: (() => void) | null = null
+
+function onArticleWordClicked(hit: ArticleWordHit): void {
+  chrome.runtime.sendMessage({
+    kind: 'pageClick',
+    text: hit.fullText,
+    anchorStart: hit.anchorStart,
+    anchorEnd: hit.anchorEnd,
+    url: location.href,
+  })
+}
+
+function startPageCapture(): void {
+  if (pageCapturing) return
+  pageCapturing = true
+  const container = findMainContent()
+  const extraction = container ? extractArticleText(container) : { fullText: '', paragraphs: [] }
+  // 성공/부족 모두 항상 보고한다 — 앱(webSource.ts)이 이 신호를 기다렸다가 텍스트가
+  // 부족하면 기존 OCR 경로로 폴백하므로, 여기서 판단하지 않고 길이만 그대로 알려준다.
+  chrome.runtime.sendMessage({ kind: 'pageReady', url: location.href, textLength: extraction.fullText.length })
+  if (extraction.fullText.length < MIN_WEB_TEXT_LENGTH) return
+  stopArticleHighlightUi = startArticleHighlight(extraction, onArticleWordClicked)
+}
+
+function stopPageCapture(): void {
+  if (!pageCapturing) return
+  pageCapturing = false
+  stopArticleHighlightUi?.()
+  stopArticleHighlightUi = null
+}
+
 chrome.runtime.onMessage.addListener((msg: FromBackground, _sender, sendResponse) => {
   if (msg?.kind === 'setCapture') {
     if (msg.active) startCapture()
@@ -313,6 +351,9 @@ chrome.runtime.onMessage.addListener((msg: FromBackground, _sender, sendResponse
     // 최신 좌표+재생시간으로 한 프레임 즉시 반환(hover/클릭 직전 앱 요청용).
     sendResponse({ snapshot: activeSnapshot() })
     return true
+  } else if (msg?.kind === 'setPageCapture') {
+    if (msg.active) startPageCapture()
+    else stopPageCapture()
   } else if (msg?.kind === 'wordSegments') {
     // 앱이 CJK 자막 줄을 형태소 분석한 결과 — hover 박스를 글자 단위가 아니라 단어
     // 단위로 묶는 데 쓴다(highlight.ts).
