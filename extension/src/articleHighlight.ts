@@ -10,7 +10,7 @@
 import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 import type { RectPx, SubWord } from '@shared/extension'
 import type { ArticleExtraction, ArticleParagraph } from './webArticle'
-import { wordsInParagraph } from './webArticle'
+import { extractArticleText, wordsInParagraph } from './webArticle'
 
 export interface ArticleWordHit {
   text: string
@@ -85,15 +85,14 @@ function showBoxAt(rect: RectPx): void {
   setHoveringCursor(true)
 }
 
-// 문단별 단어 rect 캐시 — 같은 문단에 마우스가 머무는 동안은 재계산하지 않는다.
+// 문단별 단어 rect 캐시(hover 박스 표시 전용, 성능 목적) — 같은 문단에 마우스가 머무는
+// 동안은 재계산하지 않는다. 클릭 결과 전송에는 안 쓴다(resolveClick이 매번 새로 계산).
 let cachedParagraph: HTMLParagraphElement | null = null
 let cachedWords: SubWord[] = []
-let cachedOffsets: number[] = []
 
 function invalidateCache(): void {
   cachedParagraph = null
   cachedWords = []
-  cachedOffsets = []
 }
 
 // 문단 텍스트 안에서 각 단어의 문자 오프셋을 순서대로 찾는다(같은 단어가 반복돼도
@@ -110,39 +109,68 @@ function paragraphOffsets(paragraphText: string, words: SubWord[]): number[] {
   return offsets
 }
 
+// hover 박스가 어떤 문단을 대상으로 할지 판정하는 데만 쓴다(캡처 시작 시점 스냅샷).
 let paragraphByEl: Map<HTMLParagraphElement, ArticleParagraph> = new Map()
-let fullTextRef = ''
+// 클릭 시 fullText 를 다시 추출하려면 컨테이너가 필요하다(아래 resolveClick 참고).
+let containerRef: Element | null = null
 
-function wordAtPoint(
-  x: number,
-  y: number,
-): { text: string; anchorStart: number; anchorEnd: number; rect: RectPx } | null {
+function findWordIndexAt(words: SubWord[], x: number, y: number): number {
+  for (let i = 0; i < words.length; i++) {
+    const r = words[i]!.rect
+    if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height) return i
+  }
+  return -1
+}
+
+// hover 박스 표시 전용 — 캐시(성능 목적)를 쓴다. 클릭 결과 전송에는 안 쓴다(resolveClick 참고).
+function hoverHitAt(x: number, y: number): RectPx | null {
   const target = document.elementFromPoint(x, y)
   const p = target?.closest<HTMLParagraphElement>('p') ?? null
-  const info = p ? paragraphByEl.get(p) : undefined
-  if (!p || !info) {
+  if (!p || !paragraphByEl.has(p)) {
     invalidateCache()
     return null
   }
   if (cachedParagraph !== p) {
     cachedParagraph = p
     cachedWords = wordsInParagraph(p)
-    cachedOffsets = paragraphOffsets(fullTextRef.slice(info.start, info.end), cachedWords)
   }
-  for (let i = 0; i < cachedWords.length; i++) {
-    const w = cachedWords[i]!
-    const r = w.rect
-    if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height) {
-      const off = cachedOffsets[i]!
-      return { text: w.text, anchorStart: info.start + off, anchorEnd: info.start + off + w.text.length, rect: r }
-    }
+  const idx = findWordIndexAt(cachedWords, x, y)
+  return idx >= 0 ? cachedWords[idx]!.rect : null
+}
+
+// 클릭 지점의 앵커(본문 전체 텍스트 + 절대 오프셋)를 계산한다. 캡처 시작 시점에 만든
+// paragraphByEl(hover용, 위 hoverHitAt)를 쓰지 않고 그 자리에서 컨테이너를 다시 통째로
+// 재추출한다 — 클릭까지 시간이 걸리는 동안 페이지가 바뀌면(광고 지연 로드,
+// 관련 기사 삽입 등 뉴스 사이트에서 흔함) 캡처 시점 스냅샷과 클릭 시점 라이브 DOM의 문단
+// 경계가 어긋나, hover 박스는 맞는 단어를 가리키는데 팝업엔 다른 단어가 선택되는 문제가
+// 있었다(2026-07-30 사용자 제보). 텍스트와 오프셋을 항상 "같은 순간"의 라이브 DOM에서
+// 함께 만들면 이 어긋남 자체가 원천적으로 생기지 않는다 — 클릭은 드물게 일어나므로 매번
+// 전체 재추출해도 비용 문제 없다.
+function resolveClick(x: number, y: number): ArticleWordHit | null {
+  if (!containerRef) return null
+  const target = document.elementFromPoint(x, y)
+  const p = target?.closest<HTMLParagraphElement>('p') ?? null
+  if (!p) return null
+  const fresh = extractArticleText(containerRef)
+  const info = fresh.paragraphs.find((fp) => fp.el === p)
+  if (!info) return null
+  const words = wordsInParagraph(p)
+  const idx = findWordIndexAt(words, x, y)
+  if (idx < 0) return null
+  const w = words[idx]!
+  const paragraphText = fresh.fullText.slice(info.start, info.end)
+  const off = paragraphOffsets(paragraphText, words)[idx]!
+  return {
+    text: w.text,
+    fullText: fresh.fullText,
+    anchorStart: info.start + off,
+    anchorEnd: info.start + off + w.text.length,
   }
-  return null
 }
 
 function onMouseMove(e: MouseEvent): void {
-  const hit = wordAtPoint(e.clientX, e.clientY)
-  if (hit) showBoxAt(hit.rect)
+  const rect = hoverHitAt(e.clientX, e.clientY)
+  if (rect) showBoxAt(rect)
   else hideBox()
 }
 
@@ -150,26 +178,32 @@ let onWordClick: ((hit: ArticleWordHit) => void) | null = null
 
 // capture 단계에서 페이지 자체 클릭 핸들러(링크 이동 등)보다 먼저 가로채 막는다.
 function onClick(e: MouseEvent): void {
-  const hit = wordAtPoint(e.clientX, e.clientY)
+  const hit = resolveClick(e.clientX, e.clientY)
   if (!hit) return
   e.preventDefault()
   e.stopImmediatePropagation()
   e.stopPropagation()
-  onWordClick?.({ text: hit.text, fullText: fullTextRef, anchorStart: hit.anchorStart, anchorEnd: hit.anchorEnd })
+  hideBox()
+  onWordClick?.(hit)
 }
 
-// 스크롤/리사이즈로 문단 좌표가 바뀌면 캐시된 rect 가 어긋난다 — 다음 mousemove 에서 다시
-// 계산하도록 무효화만 해두고 즉시 재계산하진 않는다(스크롤 중엔 hover 판정이 급하지 않고,
-// 다음 mousemove 가 곧 온다).
+// 스크롤/리사이즈되면 밑에 깔린 페이지 내용이 움직이거나 바뀌므로, 화면에 고정 좌표
+// (position:fixed)로 떠 있는 박스를 즉시 숨긴다 — 예전엔 다음 mousemove 를 기다리며
+// 단어 캐시만 비웠는데, 팝업을 닫은 뒤 마우스를 움직이지 않고 스크롤만 하면(예: 트랙패드/
+// 휠) mousemove 가 안 와서 박스가 이전 위치에 그대로 남아있는 문제가 있었다(2026-07-30
+// 사용자 제보). 다음 mousemove 가 오면 hoverHitAt 이 새 위치를 다시 계산해 필요하면
+// 다시 보여준다.
 function onViewportChange(): void {
   invalidateCache()
+  hideBox()
 }
 
 export function startArticleHighlight(
+  container: Element,
   extraction: ArticleExtraction,
   onClickFn: (hit: ArticleWordHit) => void,
 ): () => void {
-  fullTextRef = extraction.fullText
+  containerRef = container
   paragraphByEl = new Map(extraction.paragraphs.map((p) => [p.el, p]))
   onWordClick = onClickFn
   window.addEventListener('mousemove', onMouseMove, true)
@@ -186,6 +220,7 @@ export function startArticleHighlight(
     hideBox()
     invalidateCache()
     paragraphByEl = new Map()
+    containerRef = null
     onWordClick = null
   }
 }

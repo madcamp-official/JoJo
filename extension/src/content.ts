@@ -330,8 +330,8 @@ function startPageCapture(): void {
   // 성공/부족 모두 항상 보고한다 — 앱(webSource.ts)이 이 신호를 기다렸다가 텍스트가
   // 부족하면 기존 OCR 경로로 폴백하므로, 여기서 판단하지 않고 길이만 그대로 알려준다.
   chrome.runtime.sendMessage({ kind: 'pageReady', url: location.href, textLength: extraction.fullText.length })
-  if (extraction.fullText.length < MIN_WEB_TEXT_LENGTH) return
-  stopArticleHighlightUi = startArticleHighlight(extraction, onArticleWordClicked)
+  if (!container || extraction.fullText.length < MIN_WEB_TEXT_LENGTH) return
+  stopArticleHighlightUi = startArticleHighlight(container, extraction, onArticleWordClicked)
 }
 
 function stopPageCapture(): void {
