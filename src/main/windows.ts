@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, shell } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
 import type { AppMode, ExtractedSelection, Rect, Word } from '@shared/types'
@@ -619,17 +619,22 @@ const POPUP_HEIGHT = 900
 const POPUP_HEIGHT_MARGIN = 40
 
 /** 팝업 창을 다른 앱 창들보다 앞으로 강제로 올린다. 방금 사용자가 클릭한 대상 앱(브라우저
- *  등)이 그 클릭으로 포그라운드를 가져간 직후라, Windows 는 백그라운드 프로세스가
- *  SetForegroundWindow 로 강제로 포그라운드를 뺏는 걸 막는 정책이 있어 `focus()`만
- *  호출하면 조용히 무시되고 팝업이 계속 대상 창 뒤에 남아있었다(실사용 확인, 2026-07-29 —
- *  팝업이 이미 떠 있는 상태에서 다른 텍스트를 새로 선택해도 내용만 바뀌고 앞으로 안 옴).
- *  `setAlwaysOnTop`을 껐다 켰다 토글하면 이 제한과 무관하게 z-order 재계산이 강제로
- *  일어난다 — 흔히 쓰이는 우회법. */
+ *  등)이 그 클릭으로 포그라운드를 가져간 직후라, `BrowserWindow.focus()`만으로는 창을
+ *  못 끌어올렸다(실사용 확인, 2026-07-29 — 팝업이 이미 떠 있는 상태에서 다른 텍스트를
+ *  새로 선택해도 내용만 바뀌고 앞으로 안 옴). Windows 는 백그라운드 프로세스의
+ *  SetForegroundWindow 를 막는 정책이 있고, mac 은 window 단위 z-order 조작만으론
+ *  대상 앱(다른 애플리케이션)이 이미 활성 앱으로 올라와 있는 상태를 못 뒤집는다 —
+ *  **애플리케이션 자체를 활성화**(`app.focus({ steal: true })`, mac 의 "포커스 훔치기"
+ *  방지 기본 동작을 우회)까지 같이 해야 창도 실제로 맨 앞에 온다. `setAlwaysOnTop`
+ *  토글은 Windows 쪽 z-order 재계산 강제용으로 함께 둔다(2차 재수정 — 1차 수정은
+ *  app.focus 없이 window.focus/setAlwaysOnTop만 썼는데 여전히 앞으로 안 옴을 재확인). */
 function forceWindowToFront(win: BrowserWindow): void {
   if (win.isMinimized()) win.restore()
   if (!win.isVisible()) win.show()
+  app.focus({ steal: true })
   win.setAlwaysOnTop(true)
   win.setAlwaysOnTop(false)
+  win.moveTop()
   win.focus()
 }
 
