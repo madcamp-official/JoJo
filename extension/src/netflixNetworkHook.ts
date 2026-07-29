@@ -32,7 +32,7 @@
 
   const origStringify = JSON.stringify
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  JSON.stringify = function (value: any, replacer?: any, space?: any): string | undefined {
+  JSON.stringify = function (value: any, replacer?: any, space?: any): string {
     try {
       const profiles = value?.params?.profiles
       if (Array.isArray(profiles) && !profiles.includes(WEBVTT_PROFILE)) {
