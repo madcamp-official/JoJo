@@ -2,7 +2,7 @@
 // 유튜브 자막은 .ytp-caption-segment span 으로 렌더된다(극장/전체화면/자막 위치 이동과
 // 무관하게 항상 이 구조). 공용 유틸(domWords.ts)로 단어별 뷰포트 사각형을 잰다.
 import type { SubLine, SubtitleSnapshot } from '@shared/extension'
-import { observeContainer, videoCurrentTime, viewportInfo, wordsInElement } from './domWords'
+import { elementTextExcludingFurigana, observeContainer, videoCurrentTime, viewportInfo, wordsInElement } from './domWords'
 
 const CAPTION_WINDOW = '.caption-window' // 자막 컨테이너(여러 줄/위치 이동의 최상위)
 const CAPTION_SEGMENT = '.ytp-caption-segment'
@@ -37,8 +37,8 @@ export function extractSubtitleSnapshot(): SubtitleSnapshot | null {
       // words 를 공백으로 join 하면 CJK 처럼 원문에 공백이 없던 구간에 가짜 공백이 끼어들어
       // (domWords.ts 가 한자/가나를 글자 단위로 쪼개므로) 실제 자막 원문과 달라진다 —
       // anchorInTranscript(subtitleSource.ts)가 이 lineText 를 timedtext cue 원문 안에서
-      // 그대로 찾아야 하므로, 세그먼트의 원문 그대로를 line.text 로 쓴다.
-      const raw = seg.textContent ?? words.map((w) => w.text).join(' ')
+      // 그대로 찾아야 하므로, 세그먼트의 원문(후리가나 제외) 그대로를 line.text 로 쓴다.
+      const raw = elementTextExcludingFurigana(seg)
       lines.push({ text: raw, words })
     }
   }

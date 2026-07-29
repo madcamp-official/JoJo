@@ -62,16 +62,43 @@ function wordsFromTextNode(node: Text): SubWord[] {
   return words
 }
 
+// 후리가나(<rt>, 루비 주석) 안의 텍스트는 한자 읽는 법 표기일 뿐 실제 자막 본문이 아니다
+// — <rp>(루비 미지원 브라우저용 괄호 폴백)도 같은 이유로 제외한다. 포함시키면 팝업/문맥
+// 텍스트에 읽기가 본문과 섞여 들어간다(예: "七崩賢だったしちほうけん").
+function isFuriganaText(node: Text): boolean {
+  return node.parentElement?.closest('rt, rp') != null
+}
+
 // 한 요소 안의 모든 텍스트 노드를 순회하며 단어(공백 경계, CJK 는 글자 단위)마다 사각형을 잰다.
 export function wordsInElement(el: HTMLElement): SubWord[] {
   const words: SubWord[] = []
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (isFuriganaText(node as Text) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  })
   let node = walker.nextNode() as Text | null
   while (node) {
     words.push(...wordsFromTextNode(node))
     node = walker.nextNode() as Text | null
   }
   return words
+}
+
+// el 의 원문 텍스트를 후리가나(<rt>/<rp>) 제외하고 그대로 이어붙인다 — line.text(youtube.ts/
+// netflix.ts)를 el.textContent 로 그대로 쓰면 wordsInElement 로 걸러낸 후리가나가 여기엔
+// 여전히 섞여 들어간다(예: "七崩賢だったしちほうけん"). anchorInTranscript(subtitleSource.ts)
+// 가 이 텍스트를 실제 timedtext/WebVTT cue 원문 안에서 찾아야 하므로, wordsInElement 와
+// 똑같이 후리가나만 뺀 "진짜 원문"이어야 한다(공백을 임의로 끼워넣지 않음).
+export function elementTextExcludingFurigana(el: HTMLElement): string {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (isFuriganaText(node as Text) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  })
+  let text = ''
+  let node = walker.nextNode() as Text | null
+  while (node) {
+    text += node.textContent ?? ''
+    node = walker.nextNode() as Text | null
+  }
+  return text
 }
 
 // 브라우저 창 좌상단 → 뷰포트 좌상단 오프셋(CSS px)까지 담은 뷰포트 정보.
