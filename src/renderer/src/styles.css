@@ -450,36 +450,38 @@ button:disabled { cursor: not-allowed; }
    진보라 테두리+둥근 모서리)와 톤을 맞춰달라는 요청(2026-07-29)으로 변경. 글자색은
    더 이상 덮어쓰지 않는다(연보라 배경 위에도 원래 어두운 글자색 그대로 잘 읽힘).
    **여러 차례 재수정 기록**: outline(네 변 전부)은 여러 단어 선택 시 단어마다 개별
-   박스로 분절돼 보였고, box-shadow 로 위/아래 공통+좌우 양끝만 분해하는 시도는
-   spread 기반이든 offset 기반이든 실제 기기(고배율 디스플레이 서브픽셀 반올림 추정)
-   에서 모서리가 파이거나 겹쳐 보이는 문제가 반복됐다 — 한 번은 사용자 요청으로 가장
-   단순한 형태(outline, 분절 감수)로 롤백했으나, 분절 문제 자체는 다시 해결해달라는
-   요청으로 이번엔 **진짜 border**(레이아웃에 관여하는 정석적인 방식)로 재구현한다.
-   border+border-radius 조합은 세그먼트 버튼(탭바 등)에 흔히 쓰이는 표준 패턴이라
-   box-shadow 트릭과 달리 서브픽셀 모서리 어긋남이 없다 — 대신 선택된 세그먼트가
-   테두리 두께(1.5px)만큼 살짝 커지는 레이아웃 변화가 생기는데, 선택 상태 전환 시의
-   일시적 변화라 감수한다(justify 텍스트에서 극히 드물게 줄바꿈이 흔들릴 수 있으나
-   이전의 시각적 버그들보다 낫다고 판단, 2026-07-29). 위/아래 테두리는 모든 선택
-   세그먼트에 공통으로 긋고, 좌/우 테두리+둥근 모서리는 선택 범위의 맨 처음
-   (`.sel-start`)·맨 끝(`.sel-end`) 세그먼트에만 줘서 중간은 이어지게 한다
-   (ContextView.tsx 가 렌더링 시 계산). */
+   박스로 분절돼 보였다. box-shadow 로 위/아래 공통+좌우 양끝만 분해하되, "패딩처럼
+   보이게" 배경 채움용 레이어(spread)와 테두리용 레이어(offset)를 따로 겹치는 방식으로
+   hover 박스를 그대로 흉내내려던 시도는 실제 기기(고배율 디스플레이, 레이어별로 다른
+   서브픽셀 반올림 추정)에서 모서리가 파이거나 겹쳐 보였다 — 그래서 한 번은 진짜
+   border(레이아웃에 관여하는 표준 세그먼트 버튼 패턴)로 바꿔봤으나, border 는 선택 시
+   요소 폭이 테두리 두께만큼 늘어나 justify 정렬 문단의 줄바꿈이 흔들리는 문제가 있었다
+   (사용자 피드백, 2026-07-29) — box-shadow/outline 은 레이아웃에 전혀 관여하지 않아
+   이 문제가 없다. 결론: **레이어를 겹치지 않는 단일 box-shadow**(배경은 이미 있는
+   background 로 채우고, box-shadow 는 테두리 역할만) 로 되돌린다 — 모서리 파임을
+   유발했던 원인은 box-shadow 자체가 아니라 서로 다른 offset/spread 레이어를 겹친 것
+   이었으므로, 레이어 하나만 쓰면 서브픽셀 어긋남 없이 깔끔하면서 레이아웃도 그대로다
+   (1x/2x/3x 배율 모두 헤드리스 크롬으로 재확인). 위/아래는 모든 선택 세그먼트 공통,
+   좌/우 + 둥근 모서리는 선택 범위의 맨 처음(`.sel-start`)·맨 끝(`.sel-end`) 세그먼트에만
+   둬서 중간은 이어지게 한다(ContextView.tsx 가 렌더링 시 계산). */
 .ctx-text .atom.sel, .ctx-text .gap.sel {
   background: var(--theme-weak);
-  border-top: 1.5px solid var(--purple);
-  border-bottom: 1.5px solid var(--purple);
-  border-left: none;
-  border-right: none;
+  box-shadow: 0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple);
   border-radius: 0;
 }
 .ctx-text .sel.sel-start {
-  border-left: 1.5px solid var(--purple);
-  border-top-left-radius: 3px;
-  border-bottom-left-radius: 3px;
+  box-shadow: 0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple), -1.5px 0 0 0 var(--purple);
+  border-radius: 3px 0 0 3px;
 }
 .ctx-text .sel.sel-end {
-  border-right: 1.5px solid var(--purple);
-  border-top-right-radius: 3px;
-  border-bottom-right-radius: 3px;
+  box-shadow: 0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
+  border-radius: 0 3px 3px 0;
+}
+.ctx-text .sel.sel-start.sel-end {
+  box-shadow:
+    0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple),
+    -1.5px 0 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
+  border-radius: 3px;
 }
 /* 툴바 */
 .toolbar {
