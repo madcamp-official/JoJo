@@ -9,7 +9,7 @@ import { getApiKey } from '@main/keyStore'
 import { tokenizeJapanese } from '@main/nlp/japanese'
 import { getSettings } from '@main/settingsStore'
 import { DEFAULT_MODELS } from '@shared/providers'
-import { LANGUAGES } from '@shared/languages'
+import { getLanguageName, isFullLanguage } from '@shared/languages'
 import { fetchCcCedictEntry } from './dictionary/cccedict'
 import { fetchDaijisenEntry, DaijisenHttpError } from './dictionary/daijisen'
 import { fetchHanyuEntry, HanyuHttpError } from './dictionary/hanyu'
@@ -58,11 +58,25 @@ const FALLBACK_CHAINS: Record<Language, DictionarySourceId[]> = {
   'zh-Hant': ['guoyu-cidian', 'hanyu-dict', 'cc-cedict', 'wiktionary'],
 }
 
+/** 이 파일 전체는 tier1(LLM 사전 지원 언어) 전용이다 — tier2/3는 팝업 UI가 애초에 "사전"
+ *  버튼 자체를 안 보여주므로(Toolbar.tsx) 정상 경로로는 여기 안 들어오지만, 방어적으로
+ *  lookupDictionary 진입 시 한 번 좁혀서 그 아래 모든 헬퍼가 Language(4개)만 다루도록
+ *  한다 — SelectionContext.language 가 tier2까지 포함하는 AnyLanguage 로 넓어졌기
+ *  때문에(2026-07-30) 필요해진 타입. */
+type DictSelectionContext = Omit<SelectionContext, 'language'> & { language: Language }
+
 export async function lookupDictionary(
-  ctx: SelectionContext,
+  rawCtx: SelectionContext,
   forceSource: DictionarySourceId | undefined,
   onChunk: (chunk: QuestionResult) => void,
 ): Promise<QuestionResult> {
+  // tier2/3(AnyLanguage 중 Language 4개가 아닌 나머지)는 여기서 한 번만 걸러낸다 — 이
+  // 아래로는 전부 DictSelectionContext(language: Language 로 좁혀짐)만 다닌다.
+  if (!isFullLanguage(rawCtx.language)) {
+    return emit(onChunk, { kind: 'dictionary', content: '이 언어는 아직 사전 검색을 지원하지 않습니다.' })
+  }
+  const ctx: DictSelectionContext = { ...rawCtx, language: rawCtx.language }
+
   // ============================================================================
   // 임시 디버깅 강제 소스 선택 — 제거 예정(팝업 드롭다운+토글, registry.ts 와 한 세트).
   // 사용자가 팝업의 "폴백/직접 선택" 토글을 "직접 선택"으로 켰을 때만 forceSource 가
@@ -292,7 +306,7 @@ async function wordCandidatesFor(word: string, language: Language): Promise<stri
   return [word]
 }
 
-async function lookupThroughFallbackChain(word: string, ctx: SelectionContext): Promise<ChainLookupResult> {
+async function lookupThroughFallbackChain(word: string, ctx: DictSelectionContext): Promise<ChainLookupResult> {
   const chain = FALLBACK_CHAINS[ctx.language]
   const candidates = await wordCandidatesFor(word, ctx.language)
   let suggestions: string[] | undefined
@@ -333,7 +347,7 @@ async function lookupThroughFallbackChain(word: string, ctx: SelectionContext): 
  *  소스로 흡수되므로 여기서 따로 구분할 필요가 없다. */
 async function lookupSingleWordThroughChain(
   word: string,
-  ctx: SelectionContext,
+  ctx: DictSelectionContext,
   client: ReturnType<typeof createClient>,
   model: string,
   cacheableContext: string,
@@ -350,7 +364,7 @@ interface JudgeAndFormatArgs {
   word: string
   source: DictionarySourceId
   senses: ReturnType<typeof numberSenses>
-  ctx: SelectionContext
+  ctx: DictSelectionContext
   client: ReturnType<typeof createClient>
   model: string
   cacheableContext: string
@@ -364,7 +378,7 @@ type JudgeAndFormatResult =
  *  통째 조회 경로와 단어별 폴백 경로가 공유하는 핵심 로직. */
 async function judgeAndFormat(args: JudgeAndFormatArgs): Promise<JudgeAndFormatResult> {
   const { word, source, senses, ctx, client, model, cacheableContext } = args
-  const system = renderPrompt(dictionaryPromptTemplate, { language: LANGUAGES[ctx.language].name })
+  const system = renderPrompt(dictionaryPromptTemplate, { language: getLanguageName(ctx.language) })
   const prompt = `[선택된 표현]: ${word}\n\n[뜻풀이 후보]\n${buildSenseListText(senses)}`
 
   let reply: string
@@ -493,7 +507,7 @@ class SourceNotImplementedError extends Error {
  *  MW만 suggestions 를 준다(나머지는 항상 undefined). */
 async function fetchSourceEntries(
   source: DictionarySourceId,
-  ctx: SelectionContext,
+  ctx: DictSelectionContext,
   word: string,
 ): Promise<{ entries?: DictionaryEntry<Language>[]; suggestions?: string[] }> {
   switch (source) {
@@ -610,7 +624,7 @@ function describeSourceError(source: DictionarySourceId, err: unknown): string {
 // forceSource 분기 + registry.ts + 팝업 토글/드롭다운만 지우면 되고, fetchSourceEntries/
 // judgeAndFormat 등 폴백 체인이 계속 쓰는 헬퍼는 그대로 둔다.
 // ============================================================================
-async function lookupForcedSource(source: DictionarySourceId, ctx: SelectionContext): Promise<QuestionResult> {
+async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelectionContext): Promise<QuestionResult> {
   const word = ctx.selectedText.trim()
   if (!word) {
     return { kind: 'dictionary', content: '선택된 표현이 없습니다.' }

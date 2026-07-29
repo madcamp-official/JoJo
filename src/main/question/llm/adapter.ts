@@ -7,7 +7,7 @@ import { createGeminiClient } from './gemini'
 import { createClaudeClient } from './claude'
 import { renderPrompt } from '../prompts/template'
 import systemPromptTemplate from '../prompts/system.txt?raw'
-import { LANGUAGES } from '@shared/languages'
+import { getLanguageName } from '@shared/languages'
 import { DEFAULT_MODELS } from '@shared/providers'
 import { buildErrorResult } from '../errors'
 import { classifyLlmError } from './errors'
@@ -75,7 +75,7 @@ export function createClient(provider: LlmProvider, config: LlmConfig): LlmClien
 // 언어별 표기(이름 등)는 @shared/languages 에서 관리(언어 확장 시 그쪽만 수정).
 
 export function buildSystemPrompt(ctx: SelectionContext): string {
-  return renderPrompt(systemPromptTemplate, { language: LANGUAGES[ctx.language].name })
+  return renderPrompt(systemPromptTemplate, { language: getLanguageName(ctx.language) })
 }
 
 /**
