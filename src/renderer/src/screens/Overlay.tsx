@@ -17,6 +17,9 @@ import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 
 const NOTICE_DURATION_MS = 4000
 const MIN_REGION_SIZE = 8 // 이보다 작은 드래그는 실수 클릭으로 보고 무시
+// macOS 는 창 모서리가 둥글고 Windows 는 각져 있다 — 오버레이 테두리도 대상 창의
+// 실제 모서리 모양과 맞춰야 자연스럽다(styles.css: .overlay-root.is-mac 이 라운드 값 적용).
+const IS_MAC = navigator.platform.toUpperCase().includes('MAC')
 
 function normalizeRect(a: { x: number; y: number }, b: { x: number; y: number }): Rect {
   return {
@@ -190,7 +193,7 @@ export function Overlay() {
 
   return (
     <div
-      className={`overlay-root mode-${mode}${hoveredBox ? ' hovering-word' : ''}`}
+      className={`overlay-root mode-${mode}${hoveredBox ? ' hovering-word' : ''}${IS_MAC ? ' is-mac' : ''}`}
       onClick={onOverlayClick}
       onMouseDown={onRootMouseDown}
       onMouseMove={onRootMouseMove}
