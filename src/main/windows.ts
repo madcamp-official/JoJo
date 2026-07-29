@@ -295,10 +295,15 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   if (process.platform === 'darwin') {
     // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
     win.setHiddenInMissionControl(true)
-    // floating 레벨 + 모든 스페이스에서 표시 — 다른 창이 대상을 덮어도 테두리는 계속
-    // 보이게 한다(2026-07-29, 위 alwaysOnTop 주석 참고).
+    // floating 레벨 — 같은 데스크탑(Space) 안에서 다른 창이 대상을 덮어도 테두리는 계속
+    // 보이게 한다(2026-07-29, 위 alwaysOnTop 주석 참고). `setVisibleOnAllWorkspaces(true)`
+    // 는 여기 같이 켜지 않는다 — 그건 "다른 창에 가려도 보이게"가 아니라 "다른 데스크탑
+    // (Space)으로 전환해도 계속 보이게"까지 만드는 설정이라, 데스크탑을 바꿨는데도 대상
+    // 창이 없는 화면에 테두리가 그대로 남는 문제가 있었다(2026-07-29 재수정, 사용자 피드백
+    // — "데스크탑 바꿔도 오버레이 테두리가 그대로 있어"). 기본값(false)대로 두면 오버레이는
+    // 대상 창과 같은 Space 에서만 보이고, alwaysOnTop 만으로 같은 Space 안 다른 창을
+    // 덮는 문제는 이미 해결된다.
     win.setAlwaysOnTop(true, 'floating')
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
   win.on('closed', () => {
     if (overlayWindow === win) overlayWindow = null
