@@ -73,6 +73,9 @@ function onSubtitleClick(hit: SubtitleClickHit): void {
 function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
   const source = getBrowserSource()?.source ?? { kind: 'youtube' as const }
   const transcript = extensionBridge.getTranscript()
+  console.log(
+    `[subtitleSource] click hit.videoId=${hit.videoId} transcript.videoId=${transcript?.videoId ?? 'null'} cues=${transcript?.cues.length ?? 'null'}`,
+  )
 
   // 전체 자막(timedtext)이 있으면 그걸 통째로 text 로 주고 anchor 만 클릭 단어에 맞춘다 —
   // 팝업이 설정 바이트(contextBytesBefore/After)만큼 앞뒤를 알아서 보여준다(OCR/텍스트와 동일).
