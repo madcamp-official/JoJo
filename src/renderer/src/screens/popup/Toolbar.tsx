@@ -120,6 +120,14 @@ export function Toolbar({
         AI
       </span>
 
+      <button className="tb-btn" disabled={disabled} onClick={onPron}>
+        발음
+      </button>
+
+      <button className="tb-btn" disabled={disabled} onClick={onDict}>
+        사전
+      </button>
+
       {/* 임시 디버깅 토글+드롭다운(2026-07-28) — 구현된 사전 소스가 없으면 아예 안 보여준다.
           토글이 꺼져 있으면(기본값) 정식 폴백 체인을 쓰고, 켜면 드롭다운에서 고른 소스를
           강제 호출한다. */}
@@ -149,14 +157,6 @@ export function Toolbar({
           </select>
         </>
       )}
-
-      <button className="tb-btn" disabled={disabled} onClick={onPron}>
-        발음
-      </button>
-
-      <button className="tb-btn" disabled={disabled} onClick={onDict}>
-        사전
-      </button>
     </div>
   )
 }
