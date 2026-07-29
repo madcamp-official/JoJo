@@ -70,14 +70,35 @@ function initialMockExtraction(): ExtractedSelection {
   }
 }
 
-export function PopupScreen() {
-  const [baseCtx, setBaseCtx] = useState<ExtractedSelection>(initialMockExtraction)
+// 실제 ctx 도착 전(getPopupContext() IPC 왕복이 끝나기 전) 첫 렌더용 빈 자리표시자 —
+// 실사용(선택 확정 → createPopupWindow(ctx))도 데모 버튼(openPopup(), demo 인자 없음)도
+// URL 해시가 똑같이 '#/popup'(쿼리 없음)이라, 첫 렌더 시점엔 실사용인지 호빗 데모인지
+// 구분할 방법이 없다(2026-07-29 실사용 확인 — 팝업을 띄우면 잠깐 호빗 "well-to-do" 데모
+// 텍스트가 보였다가 실제로 클릭한 텍스트로 바뀌는 현상). 그래서 첫 렌더는 항상 빈 텍스트로
+// 그리고, getPopupContext() 응답이 오면 그때 실제 ctx 든 데모 목업이든 확정해서 채운다 —
+// "틀린 내용이 잠깐 보이는 것"과 "아주 잠깐 빈 화면"중 후자를 택함.
+function emptyExtraction(): ExtractedSelection {
+  return {
+    text: '',
+    anchor: { start: 0, end: 0 },
+    words: [],
+    language: 'en',
+    source: { kind: 'web' },
+    extraction: 'direct',
+  }
+}
 
-  // main 에서 실제 컨텍스트를 받으면 교체(초기 조회 + 창 재사용 시 갱신 통지)
+export function PopupScreen() {
+  const [baseCtx, setBaseCtx] = useState<ExtractedSelection>(emptyExtraction)
+
+  // main 에서 실제 컨텍스트를 받으면 교체(초기 조회 + 창 재사용 시 갱신 통지). 초기 조회가
+  // null 이면(데모 버튼으로 열렸거나, 실사용인데 아직 A 파이프라인이 ctx 를 안 넘긴 경우)
+  // 그때 가서야 데모 목업으로 확정한다 — 위 emptyExtraction 주석 참고.
   useEffect(() => {
     let active = true
     window.nuance.getPopupContext().then((ctx) => {
-      if (active && ctx) setBaseCtx(ctx)
+      if (!active) return
+      setBaseCtx(ctx ?? initialMockExtraction())
     })
     return window.nuance.onPopupContext((ctx) => {
       if (ctx) setBaseCtx(ctx)
