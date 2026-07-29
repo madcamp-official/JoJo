@@ -205,7 +205,7 @@
 
 - [x] ~~확장 번들 파이프라인~~ → `scripts/build-extension.mjs`(esbuild), 엔트리 4개(`background`/`content`/`networkHook`/`netflixNetworkHook`) → `extension/dist`. 메인 워크트리는 이 `dist`를 그대로 복사해 로드(워크트리에서 빌드 후 수동 복사).
 - [x] ~~확장↔앱 WebSocket 통신 계층~~ → `bridge.ts`(main)/`background.ts`(확장). keepalive ping, 지수 백오프 재접속, `chrome.alarms`로 서비스워커 강제 기상, 재접속 시 desired 상태(자막 캡처 on/off) 재동기화까지 포함.
-- [x] ~~탭/URL 변화 감지 → 앱에 재판정 통지~~ → `activeTab.ts`(`activeTabTracker`), 분류(kind+isMedia)가 실제로 바뀔 때만 재판정/로그.
+- [x] ~~탭/URL 변화 감지 → 앱에 재판정 통지~~ → `activeTab.ts`(`activeTabTracker`), 분류(kind+isMedia)가 실제로 바뀔 때만 재판정/로그. → **자막 페이지 이탈 시 OCR 자동 전환 대신 선택 모드 종료(2026-07-29, 사용자 요청)**: 자막 모드(`isMedia=true`)로 있다가 재판정 결과 `isMedia=false`(유튜브 영상을 보다가 채널/홈 등으로 이동)가 되면, 예전엔 그대로 OCR 경로(영역 자동/수동 지정)로 자동 전환됐는데 이게 엉뚱한 페이지에 OCR 드래그 안내를 띄우는 부작용이 있었다 — `shortcut.ts`의 `applyExtractionDecision`에서 `isSubtitleModeActive()`가 true인 채로 `decision.mode !== 'subtitle'`이 되면 OCR로 넘기지 않고 `exitSelectMode()`(단축키 토글의 "끄기" 분기와 공유하는 헬퍼로 추출)로 선택 모드 자체를 끈다. 자막 모드였던 적이 없는 일반 진입(비-미디어 페이지에서 처음 선택 모드에 들어간 경우)은 기존처럼 OCR로 그대로 진입.
 - [x] ~~유튜브 자막 DOM 추출 + 좌표~~ → `youtube.ts` + 공용 `domWords.ts`(CJK 글자 단위 토큰화, 후리가나 `<rt>`/`<rp>` 제외, `MutationObserver`+300ms 폴링 폴백).
 - [x] ~~유튜브 timedtext 전체 자막 버퍼~~ → 네트워크 가로채기(`networkHook.ts`)로 확보, `subtitleSource.ts`가 문장 종결부호 기준(없으면 cue 단위) 줄바꿈으로 조립.
 - [x] ~~좌표 보정 + 오버레이 연동~~ → 오버레이 릴레이 방식 폐기, 확장이 페이지 안에서 직접 hover 박스를 그리는 방식(`highlight.ts`)으로 대체돼 좌표 보정 자체가 불필요해짐.

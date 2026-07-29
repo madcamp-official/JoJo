@@ -63,16 +63,23 @@ onWindowResized(() => {
  * 바로 모드까지 바뀌어버리는 게 불편하다는 피드백. 블록이 없으면(자동 탐지 결과가
  * 아니었거나 이미 한 번 지운 뒤) 평소처럼 바로 모드를 토글한다.
  */
+/** 선택 모드를 끈다(단축키 토글의 "끄기" 분기와 자막→비자막 자동 전환이 공유). */
+function exitSelectMode(): void {
+  mode = 'normal'
+  setOverlayMode(mode) // 오버레이 테두리 색(일반=파랑/선택=보라) 갱신 + MODE_CHANGED 통지
+  stopChangeWatcher()
+  stopSubtitleMode()
+  clearRegionEscapeShortcut()
+}
+
 export function toggleMode(): void {
   if (consumeDebugBlocksVisible()) return
-  mode = mode === 'normal' ? 'select' : 'normal'
-  setOverlayMode(mode) // 오버레이 테두리 색(일반=파랑/선택=보라) 갱신 + MODE_CHANGED 통지
-  if (mode !== 'select') {
-    stopChangeWatcher()
-    stopSubtitleMode()
-    clearRegionEscapeShortcut()
+  if (mode === 'select') {
+    exitSelectMode()
     return
   }
+  mode = 'select'
+  setOverlayMode(mode)
   void enterSelectMode()
 }
 
@@ -102,7 +109,15 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     startSubtitleMode()
     return
   }
-  // OCR/direct 경로 — 자막 모드였으면 중단하고 기존 영역/OCR 흐름으로.
+  // 자막(미디어) 페이지였다가 아닌 페이지로 바뀐 경우(예: 유튜브 영상을 보다가 채널/홈으로
+  // 이동) — OCR 로 자동 전환하지 않고 선택 모드 자체를 끈다(사용자 요청, 2026-07-29).
+  // 영상 페이지를 벗어난 건 "이 페이지도 계속 선택하고 싶다"는 의도가 아닐 가능성이 커서,
+  // 엉뚱한 페이지에 OCR 영역 지정 드래그가 뜨는 것보다 조용히 꺼지는 쪽이 낫다고 판단.
+  if (isSubtitleModeActive()) {
+    exitSelectMode()
+    return
+  }
+  // OCR/direct 경로(자막 모드였던 적이 없는 일반 진입) — 기존 영역/OCR 흐름으로.
   stopSubtitleMode()
   if (getRegion()) {
     refreshExtractionCache()
