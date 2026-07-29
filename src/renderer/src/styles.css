@@ -393,7 +393,23 @@ button:disabled { cursor: not-allowed; }
      ContextView.tsx 가 dir="rtl" 을 붙임, PopupScreen.tsx isRtlLanguage)도 우측정렬이
      아니라 양쪽정렬로 보이고, dir="rtl" 만으로 문단의 시작(=오른쪽)에 텍스트가 붙어
      자연스러운 방향으로 읽힌다(2026-07-30 사용자 요청) — 별도 규칙 불필요. */
-  line-height: 1.7; white-space: pre-line; text-align: justify;
+  /* 언어 불문 통일값(2026-07-30, 사용자 요청) — 예전엔 en 만 1.7/자간 없음, ja/zh 만
+     2/0.05em 이라 같은 팝업 안에서도 언어에 따라 줄 간격이 들쭉날쭉해 보였다. CJK 쪽
+     값(글자가 빽빽해 보이지 않게 조정됐던 값)을 그대로 기준으로 모든 언어에 적용해
+     통일감을 준다 — 라틴 문자에 0.05em 자간은 다소 넓어 보일 수 있지만, 좁아서
+     빽빽해 보이는 것보다 안전한 방향이라 이쪽으로 통일했다.
+     폰트는 언어별로 통일하지 않음(요청 범위 밖) — body 의 system-ui/-apple-system/
+     Segoe UI 스택이 Win/Mac 둘 다에서 이미 깔끔한 고딕(산세리프) 계열이고, tier2
+     56개 언어(아랍어·태국어·데바나가리 등)는 OS가 스크립트별로 알아서 적절한 기본
+     폰트로 자동 대체해준다(Windows: Segoe UI가 못 그리는 글자는 Nirmala UI/Leelawadee
+     UI 등으로, macOS는 Geeza Pro/Kohinoor 등으로 자동 폴백) — 이 자동 대체가 이미
+     충분히 깔끔해서 손대지 않았다. CJK(ja/zh)만 폰트를 명시하는 이유는 위 .lang-ja
+     주석 참고 — Chromium 이 한 문단 안에서 문자마다 다른 폴백 폰트를 섞어 쓰는 특유의
+     문제라 다른 스크립트엔 해당 없음. 모든 언어를 커버하는 폰트 하나로 번들링하는
+     방안(예: Noto Sans 전체)도 검토했으나, 이미 잘 동작하는 OS 기본 폴백을 대체하려고
+     수십 MB 폰트를 앱에 포함시킬 실익이 없어 보류. */
+  line-height: 2; letter-spacing: 0.05em;
+  white-space: pre-line; text-align: justify;
   cursor: text; color: #4b5563;
   /* 좌우·하단 여백을 .context 가 아니라 여기서 갖는다 — 그래야 이 여백도 ctx-text
      자신의 박스에 포함돼, 박스 경계와 글자 사이 여백을 클릭해도 드래그가 시작되고
@@ -418,25 +434,18 @@ button:disabled { cursor: not-allowed; }
    확실히 나아지게 한다. macOS 는 10.11(El Capitan) 이후 시스템 일본어 폰트가 히라기노
    산스(Hiragino Sans, 그 이전 이름은 Hiragino Kaku Gothic ProN)로 바뀌었는데, 예전
    macOS 를 위해 구 이름도 폴백으로 남겨둔다. .lang-ja 는 PopupScreen.tsx 가
-   language === 'ja' 일 때만 붙인다(다른 언어 팝업은 기본 폰트 그대로). */
+   language === 'ja' 일 때만 붙인다(다른 언어 팝업은 기본 폰트 그대로). letter-spacing/
+   line-height 는 이제 위 .ctx-text 기본값으로 통일돼 있어 여기선 폰트만 바꾼다. */
 .ctx-text.lang-ja {
   font-family: Meiryo, 'Yu Gothic UI', 'Yu Gothic', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
-  letter-spacing: 0.05em;
-  line-height: 2;
 }
-/* 중국어(zh-Hans/zh-Hant, PopupScreen.tsx)도 위 .lang-ja 와 똑같은 근거로 폰트/자간/줄간격을
-   지정한다 — system-ui 기본 폴백만 쓰면 OS·문자마다 커버하는 폰트가 갈려 글자체가
-   들쭉날쭉해지고, .lang-ja 전용 튜닝만 있고 이쪽엔 없어서 같은 팝업인데 일본어보다
-   중국어 글자가 더 작고 빽빽해 보인다는 문제(2026-07-29 사용자 피드백)가 있었다 —
-   .lang-ja 와 자간(0.05em, 2026-07-29 사용자 피드백으로 0.09em에서 축소)·줄간격(2) 값을
-   맞춰 둘이 시각적으로 통일되게 한다. 폰트는
-   macOS 간체/번체(핑팡)·Windows 간체/번체(마이크로소프트 야헤이/젠헤이)를 모두
-   나열해 어느 스크립트로 조회하든(간체/번체 구분 없이 이 클래스 하나를 공유) 그
-   OS에서 실제로 설치돼 있는 것으로 자연히 떨어지게 한다. */
+/* 중국어(zh-Hans/zh-Hant, PopupScreen.tsx)도 위 .lang-ja 와 똑같은 근거로 폰트를 지정한다
+   — system-ui 기본 폴백만 쓰면 OS·문자마다 커버하는 폰트가 갈려 글자체가 들쭉날쭉해진다.
+   macOS 간체/번체(핑팡)·Windows 간체/번체(마이크로소프트 야헤이/젠헤이)를 모두 나열해
+   어느 스크립트로 조회하든(간체/번체 구분 없이 이 클래스 하나를 공유) 그 OS에서 실제로
+   설치돼 있는 것으로 자연히 떨어지게 한다. */
 .ctx-text.lang-zh {
   font-family: 'PingFang SC', 'PingFang TC', 'Microsoft YaHei', 'Microsoft JhengHei', 'Heiti SC', 'Heiti TC', sans-serif;
-  letter-spacing: 0.05em;
-  line-height: 2;
 }
 /* .ctx-text 어디에도 user-select: none 을 두지 않는다 — Chromium 은 user-select: none
    인 요소의 텍스트를 프로그램상 선택(Selection.addRange, ContextView.tsx
