@@ -177,6 +177,11 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   setVideoPlayback(play: boolean): void {
     this.send({ type: 'setVideoPlayback', play })
   }
+
+  // 팝업(Electron 창)이 닫힌 뒤 원래 캡처 중이던 브라우저 탭/창에 OS 포커스를 되돌린다.
+  focusTab(): void {
+    this.send({ type: 'focusTab' })
+  }
 }
 
 export const extensionBridge = new ExtensionBridge()

@@ -78,6 +78,9 @@ function onAppMessage(raw: unknown): void {
     case 'setVideoPlayback':
       void sendPlaybackToActiveTab(msg.play)
       break
+    case 'focusTab':
+      void focusCapturedTab()
+      break
     case 'welcome':
       break
   }
@@ -91,6 +94,22 @@ async function sendPlaybackToActiveTab(play: boolean): Promise<void> {
     await chrome.tabs.sendMessage(tab.id, { kind: 'setPlayback', play })
   } catch {
     /* content 미로드/비대상 무시 */
+  }
+}
+
+// 팝업(Electron 창)이 뜨는 동안 OS 포커스가 팝업으로 넘어가고, 닫혀도 OS가 원래 브라우저
+// 창으로 포커스를 자동으로 되돌려준다는 보장이 없다(특히 macOS는 다음 앱을 임의로 고를 수
+// 있음) — 팝업이 닫히면 앱이 이 메시지로 자막 캡처 중이던 탭/창에 명시적으로 포커스를
+// 되돌려달라고 요청한다.
+async function focusCapturedTab(): Promise<void> {
+  const tabId = capturedTabId
+  if (tabId === null) return
+  try {
+    const tab = await chrome.tabs.get(tabId)
+    if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true })
+    await chrome.tabs.update(tabId, { active: true })
+  } catch {
+    /* 탭이 이미 닫혔거나 무효 — 무시 */
   }
 }
 

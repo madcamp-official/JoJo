@@ -61,6 +61,10 @@ function onSubtitleClick(hit: SubtitleClickHit): void {
     win.once('closed', () => {
       pausedForPopup = false
       extensionBridge.setVideoPlayback(true)
+      // 팝업이 떠 있는 동안 OS 포커스가 Electron으로 넘어갔다가, 닫혀도 브라우저 창으로
+      // 자동으로 돌아온다는 보장이 없다(특히 macOS) — 명시적으로 캡처 중이던 탭/창에
+      // 포커스를 되돌려 hover/클릭을 바로 이어갈 수 있게 한다.
+      extensionBridge.focusTab()
     })
   }
 }

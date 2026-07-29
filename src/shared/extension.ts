@@ -82,5 +82,6 @@ export type AppToExt =
   | { type: 'requestActiveTab' } // 현재 활성 탭을 다시 보고하라(재접속 직후 등)
   | { type: 'setSubtitleCapture'; active: boolean } // 자막 캡처 on/off(선택 모드 진입/이탈 시)
   | { type: 'setVideoPlayback'; play: boolean } // 영상 재생/일시정지(팝업 열림=정지, 닫힘=재생)
+  | { type: 'focusTab' } // 캡처 중인 탭/브라우저 창에 OS 포커스를 되돌린다(팝업 닫힘 시)
 
 export type ExtMessage = ExtToApp | AppToExt
