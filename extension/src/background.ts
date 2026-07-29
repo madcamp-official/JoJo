@@ -161,11 +161,47 @@ async function focusCapturedTab(): Promise<void> {
 let captureDesired = false
 let capturedTabId: number | null = null
 
+// 확장을 리로드하면 기존 탭의 content script(isolated world)는 무효화돼, 탭을 새로고침하기
+// 전까지 setCapture 가 전달될 곳이 없다(hover 박스가 아예 안 뜸 — 2026-07-29 사용자 제보).
+// scripting.executeScript 로 다시 주입하면 새로고침 없이 복구된다. MAIN world 훅은 페이지
+// JS 라 리로드에도 살아남지만, 처음부터 없던 탭(확장 설치 전에 열린 탭)일 수 있어 같이
+// 주입한다 — 훅 자신이 전역 플래그로 이중 설치를 막는다(networkHook.ts/netflixNetworkHook.ts).
+async function injectContentScripts(tabId: number, url: string | undefined): Promise<void> {
+  try {
+    const hook = url?.includes('netflix.com')
+      ? 'netflixNetworkHook.js'
+      : url?.includes('youtube.com')
+        ? 'networkHook.js'
+        : null
+    if (hook) {
+      await chrome.scripting.executeScript({ target: { tabId }, files: [hook], world: 'MAIN' })
+    }
+    // content script 는 자체 이중 설치 가드가 없다(리스너가 중복 등록되면 hover 박스/전송이
+    // 전부 두 번씩 돈다) — 살아있는 리스너가 있으면(sendMessage 성공) 주입을 건너뛴다.
+    const alive = await chrome.tabs
+      .sendMessage(tabId, { kind: 'ping' })
+      .then(() => true)
+      .catch(() => false)
+    if (!alive) await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] })
+  } catch {
+    // chrome:// 등 주입 불가 페이지 — 무시.
+  }
+}
+
 async function sendCapture(tabId: number, active: boolean): Promise<void> {
   try {
     await chrome.tabs.sendMessage(tabId, { kind: 'setCapture', active })
   } catch {
-    // content script 미로드/비대상 페이지면 정상적으로도 실패할 수 있음 — 무시.
+    // content script 미로드(확장 리로드로 무효화된 기존 탭 등) — 캡처를 켜려는 경우엔
+    // 재주입 후 1회 재시도한다. 끄려는 경우엔 받을 곳이 없다는 뜻이라 그대로 둔다.
+    if (!active) return
+    const tab = await chrome.tabs.get(tabId).catch(() => null)
+    await injectContentScripts(tabId, tab?.url)
+    try {
+      await chrome.tabs.sendMessage(tabId, { kind: 'setCapture', active })
+    } catch {
+      // 재주입까지 했는데도 실패 — 비대상 페이지 등, 무시.
+    }
   }
 }
 
@@ -264,4 +300,15 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === 'nuance-reconnect') connect()
 })
 chrome.runtime.onStartup.addListener(() => connect())
-chrome.runtime.onInstalled.addListener(() => connect())
+// onInstalled 는 확장 설치뿐 아니라 리로드(개발 중 새 빌드 적용) 때도 불린다 — 이때 기존
+// 유튜브/넷플릭스 탭의 content script 는 전부 무효화된 상태이므로, 새로고침 없이도 바로
+// 동작하도록 미리 재주입해둔다(위 injectContentScripts 주석 참고).
+chrome.runtime.onInstalled.addListener(() => {
+  connect()
+  void (async () => {
+    const tabs = await chrome.tabs.query({ url: ['https://www.youtube.com/*', 'https://www.netflix.com/*'] })
+    for (const t of tabs) {
+      if (t.id !== undefined) await injectContentScripts(t.id, t.url)
+    }
+  })()
+})
