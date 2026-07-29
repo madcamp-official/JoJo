@@ -25,13 +25,20 @@ button:disabled { cursor: not-allowed; }
   font-size: 22px; line-height: 1; padding: 4px;
 }
 .main-screen .icon-btn.settings:hover { opacity: 0.7; }
-.main-screen .center { text-align: center; }
+.main-screen .center { text-align: center; position: relative; }
 .main-screen .primary {
   padding: 18px 40px; font-size: 18px; color: var(--theme-text);
   background: var(--theme); border: none; border-radius: 12px; cursor: pointer;
 }
 .main-screen .primary:disabled { opacity: 0.5; }
 .main-screen .hint { color: #94a3b8; }
+/* 데모 패널(2026-07-30) — 절대 위치라 .center 의 콘텐츠 폭 계산(=버튼 중앙 정렬)에
+   영향을 주지 않는다. .center 가 position:relative 라 left:100% 는 그 박스 오른쪽
+   바로 바깥을 뜻한다 — 이 블록을 지우려면 위 JSX .demo-panel div + 이 규칙만 지우면 됨. */
+.main-screen .demo-panel {
+  position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
+  margin-left: 24px; text-align: left; white-space: nowrap;
+}
 
 .overlay-root {
   position: fixed; inset: 0; width: 100vw; height: 100vh;
@@ -329,7 +336,8 @@ button:disabled { cursor: not-allowed; }
   font-size: 13px; cursor: pointer; padding: 2px 4px;
 }
 .link-btn:hover { text-decoration: underline; }
-.link-btn.demo { display: block; width: fit-content; margin: 14px auto 0; }
+.link-btn.demo { display: block; width: fit-content; margin: 0 0 8px; }
+.link-btn.demo:last-child { margin-bottom: 0; }
 
 /* ============================ 팝업 (담당 B) ============================ */
 .popup-screen {

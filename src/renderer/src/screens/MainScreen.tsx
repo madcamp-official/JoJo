@@ -28,23 +28,27 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
         </button>
         {!warmedUp && <p className="hint">텍스트 인식 엔진을 준비하는 중이에요…</p>}
         {selected && <p className="hint">선택됨: {selected.name}</p>}
-        {/* 데모 트리거(담당 B) — 담당 A 선택 파이프라인 통합 전, 언어별 팝업 미리보기.
-            통합 후엔 선택 확정 시 자동으로 팝업이 뜨므로 이 버튼들은 제거 예정. */}
-        <button className="link-btn demo" onClick={() => window.nuance.openPopup('hobbit')}>
-          🔍 팝업 미리보기 (영어: well-to-do)
-        </button>
-        <button className="link-btn demo" onClick={() => window.nuance.openPopup('en-bank')}>
-          🔍 팝업 미리보기 (영어 동음이의어: bank)
-        </button>
-        <button className="link-btn demo" onClick={() => window.nuance.openPopup('ja')}>
-          🔍 팝업 미리보기 (일본어: 新大橋)
-        </button>
-        <button className="link-btn demo" onClick={() => window.nuance.openPopup('zh-Hans')}>
-          🔍 팝업 미리보기 (중국어(간체): 天线)
-        </button>
-        <button className="link-btn demo" onClick={() => window.nuance.openPopup('zh-Hant')}>
-          🔍 팝업 미리보기 (중국어(번체): 行)
-        </button>
+
+        {/* 데모 패널(담당 B) — 담당 A 선택 파이프라인 통합 전, 언어별 팝업 미리보기.
+            버튼 중앙 정렬에 영향 안 주도록 절대 위치로 오른쪽에 붙여둠 — 통합 후엔
+            선택 확정 시 자동으로 팝업이 뜨므로, 이 div 블록 전체만 지우면 제거 끝. */}
+        <div className="demo-panel">
+          <button className="link-btn demo" onClick={() => window.nuance.openPopup('hobbit')}>
+            🔍 팝업 미리보기 (영어: well-to-do)
+          </button>
+          <button className="link-btn demo" onClick={() => window.nuance.openPopup('en-bank')}>
+            🔍 팝업 미리보기 (영어 동음이의어: bank)
+          </button>
+          <button className="link-btn demo" onClick={() => window.nuance.openPopup('ja')}>
+            🔍 팝업 미리보기 (일본어: 新大橋)
+          </button>
+          <button className="link-btn demo" onClick={() => window.nuance.openPopup('zh-Hans')}>
+            🔍 팝업 미리보기 (중국어(간체): 天线)
+          </button>
+          <button className="link-btn demo" onClick={() => window.nuance.openPopup('zh-Hant')}>
+            🔍 팝업 미리보기 (중국어(번체): 行)
+          </button>
+        </div>
       </div>
     </div>
   )
