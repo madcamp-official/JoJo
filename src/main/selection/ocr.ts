@@ -290,10 +290,14 @@ async function recognizeRegion(
   const words: Word[] = []
   for (const line of lines) {
     if (clippedLines.has(line)) continue
+    // 단어가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28) — 같은 줄에서
+    // 나온 단어들을 나중에(wordMapping.ts: findLineWordsAtPoint) 한데 묶을 수 있도록,
+    // 줄마다 새로 만든 식별자를 그 줄의 모든 단어에 붙인다.
+    const lineId = Math.random().toString(36).slice(2)
     if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
       // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
       // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: segmentit)로 다시 분리한다.
-      words.push(...(await buildCjkLineWords(line, language, region)))
+      words.push(...(await buildCjkLineWords(line, language, region)).map((w) => ({ ...w, lineId })))
       continue
     }
     for (const word of line.words) {
@@ -312,7 +316,7 @@ async function recognizeRegion(
       // 구성하는 글자의 실제 잉크 범위만 딱 맞춰서 나와서, 어센더/디센더(g/y/p 등)가
       // 없는 단어는 자연히 낮게 나오고 같은 줄에서도 단어마다 높이가 들쭉날쭉해진다.
       // 줄 bbox 는 그 줄 전체 기준이라 같은 줄의 단어들이 통일된 높이로 보인다.
-      words.push(...splitWordBySymbols(word, line.bbox))
+      words.push(...splitWordBySymbols(word, line.bbox).map((w) => ({ ...w, lineId })))
     }
   }
 

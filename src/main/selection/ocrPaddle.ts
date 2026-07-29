@@ -449,8 +449,14 @@ async function recognizeOrderedLines(
 ): Promise<Word[] | null> {
   const perLine = await Promise.all(orderedLines.map((line) => recognizeWithPaddle(image, language, padLine(line))))
   if (perLine.some((words) => !words)) return null
+  // 단어가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28) — 같은 줄에서 나온
+  // 단어들을 나중에(wordMapping.ts: findLineWordsAtPoint) 한데 묶을 수 있도록, 줄마다
+  // 새로 만든 식별자를 그 줄의 모든 단어에 붙인다.
   if (language !== 'ja' && language !== 'zh-Hans' && language !== 'zh-Hant') {
-    return perLine.flatMap((words) => words!)
+    return perLine.flatMap((words) => {
+      const lineId = Math.random().toString(36).slice(2)
+      return words!.map((w) => ({ ...w, lineId }))
+    })
   }
   const texts = perLine.map((words) => words!.map((w) => w.text).join(''))
   // 세로쓰기에서만 대시(―) 보정을 시도한다 — 가로쓰기 폴백 경로는 이 문제 대상이 아니다.
@@ -474,7 +480,11 @@ async function recognizeOrderedLines(
     )
   }
   const grouped = await Promise.all(
-    orderedLines.map((line, i) => groupCjkCharsGrid(line, finalTexts[i]!, language, vertical, typicalCellSize)),
+    orderedLines.map(async (line, i) => {
+      const lineId = Math.random().toString(36).slice(2)
+      const words = await groupCjkCharsGrid(line, finalTexts[i]!, language, vertical, typicalCellSize)
+      return words.map((w) => ({ ...w, lineId }))
+    }),
   )
   return grouped.flat()
 }

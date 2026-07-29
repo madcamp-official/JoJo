@@ -32,7 +32,7 @@ export async function runSelectionPipeline(point: {
   const extracted = await getExtraction()
 
   const word = findWordAtPoint(extracted.words, point)
-  const anchor = word ? findWordSpan(extracted.words, extracted.words.indexOf(word)) : { start: 0, end: 0 }
+  const anchor = word ? findLineSpan(extracted.words, extracted.words.indexOf(word)) : { start: 0, end: 0 }
 
   return {
     text: extracted.text,
@@ -61,4 +61,25 @@ function findWordSpan(words: Word[], targetIdx: number): { start: number; end: n
   let start = 0
   for (let i = 0; i < targetIdx; i++) start += words[i]!.text.length
   return { start, end: start + words[targetIdx]!.text.length }
+}
+
+/**
+ * words[targetIdx] 가 속한 줄(같은 lineId, ocrNdlocr.ts/ocrPaddle.ts/ocr.ts 가 각 줄
+ * 단위로 붙여둔 식별자) 전체가 extracted.text 안에서 차지하는 [start, end) 오프셋을
+ * 찾는다 — 단어 하나가 아니라 줄 전체를 팝업 초기 선택으로 삼기로 한 결정(2026-07-28).
+ * 같은 줄의 단어들은 항상 words 배열에서 연속 구간을 이룬다(줄 단위로 만들어져
+ * 이어붙여지므로) — findWordSpan 과 같은 누적 길이 방식을 그 구간 전체에 적용한다.
+ * lineId 가 없으면(direct 추출 등 줄 정보를 안 주는 경로) 단어 하나만의 범위로 폴백한다.
+ */
+function findLineSpan(words: Word[], targetIdx: number): { start: number; end: number } {
+  if (targetIdx < 0 || targetIdx >= words.length) return { start: 0, end: 0 }
+  const lineId = words[targetIdx]!.lineId
+  if (!lineId) return findWordSpan(words, targetIdx)
+  let first = targetIdx
+  while (first > 0 && words[first - 1]!.lineId === lineId) first--
+  let last = targetIdx
+  while (last < words.length - 1 && words[last + 1]!.lineId === lineId) last++
+  const { start } = findWordSpan(words, first)
+  const { end } = findWordSpan(words, last)
+  return { start, end }
 }

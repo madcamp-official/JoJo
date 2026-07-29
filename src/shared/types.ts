@@ -34,6 +34,11 @@ export interface Rect {
 export interface Word {
   text: string
   bbox?: Rect
+  /** 같은 줄(세로쓰기 한 열/가로쓰기 한 줄)에 속한 단어들을 묶는 식별자 — 줄 단위
+   * hover/클릭 선택(wordMapping.ts: findLineWordsAtPoint, selection/index.ts: findLineSpan)
+   * 에 쓰인다. 추출 경로가 줄 정보를 안 주면(예: direct 추출) 비어있을 수 있고, 그 경우
+   * 해당 단어 하나만의 범위로 폴백한다. */
+  lineId?: string
 }
 
 export type SourceKind =

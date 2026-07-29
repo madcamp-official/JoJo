@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppMode, Rect, Word } from '@shared/types'
-import { findWordAtPoint } from '@shared/wordMapping'
+import { findLineWordsAtPoint, unionBbox } from '@shared/wordMapping'
 
 // 오버레이 (PLAN.md §4.1) — 담당 A
 // 선택된 창과 정확히 같은 자리에 정렬되는 투명·클릭스루 창. 테두리 색으로 현재 모드를
@@ -30,7 +30,12 @@ function normalizeRect(a: { x: number; y: number }, b: { x: number; y: number })
 export function Overlay() {
   const [mode, setMode] = useState<AppMode>('normal')
   const [words, setWords] = useState<Word[]>([])
-  const [hovered, setHovered] = useState<Word | null>(null)
+  // 단어 단위가 아니라 줄(세로쓰기 한 열/가로쓰기 한 줄) 단위로 hover/선택하기로
+  // 결정(2026-07-28) — hover 는 커서 아래 단어가 속한 줄 전체(findLineWordsAtPoint)를
+  // 담고, 화면에 그리는 박스는 그 줄 전체를 감싸는 bbox(unionBbox)를 쓴다. 클릭 시
+  // 팝업의 초기 선택 범위도 메인 프로세스(selection/index.ts: findLineSpan)가 같은
+  // 방식으로 줄 전체를 anchor 로 잡는다.
+  const [hoveredLine, setHoveredLine] = useState<Word[]>([])
   const [resolving, setResolving] = useState(false)
   // 선택 모드 진입 시 메인이 백그라운드로 캡처+OCR 을 시작한다(extractionCache.ts:
   // refreshExtractionCache, shortcut.ts 가 모드 전환 즉시 호출) — 그 사이(1~3초) 동안
@@ -65,7 +70,7 @@ export function Overlay() {
     () =>
       window.nuance.onExtractionWords((w) => {
         setWords(w)
-        setHovered(null) // 새 단어 목록엔 이전 hover 대상과 같은 객체가 없어서, 안 지우면 낡은 위치의 박스가 남는다
+        setHoveredLine([]) // 새 단어 목록엔 이전 hover 대상과 같은 객체가 없어서, 안 지우면 낡은 위치의 박스가 남는다
         setExtracting(false)
       }),
     [],
@@ -90,7 +95,7 @@ export function Overlay() {
         setNeedsRegion(true)
         setExtracting(false)
         setWords([])
-        setHovered(null)
+        setHoveredLine([])
         setDragStart(null)
         setDragCurrent(null)
       }),
@@ -112,7 +117,7 @@ export function Overlay() {
       setExtracting(true) // onRegionSelectionNeeded 가 뒤이어 오면 바로 false 로 정정됨
     } else {
       setWords([])
-      setHovered(null)
+      setHoveredLine([])
       setExtracting(false)
       setNeedsRegion(false)
       setDragStart(null)
@@ -126,17 +131,17 @@ export function Overlay() {
   useEffect(() => {
     if (mode !== 'select' || needsRegion) return
     function onMouseMove(e: MouseEvent) {
-      setHovered(findWordAtPoint(words, { x: e.clientX, y: e.clientY }))
+      setHoveredLine(findLineWordsAtPoint(words, { x: e.clientX, y: e.clientY }))
     }
     window.addEventListener('mousemove', onMouseMove)
     return () => window.removeEventListener('mousemove', onMouseMove)
   }, [mode, words, needsRegion])
 
-  // 실제 단어 bbox 위에 있는 동안만, 또는 영역을 드래그로 그리는 동안은 통째로
+  // 실제 줄 bbox 위에 있는 동안만, 또는 영역을 드래그로 그리는 동안은 통째로
   // 클릭스루를 꺼서(windows.ts: setOverlayInteractive) 오버레이가 입력을 받게 한다.
   useEffect(() => {
-    window.nuance.setOverlayInteractive(needsRegion || hovered !== null)
-  }, [needsRegion, hovered])
+    window.nuance.setOverlayInteractive(needsRegion || hoveredLine.length > 0)
+  }, [needsRegion, hoveredLine])
 
   async function onOverlayClick(e: React.MouseEvent) {
     if (justSubmittedRegionRef.current) {
@@ -177,28 +182,34 @@ export function Overlay() {
   }
 
   const dragRect = dragStart && dragCurrent ? normalizeRect(dragStart, dragCurrent) : null
+  const hoveredBox = unionBbox(hoveredLine)
 
   return (
     <div
-      className={`overlay-root mode-${mode}${hovered ? ' hovering-word' : ''}`}
+      className={`overlay-root mode-${mode}${hoveredBox ? ' hovering-word' : ''}`}
       onClick={onOverlayClick}
       onMouseDown={onRootMouseDown}
       onMouseMove={onRootMouseMove}
       onMouseUp={onRootMouseUp}
     >
-      {hovered?.bbox && (
+      {hoveredBox && (
         <div
           className="word-box"
           style={{
-            // hover 판정(findWordAtPoint)은 bbox 원본 그대로 정확하게 쓰고, 화면에
-            // 그리는 박스만 좌우에 살짝 여백을 둔다 — bbox 좌우 경계가 글자 획(왼쪽:
-            // L/T/I 처럼 세로획이 끝에 붙은 글자, 오른쪽: 문장부호를 제외하고 나면
-            // 마지막 글자의 잉크 픽셀 끝에 딱 붙음, ocr.ts: splitWordBySymbols)에
-            // 딱 붙어 있어서 그대로 그리면 테두리가 글자와 겹쳐 보인다.
-            left: hovered.bbox.x - WORD_BOX_PADDING,
-            top: hovered.bbox.y,
-            width: hovered.bbox.width + WORD_BOX_PADDING * 2,
-            height: hovered.bbox.height,
+            // hover 판정(findLineWordsAtPoint)은 그 줄에 속한 단어들의 bbox 합집합을
+            // 그대로 쓰고, 화면에 그리는 박스만 사방에 살짝 여백을 둔다 — bbox 좌우
+            // 경계가 글자 획(왼쪽: L/T/I 처럼 세로획이 끝에 붙은 글자, 오른쪽: 문장부호를
+            // 제외하고 나면 마지막 글자의 잉크 픽셀 끝에 딱 붙음, ocr.ts:
+            // splitWordBySymbols)에 딱 붙어 있어서 그대로 그리면 테두리가 글자와 겹쳐
+            // 보인다. 세로쓰기는 줄 끝(아래쪽)의 문장부호가 bbox 없이 제외되면서
+            // (groupCjkCharsGrid: bbox 없는 "gap 글자") 그 앞 실제 글자의 bbox 가 문장부호
+            // 자리 바로 앞에서 끝나 아래쪽 테두리가 마지막 글자와 겹쳐 보이는 문제가
+            // 사용자 실측으로 확인됨 — 위쪽 테두리도 같은 이유로 살짝 겹쳐 보일 수 있어
+            // (사용자 요청) 위/아래 둘 다 여백을 준다.
+            left: hoveredBox.x - WORD_BOX_PADDING,
+            top: hoveredBox.y - WORD_BOX_PADDING,
+            width: hoveredBox.width + WORD_BOX_PADDING * 2,
+            height: hoveredBox.height + WORD_BOX_PADDING * 2,
           }}
         />
       )}
