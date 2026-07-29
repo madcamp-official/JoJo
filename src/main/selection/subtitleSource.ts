@@ -1,5 +1,5 @@
 import type { ExtractedSelection, Language } from '@shared/types'
-import { endsWithSentenceEnder } from '@shared/context'
+import { byteLength, endsWithSentenceEnder } from '@shared/context'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
 import { createPopupWindow, sendOverlayWords } from '../windows'
@@ -176,5 +176,11 @@ function anchorInTranscript(
   }
   const start = offsets[idx] + Math.min(inCue, cueText.length)
   const end = Math.min(start + wordText.length, offsets[idx] + cueText.length)
+  // 진단(임시, 2026-07-29): "설정한 바이트만큼 앞뒤 문맥이 안 뜬다" 재현 원인 특정용 —
+  // full 자체가 짧은 건지(영상 초반이라 실제로 자막이 얼마 없음), idx/currentTime 매칭이
+  // 잘못돼 앞뒤에 있는 자막을 못 쓰는 건지 구분한다.
+  console.log(
+    `[subtitleSource] anchorInTranscript cues=${cues.length} idx=${idx} currentTime=${currentTime.toFixed(1)} full.length=${full.length} start=${start} end=${end} beforeBytes=${byteLength(full.slice(0, start))} afterBytes=${byteLength(full.slice(end))}`,
+  )
   return { text: full, start, end }
 }
