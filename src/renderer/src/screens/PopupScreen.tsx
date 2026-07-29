@@ -346,7 +346,7 @@ export function PopupScreen() {
         <section className="context">
           <div className="ctx-head">
             <span className="ctx-label">범위 지정</span>
-            <span className="ctx-hint">드래그로 범위를 다시 지정할 수 있어요 · 선택한 표현은 자동으로 클립보드에 복사돼요</span>
+            <span className="ctx-hint">선택한 표현은 자동으로 클립보드에 복사돼요</span>
           </div>
           <ContextView
             rootRef={ctxRootRef}
