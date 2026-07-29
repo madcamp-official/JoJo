@@ -61,7 +61,7 @@ button:disabled { cursor: not-allowed; }
      CSS `corner-shape`를 아직 지원 안 함, 2024년 W3C 초안 단계), 최신 macOS Tahoe(26)는
      창 종류별로 반지름 자체가 달라지는(툴바 有無) 것으로 재설계됨 — 이 앱의 대상
      버전(Sonoma 등)에선 10px 원호가 실제 곡률에 가장 가까운 근사치다. */
-     **OS 별 두께(2026-07-29)**: 원래 3px 를 mac/Windows 가 공유했는데, 같은 값이라도
+  /* **OS 별 두께(2026-07-29)**: 원래 3px 를 mac/Windows 가 공유했는데, 같은 값이라도
      Windows 쪽이 유독 얇아 보인다는 사용자 피드백으로 분리 — 기본값(Windows/Linux)은
      기존의 1.5배(3px→4.5px), mac 은 기존 3px 그대로 유지(.is-mac). --overlay-radius
      와 같은 이유로 변수 하나(--overlay-border-width)로 묶어 .region-border-topcoat 도
