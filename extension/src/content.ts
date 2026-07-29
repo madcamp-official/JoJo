@@ -243,6 +243,9 @@ function stopCapture(): void {
 
 chrome.runtime.onMessage.addListener((msg: FromBackground, _sender, sendResponse) => {
   if (msg?.kind === 'setCapture') {
+    // 진단(임시, 2026-07-29): "새로고침 안 하고 열어둔 창 선택+선택 모드 진입 시 hover
+    // 박스 안 뜸" 재현 원인 특정용 — 원인 확정되면 제거.
+    console.log(`[nuance content] setCapture 메시지 수신: active=${msg.active} (isNetflixWatch=${isNetflixWatch()} isYoutubeWatch=${isYoutubeWatch()})`)
     if (msg.active) startCapture()
     else stopCapture()
   } else if (msg?.kind === 'setPlayback') {

@@ -1,5 +1,5 @@
 import type { ExtractedSelection, Language } from '@shared/types'
-import { endsWithSentenceEnder, hasSentenceEnder } from '@shared/context'
+import { endsWithSentenceEnder } from '@shared/context'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
 import { createPopupWindow, sendOverlayWords } from '../windows'
@@ -135,17 +135,23 @@ function anchorInTranscript(
   // 걸쳐 나뉘는 경우가 흔해서(줄바꿈 위치가 문장 경계와 무관), 매 cue 뒤에 무조건 줄바꿈을
   // 넣으면 한 문장이 팝업에서 여러 줄로 쪼개져 보인다 — 직전 cue 가 문장 종결부호로 끝날
   // 때만 줄바꿈(새 문단)을 넣고, 그렇지 않으면 공백으로 이어 자연스럽게 흐르게 한다.
-  // 단, 자막 전체에 문장부호가 아예 없으면(구두점 없는 자동 생성 자막 등) 이 판단 자체가
-  // 불가능해 전체가 공백으로만 계속 이어붙는 문제가 있었다 — 그럴 땐 문장 경계 판단을
-  // 포기하고 원래대로 cue(화면 줄) 단위로 줄바꿈한다.
-  const anyPunctuation = cues.some((c) => hasSentenceEnder(c.text))
+  //
+  // 이 판단은 "문장부호가 하나라도 있는가"가 아니라 **비율**로 한다 — 넷플릭스 대사
+  // 자막처럼 거의 모든 cue 에 문장부호가 없고 가끔 "…" 정도만 섞여 있으면(실측, 2026-07-29)
+  // "하나라도 있으면"이라는 기준은 문장부호 판단을 쓰기로 결정해버려서, 문장부호 없는
+  // 절대다수 cue 들이 전부 공백으로만 이어붙어 문단 하나가 되는 문제가 있었다. cue의
+  // 상당수가 실제로 문장부호로 끝날 때만(=진짜 "구두점 있는 자막") 그 기준을 쓰고,
+  // 그렇지 않으면(대부분 구두점 없는 대사 단위 자막) cue(화면 줄/대사) 단위로 줄바꿈한다.
+  const PUNCTUATED_RATIO_THRESHOLD = 0.3
+  const punctuatedCount = cues.filter((c) => endsWithSentenceEnder(c.text)).length
+  const looksPunctuated = punctuatedCount / cues.length >= PUNCTUATED_RATIO_THRESHOLD
   const offsets: number[] = []
   let full = ''
   for (let i = 0; i < cues.length; i++) {
     offsets[i] = full.length
     full += cues[i].text
     if (i < cues.length - 1) {
-      const breakHere = !anyPunctuation || endsWithSentenceEnder(cues[i].text)
+      const breakHere = !looksPunctuated || endsWithSentenceEnder(cues[i].text)
       full += breakHere ? '\n' : ' '
     }
   }

@@ -131,7 +131,7 @@ export function parseTtml(text: string): TranscriptCue[] {
   for (const p of Array.from(doc.getElementsByTagName('p'))) {
     const start = parseTtmlTime(p.getAttribute('begin'), tickRate)
     if (start === null) continue
-    const cueText = (p.textContent ?? '').replace(/\s+/g, ' ').trim()
+    const cueText = cleanCaptionText(p.textContent ?? '')
     if (!cueText) continue
     cues.push({ start, text: cueText })
   }
@@ -168,6 +168,30 @@ export function parseAnyCaptionPayload(text: string): TranscriptCue[] {
   return parseXml(text)
 }
 
+// WebVTT/TTML 자막 텍스트 정리 — 태그 제거, WebVTT가 쓰는 HTML 엔티티 디코드, 방향 제어
+// 문자 제거. 넷플릭스 자막은 `&lrm;`(LEFT-TO-RIGHT MARK) 같은 엔티티를 그대로 담아 보내서,
+// 디코드를 안 하면 팝업에 "&lrm;"이 문자 그대로 노출된다(2026-07-29 실측).
+const HTML_ENTITIES: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&apos;': "'",
+  '&nbsp;': ' ',
+  '&lrm;': '', // U+200E LEFT-TO-RIGHT MARK — 화면엔 안 보이는 방향 제어라 제거
+  '&rlm;': '', // U+200F RIGHT-TO-LEFT MARK — 동일
+}
+function cleanCaptionText(raw: string): string {
+  return raw
+    .replace(/<[^>]+>/g, '') // <i>, <c.xxx>, <b> 등 서식 태그
+    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&[a-z]+;/gi, (e) => HTML_ENTITIES[e.toLowerCase()] ?? e)
+    .replace(/[‎‏‪-‮]/g, '') // 방향 제어 문자(엔티티가 아닌 실제 문자로 온 경우)
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // 넷플릭스 자막(webvtt-lssdh-ios8 프로파일) 파서. 표준 WebVTT — cue 타임코드 줄 다음에
 // 오는 빈 줄 전까지를 cue 텍스트로 본다. 화면 태그(<i>, <c.xxx> 등)와 위치 지정 cue
 // setting은 무시하고 텍스트만 취한다. 타임코드는 HH:MM:SS.mmm 과 MM:SS.mmm(시간 생략) 둘 다 허용.
@@ -190,11 +214,7 @@ export function parseWebVtt(text: string): TranscriptCue[] {
       textLines.push(lines[i]!)
       i += 1
     }
-    const cueText = textLines
-      .join(' ')
-      .replace(/<[^>]+>/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
+    const cueText = cleanCaptionText(textLines.join(' '))
     if (cueText) cues.push({ start, text: cueText })
   }
   return cues

@@ -110,6 +110,20 @@ async function relayWordSegments(lineText: string, words: { start: number; end: 
 // devtools 자신이 돼버려 매칭되는 탭이 없다고(null) 잘못 판정된다 — 그러면 앱이 브라우저를
 // 놓쳤다고 보고 OCR로 폴백해 영역 선택을 요구하는 등 엉뚱하게 튄다.
 async function activeNormalTab(): Promise<chrome.tabs.Tab | undefined> {
+  // `chrome.tabs.query({active:true, windowType:'normal'})`만 쓰면 일반 창이 여러 개 열려
+  // 있을 때 "창마다 활성 탭 하나씩" 여러 개를 반환하는데, 구조분해로 첫 번째만 취해서 —
+  // 그게 우리가 원하는 창(예: 넷플릭스 탭이 있는 창)이 아니면 캡처가 엉뚱한 탭으로 간다
+  // (실사용 제보: 이미 열어둔 탭을 새로고침 없이 선택 모드 진입 시 hover 박스 안 뜸,
+  // 2026-07-29). 마지막으로 포커스된 일반 창을 먼저 특정해 그 창 안의 활성 탭만 본다.
+  try {
+    const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] })
+    if (win.id !== undefined) {
+      const [tab] = await chrome.tabs.query({ active: true, windowId: win.id })
+      if (tab) return tab
+    }
+  } catch {
+    /* getLastFocused 실패(해당 창 없음 등) — 아래 폴백으로 */
+  }
   const [tab] = await chrome.tabs.query({ active: true, windowType: 'normal' })
   return tab
 }
