@@ -69,8 +69,12 @@ class ActiveTabTracker extends EventEmitter<Events> {
     // OCR 여부 결정은 그대로라 재판정하지 않는다(자막 내용은 content script 가 알아서 갱신).
     const changed = classKey(this.current) !== classKey(next)
     this.current = next
-    console.log('[activeTab]', next ? `${next.source.kind} media=${next.isMedia} ${next.source.url}` : 'null')
-    if (changed) this.emit('change', next)
+    // 탭/URL 은 포커스 전환·SPA 네비게이션마다 자주 바뀌지만, 재판정에 영향을 주는 "분류"가
+    // 실제로 바뀔 때만 로그를 남긴다(매번 찍으면 브라우징 중 로그가 너무 시끄러워진다).
+    if (changed) {
+      console.log('[activeTab]', next ? `${next.source.kind} media=${next.isMedia} ${next.source.url}` : 'null')
+      this.emit('change', next)
+    }
   }
 
   get(): BrowserSource | null {
