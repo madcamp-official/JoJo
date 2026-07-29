@@ -233,6 +233,21 @@ export function onWindowResized(cb: () => void): void {
   resizeListeners.add(cb)
 }
 
+const windowGoneListeners = new Set<() => void>()
+
+/** 선택 중이던 대상 창이 실제로 닫혔을 때(최소화가 아니라 진짜 파괴) 통지받는다 —
+ *  tray.ts 가 여기 등록해 선택을 자동 해제한다(2026-07-29, 사용자 요청 — 선택하던 창을
+ *  닫아도 선택이 계속 남아있어 오버레이가 사라진 채로 트레이 메뉴엔 "선택 해제"만
+ *  남아있는 상태가 됐었음). windows.ts 는 트레이/선택 상태를 몰라도 되도록 콜백
+ *  등록 방식만 제공하고, 실제 "선택 해제" 동작은 호출부(tray.ts)가 정한다. */
+export function onTargetWindowGone(cb: () => void): void {
+  windowGoneListeners.add(cb)
+}
+
+function notifyTargetWindowGone(): void {
+  for (const cb of windowGoneListeners) cb()
+}
+
 // 물리→DIP 변환(physicalToDipRect)은 좌상단/우하단 두 점을 각각 반올림해서 폭을 구하므로,
 // 창 크기는 그대로인데 위치만 바뀌어도 반올림 나머지가 달라져 계산된 DIP 폭/높이가 ±1px
 // 흔들릴 수 있다 — 실사용 중 "창을 옮기기만 했는데 리사이즈로 인식됨"으로 확인됨. 진짜
@@ -372,7 +387,8 @@ function syncOverlayZOrder(mod: typeof Win32Capture, hwnd: bigint): void {
  */
 export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
   const mod = win32CaptureMod ?? (win32CaptureMod = await import('./selection/win32Capture'))
-  const { getWindowScreenRect, isWindowMaximized, onWindowForegroundChanged, onWindowLocationChanged } = mod
+  const { getWindowScreenRect, isWin32WindowAlive, isWindowMaximized, onWindowForegroundChanged, onWindowLocationChanged } =
+    mod
 
   trackedHwnd = hwnd
   applyOverlayBounds(getWindowScreenRect(hwnd), isWindowMaximized(hwnd))
@@ -408,6 +424,14 @@ export async function trackSelectionOverlay(hwnd: bigint): Promise<void> {
   if (trackTimer) clearInterval(trackTimer)
   trackTimer = setInterval(() => {
     if (trackedHwnd === null) return
+    // getWindowScreenRect 는 최소화된 창도 null 을 반환해서(IsIconic 조기 반환) 그것만으로는
+    // "최소화됨"과 "창이 진짜로 닫힘"을 구분할 수 없다 — IsWindow 로 핸들 자체의 생존
+    // 여부를 따로 확인해, 진짜로 닫혔을 때만 선택을 자동 해제한다(최소화는 선택 유지).
+    if (!isWin32WindowAlive(trackedHwnd)) {
+      hideSelectionOverlay()
+      notifyTargetWindowGone()
+      return
+    }
     applyOverlayBounds(getWindowScreenRect(trackedHwnd), isWindowMaximized(trackedHwnd))
     // 탭 전환처럼 같은 창(hwnd) 안에서 내부적으로 다시 그려지는 경우는 포그라운드
     // 전환 이벤트가 안 떠서(창 자체는 안 바뀌니까) syncOverlayZOrder 가 그 순간에
@@ -479,6 +503,12 @@ export async function showMacSelectionOverlay(windowId: number): Promise<void> {
 
   if (trackTimer) clearInterval(trackTimer)
   let tick = 0
+  // getMacWindowBounds 는 CGWindowListCopyWindowInfo 에 kCGWindowListOptionIncludingWindow
+  // 만 줘서(onScreenOnly 없음) 최소화된 창도 여전히 잡힌다 — null 이 반복되면 "가려짐"이
+  // 아니라 "창이 진짜로 닫힘"으로 볼 수 있다. 다만 CG 호출이 순간적으로 실패할 수도
+  // 있어(실측은 아님, 방어적으로) 몇 틱 연속으로 null 일 때만 확정한다.
+  let missingBoundsStreak = 0
+  const MAC_GONE_STREAK_THRESHOLD = 15 // 16ms * 15 ≈ 240ms
   trackTimer = setInterval(() => {
     if (trackedMacWindowId === null) return
     if (tick % MAC_OCCLUSION_EVERY === 0) {
@@ -490,8 +520,17 @@ export async function showMacSelectionOverlay(windowId: number): Promise<void> {
       return
     }
     const b = getMacWindowBounds(trackedMacWindowId)
-    if (b) showMacOverlayAt(b)
-    else hideMacOverlay()
+    if (b) {
+      missingBoundsStreak = 0
+      showMacOverlayAt(b)
+      return
+    }
+    hideMacOverlay()
+    missingBoundsStreak++
+    if (missingBoundsStreak >= MAC_GONE_STREAK_THRESHOLD) {
+      hideSelectionOverlay()
+      notifyTargetWindowGone()
+    }
   }, MAC_TRACK_INTERVAL_MS)
 }
 

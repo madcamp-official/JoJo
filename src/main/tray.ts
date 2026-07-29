@@ -8,6 +8,7 @@ import {
   getMainWindow,
   hideSelectionOverlay,
   navigateMainWindow,
+  onTargetWindowGone,
   openSettingsWindow,
   resolveIconPath,
 } from './windows'
@@ -75,6 +76,11 @@ export function createTray(): Tray {
   const showMenu = () => tray?.popUpContextMenu(buildTrayMenu())
   tray.on('click', showMenu)
   tray.on('right-click', showMenu)
+
+  // 선택하던 창이 닫히면(최소화 아님 — windows.ts 참고) 선택을 자동 해제한다(2026-07-29,
+  // 사용자 요청) — 안 그러면 오버레이는 사라졌는데 트레이 메뉴엔 "선택 해제"만 남아있는
+  // 상태로 굳어버렸다. 수동 "선택 해제"와 동일한 동작(메인 창으로 복귀)을 그대로 재사용.
+  onTargetWindowGone(deselectWindow)
 
   return tray
 }

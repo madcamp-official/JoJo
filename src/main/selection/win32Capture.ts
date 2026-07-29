@@ -24,6 +24,11 @@ const EnumWindows = user32.func(
 const IsWindowVisible = user32.func('int __stdcall IsWindowVisible(void *hwnd)')
 const IsIconic = user32.func('int __stdcall IsIconic(void *hwnd)')
 const IsZoomed = user32.func('int __stdcall IsZoomed(void *hwnd)')
+// IsIconic(최소화 여부)와 달리 핸들 자체가 아직 유효한지(창이 파괴되지 않았는지)만
+// 본다 — getWindowScreenRect 는 최소화된 창도 null 을 반환해서(IsIconic 조기 반환)
+// "최소화됨"과 "창이 완전히 닫힘"을 구분 못 한다. 선택된 창이 실제로 닫혔을 때만
+// 선택을 자동 해제하기 위한 구분용(windows.ts trackSelectionOverlay 참고).
+const IsWindow = user32.func('int __stdcall IsWindow(void *hwnd)')
 const GetWindow = user32.func('void * __stdcall GetWindow(void *hwnd, uint32_t uCmd)')
 const GetWindowLongPtrW = user32.func(
   'intptr_t __stdcall GetWindowLongPtrW(void *hwnd, int32_t nIndex)',
@@ -301,6 +306,11 @@ export function getWindowScreenRect(
  */
 export function isWindowMaximized(hwnd: bigint): boolean {
   return !!IsZoomed(hwnd)
+}
+
+/** 창 핸들이 아직 유효한지(창이 파괴되지 않았는지) — 최소화 여부와 무관하다. */
+export function isWin32WindowAlive(hwnd: bigint): boolean {
+  return !!IsWindow(hwnd)
 }
 
 /**
