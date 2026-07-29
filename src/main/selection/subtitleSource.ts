@@ -1,4 +1,5 @@
 import type { ExtractedSelection, Language } from '@shared/types'
+import { endsWithSentenceEnder } from '@shared/context'
 import { extensionBridge } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
 import { createPopupWindow, sendOverlayWords } from '../windows'
@@ -119,13 +120,16 @@ function anchorInTranscript(
   wordText: string,
   wordOffsetInLine: number,
 ): { text: string; start: number; end: number } | null {
-  // 각 cue 를 줄바꿈으로 이어 붙이며 시작 offset 을 기록.
+  // 각 cue 를 이어 붙이며 시작 offset 을 기록한다. 자막은 한 문장이 여러 cue(화면 줄)에
+  // 걸쳐 나뉘는 경우가 흔해서(줄바꿈 위치가 문장 경계와 무관), 매 cue 뒤에 무조건 줄바꿈을
+  // 넣으면 한 문장이 팝업에서 여러 줄로 쪼개져 보인다 — 직전 cue 가 문장 종결부호로 끝날
+  // 때만 줄바꿈(새 문단)을 넣고, 그렇지 않으면 공백으로 이어 자연스럽게 흐르게 한다.
   const offsets: number[] = []
   let full = ''
   for (let i = 0; i < cues.length; i++) {
     offsets[i] = full.length
     full += cues[i].text
-    if (i < cues.length - 1) full += '\n'
+    if (i < cues.length - 1) full += endsWithSentenceEnder(cues[i].text) ? '\n' : ' '
   }
 
   // 현재 재생 시각이 속한(또는 직전) cue.
