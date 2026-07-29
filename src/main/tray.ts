@@ -17,6 +17,7 @@ import {
   onTargetWindowGone,
   openSettingsWindow,
   resolveIconPath,
+  resolveMacTrayIconPath,
 } from './windows'
 
 // 담당 A — 백그라운드 실행 + 트레이 아이콘 (PLAN.md §4)
@@ -104,9 +105,12 @@ export function createTray(): Tray {
   if (tray) return tray
 
   // macOS 메뉴바 표준 높이는 22pt(레티나 44px)라 Windows와 같은 32px로 리사이즈하면
-  // 비균등 스케일링이 걸려 아이콘이 가로로 길쭉하게 보인다.
-  const iconSize = process.platform === 'darwin' ? 22 : 32
-  const icon = nativeImage.createFromPath(resolveIconPath()).resize({ width: iconSize, height: iconSize })
+  // 비균등 스케일링이 걸려 아이콘이 가로로 길쭉하게 보인다. macOS에서는 배경을 검정,
+  // 글자를 흰색으로 바꾼 전용 자산을 써서 라이트/다크 메뉴바 어디서나 또렷하게 보이게 한다.
+  const isMac = process.platform === 'darwin'
+  const iconPath = isMac ? resolveMacTrayIconPath() : resolveIconPath()
+  const iconSize = isMac ? 22 : 32
+  const icon = nativeImage.createFromPath(iconPath).resize({ width: iconSize, height: iconSize })
   tray = new Tray(icon)
   tray.setToolTip('Nuance')
 

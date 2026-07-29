@@ -21,6 +21,11 @@ export function resolveIconPath(): string {
   return join(__dirname, '../../build/icon.png')
 }
 
+// macOS 메뉴바 트레이 전용 — 보라 배경을 검정으로, 글자를 흰색으로 바꾼 고정 배색 아이콘.
+export function resolveMacTrayIconPath(): string {
+  return join(__dirname, '../../build/icon-tray-mac.png')
+}
+
 function loadRoute(win: BrowserWindow, route: string, query?: string) {
   const hash = query ? `${route}?${query}` : route
   if (process.env['ELECTRON_RENDERER_URL']) {

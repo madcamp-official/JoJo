@@ -18,6 +18,7 @@ out/
 # 안 먹힌다).
 build/*
 !build/icon.png
+!build/icon-tray-mac.png
 
 # 환경 변수 / 시크릿
 .env
