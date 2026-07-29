@@ -151,6 +151,34 @@ export function getMacWindowBounds(windowId: number): MacWindowRect | null {
   return getWindowInfo(windowId)?.bounds ?? null
 }
 
+/**
+ * windowId 가 지금 최소화되지 않고 화면에 보이는 상태인지 확인한다 — win32 의
+ * `IsIconic`(win32Capture.ts) 에 대응. `getMacWindowBounds`(kCGWindowListOptionIncludingWindow
+ * 만 사용)는 창이 최소화돼도 마지막 bounds 를 그대로 돌려주도록 의도돼 있어(닫힘 판정과
+ * 구분하려고) 그 값만으로는 최소화 여부를 알 수 없다 — `kCGWindowListOptionOnScreenOnly`
+ * 를 같이 줘서 조회하면 최소화된 창은 결과가 비어 온다(2026-07-29, 코드 감사로 발견한
+ * 격차 수정 — win32 는 최소화 시 오버레이를 숨기는데 mac 은 옛 위치에 그대로 떠 있었음).
+ */
+export function isMacWindowOnScreen(windowId: number): boolean {
+  if (!ensureCoreGraphics()) return true // 조회 자체가 안 되면 "보임"으로 낙관적 폴백(기존 getWindowInfo 와 동일한 실패 처리 기조)
+  let arr: unknown = null
+  try {
+    arr = CGWindowListCopyWindowInfo!(kCGWindowListOptionOnScreenOnly | kCGWindowListOptionIncludingWindow, windowId)
+    if (!arr) return false
+    return Number(CFArrayGetCount!(arr)) > 0
+  } catch {
+    return true
+  } finally {
+    if (arr) {
+      try {
+        CFRelease!(arr)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 /** dict 에서 int32 값 하나를 읽는다(CFNumber). */
 function readInt(dict: unknown, key: unknown): number | null {
   const num = CFDictionaryGetValue!(dict, key)

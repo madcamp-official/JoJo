@@ -524,9 +524,8 @@ let macOrderWindowFailed = false
  * 호출부(ipc.ts)에서 process.platform !== 'win32' 일 때만 부른다.
  */
 export async function showMacSelectionOverlay(windowId: number): Promise<void> {
-  const { raiseAndGetBounds, getMacWindowBounds, orderOverlayAboveWindow } = await import(
-    './selection/macWindow'
-  )
+  const { raiseAndGetBounds, getMacWindowBounds, isMacWindowOnScreen, orderOverlayAboveWindow } =
+    await import('./selection/macWindow')
 
   trackedMacWindowId = windowId
   const first = raiseAndGetBounds(windowId) // 앞으로 올리고 최초 bounds
@@ -547,12 +546,30 @@ export async function showMacSelectionOverlay(windowId: number): Promise<void> {
     const b = getMacWindowBounds(trackedMacWindowId)
     if (b) {
       missingBoundsStreak = 0
+      // win32(getWindowScreenRect)는 최소화된 창이면 null 을 줘서 오버레이를 숨기는데
+      // (applyOverlayBounds), mac 은 getMacWindowBounds 가 최소화돼도 마지막 bounds 를
+      // 그대로 주도록 의도돼 있어 그 값만으로는 최소화 여부를 몰라 옛 위치에 테두리가
+      // 계속 떠 있었다(2026-07-29, 코드 감사로 발견) — `isMacWindowOnScreen`으로 최소화
+      // 여부를 따로 확인해, 최소화 중엔 (닫힘 판정과는 무관하게) 오버레이만 숨긴다.
+      if (!isMacWindowOnScreen(trackedMacWindowId)) {
+        hideMacOverlay()
+        return
+      }
       showMacOverlayAt(b)
-      if (macOrderWindowFailed) {
-        overlayWindow?.setAlwaysOnTop(true, 'floating')
-      } else if (overlayWindow) {
-        const ok = orderOverlayAboveWindow(overlayWindow.getNativeWindowHandle(), trackedMacWindowId)
-        if (!ok) macOrderWindowFailed = true
+      // showMacOverlayAt 이 방금 전체화면 판정으로 오버레이를 숨겼을 수 있다(hideMacOverlay,
+      // overlayVisible=false) — 그 상태에서 `-orderWindow:relativeTo:`(orderOverlayAboveWindow)
+      // 를 불러버리면, 이게 mac 에서는 z-order 조작이 아니라 실제 "보이기/순서 배치" 그
+      // 자체라 숨긴 창이 다시 나타나버린다(win32 의 SetWindowPos 와 달리 순수 z-order 전용
+      // API 가 아님). win32 의 syncOverlayZOrder 가 `overlayVisible` 를 확인하고 건너뛰는
+      // 것과 동일한 이유로, 여기도 보이는 상태일 때만 z-order/alwaysOnTop 을 건드린다
+      // (2026-07-29, 코드 감사로 발견 — 전체화면 숨김 수정을 무력화할 뻔한 버그).
+      if (overlayVisible) {
+        if (macOrderWindowFailed) {
+          overlayWindow?.setAlwaysOnTop(true, 'floating')
+        } else if (overlayWindow) {
+          const ok = orderOverlayAboveWindow(overlayWindow.getNativeWindowHandle(), trackedMacWindowId)
+          if (!ok) macOrderWindowFailed = true
+        }
       }
       return
     }
