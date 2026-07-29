@@ -98,13 +98,55 @@ function parseSrv1Xml(doc: Document): TranscriptCue[] {
   return cues
 }
 
+// TTML(dfxp) 타이밍 값 파싱 — tick("12345678t", ttp:tickRate 기준), 초("1.5s"),
+// 밀리초("1500ms"), 시계 표기("00:00:01.500")를 모두 받는다.
+function parseTtmlTime(v: string | null, tickRate: number): number | null {
+  if (!v) return null
+  const ticks = /^(\d+)t$/.exec(v)
+  if (ticks) return Number(ticks[1]) / tickRate
+  const secs = /^([\d.]+)s$/.exec(v)
+  if (secs) return Number(secs[1])
+  const ms = /^([\d.]+)ms$/.exec(v)
+  if (ms) return Number(ms[1]) / 1000
+  const clock = /^(\d+):(\d{2}):(\d{2})(?:[.,](\d+))?$/.exec(v)
+  if (clock) {
+    const frac = clock[4] ? Number(`0.${clock[4]}`) : 0
+    return Number(clock[1]) * 3600 + Number(clock[2]) * 60 + Number(clock[3]) + frac
+  }
+  return null
+}
+
+// 넷플릭스 자막 파일 포맷 — TTML(Timed Text Markup Language, 넷플릭스는 dfxp 프로파일 +
+// nttm: 자체 네임스페이스 확장). 타이밍은 보통 tick 단위(ttp:tickRate="10000000")로 온다.
+// <p begin="..." end="...">텍스트<br/>텍스트</p> 구조 — <br/>은 공백으로 바꿔 이어붙인다.
+export function parseTtml(text: string): TranscriptCue[] {
+  if (typeof DOMParser === 'undefined') return []
+  const doc = new DOMParser().parseFromString(text.replace(/<br\s*\/?>/gi, ' '), 'text/xml')
+  if (doc.getElementsByTagName('parsererror').length > 0) return []
+  const root = doc.documentElement
+  if (!root || root.localName !== 'tt') return []
+  const rawRate = root.getAttribute('ttp:tickRate') ?? root.getAttribute('tickRate')
+  const tickRate = Number(rawRate) || 10_000_000
+  const cues: TranscriptCue[] = []
+  for (const p of Array.from(doc.getElementsByTagName('p'))) {
+    const start = parseTtmlTime(p.getAttribute('begin'), tickRate)
+    if (start === null) continue
+    const cueText = (p.textContent ?? '').replace(/\s+/g, ' ').trim()
+    if (!cueText) continue
+    cues.push({ start, text: cueText })
+  }
+  return cues
+}
+
 function parseXml(text: string): TranscriptCue[] {
   if (typeof DOMParser === 'undefined') return [] // 안전망(서비스 워커 등 DOM 없는 컨텍스트)
   const doc = new DOMParser().parseFromString(text, 'text/xml')
   if (doc.getElementsByTagName('parsererror').length > 0) return []
   const srv3 = parseSrv3Xml(doc)
   if (srv3.length > 0) return srv3
-  return parseSrv1Xml(doc)
+  const srv1 = parseSrv1Xml(doc)
+  if (srv1.length > 0) return srv1
+  return parseTtml(text) // 넷플릭스 TTML(<p begin=...>) — srv3/srv1 과 태그가 겹쳐 마지막에 시도
 }
 
 // 어떤 포맷인지 모르는 캡처된 응답 본문(text)을 파싱한다. 유튜브 플레이어 자신의 실제
@@ -126,10 +168,10 @@ export function parseAnyCaptionPayload(text: string): TranscriptCue[] {
   return parseXml(text)
 }
 
-// 넷플릭스 자막(webvtt-lssdh-ios8 프로파일) 파서. 표준 WebVTT — cue 타임코드 줄
-// (HH:MM:SS.mmm --> HH:MM:SS.mmm) 다음에 오는 빈 줄 전까지를 cue 텍스트로 본다. 화면 태그
-// (<i>, <c.xxx> 등)와 위치 지정 cue setting은 무시하고 텍스트만 취한다.
-const VTT_TIME_RE = /^(\d{2,}):(\d{2}):(\d{2})[.,](\d{3})\s*-->/
+// 넷플릭스 자막(webvtt-lssdh-ios8 프로파일) 파서. 표준 WebVTT — cue 타임코드 줄 다음에
+// 오는 빈 줄 전까지를 cue 텍스트로 본다. 화면 태그(<i>, <c.xxx> 등)와 위치 지정 cue
+// setting은 무시하고 텍스트만 취한다. 타임코드는 HH:MM:SS.mmm 과 MM:SS.mmm(시간 생략) 둘 다 허용.
+const VTT_TIME_RE = /^(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{3})\s*-->/
 export function parseWebVtt(text: string): TranscriptCue[] {
   const lines = text.replace(/\r/g, '').split('\n')
   const cues: TranscriptCue[] = []
@@ -140,7 +182,8 @@ export function parseWebVtt(text: string): TranscriptCue[] {
       i += 1
       continue
     }
-    const start = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 1000
+    const hours = m[1] ? Number(m[1]) : 0
+    const start = hours * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 1000
     i += 1
     const textLines: string[] = []
     while (i < lines.length && lines[i]!.trim() !== '') {
