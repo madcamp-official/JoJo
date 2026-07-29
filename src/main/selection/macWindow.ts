@@ -57,6 +57,15 @@ let boundsKey: unknown = null // CFString "kCGWindowBounds" (재사용 위해 �
 let ownerPidKey: unknown = null // CFString "kCGWindowOwnerPID"
 let ownerNameKey: unknown = null // CFString "kCGWindowOwnerName"
 let numberKey: unknown = null // CFString "kCGWindowNumber"
+let layerKey: unknown = null // CFString "kCGWindowLayer"
+let nameKey: unknown = null // CFString "kCGWindowName"
+
+/** 오버레이 창에만 붙이는 표식 제목(windows.ts: ensureOverlayWindow 가 darwin 에서 setTitle
+ *  로 지정) — frame:false 라 화면엔 안 보이지만 CGWindowListCopyWindowInfo 의
+ *  kCGWindowName 으로는 조회된다. isMacWindowFrontmost 가 "다른 창에 가려졌는지" 판정할
+ *  때 오버레이 자신(메인/설정/팝업 등 우리 앱의 다른 창과 달리 이건 항상 제외해야 함)을
+ *  z-순서 목록에서 걸러내는 데 쓴다. */
+export const OVERLAY_MARKER_TITLE = '__nuance_overlay_border__'
 
 const kCGWindowListOptionIncludingWindow = 1 << 3
 const kCGWindowListOptionOnScreenOnly = 1 << 0
@@ -90,6 +99,8 @@ function ensureCoreGraphics(): boolean {
     ownerPidKey = CFStringCreateWithCString(null, 'kCGWindowOwnerPID', kCFStringEncodingUTF8)
     ownerNameKey = CFStringCreateWithCString(null, 'kCGWindowOwnerName', kCFStringEncodingUTF8)
     numberKey = CFStringCreateWithCString(null, 'kCGWindowNumber', kCFStringEncodingUTF8)
+    layerKey = CFStringCreateWithCString(null, 'kCGWindowLayer', kCFStringEncodingUTF8)
+    nameKey = CFStringCreateWithCString(null, 'kCGWindowName', kCFStringEncodingUTF8)
     return true
   } catch {
     cg = cf = null
@@ -192,6 +203,46 @@ export function listMacWindowOwnerNames(): Map<number, string> {
     return map
   } catch {
     return map
+  } finally {
+    if (arr) {
+      try {
+        CFRelease!(arr)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+/**
+ * windowId 가 지금 화면에서 가장 앞(맨 위)에 있는 "일반" 창인지 확인한다(2026-07-29,
+ * 오버레이가 선택된 창 바로 위에만 붙어있어야 한다는 요청 — 포커싱이 다른 창으로
+ * 넘어가면 테두리도 그 창에 가려져야 함). `CGWindowListCopyWindowInfo(OnScreenOnly)`
+ * 는 z-순서(앞→뒤)로 목록을 주는 성질을 그대로 이용해, kCGWindowLayer 가 0(메뉴바·독·
+ * 알림 등 시스템 레이어가 아닌 일반 앱 창)이고 오버레이 자신(`OVERLAY_MARKER_TITLE`)이
+ * 아닌 첫 항목의 windowId 가 대상과 같은지만 본다. 오버레이 자신은 메인/설정/팝업 같은
+ * 우리 앱의 다른 창과 달리 항상 제외해야 하는데(그 자리에 있는 게 당연하니), pid 로는
+ * 같은 프로세스의 다른 창들과 구분이 안 돼 제목 표식으로 구분한다. */
+export function isMacWindowFrontmost(windowId: number): boolean {
+  if (!ensureCoreGraphics()) return false
+  let arr: unknown = null
+  try {
+    arr = CGWindowListCopyWindowInfo!(kCGWindowListOptionOnScreenOnly, 0)
+    if (!arr) return false
+    const count = Number(CFArrayGetCount!(arr))
+    for (let i = 0; i < count; i++) {
+      const dict = CFArrayGetValueAtIndex!(arr, i)
+      if (!dict) continue
+      const layer = readInt(dict, layerKey)
+      if (layer !== 0) continue
+      const name = cfStringToJs(CFDictionaryGetValue!(dict, nameKey))
+      if (name === OVERLAY_MARKER_TITLE) continue
+      const wid = readInt(dict, numberKey)
+      return wid === windowId
+    }
+    return false
+  } catch {
+    return false
   } finally {
     if (arr) {
       try {

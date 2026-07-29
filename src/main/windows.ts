@@ -271,14 +271,15 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     ...initialBounds,
     transparent: true,
     frame: false,
-    // alwaysOnTop — 다른 창이 대상 창을 덮어도 테두리가 안 보이던 문제 수정(2026-07-29,
-    // 사용자 요청) — 예전엔 z-order 상 대상 창 바로 위 한 칸에만 꽂아서(syncOverlayZOrder)
-    // 다른 창이 덮으면 테두리도 같이 가려지게 뒀는데, 이제는 항상 최상위로 띄워 테두리가
-    // 계속 보이게 한다(대상 창이 실제로 안 보여도 "지금 이 창을 선택 중"이라는 표시는
-    // 계속 남아있는 게 낫다는 판단). win32는 아래 syncOverlayZOrder 가 여전히 대상 창
-    // 바로 위로 재배치를 시도하지만, alwaysOnTop 자체가 이미 다른 일반 창들보다 위라
-    // 실질적으로 항상 보인다.
-    alwaysOnTop: true,
+    // alwaysOnTop 을 여기서 고정으로 켜두지 않는다(2026-07-29 재수정) — 한때 "다른 창이
+    // 대상을 덮어도 테두리가 계속 보이게" 하려고 항상 켜뒀었는데, 그러면 대상이 아닌
+    // 다른(포커싱된) 창 위에도 테두리가 계속 떠 있게 돼버렸다(사용자 피드백 — "오버레이
+    // 테두리는 선택된 창 바로 위에만 붙어있어야 해"). win32는 원래대로 `syncOverlayZOrder`
+    // 가 대상 창 바로 위 z-order 한 칸에 꽂아서, 다른 창이 대상을 덮으면 테두리도 자연히
+    // 같이 가려진다. mac 은 네이티브로 "이 창 바로 위"에 꽂는 API가 마땅치 않아, 아래
+    // showMacSelectionOverlay 의 폴링에서 대상이 지금 화면 맨 앞(포커싱된 창)인 동안만
+    // `setAlwaysOnTop(true, 'floating')`을 켜고 아니면 끄는 식으로 근사한다
+    // (`macWindow.ts: isMacWindowFrontmost`).
     skipTaskbar: true,
     hasShadow: false,
     focusable: false,
@@ -295,15 +296,6 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   if (process.platform === 'darwin') {
     // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
     win.setHiddenInMissionControl(true)
-    // floating 레벨 — 같은 데스크탑(Space) 안에서 다른 창이 대상을 덮어도 테두리는 계속
-    // 보이게 한다(2026-07-29, 위 alwaysOnTop 주석 참고). `setVisibleOnAllWorkspaces(true)`
-    // 는 여기 같이 켜지 않는다 — 그건 "다른 창에 가려도 보이게"가 아니라 "다른 데스크탑
-    // (Space)으로 전환해도 계속 보이게"까지 만드는 설정이라, 데스크탑을 바꿨는데도 대상
-    // 창이 없는 화면에 테두리가 그대로 남는 문제가 있었다(2026-07-29 재수정, 사용자 피드백
-    // — "데스크탑 바꿔도 오버레이 테두리가 그대로 있어"). 기본값(false)대로 두면 오버레이는
-    // 대상 창과 같은 Space 에서만 보이고, alwaysOnTop 만으로 같은 Space 안 다른 창을
-    // 덮는 문제는 이미 해결된다.
-    win.setAlwaysOnTop(true, 'floating')
   }
   win.on('closed', () => {
     if (overlayWindow === win) overlayWindow = null
@@ -481,7 +473,7 @@ function showMacOverlayAt(rawBounds: { x: number; y: number; width: number; heig
   // 단순 토글이라 최대화 여부를 안정적으로 구분하기 어려움) 항상 false — 모니터 진짜
   // 경계에 거의 닿아있을 때만(F11 류 전체화면) 스냅하는 기본 동작만 적용된다.
   const bounds = snapToDisplayEdges(rawBounds, false)
-  const win = ensureOverlayWindow(bounds) // darwin 설정(미션컨트롤 숨김·floating)은 생성 시 1회
+  const win = ensureOverlayWindow(bounds) // darwin 설정(미션컨트롤 숨김)은 생성 시 1회 — floating 은 매 틱 동적으로 토글(showMacSelectionOverlay)
   if (!lastBounds || !sameBounds(lastBounds, bounds)) {
     notifyIfResized(bounds)
     win.setBounds(bounds)
@@ -500,21 +492,34 @@ function hideMacOverlay(): void {
   }
 }
 
+// 대상 창이 지금 화면 맨 앞(=사실상 포커싱된 창)인지에 따라 오버레이의 alwaysOnTop 을
+// 켰다 껐다 한다(showMacSelectionOverlay) — null 로 시작해 최초 한 틱은 무조건 반영되게 한다.
+let macOverlayFrontmost: boolean | null = null
+
 /**
  * macOS 선택 오버레이 — Windows 의 trackSelectionOverlay 에 대응하는 mac 경로.
  * CoreGraphics(koffi, selection/macWindow.ts)로 대상 창을 앞으로 올리고 bounds 를 얻어
  * 테두리 오버레이를 그 창에 정확히 맞춘다. 이후 16ms 폴링으로 이동/리사이즈를 바로 따라간다.
- * 대상 창이 다른 앱 창에 가려져도(z-순서상 뒤로 밀려도) 테두리는 계속 보인다(2026-07-29,
- * 사용자 요청 — 예전엔 "창 사이에 끼는" 걸 막으려고 가려지면 테두리를 숨겼었는데,
- * 오버레이 창 자체가 alwaysOnTop이라 그 문제가 없어져서 숨길 이유가 사라짐).
- * 호출부(ipc.ts)에서 process.platform !== 'win32' 일 때만 부른다.
+ * 오버레이 테두리는 "선택된 창 바로 위"에만 있어야 한다(2026-07-29 재수정, 사용자 피드백 —
+ * 한때 항상 alwaysOnTop 으로 띄워 다른(포커싱된) 창 위에도 테두리가 계속 보이는 문제가
+ * 있었음). win32 는 syncOverlayZOrder 가 네이티브로 대상 창 바로 위 z-order 에 꽂지만,
+ * mac 은 그런 API가 마땅치 않아 대신 매 틱마다 대상이 지금 화면 맨 앞(포커싱된 창)인지
+ * 확인해(`isMacWindowFrontmost`) 맞으면 `alwaysOnTop(true, 'floating')`, 아니면
+ * `alwaysOnTop(false)`로 근사한다 — 값이 실제로 바뀔 때만 호출해 매 틱 불필요한 네이티브
+ * 호출을 피한다. 호출부(ipc.ts)에서 process.platform !== 'win32' 일 때만 부른다.
  */
 export async function showMacSelectionOverlay(windowId: number): Promise<void> {
-  const { raiseAndGetBounds, getMacWindowBounds } = await import('./selection/macWindow')
+  const { raiseAndGetBounds, getMacWindowBounds, isMacWindowFrontmost, OVERLAY_MARKER_TITLE } =
+    await import('./selection/macWindow')
 
   trackedMacWindowId = windowId
+  macOverlayFrontmost = null // 새로 추적을 시작하니 이전 창 기준으로 판단한 상태를 버리고 다시 확인
   const first = raiseAndGetBounds(windowId) // 앞으로 올리고 최초 bounds
   if (first) showMacOverlayAt(first)
+  // isMacWindowFrontmost 가 오버레이 자신을 z-순서 목록에서 걸러낼 수 있도록 표식 제목을
+  // 붙인다(frame:false 라 화면엔 안 보임) — 창은 ensureOverlayWindow 가 재사용하므로 매번
+  // 다시 불러도 안전(멱등)하다.
+  overlayWindow?.setTitle(OVERLAY_MARKER_TITLE)
 
   if (trackTimer) clearInterval(trackTimer)
   // getMacWindowBounds 는 CGWindowListCopyWindowInfo 에 kCGWindowListOptionIncludingWindow
@@ -532,6 +537,12 @@ export async function showMacSelectionOverlay(windowId: number): Promise<void> {
     if (b) {
       missingBoundsStreak = 0
       showMacOverlayAt(b)
+      const frontmost = isMacWindowFrontmost(trackedMacWindowId)
+      if (frontmost !== macOverlayFrontmost) {
+        macOverlayFrontmost = frontmost
+        if (frontmost) overlayWindow?.setAlwaysOnTop(true, 'floating')
+        else overlayWindow?.setAlwaysOnTop(false)
+      }
       return
     }
     hideMacOverlay()
