@@ -647,11 +647,16 @@ export function createPopupWindow(
   demo?: string,
 ): BrowserWindow {
   popupContext = ctx
-  if (popupWindow) {
-    forceWindowToFront(popupWindow)
-    popupWindow.webContents.send(IPC.POPUP_GET_CONTEXT, ctx) // 이미 열려 있으면 컨텍스트만 갱신
-    return popupWindow
+  // 팝업이 이미 떠 있는 상태에서 다른 단어를 새로 고르면, 예전엔 기존 창 내용만 갱신하고
+  // 앞으로 올렸다(forceWindowToFront) — 그런데 이전 대화(채팅 로그 등) 상태가 그대로 남아
+  // 헷갈린다는 피드백(2026-07-29)으로, 기존 창은 즉시 없애고 항상 새 팝업을 띄우도록 변경.
+  // close() 대신 destroy() 를 쓴다 — close 는 'before-input-event'/beforeunload 등 비동기
+  // 정리 경로를 타는데, 그 사이 아래에서 새 창을 만들면 "닫히는 중인 창"과 "새 창"이 잠깐
+  // 공존해 z-order/포커스가 꼬일 수 있다. destroy 는 즉시 동기로 없애 그 틈을 없앤다.
+  if (popupWindow && !popupWindow.isDestroyed()) {
+    popupWindow.destroy()
   }
+  popupWindow = null
   const workAreaHeight = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea.height
   const popupHeight = Math.min(POPUP_HEIGHT, workAreaHeight - POPUP_HEIGHT_MARGIN)
   const { x, y } = centerOnCursorDisplay(POPUP_WIDTH, popupHeight) // 활성 모니터에 뜨도록
