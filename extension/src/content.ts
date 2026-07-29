@@ -1,8 +1,11 @@
 // 담당 B — 확장 content script.
 // 유튜브 화면 자막을 단어별 좌표와 함께 추출해(youtube.ts) background 로 보낸다.
 // background 가 WS 로 앱에 중계한다. 자막 캡처는 앱이 선택 모드일 때만 켜진다(setCapture).
-import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles } from './youtube'
+import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles, videoCurrentTime } from './youtube'
 import { currentVideoId, loadTranscript, subtitleLangHint } from './timedtext'
+import { startHighlight, type WordHit } from './highlight'
+import { parseAnyCaptionPayload } from './captionParse'
+import type { SubLine } from '@shared/extension'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).
 type FromBackground =
@@ -19,10 +22,28 @@ function setVideoPlayback(play: boolean): void {
 
 let capturing = false
 let stopObserving: (() => void) | null = null
+let stopHighlightUi: (() => void) | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSent = ''
 let lastDiag = -1
 let transcriptKey: string | null = null // `${videoId}|${langHint}`
+
+// hover/클릭 판정용 자막 줄+좌표를 그 순간 즉석에서 다시 측정한다(캐시 안 씀) — 컨트롤바
+// 자동 표시/숨김으로 자막 위치가 바뀌어도(유튜브가 이때 childList/attribute 변화를 항상
+// 안 내서 폴링 주기까지 지연될 수 있었음) getBoundingClientRect 기반이라 항상 최신이다.
+function liveLines(): SubLine[] {
+  return isYoutubeWatch() ? (extractSubtitleSnapshot()?.lines ?? []) : []
+}
+
+function onWordClicked(hit: WordHit): void {
+  chrome.runtime.sendMessage({
+    kind: 'subtitleClick',
+    word: hit.text,
+    lineText: hit.lineText,
+    wordOffsetInLine: hit.wordOffsetInLine,
+    currentTime: videoCurrentTime(),
+  })
+}
 
 // 진단(임시): 화면에 자막 요소가 몇 개 보이는지 유튜브 탭 콘솔에 찍는다(개수 바뀔 때만).
 function debugCounts(): void {
@@ -54,11 +75,36 @@ function ensureTranscript(screenText: string): void {
         cues: cues.map((c) => ({ start: c.start, text: c.text })),
       })
     })
-    .catch(() => {
+    .catch((err) => {
       transcriptKey = null // 실패는 다음 프레임에서 재시도
-      console.log('[nuance content] transcript 로드 실패(자막 트랙 없음/차단) — 화면 자막만 사용')
+      console.log('[nuance content] transcript 로드 실패:', err?.message ?? err)
     })
 }
+
+// 페이지 메인 JS 세계(networkHook.ts, manifest.json "world":"MAIN")가 가로챈 자막 관련
+// 네트워크 응답을 postMessage로 받는다. 우리가 직접 만든 fetch(native track/InnerTube)가
+// 전부 막혀도, 플레이어 자신의 요청은 성공하므로(화면에 자막이 실제로 뜸) 그 응답을 그대로
+// 엿들으면 세션/토큰 문제 없이 전체 자막을 확보할 수 있다 — 이게 도착하면 최우선으로 쓴다.
+let lastInterceptedSig = ''
+window.addEventListener('message', (ev) => {
+  if (ev.source !== window) return
+  const data = ev.data as { source?: string; kind?: string; url?: string; text?: string } | undefined
+  if (!data || data.source !== 'nuance-mainworld' || data.kind !== 'captionResponse') return
+  const cues = parseAnyCaptionPayload(data.text ?? '')
+  if (cues.length === 0) return
+  const vid = currentVideoId()
+  if (!vid) return
+  const sig = `${vid}|${cues.length}|${cues[0]?.text ?? ''}`
+  if (sig === lastInterceptedSig) return
+  lastInterceptedSig = sig
+  console.log(`[nuance content] 네트워크 가로채기로 자막 확보: ${cues.length} cues (url=${data.url})`)
+  transcriptKey = `${vid}|intercepted` // ensureTranscript 의 native/InnerTube 재시도를 막음
+  chrome.runtime.sendMessage({
+    kind: 'transcript',
+    videoId: vid,
+    cues: cues.map((c) => ({ start: c.start, text: c.text })),
+  })
+})
 
 function pushSnapshot(): void {
   if (!capturing) return
@@ -68,7 +114,7 @@ function pushSnapshot(): void {
     // 화면 자막 언어에 맞는 timedtext 트랙을 (필요 시) 로드해 앱에 보낸다(영상/자막언어 변경 대응).
     ensureTranscript(snapshot.lines.map((l) => l.text).join(' '))
   }
-  // 동일 프레임 중복 전송 방지(좌표+텍스트가 같으면 스킵). null 도 한 번만 보낸다.
+  // 동일 프레임 중복 전송 방지(디버그 로그용, 좌표+텍스트가 같으면 스킵). null 도 한 번만 보낸다.
   const sig = snapshot ? JSON.stringify(snapshot) : 'null'
   if (sig === lastSent) return
   lastSent = sig
@@ -81,8 +127,12 @@ function startCapture(): void {
   lastSent = ''
   lastDiag = -1
   stopObserving = observeSubtitles(() => pushSnapshot())
-  // MutationObserver 가 자막 등장/좌표 변화를 놓치는 경우를 대비한 폴링 폴백(중복은 dedup 됨).
+  // MutationObserver 가 자막 등장/좌표 변화를 놓치는 경우를 대비한 폴링 폴백(중복은 dedup 됨,
+  // 앱으로 보내는 디버그 스냅샷용 — hover/클릭 자체는 liveLines()로 즉석 측정이라 무관).
   pollTimer = setInterval(() => pushSnapshot(), 300)
+  // hover 하이라이트 박스 + 클릭을 페이지 안에서 직접 처리(highlight.ts) — 매 이동마다
+  // liveLines()로 즉석 재측정하므로 컨트롤바 표시/숨김으로 자막이 움직여도 항상 정확하다.
+  stopHighlightUi = startHighlight(liveLines, onWordClicked)
   pushSnapshot()
 }
 
@@ -91,6 +141,8 @@ function stopCapture(): void {
   capturing = false
   stopObserving?.()
   stopObserving = null
+  stopHighlightUi?.()
+  stopHighlightUi = null
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null

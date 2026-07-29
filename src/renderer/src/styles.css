@@ -38,17 +38,22 @@ button:disabled { cursor: not-allowed; }
   box-sizing: border-box; background: transparent;
   /* border 대신 outline — border 는 absolute 자식(.word-box)의 좌표 기준점을 안쪽으로
      밀어서(containing block = padding edge) bbox 와 어긋나게 만든다. outline 은 박스
-     모델에 관여하지 않아 자식 좌표에 영향이 없다. outline-offset 으로 안쪽에 그린다. */
-  outline: 6px solid var(--blue); outline-offset: -6px; border-radius: 6px;
+     모델에 관여하지 않아 자식 좌표에 영향이 없다. outline-offset 으로 안쪽에 그린다.
+     **radius 값 주의(2026-07-29)**: outline 이 둥근 사각형을 그릴 때 안쪽 경계의 실제
+     반지름은 "border-radius − outline-width"다 — 예전엔 둘 다 6px라 안쪽 반지름이
+     0(뾰족한 직각)이 되어 바깥쪽만 둥글고 안쪽은 각져 보였다(사용자 피드백). 두께를
+     3px로 줄인 김에 반지름을 14px로 크게 잡아 안쪽 반지름(14−3=11px)도 뚜렷하게
+     둥글게 보이도록 함께 조정 — 아래 .region-border-topcoat(같은 테두리를 대신
+     그리는 사본)도 반드시 같은 값으로 맞춰야 한다. */
+  outline: 3px solid var(--blue); outline-offset: -3px; border-radius: 14px;
 }
 .overlay-root.mode-select { outline-color: var(--purple); }
 .overlay-root.hovering-word { cursor: pointer; }
 
-/* hover 중인 단어 위에만 그려진다(Overlay.tsx) — 항상 떠 있는 박스는 없음. */
+/* hover 중인 단어 위에만 그려진다(Overlay.tsx) — 항상 떠 있는 박스는 없음.
+   색상/두께는 Overlay.tsx 가 shared/highlightStyle.ts(단일 소스)로 인라인 지정한다. */
 .word-box {
   position: absolute; box-sizing: border-box;
-  border: 2px solid var(--purple);
-  background: rgba(124, 58, 237, 0.18);
   pointer-events: none;
 }
 
@@ -66,10 +71,12 @@ button:disabled { cursor: not-allowed; }
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
 }
 /* region-dim(자식)이 부모(overlay-root)의 outline 을 덮어버려서, 같은 테두리를 DOM
-   순서상 맨 뒤(=항상 맨 위)에 한 번 더 그린다 — 위치를 딱 맞출 필요 없이 덮어씌운다. */
+   순서상 맨 뒤(=항상 맨 위)에 한 번 더 그린다 — 위치를 딱 맞출 필요 없이 덮어씌운다.
+   두께/반지름은 위 .overlay-root 의 outline 과 반드시 같은 값으로 맞춘다(같은 테두리의
+   대체 렌더링이라 어긋나면 드래그 시작 전후로 테두리 두께·모서리가 바뀌어 보인다). */
 .region-border-topcoat {
   position: absolute; inset: 0; box-sizing: border-box;
-  border: 6px solid var(--purple);
+  border: 3px solid var(--purple); border-radius: 14px;
   pointer-events: none;
 }
 
@@ -352,7 +359,21 @@ button:disabled { cursor: not-allowed; }
    language === 'ja' 일 때만 붙인다(다른 언어 팝업은 기본 폰트 그대로). */
 .ctx-text.lang-ja {
   font-family: Meiryo, 'Yu Gothic UI', 'Yu Gothic', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.05em;
+  line-height: 2;
+}
+/* 중국어(zh-Hans/zh-Hant, PopupScreen.tsx)도 위 .lang-ja 와 똑같은 근거로 폰트/자간/줄간격을
+   지정한다 — system-ui 기본 폴백만 쓰면 OS·문자마다 커버하는 폰트가 갈려 글자체가
+   들쭉날쭉해지고, .lang-ja 전용 튜닝만 있고 이쪽엔 없어서 같은 팝업인데 일본어보다
+   중국어 글자가 더 작고 빽빽해 보인다는 문제(2026-07-29 사용자 피드백)가 있었다 —
+   .lang-ja 와 자간(0.05em, 2026-07-29 사용자 피드백으로 0.09em에서 축소)·줄간격(2) 값을
+   맞춰 둘이 시각적으로 통일되게 한다. 폰트는
+   macOS 간체/번체(핑팡)·Windows 간체/번체(마이크로소프트 야헤이/젠헤이)를 모두
+   나열해 어느 스크립트로 조회하든(간체/번체 구분 없이 이 클래스 하나를 공유) 그
+   OS에서 실제로 설치돼 있는 것으로 자연히 떨어지게 한다. */
+.ctx-text.lang-zh {
+  font-family: 'PingFang SC', 'PingFang TC', 'Microsoft YaHei', 'Microsoft JhengHei', 'Heiti SC', 'Heiti TC', sans-serif;
+  letter-spacing: 0.05em;
   line-height: 2;
 }
 /* .ctx-text 어디에도 user-select: none 을 두지 않는다 — Chromium 은 user-select: none
@@ -363,12 +384,21 @@ button:disabled { cursor: not-allowed; }
    선택만 막는다(ContextView.tsx). 네이티브 선택의 파란 하이라이트 박스는 숨기고 아래
    .sel 클래스의 보라색 강조만 보이게 한다. */
 .ctx-text ::selection { background: transparent; }
-.ctx-text .atom { border-radius: 3px; padding: 0 1px; cursor: pointer; }
+/* padding 을 atom 좌우에 두면(구 0 1px) 단어 단위 모드에서도 원문 대비 자간이 미세하게
+   달라 보였다(실측: Chrome headless 스크린샷 비교 — padding 이 있으면 justify 폭 계산이
+   달라져 줄바꿈 위치까지 원문과 어긋남) — "글자 단위로 전환하면 자간이 바뀐다"는 문제의
+   진짜 원인은 char-level 전용이 아니라 이 padding 자체였다(예전엔 char-level 에서만
+   0으로 없앴는데, 단어 단위에 남은 padding과 비교되면서 전환 시 차이가 여전히 보였음).
+   양쪽 모드 모두 padding 을 없애 원문과 자간이 완전히 같게 통일한다. */
+.ctx-text .atom { border-radius: 3px; padding: 0; cursor: pointer; }
 .ctx-text .atom:hover { background: var(--theme-weak); }
-/* ja/zh "글자 단위" 토글(2026-07-28) — 글자 하나하나가 다 atom 이라 위 좌우 padding(1px)이
-   매 글자마다 누적되면 자간이 늘어난 것처럼 보인다. 이 모드에선 padding 을 없애 원문과
-   같은 자간을 유지한다(하이라이트/hover 배경은 그대로 유지됨, border-radius 만 영향받음). */
-.ctx-text.char-level .atom { padding: 0; }
+/* ja/zh "글자 단위" 모드(2026-07-28)는 글자 하나하나가 다 atom 이라 "단어를 고른다"는
+   감각이 아니라 그냥 텍스트를 드래그하는 감각에 가깝다 — hover 마다 연보라 배경이 반짝이고
+   커서가 손가락(pointer)으로 바뀌면 오히려 산만해서, 이 모드에선 일반 텍스트 드래그와
+   동일하게 hover 강조를 끄고 커서도 항상 I자(text)로 고정한다(실제 선택된 글자는 아래
+   .sel 로 여전히 진한 보라 배경으로 보인다 — 선택 결과 표시만 남기고 hover 예고만 뺌). */
+.ctx-text.char-level .atom { cursor: text; }
+.ctx-text.char-level .atom:hover { background: none; }
 /* 드래그 도중엔 어떤 세그먼트(atom/gap) 위에 있든 커서를 텍스트(I-beam) 로 고정 —
    개별 span 의 cursor: pointer/text 로 매 순간 바뀌어 보이는 걸 막는다. */
 .ctx-text.dragging, .ctx-text.dragging * { cursor: text !important; }
@@ -473,7 +503,11 @@ button:disabled { cursor: not-allowed; }
 .bubble .md th, .bubble .md td { border: 1px solid currentColor; padding: 3px 6px; opacity: 0.95; }
 
 .chat-input {
-  display: flex; gap: 8px; padding: 8px; border-top: 1px solid #e6e8ec; flex-shrink: 0;
+  /* 좌우 패딩을 10px(.chat 의 border-radius 와 동일 값)로 둔다 — 8px 이던 시절엔
+     .send-btn(우측 끝에 붙는 보라색 버튼)이 부모 .chat 의 둥근 모서리 곡선 영역
+     (radius 10px) 안쪽에 걸쳐, 버튼 모서리가 그 곡선에 살짝 잘려 보였다(사용자
+     피드백, 2026-07-29). .chat-log 는 원래 패딩이 10px라 이 문제가 없었다. */
+  display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid #e6e8ec; flex-shrink: 0;
 }
 .chat-input textarea {
   flex: 1; resize: none; max-height: 80px;

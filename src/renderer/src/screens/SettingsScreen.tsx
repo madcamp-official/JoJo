@@ -145,6 +145,8 @@ function validationMessage(code?: QuestionErrorCode): string {
     case 'invalid_api_key':
     case 'no_api_key':
       return '유효하지 않은 API 키입니다.'
+    case 'insufficient_credit':
+      return '키는 유효하지만 크레딧(사용 한도)이 부족합니다. 결제 정보를 확인해 주세요.'
     case 'rate_limited':
       return '요청이 많아 확인에 실패했습니다. 잠시 후 다시 시도하세요.'
     case 'network_error':
@@ -216,8 +218,24 @@ function formatAccelerator(accelerator: string): string {
     .join(' + ')
 }
 
+/** 뒤로가기/Esc 로 설정 화면을 나갈 때 — 이미 선택된 창이 있으면(백그라운드 실행 중 설정만
+ *  열어본 상황) 메인 화면(창 선택 안내)으로 돌아갈 필요가 없다. 그 화면은 "아직 아무 창도
+ *  선택 안 한" 초기 상태를 위한 것이라, 이미 선택돼 있는데 거기로 갔다가 다시 트레이로
+ *  숨겨야 하는 건 불필요한 경유다 — window.close() 로 창을 바로 닫는다(메인 창은
+ *  windows.ts: createMainWindow 의 close 핸들러가 실제 종료가 아니면 항상 hide 로 가로채므로,
+ *  안전하게 "트레이로 숨기기"와 동일하게 동작한다 — SELECT_WINDOW 직후 getMainWindow()?.hide()
+ *  하는 것과 같은 패턴). 선택된 창이 없으면 기존처럼 메인 화면으로. */
+function exitSettings(hasSelection: boolean): void {
+  if (hasSelection) window.close()
+  else goto('main')
+}
+
 export function SettingsScreen() {
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
+  const [hasSelection, setHasSelection] = useState(false)
+  useEffect(() => {
+    window.nuance.getSelectedWindowId().then((id) => setHasSelection(id !== null))
+  }, [])
   const [apiKey, setApiKeyState] = useState('')
   const [keyEditing, setKeyEditing] = useState(false)
   const [keyVisible, setKeyVisible] = useState(false)
@@ -285,15 +303,15 @@ export function SettingsScreen() {
     }
   }, [settings?.llm, apiKey])
 
-  // Esc → 메인 화면으로(WindowPickerScreen 과 동일 패턴). 단축키 녹화 중(recording)엔
-  // Esc 가 "녹화 취소" 의미로 이미 따로 처리되고 있어(위 useEffect) 그동안엔 건너뛴다.
+  // Esc → 나가기(exitSettings, 위 주석 참고). 단축키 녹화 중(recording)엔 Esc 가 "녹화
+  // 취소" 의미로 이미 따로 처리되고 있어(위 useEffect) 그동안엔 건너뛴다.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !recordingField) goto('main')
+      if (e.key === 'Escape' && !recordingField) exitSettings(hasSelection)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [recordingField])
+  }, [recordingField, hasSelection])
 
   // 미리보기 스크롤을 선택 표현 위치(중앙)로 이동 — 미리보기가 처음 뜰 때 1회만.
   // (바이트 값을 바꿀 때는 스크롤을 건드리지 않아 사용자가 보던 위치를 유지한다.)
@@ -411,7 +429,7 @@ export function SettingsScreen() {
   return (
     <div className="screen settings-screen">
       <div className="settings-header">
-        <button className="icon-btn back" onClick={() => goto('main')}>
+        <button className="icon-btn back" onClick={() => exitSettings(hasSelection)}>
           ←
         </button>
         <h1>설정</h1>
@@ -547,12 +565,12 @@ export function SettingsScreen() {
 
       {/* 사전 API 키 (Merriam-Webster) — LLM 과 별개 섹션 (PLAN.md §5) */}
       <section className="settings-section">
-        <h2>사전 API 키 (Merriam-Webster)</h2>
+        <h2>Merriam-Webster 사전 API 키</h2>
         <p className="desc">
           영어 사전 검색에 Merriam-Webster를 사용하려면 API 키를 입력하세요. 반드시{' '}
           <b>Collegiate(Dictionary) 사전</b>으로 발급받은 키여야 합니다(Learner&apos;s 등 다른
           사전 키는 동작하지 않습니다). 무료 키는 <b>키 1개당 하루 1,000회</b>까지 조회할 수
-          있습니다. 입력하지 않아도 다른 사전(WordNet 등)으로 자동 대체되어 사전 기능은
+          있습니다. 입력하지 않아도 다른 사전(Open English WordNet 등)으로 자동 대체되어 사전 기능은
           계속 사용할 수 있습니다.
         </p>
 

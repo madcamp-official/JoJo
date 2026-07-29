@@ -64,6 +64,12 @@ async function captureRegionBitmap(): Promise<Buffer | null> {
 async function poll(): Promise<void> {
   if (!running) return
   const bitmap = await captureRegionBitmap()
+  // stopChangeWatcher() 가 위 await 도중(캡처 중) 호출됐을 수 있다 — 이 경우 아래에서
+  // 진단/재추출을 진행하지도, 맨 끝에서 다음 폴링을 재예약하지도 않아야 한다. 이 체크가
+  // 없으면 "멈췄다고 생각한" 워처가 진행 중이던 이번 사이클 하나 때문에 스스로 다시
+  // 타이머를 걸어 계속 살아있는 버그가 있었다(실사용 중 확인 — 자막 모드로 전환된 뒤에도
+  // OCR 이 끝없이 재실행됨).
+  if (!running) return
   if (bitmap) {
     if (lastBitmap && bitmapsDiffer(lastBitmap, bitmap)) {
       // 변화가 인식된 순간부터 새 OCR 결과가 올 때까지 기존 단어 박스는 더 이상 화면

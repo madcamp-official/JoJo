@@ -203,37 +203,101 @@ async function japaneseWordCandidates(word: string): Promise<string[]> {
   return baseForm && baseForm !== word ? [word, baseForm] : [word]
 }
 
+/** en 전용 — 규칙동사/규칙명사 활용형의 원형 후보를 추측한다(WordNet Morphy 알고리즘의
+ *  detachment rule 일부를 재구현, 별도 라이브러리 없이 접미사 규칙만). MW는 자체
+ *  교차참조(uros/stems)로, OEWN은 formIndex(비정규 활용형 위주)로 각자 활용형을 어느
+ *  정도 처리하지만, **OEWN의 formIndex는 정규 활용(-ed/-ing/-s)을 거의 안 담고 있어서**
+ *  (실측: "close"/"want"/"walk"/"look" 전부 `form: null`) "walked"/"looked" 같은 흔한
+ *  규칙동사 과거형은 OEWN 단독으로 못 찾는다(2026-07-28 확인) — MW 키가 없으면 이
+ *  간극이 그대로 Wiktionary의 얇은 굴절 안내 한 줄("simple past and past participle of
+ *  walk")로 이어진다. 정확한 철자 규칙 판별(사전 대조) 없이 후보를 여러 개 만들어
+ *  전부 시도하는 방식이라(예: "closed" → "clos"/"close"/"clos" 자음축약 등) 틀린
+ *  후보는 각 소스에서 조용히 "못 찾음"으로 끝나 무해하다. */
+function guessEnglishBaseForms(word: string): string[] {
+  const lower = word.toLowerCase()
+  if (lower === word && lower.length < 4) return []
+  const candidates = new Set<string>()
+
+  const maybeUndoubleAndAdd = (stem: string) => {
+    candidates.add(stem)
+    candidates.add(`${stem}e`)
+    const last = stem.at(-1)
+    const secondLast = stem.at(-2)
+    if (last && last === secondLast && !'aeiou'.includes(last)) candidates.add(stem.slice(0, -1))
+  }
+
+  if (lower.endsWith('ied') && lower.length > 4) candidates.add(`${lower.slice(0, -3)}y`)
+  else if (lower.endsWith('ed') && lower.length > 3) maybeUndoubleAndAdd(lower.slice(0, -2))
+
+  if (lower.endsWith('ing') && lower.length > 4) maybeUndoubleAndAdd(lower.slice(0, -3))
+
+  if (lower.endsWith('ies') && lower.length > 4) candidates.add(`${lower.slice(0, -3)}y`)
+  else if (lower.endsWith('es') && lower.length > 3) candidates.add(lower.slice(0, -2))
+  if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 2) candidates.add(lower.slice(0, -1))
+
+  candidates.delete(word)
+  candidates.delete(lower)
+  return [...candidates]
+}
+
+function englishWordCandidates(word: string): string[] {
+  return [word, ...guessEnglishBaseForms(word)]
+}
+
 /** FALLBACK_CHAINS 를 앞에서부터 순서대로 시도해 sense 가 하나라도 있는 첫 소스에서
  *  멈춘다("앞 소스가 못 찾을 때만 다음으로" — TODO.md/DICTIONARY_SOURCES.md 확정 순서).
  *  개별 소스 실패(네트워크 에러 등)도 "여기선 못 찾음"과 동일하게 다음 소스로 넘어간다 —
  *  폴백 체인은 중간 실패를 사용자에게 구구절절 보여주기보다 끝까지 시도해보고 그래도
  *  안 되면 그때 "찾지 못함"으로 뭉뚱그린다(개별 에러는 진단용으로 console.warn 만 남김).
- *  ja 는 소스 하나당 여러 후보 표면형(japaneseWordCandidates)을 안쪽에서 전부 시도한
- *  뒤에야 다음 소스로 넘어간다 — "daijisen/JMdict가 활용형이라 못 찾은 것"과 "이
- *  단어 자체가 daijisen/JMdict엔 아예 없는 것"을 구분해, 전자면 Wiktionary로 넘어가기
- *  전에 daijisen/JMdict 안에서 기본형으로 먼저 구제한다. */
+ *  ja/en 은 소스 하나당 여러 후보 표면형(japaneseWordCandidates/englishWordCandidates)을
+ *  안쪽에서 전부 시도한 뒤에야 다음 소스로 넘어간다 — "daijisen/JMdict/OEWN이 활용형
+ *  이라 못 찾은 것"과 "이 단어 자체가 그 소스엔 아예 없는 것"을 구분해, 전자면
+ *  Wiktionary로 넘어가기 전에 상위 소스 안에서 기본형으로 먼저 구제한다.
+ *
+ *  **후보 전부를 시도하고 결과를 합친다(첫 성공에서 멈추지 않음)** — 처음엔 후보 중
+ *  하나라도 성공하면 바로 반환했는데, 실측으로 발견: OEWN에 "closed"를 그대로 물으면
+ *  그 자체로 형용사 표제어("not open")가 있어 "성공"으로 끝나버려서, 뒤에 이어 시도할
+ *  "close"(동사, "닫다") 후보를 아예 안 물어보게 된다 — 문맥이 동사 용법("She closed
+ *  the door")이어도 LLM 후보 목록에 동사 뜻 자체가 없어 고를 수가 없었다. 표면형과
+ *  추측 후보가 서로 다른 뜻일 수 있으니(동형이의어), 소스 하나 안에서는 후보 전부를
+ *  시도해 나온 entries 를 전부 합쳐 LLM 후보 목록에 넣는다. **트레이드오프**: ja 관용구
+ *  ("犬も歩けば棒に当たる")도 첫 토큰("犬")이 그 자체로 유효한 표제어라 관용구 자체의
+ *  뜻과 "犬"(개) 단독의 여러 뜻이 함께 후보에 섞인다 — 틀린 답이 되는 건 아니고
+ *  후보만 늘어나는 정도라 감수하기로 함(2026-07-29). */
 async function lookupThroughFallbackChain(word: string, ctx: SelectionContext): Promise<ChainLookupResult> {
   const chain = FALLBACK_CHAINS[ctx.language]
-  const candidates = ctx.language === 'ja' ? await japaneseWordCandidates(word) : [word]
+  const candidates =
+    ctx.language === 'ja'
+      ? await japaneseWordCandidates(word)
+      : ctx.language === 'en'
+        ? englishWordCandidates(word)
+        : [word]
   let suggestions: string[] | undefined
   for (const source of chain) {
+    const collectedEntries: DictionaryEntry<Language>[] = []
+    const matchedCandidates: string[] = []
     for (const candidate of candidates) {
       try {
         const result = await fetchSourceEntries(source, ctx, candidate)
         suggestions ??= result.suggestions
-        if (!result.entries?.length) continue
-        const senses = numberSenses(result.entries)
-        if (senses.length) {
-          return {
-            senses,
-            sourceId: result.entries[0].source,
-            suggestions,
-            entries: result.entries,
-            matchedWord: candidate === word ? undefined : candidate,
-          }
+        if (result.entries?.length) {
+          collectedEntries.push(...result.entries)
+          matchedCandidates.push(candidate)
         }
       } catch (err) {
         console.warn(`[dictionary] ${source}(${candidate}) 조회 실패, 다음으로 폴백:`, err)
+      }
+    }
+    if (collectedEntries.length) {
+      const senses = numberSenses(collectedEntries)
+      if (senses.length) {
+        return {
+          senses,
+          sourceId: collectedEntries[0].source,
+          suggestions,
+          entries: collectedEntries,
+          matchedWord: matchedCandidates.includes(word) ? undefined : matchedCandidates[0],
+        }
       }
     }
   }

@@ -1,14 +1,17 @@
 import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
+  getMainWindow,
   onWindowResized,
   openSettingsWindow,
   sendOverlayNotice,
   sendRegionSelectionNeeded,
   setOverlayMode,
 } from '../windows'
+import { isTrayMenuOpen } from '../tray'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
 import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
+import { getSelectedWindowId } from './capture'
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
@@ -17,6 +20,13 @@ import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './sub
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
 let mode: AppMode = 'normal'
 let currentAccelerators: string[] = []
+
+// 판정 세대(epoch) — 선택 모드 진입 직후엔 확장이 아직 활성 탭을 보고하기 전이라(WS
+// 연결/핸드셰이크가 비동기) decideExtraction() 이 일시적으로 OCR 로 잘못 판정하는 경우가
+// 있다. OCR 판정이 시작한 무거운 비동기 체인(자동 영역 감지→OCR)이 나중에 도착한 정확한
+// 판정(예: 자막)을 덮어쓰지 않도록, 매 판정마다 세대를 올리고 비동기 완료 시점에 세대가
+// 여전히 최신인지 확인한다 — 낡은 세대의 완료는 조용히 버린다.
+let decisionEpoch = 0
 
 // 실제 마우스 드래그(이동이든 리사이즈든)는 WinEventHook 이 한 번에 끝나지 않고 위치가
 // 바뀔 때마다(픽셀 단위로) 연달아 이벤트를 쏟아낸다 — resizeJitter 허용치(windows.ts)를
@@ -61,17 +71,21 @@ function toggleMode(): void {
  * 알맞은 경로로 분기한다. 판정은 비동기(언어 감지 등)라 진입 후 적용한다.
  */
 async function enterSelectMode(): Promise<void> {
+  const epoch = ++decisionEpoch
   const decision = await decideExtraction()
-  if (mode !== 'select') return // 그 사이 빠르게 토글로 빠져나갔으면 무시
+  if (mode !== 'select' || epoch !== decisionEpoch) return // 그 사이 토글로 빠져나갔거나 재판정으로 대체됐으면 무시
   applyExtractionDecision(decision)
 }
 
 /**
  * 판정 결과를 실제 파이프라인에 적용한다. 선택 모드 진입 시, 그리고 선택 모드를 유지한
- * 채 탭/URL 이 바뀌어 재판정(reevaluate.ts)될 때 호출된다.
+ * 채 탭/URL 이 바뀌어 재판정(reevaluate.ts)될 때 호출된다. 매 호출마다 세대를 올려, 이번
+ * 판정이 시작하는 비동기 체인(acquireRegionAutomaticallyOrAskDrag 등)이 그 사이 더 최신
+ * 판정으로 대체됐을 때 스스로 무시하게 한다.
  */
 export function applyExtractionDecision(decision: ExtractionDecision): void {
   if (mode !== 'select') return
+  const epoch = ++decisionEpoch
   if (decision.mode === 'subtitle') {
     // 자막 경로 — OCR 영역 선택/캡처/변화감지를 전부 중단하고 확장 자막을 쓴다.
     stopChangeWatcher()
@@ -84,7 +98,7 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     refreshExtractionCache()
     startChangeWatcher()
   } else {
-    void acquireRegionAutomaticallyOrAskDrag()
+    void acquireRegionAutomaticallyOrAskDrag(epoch)
   }
 }
 
@@ -104,7 +118,7 @@ let pendingRedetect = false
  * 드래그 선택을 요청한다 — 즉 이 실험 기능은 "잘 되면 자동, 안 되면 기존 수동 방식"
  * 으로 완전히 폴백하므로 항상 안전하다.
  */
-async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
+async function acquireRegionAutomaticallyOrAskDrag(epoch = decisionEpoch): Promise<void> {
   if (detecting) {
     pendingRedetect = true
     return
@@ -112,7 +126,9 @@ async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
   detecting = true
   try {
     const detected = await autoDetectRegion()
-    if (mode !== 'select') return // 그 사이 모드가 바뀌었으면(빠른 토글 등) 무시
+    // 그 사이 모드가 바뀌었거나(빠른 토글 등), 더 최신 판정(예: 자막 모드)으로 대체됐으면
+    // 이 낡은 OCR 체인의 완료 결과는 버린다 — 안 그러면 이미 전환된 자막 모드를 덮어쓴다.
+    if (mode !== 'select' || epoch !== decisionEpoch) return
     if (detected) {
       setRegion(detected)
       refreshExtractionCache()
@@ -126,7 +142,7 @@ async function acquireRegionAutomaticallyOrAskDrag(): Promise<void> {
     detecting = false
     if (pendingRedetect) {
       pendingRedetect = false
-      void acquireRegionAutomaticallyOrAskDrag()
+      if (epoch === decisionEpoch) void acquireRegionAutomaticallyOrAskDrag(epoch)
     }
   }
 }
@@ -168,15 +184,52 @@ export function currentMode(): AppMode {
   return mode
 }
 
-// 담당 공동 — "어디서나 설정 화면 열기" 전역 단축키(기본 CommandOrControl+,, macOS
-// 관례상 Cmd+, / 그 외 Ctrl+,). 모드 전환 단축키와 동일한 등록/해제/OS 대응 패턴을 그대로
-// 재사용한다(expandAccelerator 로 macOS 에서 Cmd/Ctrl 둘 다 동작하게).
+/** 지금 이 단축키를 눌러도 되는 상황인지 — "어디서나"가 아니라 (1) Nuance 자신의 창이
+ *  포커싱돼 있을 때, (2) 트레이 메뉴(창 선택/설정/종료)가 떠 있을 때, (3) 선택된 대상
+ *  창이 포커싱돼 있을 때로 한정한다(사용자 요청, 2026-07-29 — globalShortcut 은 원래
+ *  다른 아무 앱에 포커스가 있어도 전역으로 반응하는데, 그러면 예를 들어 이 단축키와
+ *  다른 앱의 단축키가 우연히 겹칠 때 사용자가 그 앱을 쓰다가 의도치 않게 설정 화면이
+ *  뜨는 문제가 있었음). 선택된 대상 창 포커스 판정은 플랫폼 네이티브 호출이 필요해
+ *  비동기다 — win32Capture.isWin32WindowForeground/macWindow.isMacWindowFocused. */
+async function isSettingsShortcutAllowed(): Promise<boolean> {
+  if (getMainWindow()?.isFocused()) return true
+  if (isTrayMenuOpen()) return true
+
+  const selectedId = getSelectedWindowId()
+  if (!selectedId) return false
+
+  if (process.platform === 'win32') {
+    const { isWin32WindowForeground } = await import('./win32Capture')
+    try {
+      return isWin32WindowForeground(BigInt(selectedId))
+    } catch {
+      return false // hwnd 파싱 실패(형식이 다른 값 등) — 안전하게 거부
+    }
+  }
+  if (process.platform === 'darwin') {
+    const { isMacWindowFocused } = await import('./macWindow')
+    const windowId = Number(/^window:(\d+)/.exec(selectedId)?.[1])
+    return Number.isFinite(windowId) && isMacWindowFocused(windowId)
+  }
+  return false
+}
+
+// 담당 공동 — "선택된 컨텍스트에서만" 설정 화면 열기 전역 단축키(기본 CommandOrControl+,,
+// macOS 관례상 Cmd+, / 그 외 Ctrl+,). 모드 전환 단축키와 동일한 등록/해제/OS 대응 패턴을
+// 그대로 재사용한다(expandAccelerator 로 macOS 에서 Cmd/Ctrl 둘 다 동작하게) — 다만
+// 실제 동작 여부는 위 isSettingsShortcutAllowed 로 한 번 더 걸러진다.
 let currentSettingsAccelerators: string[] = []
 
 export function registerSettingsShortcut(accelerator = 'CommandOrControl+,'): void {
   if (!accelerator) return // 빈 문자열 = 단축키 해제 상태(등록 안 함)
   const accelerators = expandAccelerator(accelerator)
-  accelerators.forEach((a) => globalShortcut.register(a, openSettingsWindow))
+  accelerators.forEach((a) =>
+    globalShortcut.register(a, () => {
+      void isSettingsShortcutAllowed().then((allowed) => {
+        if (allowed) openSettingsWindow()
+      })
+    }),
+  )
   currentSettingsAccelerators = accelerators
 }
 

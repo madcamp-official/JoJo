@@ -30,6 +30,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·daijisen·JMdict·汉典·萌�
 **원본 구조 특징**:
 - 표제어 하나에 여러 entry(품사별)가 올 수 있고, entry 안에 `sseq`(sense sequence, 중첩 배열) → `dt`(defining text) → `text`/`vis`(예문) 구조로 깊게 중첩됨. 공식 스키마 문서에서 이 중첩 구조와 필드명(`meta`/`hom`/`hwi`/`fl`/`lbs`/`sls`/`ins`/`cxs`/`def`/`uros`/`dros`/`et`/`usages`/`syns`/`shortdef` 등)을 재확인함(2026-07-28).
 - `prs.mw` 필드가 발음이지만 **IPA가 아니다** — 매크론(ā/ē/ī/ō/ū 등)을 쓰는 MW 자체 표기법. IPA 필드 자체가 응답에 없고, variety(지역) 구분도 없음(단일 값).
+- **`r`/`ɹ` 표기 차이(2026-07-29, 사용자 확인)**: `merriamWebsterToIpa.ts`가 MW 표기를 IPA 근사치로 바꿀 때 `r`을 그대로 통과시켜(SINGLE 매핑에 없음), 화면엔 항상 평문 `r`로 나온다. 반면 OEWN(아래 절)은 언어학 자료(WordNet 계열) 원본 IPA를 그대로 가져오므로 영어 r 소리를 엄밀한 IPA 기호인 `ɹ`(U+0279, LATIN SMALL LETTER TURNED R, 치경 접근음)로 표기한다 — 엄밀한 IPA에서 평문 `r`은 전동음(스페인어 rr류)을 가리키는 별개 음이라 구분해서 쓰는 것. 둘 다 각자 소스의 정상적인 표기 관행(MW·Cambridge·Oxford 같은 대중용 사전은 관행적으로 `/r/`, WordNet·CMU dict 같은 언어학 자료는 `/ɹ/`)이라 **오류가 아니며, 통일하지 않기로 결정**(2026-07-29 사용자 결정) — 필요해지면 그때 재검토.
 - `fl`(functional label)이 품사; `"phrase"`면 관용구 표제어(예: "kick the bucket").
 - `sls`(status label sequence) — 격식/사용역 라벨(예: "ain't" → `["informal"]`).
 - `def[].vd`("verb divider") — 타동사/자동사 구분(실측, 2026-07-28: "arrive" → def 1개, `vd: "intransitive verb"`; "devour" → def 1개, `vd: "transitive verb"`; "run" → **def 2개**로 갈려 하나는 `vd: "intransitive verb"`, 하나는 `vd: "transitive verb"`). `entry.fl`이 아니라 `def` 레벨(=`sseq`와 같은 층)에 있고, 그 def 블록 전체(여러 sense 묶음)에 적용되는 라벨이라 어댑터가 그 안의 모든 sense에 전파해야 함 — `lbs`(entry 최상위 → 모든 sense에 복제)와 같은 패턴.
@@ -60,7 +61,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·daijisen·JMdict·汉典·萌�
 **접근**: 공식 GitHub 저장소(`globalwordnet/english-wordnet`)의 JSON 릴리스를 받아 로컬 번들. **`en-word.net/static/...` 정적 다운로드 링크는 2026-07-28 재실측 결과 503 Service Unavailable로 죽어있었으나, 같은 파일의 GitHub Releases 직접 다운로드 URL(`https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025-json.zip`)은 같은 날 실측으로 HTTP 200/9.98MB 정상 다운로드 확인됨** — 그래서 다운로드 경로를 en-word.net 정적 링크가 아니라 GitHub Releases 에셋 URL로 확정한다. 별도 미러 저장소(`x-englishwordnet/json`)는 불필요 — 공식 GitHub Releases만으로 충분히 안정적이라 폴백 없이 이거 하나로 확정(이전에 검토했던 미러 폴백 방침은 폐기). 라이브 API(`en-word.net/api/...`)는 **2026-07-28에 재호출해도 여전히 503 Service Unavailable로 불안정함을 재확인** — API 대신 데이터 파일 번들 방침 유지(정적 파일 링크 자체도 en-word.net 도메인은 불안정하니, 다운로드는 항상 GitHub Releases 쪽에서). 원본 Princeton WordNet(2011년 이후 갱신 없음, 발음 정보 없음) 대신 이 커뮤니티 후속판(CC-BY 4.0) 채택.
 
 **원본 구조 특징**(`run`/`kick the bucket`으로 실측 — **2026-07-28, GitHub Releases 에셋을 실제로 받아 압축 해제 후 파일 직접 열람으로 재검증 완료**, 이전 세션엔 못 열어봐서 기존 기록만 승계했던 상태였음):
-- `pronunciation[]`에 지역별 발음이 여러 개(각각 `variety` 태그) 붙을 수 있음(실측 확인: `Bach` 항목이 `variety: "US"`/`"GB"` 2개, `Balinese`는 `"GB"` 등 — 태그 값은 "미국"/"영국" 같은 한글 라벨이 아니라 `US`/`GB`/`NZ` 같은 짧은 코드 원문 그대로) — 실제 IPA(예: run(v) → "ɹʌn").
+- `pronunciation[]`에 지역별 발음이 여러 개(각각 `variety` 태그) 붙을 수 있음(실측 확인: `Bach` 항목이 `variety: "US"`/`"GB"` 2개, `Balinese`는 `"GB"` 등 — 태그 값은 "미국"/"영국" 같은 한글 라벨이 아니라 `US`/`GB`/`NZ` 같은 짧은 코드 원문 그대로) — 실제 IPA(예: run(v) → "ɹʌn", 엄밀한 IPA 기호 `ɹ` 사용 — MW와의 표기 차이는 위 "Merriam-Webster (MW)" 절 `r`/`ɹ` 항목 참고).
 - synset이 패러프레이즈 대안 정의를 여러 개 가질 수 있음(실측: `81484980-r` synset이 정의 3개: "quickly and without warning" / "happening unexpectedly" / "on impulse; without premeditation").
 - ~~`tagcount`(SemCor 코퍼스 실사용 빈도수, sense마다 다름 — 실측: run(v) "달리다" 뜻 tagcount=106)~~ → **정정(2026-07-28, GitHub Releases `english-wordnet-2025-json.zip`을 실제로 받아 압축 해제 후 전수 검사)**: 이 필드는 이 JSON 릴리스에 **존재하지 않는다** — `grep -r "tagcount"` 결과 0건, sense 객체가 실제로 갖는 키 전체(26종: `id`/`synset`/`derivation`/`sent`/`agent`/`also`/`antonym`/`similar`/`pertainym`/`subcat` 등 프레임 의미 정보 위주)를 전수 확인해도 빈도 관련 필드가 없다. 예전 Princeton WordNet WNDB 배포판의 `index.sense`(`tag_cnt`)에 있던 개념으로 추정되나, 이 GitHub JSON 릴리스로는 가져올 수 없다 — **`DictionarySense.tagCount` 필드는 이 데이터 소스로 채울 수 없으므로 폐기하거나 다른 소스(WNDB 원본 파일을 별도로 받는 등)를 찾아야 한다.**
 - entry의 `form` 필드가 불규칙 활용형을 배열로 제공(예: run(v) → `["ran", "running"]`) — MW의 반쯤 자유 텍스트 `ins`보다 구조가 깔끔함. ~~원시 synset 데이터 자체엔 활용형이 없지만 WNDB 배포판 포맷에 포함된 Morphy(형태소 처리기)가 처리 — 사용할 라이브러리가 Morphy를 감싸고 있는지 확인 필요~~ → **정정(2026-07-28, 어댑터 구현 중 실측)**: Morphy 자체를 감싸는 라이브러리가 **불필요했다** — `entries-*.json`의 각 표제어 레코드에 이미 `form[]`이 채워져 있어(GitHub Releases JSON 릴리스 기준, WNDB 배포판과 달리 활용형 계산이 끝난 결과물이 그대로 들어있음) 그 필드를 표제어별로 모아 "활용형→원형" 역인덱스만 만들면 됐다(`question/dictionary/oewn.ts` `formIndex`). 형태소 분석기 연동 자체가 스코프에서 사라짐.
@@ -74,6 +75,34 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·daijisen·JMdict·汉典·萌�
 | `pronunciation[].variety` | `DictionaryReading.pronunciations[].variety` |
 | ~~`tagcount`~~ | ~~`DictionarySense.tagCount`~~ — **이 JSON 릴리스엔 필드 자체가 없어 채울 수 없음(2026-07-28 확인), 폐기 검토 대상** |
 | `form` | `DictionarySense.irregularForms` |
+
+**활용형 처리 버그 발견 및 수정(2026-07-29)**:
+- `resolveLemmas`(표면형 → entries 키 해석)가 표면형 자체가 직접 표제어를 가지면
+  (예: "closed"의 형용사 표제어 "not open or affording passage") 바로 반환해버려서,
+  활용형 역인덱스(`formIndex`)를 아예 확인하지 않는 버그가 있었다 — "running"/
+  "closed"/"better" 조회 시 동사/원형 해석(run/close/good·well)이 후보에서 통째로
+  빠지고 무관한 형용사 뜻만 나왔다. 직접 표제어와 활용형 후보를 항상 합쳐서 반환
+  하도록 수정 — "running"→running+run 2개, "better"→better+good+well 3개로 개선.
+- **남은 데이터 한계**: OEWN의 `form[]` 필드가 불규칙 활용 위주로만 채워져 있고
+  규칙동사 활용(-ed/-s 등)은 거의 비어 있다(실측: `close`/`want`/`walk`/`look`
+  entries 전부 `form: null`) — "walked"/"looked" 같은 흔한 규칙동사 과거형은
+  OEWN 데이터 자체에 매핑이 없어 이 필드만으론 못 찾는다.
+- **`dictionary.ts`에 en 전용 활용형 추측 로직 추가**(`guessEnglishBaseForms`) —
+  WordNet Morphy 알고리즘의 detachment rule 일부를 재구현(별도 라이브러리 없이
+  접미사 규칙만): -ed/-ing/-s/-es/-ies 활용형에서 원형 후보를 여러 개 만든다(자음
+  축약·e 복원 포함, 예: "walked"→walk, "closed"→close, "running"→run,
+  "studied"→study). 표면형+추측 후보를 daijisen/JMdict와 동일한 "소스 하나당 전부
+  시도" 구조(`lookupThroughFallbackChain`)로 시도해, MW 키가 없어 OEWN이 이어받는
+  상황에서도 Wiktionary의 얇은 굴절 안내 한 줄(예: "walked"→"simple past and past
+  participle of walk")로 새지 않고 OEWN 자체에서 "walk"를 찾아낸다.
+- **후보 전부를 시도하고 합친다(첫 성공에서 멈추지 않음)** — 처음엔 후보 중 하나만
+  성공해도 바로 반환했는데, "closed"를 표면형 그대로 물으면 그 자체로 형용사
+  표제어가 있어 "성공"으로 끝나버려서 뒤이어 시도할 "close"(동사) 후보를 아예
+  안 물어보는 문제가 있었다 — 문맥이 동사 용법("She closed the door")이어도
+  LLM 후보 목록에 동사 뜻 자체가 없어 고를 수 없었음. 소스 하나 안에서는 후보
+  전부를 시도해 나온 entries를 전부 합쳐 LLM 후보 목록에 넣도록 변경(표면형과
+  추측 후보가 서로 다른 뜻일 수 있는 동형이의어 문제) — 재검증 결과 "closed"
+  조회 시 이제 closed(형용사)+close(동사) 둘 다 후보로 나옴.
 
 ---
 
@@ -205,6 +234,8 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·daijisen·JMdict·汉典·萌�
 
 **`classifiers` 필드 폐기(2026-07-28).** CC-CEDICT의 `CL:`(양사) 세그먼트는 표제어 전체 중 주로 명사 뜻 하나에만 해당하는 정보인데, 세그먼트=sense로 쪼개는 위 변경 이후로는 여러 split sense 중 어디에 귀속시켜야 할지 원본에 구조적 근거가 없어졌다(억지로 마지막 sense에 붙이는 것도 부정확). 원래도 `senseSelect.ts`/LLM 프롬프트 어디서도 이 필드를 읽지 않던 미사용 필드였고 사실상 CC-CEDICT 1개 소스 전용이었던 터라(`shared/types.ts` 결정 사항 참고), `CL:` 세그먼트는 이제 그냥 버리고(gloss/sense 어디에도 안 들어감) 스키마에서 `DictionarySense.classifiers` 자체를 제거했다.
 
+**병음 발음 표기 버그 발견 및 수정(2026-07-29).** CC-CEDICT 원본은 병음을 `[da3 suan4]`처럼 **숫자 성조**로 담고 있는데(汉典/萌典은 스크래핑 시점에 이미 발음 구별 부호 형태로 나와 이 문제가 없음, 이 소스만 예외), 이 값이 변환 없이 그대로 UI에 노출되고 있었다 — 사용자가 실제 앱 화면에서 발견. 표준 병음 성조 규칙(a>e>o>나머지 i/u/ü 중 마지막 글자, 단 "iu"/"ui"는 뒤 글자)을 재구현해(`cccedict.ts` `numberedPinyinToDiacritic`) 변환 후 표시하도록 수정. **ü 표기 확인**: CC-CEDICT는 ü를 흔히 쓰이는 "v"가 아니라 **"u:"**로 표기한다(실측: `nu:4`=衄, `yi1 lu:4`=一律) — 다른 로마자 입력기 관례와 다르니 혼동 주의. 구현 중 자체 버그도 발견해 수정: 'o' 판정을 "ou" 부분 문자열 포함 여부로만 하면 "guo2"(国)의 'o'를 못 찾아 'u'에 잘못 부호가 붙거나("gúo", 틀림), "zhong1"(中)처럼 'o'가 있어도 "ou"가 아니면 부호가 아예 안 붙는 문제가 있어 — 'o' 존재 여부로만 판정하도록 수정(guó/zhōng 재검증 통과). 재검증: 打算→dǎ suàn, 中国→Zhōng guó, 女→nǚ, 九→jiǔ(iu 조합), 会议→huì yì(ui 조합), 北京→Běi jīng(고유명사 대문자 보존), 先生/谢谢/月亮/小姐→둘째 음절 경성 정상적으로 부호 없이 표시.
+
 ### 汉典 (zh-Hans)
 
 **접근**: 스크래핑, `/hans/`(간체)·`/hant/`(번체, zh-Hant 폴백용으로도 확인됨) 경로. WebFetch 도구는 실제 존재하는 페이지도 여전히 HTTP 404를 반환하지만, 일반 브라우저 User-Agent + 리다이렉트 추적(Node `fetch` 기본 동작)만으로 정적 SSR HTML이 200으로 온다.
@@ -258,6 +289,7 @@ en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·daijisen·JMdict·汉典·萌�
 - **en**: 활용형(ran/went/ate 등)이 원형과 교차 연결돼 있어 그대로 조회해도 정상 동작(실측 확인) — ja/zh와 달리 형태소 분석 전처리 불필요. 관용구 표시 자체가 없음 — "kick the bucket"도 REST API 기준 `partOfSpeech: "verb"`로만 나와 `isIdiom`은 이 소스는 항상 undefined.
 - **ja**(`食べる` raw wikitext 실측): `====Conjugation====` 섹션이 一段/五段 등 활용형 전체를 뽑아내는 템플릿(`{{ja-ichi}}`, `{{ja-conj-ex}}` 등, て形·ない形·た形·가능형·수동형·사역형까지 실제 활용된 표기로 렌더링됨) — `conjugationClass`(라벨 하나)로는 이 활용표 자체를 못 담음. **스코프 결정: 활용표 전체는 파싱하지 않고 "一段"/"五段(う)" 같은 분류 라벨만 뽑아 `conjugationClass`에 채운다** — 실제 활용형(食べた/食べて 등)은 이미 형태소 분석기(`main/nlp/japanese.ts`)가 별도 처리 중이라 중복 파싱 불필요.
 - **zh**(`捷運` raw wikitext 실측): `{{zh-pron}}` 블록 하나에 표준중국어(jiéyùn)·광둥어(zit3 wan6)·객가어(POJ+HRS 두 표기)·민난어(chia̍t-ūn) 4개 방언이 동시에 들어있음 — "발음이 다르면 뜻도 다르다"(`DictionaryReading` 분리 기준)도 "같은 sense의 지역 변이"(OEWN variety 케이스)도 아닌 제3의 축(동일 표기·동일 뜻·언어 자체가 다른 방언)이라 스키마 어디에도 안 맞고, 汉典·萌典·CC-CEDICT는 애초에 표준중국어만 다뤄 이 문제가 없으며 이 앱에 방언별 발음 질문 기능도 없어 무리해서 담을 실익이 없음 → **표준중국어(Mandarin) `m=` 필드 하나만 뽑아 `pronunciations: [{ value }]`로 채우고 나머지 방언은 버린다.** 구어 줄임말/인터넷 유행어(超商·很雷·部落格 등) 전용 최종 폴백 — 汉典·萌典 둘 다 이 카테고리를 놓치는 것을 실측으로 확인.
+- **zh 간체/번체 한쪽 표기로만 페이지가 있는 경우(2026-07-29, 실사용 중 발견)**: en.wiktionary.org의 중국어 표제어가 간체/번체 어느 한쪽에만 있을 수 있다 — 실측: "天线"(간체, antenna)은 REST API가 404를 주는데 "天線"(번체)은 정상 응답을 준다. 기존 `tryZhDefinitionsFallback`은 **같은 표제어**의 raw wikitext를 다시 보는 것뿐이라 이 케이스(표제어 자체가 다른 스크립트에만 있음)는 못 잡았다. `question/dictionary/cccedict.ts`에 `findOtherScriptVariant`를 새로 export해(이미 로드해 쓰는 CC-CEDICT 번들에서 간체↔번체 반대 표기를 찾음, 별도 변환 라이브러리 불필요) `wiktionary.ts`가 기존 조회가 완전히 실패하면(zh 한정) 반대 표기로 한 번 더 시도하도록 수정 — 그 사전에도 없는 단어면 재시도 자체를 안 해 무한 루프 없음. 화면에 보이는 headword는 실제 조회에 성공한 표기가 아니라 사용자가 선택한 원래 표기로 되돌려 일관성 유지.
 
 **발음 보강 구현 현황**(2026-07-28, `question/dictionary/wiktionary.ts` 실제 구현 — 연결 어댑터 자체는 완료, 정식 폴백 오케스트레이션 미연동 상태는 위 §전체와 동일):
 
@@ -288,6 +320,19 @@ REST API(definition 엔드포인트)엔 발음 필드가 아예 없어(위 1번 
 - Wikimedia User-Agent 정책(연락 가능한 수단 명시 필수, 이메일이 꼭 아니어도 이슈를 남길 수 있는 저장소 URL이면 충분) 미준수로 개발 중 HTTP 429를 자주 맞아, `WIKTIONARY_USER_AGENT` 상수(`"JoJo-dictionary-adapter/1.0 (저장소 URL)"`)로 en.wiktionary.org REST API·action API·dictionaryapi.dev 요청 전부에 통일 적용.
 - Wiktionary는 CC BY-SA 4.0(+ GFDL) 라이선스라 저작자 표시 의무가 있음 — `senseSelect.ts`의 출처 줄이 Wiktionary일 때만 `[Wiktionary](표제어 페이지 URL) (CC BY-SA 4.0)` 형태로 링크+라이선스명을 함께 표기하도록 변경.
 - **OEWN도 CC BY 4.0이라 같은 저작자 표시 의무 확인, 추가 완료(2026-07-28)** — `SOURCE_LICENSE`에 `wordnet: 'CC BY 4.0'` 등록. 링크는 표제어별 딥링크 대신 **공식 GitHub 저장소(`https://github.com/globalwordnet/english-wordnet`) 프로젝트 페이지로 고정** — 위 OEWN 절 실측대로 `en-word.net`의 정적/라이브 API 링크가 둘 다 503으로 불안정해(재실측으로 재확인) 조회 결과별 딥링크를 만들면 사용자가 클릭했을 때 죽은 링크로 연결될 위험이 있고, 이 어댑터 자체가 애초에 그 불안정한 라이브 소스를 안 쓰고 GitHub Releases 데이터 파일을 로컬 번들로 받아 쓰므로(`oewn.ts`) 조회 결과와 무관하게 항상 살아있는 이 프로젝트 페이지가 더 안전하다고 판단. 이 김에 `formatDictionaryAnswer`의 `source === 'wiktionary' ? ... : SOURCE_LABELS[source]` 하드코딩 분기를 소스별 URL 빌더 맵(`SOURCE_URL: Partial<Record<DictionarySourceId, (word: string) => string>>`)으로 일반화 — 맵에 없는 소스는 자동으로 링크 없이 라이선스명만(또는 라이선스도 없으면 그냥 라벨만) 표기되도록 정리.
+
+### 출처 링크 — 나머지 소스 추가 + 섹션 앵커 + 링크-본문 불일치 버그(2026-07-28~29)
+
+**나머지 사전 소스(MW/JMdict/汉典/萌典/CC-CEDICT)도 `SOURCE_URL`에 링크 추가**(실제 URL 라이브 검증 완료):
+- **merriam-webster**: 어댑터가 쓰는 `dictionaryapi.com`(API 전용)이 아니라 소비자용 웹사이트 `merriam-webster.com/dictionary/{표제어}`로 연결. curl로 직접 검증 시 UA를 바꿔도 403이 나오는데(서버/데이터센터 IP 차단으로 추정), 실제 브라우저 클릭은 문제없을 것으로 판단하나 자동화 도구로는 최종 확인 못함.
+- **jmdict**: 로컬 번들이라 표제어별 페이지가 없어, 같은 JMdict 데이터를 쓰는 공개 사이트 `jisho.org/word/{표제어}`로 연결(200 OK 실측 확인).
+- **hanyu-dict(汉典)**: 어댑터가 실제 조회에 쓰는 `zdic.net/{hans|hant}/{표제어}` 그대로 연결(`ZDIC_BASE`/`ZDIC_LANG_PATH`를 `hanyu.ts`에서 export해 재사용). 이 사이트도 페이지 안에 여러 섹션(`#jbjs`/`#xxjs`/`#gyjs`)이 있지만, 어댑터가 실제로 어느 섹션을 채택했는지가 링크 빌더까지 안 넘어와 있어 앵커는 안 붙임(잘못된 섹션 앵커보다 단어 페이지 전체 연결이 안전).
+- **guoyu-cidian(萌典)**: API 엔드포인트(`moedict.tw/uni/...`)가 아니라 사람이 보는 웹 뷰어 `moedict.tw/{표제어}`로 연결(200 OK 실측 확인).
+- **cc-cedict**: 로컬 파일 기반이라 표제어별 페이지 자체가 없음 — wordnet(OEWN)과 같은 방식으로 프로젝트 소개 페이지(MDBG CC-CEDICT 페이지, 200 OK 실측 확인)로 대신 연결.
+
+**섹션 앵커 추가**: kotobank.jp 표제어 페이지는 daijisen 앞에 다른 사전이 최대 8개 있을 수 있는데, 각 사전 섹션(`<article id="...">`)의 id가 그 사전명("デジタル大辞泉")을 UTF-8 바이트 hex를 점(.)으로 이어붙인 값이라는 걸 실측 확인(id가 실제 인코딩과 정확히 일치하는지 재검증도 완료) — `kotobankSectionAnchor` 헬퍼로 이 앵커를 만들어 daijisen 섹션으로 바로 스크롤되게 함. en.wiktionary.org도 언어별 표준 MediaWiki 헤딩 id(`<h2 id="Japanese">` 등)를 쓰는 걸 실측 확인(`#Japanese` 앵커로 정상 이동)해 조회 언어의 영문명(`WIKTIONARY_LANG_NAME`, `wiktionary.ts`에서 export)을 앵커로 추가. 둘 다 개별 뜻풀이 번호까지는 이 사이트들 마크업상 앵커가 없어 안 됨(섹션/언어 단위 점프까지만 가능).
+
+**출처 링크가 채팅창 본문과 어긋나는 버그 발견 및 수정(2026-07-28)**: 실측(MW "walked"): 채팅창 본문은 정확히 "walk"(동사 원형, MW 자체 교차참조로 이미 잘 해결됨)로 나오는데, 출처 링크는 `formatDictionaryAnswer`의 `queryWord` 매개변수(원래 선택 표면형 "walked") 그대로 써서 `dictionary/walked`로 걸려 본문("walk")과 어긋났다 — en/ja/zh 전 소스 공통 로직이라 언어를 안 가리는 문제였음. `queryWord` 대신 실제로 선택된 `selected[0].sense.headword`를 쓰도록 수정 — 이 값은 각 소스 어댑터가 실제로 찾아낸 원형을 항상 정확히 반영하므로(활용형 해석 로직이 소스마다 달라도) 언어별 전용 배선 없이 en/ja/zh 전부 일관되게 맞는다. `queryWord`는 "문맥에 맞는 뜻을 못 찾았을 때" 안내 메시지에만 남겨 쓴다.
 
 ---
 

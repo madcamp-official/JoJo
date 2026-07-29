@@ -24,7 +24,7 @@ export function captionRoot(): HTMLElement | null {
   )
 }
 
-function videoCurrentTime(): number {
+export function videoCurrentTime(): number {
   const v = document.querySelector<HTMLVideoElement>('video.html5-main-video, video')
   return v ? v.currentTime : 0
 }

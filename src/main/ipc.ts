@@ -14,12 +14,15 @@ import type {
   SelectionContext,
 } from '@shared/types'
 import { runSelectionPipeline } from './selection'
-import { isSubtitleModeActive } from './selection/subtitleSource'
-import { extensionBridge } from './extension/bridge'
 import { runQuestion } from './question'
 import { listAvailableDictionarySources } from './question/dictionary/registry'
 import { startChangeWatcher } from './selection/changeWatcher'
-import { getSelectedWindowId, listWindows, setSelectedWindowId } from './selection/capture'
+import {
+  getSelectedWindowId,
+  listWindows,
+  setSelectedWindowId,
+  setSelectedWindowName,
+} from './selection/capture'
 import { invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
 import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
 import { isWarmedUp } from './selection/warmup'
@@ -47,9 +50,6 @@ import { openUrlInNewWindow } from './question/browser'
 import { JA_ENGINE, tokenizeJapanese } from './nlp/japanese'
 import { segmentChineseWords } from './nlp/chinese'
 
-// 자막 팝업 때문에 영상을 멈춘 상태인지 — 팝업 재사용 시 close 리스너 중복 부착을 막는다.
-let pausedForPopup = false
-
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
 export function registerIpc(): void {
@@ -70,6 +70,7 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.SELECT_WINDOW, async (_e, source: CaptureSource) => {
     setSelectedWindowId(source.id)
+    setSelectedWindowName(source.name)
     invalidateExtractionCache() // 이전 창(재선택 포함)의 캐시가 새 창으로 넘어가지 않게
     clearRegion() // 이전 창 기준 좌표라 새 창에 그대로 쓰면 안 맞음
     resetToNormalMode() // 재선택 시 선택 모드였다면 일반 모드로 — 새 창엔 아직 캐시된 단어가 없음
@@ -109,23 +110,12 @@ export function registerIpc(): void {
   })
 
   // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → 팝업(담당 B) 오픈 + 전달
+  // (자막 경로는 이 핸들러를 타지 않는다 — 확장이 페이지 안에서 직접 클릭을 처리해
+  // subtitleSource.ts 가 자체적으로 팝업을 연다)
   ipcMain.handle(IPC.SELECTION_EXTRACTED, async (_e, point: { x: number; y: number }) => {
     const extracted: ExtractedSelection = await runSelectionPipeline(point)
     // 빈 곳 클릭(자막 단어를 못 짚음)이면 빈 팝업을 띄우지 않는다.
-    if (extracted.text.trim()) {
-      const win = createPopupWindow(extracted)
-      // 자막(유튜브/넷플릭스) 클릭이면 팝업 뜨는 동안 영상을 멈추고, 닫히면 다시 재생한다.
-      if (isSubtitleModeActive()) {
-        extensionBridge.setVideoPlayback(false)
-        if (!pausedForPopup) {
-          pausedForPopup = true
-          win.once('closed', () => {
-            pausedForPopup = false
-            extensionBridge.setVideoPlayback(true)
-          })
-        }
-      }
-    }
+    if (extracted.text.trim()) createPopupWindow(extracted)
     return extracted
   })
 

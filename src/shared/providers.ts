@@ -24,9 +24,17 @@ export const PROVIDER_ORDER: LlmProvider[] = ['gpt', 'gemini', 'claude']
 /** provider 별 기본 모델. 설정 화면에서 사용자가 고르지 않으면 이 값이 쓰인다.
  *  gemini 는 'latest' 별칭을 써서 버전 번호 하드코딩으로 인한 404를 피한다
  *  (2026-07-25 실측: 'gemini-1.5-pro' 는 이미 404, 세대 교체가 잦음).
- *  main(adapter) 과 renderer(설정 화면) 가 함께 참조하는 단일 출처. */
+ *  main(adapter) 과 renderer(설정 화면) 가 함께 참조하는 단일 출처.
+ *
+ *  **2026-07-28 정정**: 세 provider 모두 "프론티어(가장 비싸고 강력한) 티어"가 아니라
+ *  "가격-성능 중간 티어"로 맞춤 — 이 필드는 사용자가 드롭다운에서 직접 고르지 않았을 때만
+ *  쓰이는 fallback이라, 여기 프론티어 모델을 박아두면 사용자가 모르고 고가 모델을 계속
+ *  호출하게 될 위험이 있고, 이 앱의 실제 호출(발음 판정/사전 서식화/짧은 질답)도 그 정도
+ *  성능이 굳이 필요하지 않다. gpt: 프론티어 Sol/저가 Luna 사이의 중간 티어 Terra.
+ *  gemini: 프론티어 Pro 대신 가격-성능 중간 Flash. claude: Opus(프론티어)/Haiku(초저가)
+ *  사이의 중간 티어 Sonnet — 이미 이 값이었으므로 변경 없음. */
 export const DEFAULT_MODELS: Record<LlmProvider, string> = {
-  gpt: 'gpt-4o',
-  gemini: 'gemini-pro-latest',
+  gpt: 'gpt-5.6-terra',
+  gemini: 'gemini-flash-latest',
   claude: 'claude-sonnet-5',
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppMode, Rect, Word } from '@shared/types'
 import { findLineWordsAtPoint, unionBbox } from '@shared/wordMapping'
+import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 
 // 오버레이 (PLAN.md §4.1) — 담당 A
 // 선택된 창과 정확히 같은 자리에 정렬되는 투명·클릭스루 창. 테두리 색으로 현재 모드를
@@ -14,7 +15,6 @@ import { findLineWordsAtPoint, unionBbox } from '@shared/wordMapping'
 // 없으면(처음 선택한 창, 또는 리사이즈로 무효화된 뒤) 메인이 REGION_SELECTION_NEEDED 를
 // 보내고, 여기서 드래그로 사각형을 그려 SUBMIT_REGION 으로 돌려준다.
 
-const WORD_BOX_PADDING = 2 // 박스 테두리가 글자 획과 겹치지 않게 사방으로 두는 여백(px)
 const NOTICE_DURATION_MS = 4000
 const MIN_REGION_SIZE = 8 // 이보다 작은 드래그는 실수 클릭으로 보고 무시
 
@@ -72,6 +72,10 @@ export function Overlay() {
         setWords(w)
         setHoveredLine([]) // 새 단어 목록엔 이전 hover 대상과 같은 객체가 없어서, 안 지우면 낡은 위치의 박스가 남는다
         setExtracting(false)
+        // 어떤 경로(OCR 성공/빈 결과, 자막 모드의 빈 배열)든 도착했다는 건 더 이상 영역
+        // 선택을 기다릴 필요가 없다는 뜻 — 자막 모드로 전환되기 직전에 REGION_SELECTION_NEEDED
+        // 가 먼저 와 있었던 경우(판정 경합) 그 드래그 안내가 남아있지 않도록 같이 끈다.
+        setNeedsRegion(false)
       }),
     [],
   )
@@ -205,11 +209,15 @@ export function Overlay() {
             // (groupCjkCharsGrid: bbox 없는 "gap 글자") 그 앞 실제 글자의 bbox 가 문장부호
             // 자리 바로 앞에서 끝나 아래쪽 테두리가 마지막 글자와 겹쳐 보이는 문제가
             // 사용자 실측으로 확인됨 — 위쪽 테두리도 같은 이유로 살짝 겹쳐 보일 수 있어
-            // (사용자 요청) 위/아래 둘 다 여백을 준다.
-            left: hoveredBox.x - WORD_BOX_PADDING,
-            top: hoveredBox.y - WORD_BOX_PADDING,
-            width: hoveredBox.width + WORD_BOX_PADDING * 2,
-            height: hoveredBox.height + WORD_BOX_PADDING * 2,
+            // (사용자 요청) 위/아래 둘 다 여백을 준다. 색상/두께/여백은
+            // shared/highlightStyle.ts 단일 소스 — 크롬 확장의 자막 하이라이트
+            // (extension/src/highlight.ts)와 값을 공유해 스타일을 통일한다.
+            left: hoveredBox.x - WORD_BOX_STYLE.padding,
+            top: hoveredBox.y - WORD_BOX_STYLE.padding,
+            width: hoveredBox.width + WORD_BOX_STYLE.padding * 2,
+            height: hoveredBox.height + WORD_BOX_STYLE.padding * 2,
+            border: `${WORD_BOX_STYLE.borderWidth}px solid ${WORD_BOX_STYLE.borderColor}`,
+            background: WORD_BOX_STYLE.background,
           }}
         />
       )}
