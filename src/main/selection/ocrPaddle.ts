@@ -417,18 +417,158 @@ export function computeSlotWeights(codepoints: string[]): number[] {
   return weights
 }
 
+// 담당 A — 가로쓰기 단어 박스 위치 정확도 개선(2026-07-29, 사용자 지적). computeSlotWeights
+// 는 세로쓰기 縦中横 관례(2자리 숫자만 압축)를 위해 만든 함수라 가로쓰기에 그대로 쓰면
+// 안 맞는다 — 가로쓰기 일본어 조판에서 반각 숫자는 자릿수와 무관하게 항상 전각 글자의
+// 절반 폭으로 렌더링되는 게 일반적 관례라(세로쓰기처럼 "2자리일 때만" 특별 취급하지
+// 않음), 숫자는 항상 0.5 로 고정한다.
+const HALF_WIDTH_DIGIT_WEIGHT = 0.5
+
+// 문장부호(、。 등)는 줄 중간에 있을 때와 줄 맨 앞/끝에 있을 때 실제 렌더링 폭이 다르다
+// — 관례상(行頭禁則: 줄 맨 앞에 못 오는 문장부호가 어쩔 수 없이 오면 앞 글자 쪽으로
+// 붙여 좁게 그려짐, 줄 끝도 비슷하게 좁아지는 경우가 많음) 줄 양 끝(첫/마지막 글자)의
+// 문장부호만 좁게 잡는다. 정확한 비율은 폰트·페이지마다 다를 수 있어(사용자 지적) 이
+// 값은 "대체로 맞는" 기본값이다 — 그리드 모델 특성상 이 추정이 살짝 어긋나도 오차가
+// 그 글자 하나에만 쏠리지 않고 줄 전체에 고르게 분산되므로 완전히 틀리진 않는다.
+const LINE_EDGE_PUNCTUATION_RE = /[、。・！？…]/
+const LINE_EDGE_PUNCTUATION_WEIGHT = 0.4
+
+/** computeSlotWeights 의 가로쓰기 버전 — 세로쓰기 전용 함수는 그대로 두고 별도로 둔다. */
+export function computeSlotWeightsHorizontal(codepoints: string[]): number[] {
+  const weights = new Array(codepoints.length).fill(1)
+  const lastIndex = codepoints.length - 1
+  for (let i = 0; i < codepoints.length; i++) {
+    const ch = codepoints[i]!
+    if (DIGIT_RE.test(ch)) {
+      weights[i] = HALF_WIDTH_DIGIT_WEIGHT
+      continue
+    }
+    if ((i === 0 || i === lastIndex) && LINE_EDGE_PUNCTUATION_RE.test(ch)) {
+      weights[i] = LINE_EDGE_PUNCTUATION_WEIGHT
+    }
+  }
+  return weights
+}
+
+// 담당 A — 잉크 위치 기반 글자 경계 보정 실험(2026-07-29, 사용자 요청). 그리드 모델(균등
+// 칸 폭 가정)이 추정한 글자 경계를, 실제 캡처 이미지에서 "잉크가 없는 열(글자 사이
+// 빈 칸)"에 스냅해서 페이지별 폰트/자간 차이를 흡수해본다. hasInkInRegion(ocrNdlocr.ts)
+// 과 같은 원리(그 영역 안 최댓값을 배경으로 보고, 그보다 DARK_DELTA 이상 어두우면 잉크로
+// 판정)를 열 단위로 확장한 것 — 가로쓰기 전용(세로쓰기는 손 안 댐), 못 찾으면(빈 칸이
+// 뚜렷하지 않으면) 그리드 추정 위치를 그대로 쓰는 안전한 폴백이다.
+const INK_GAP_DARK_DELTA = 40
+
+/** lineRect 크롭 안에서 각 x열(1px 폭)의 "잉크 진하기"(그 열 안 최대 어둠, 0=배경)를 구한다. */
+function computeColumnDarkness(image: Buffer, lineRect: Rect): Float64Array | null {
+  const x = Math.max(0, Math.round(lineRect.x))
+  const y = Math.max(0, Math.round(lineRect.y))
+  const width = Math.max(1, Math.round(lineRect.width))
+  const height = Math.max(1, Math.round(lineRect.height))
+  const bitmap = nativeImage.createFromBuffer(image).crop({ x, y, width, height }).toBitmap()
+  if (bitmap.length < width * height * 4) return null
+  // BGRA 4바이트당 1픽셀(Electron NativeImage.toBitmap 포맷, computeInkFraction 과 동일).
+  const lum = new Float64Array(width * height)
+  let maxBrightness = 0
+  for (let i = 0, p = 0; i < bitmap.length; i += 4, p++) {
+    const b = bitmap[i]!
+    const g = bitmap[i + 1]!
+    const r = bitmap[i + 2]!
+    const l = (r * 299 + g * 587 + b * 114) / 1000
+    lum[p] = l
+    if (l > maxBrightness) maxBrightness = l
+  }
+  const darkness = new Float64Array(width)
+  for (let col = 0; col < width; col++) {
+    let colMax = 0
+    for (let row = 0; row < height; row++) {
+      const d = maxBrightness - lum[row * width + col]!
+      if (d > colMax) colMax = d
+    }
+    darkness[col] = colMax
+  }
+  return darkness
+}
+
+/** x 주변 ±radius 안에서 가장 밝은(잉크 없는) 열을 찾아 그 위치로 스냅한다. 그 범위 안에
+ * 뚜렷한 빈 칸이 없으면(가장 어둡지 않은 열조차 INK_GAP_DARK_DELTA 이상 어두우면) 원래
+ * 위치를 그대로 반환한다 — 글자끼리 붙어 있거나 후리가나 잔여물 등으로 오탐지될 여지를
+ * 줄이기 위한 보수적 기준. */
+function snapToInkGap(darkness: Float64Array, x: number, radius: number): number {
+  const lo = Math.max(0, Math.round(x - radius))
+  const hi = Math.min(darkness.length - 1, Math.round(x + radius))
+  let bestCol = -1
+  let bestVal = Infinity
+  for (let col = lo; col <= hi; col++) {
+    const v = darkness[col]!
+    if (v < bestVal) {
+      bestVal = v
+      bestCol = col
+    }
+  }
+  if (bestCol === -1 || bestVal >= INK_GAP_DARK_DELTA) return x
+  return bestCol
+}
+
+// 담당 A — 잉크 경계 스냅 정밀화(2026-07-29, 사용자 지적: "문장부호와 다음 문자 사이
+// 공백이 박스 안에 포함됨"). snapToInkGap(가장 밝은 열로 스냅)은 문장부호처럼 글자
+// 자신의 칸보다 잉크가 훨씬 좁게 그려지는 경우, 그 문장부호 칸과 다음 글자 사이의 넓은
+// 빈 공간 "한가운데"로 스냅해버려서 다음 단어 박스 왼쪽에 그 공백이 그대로 딸려 들어간다.
+// 대신 "그 단어가 실제로 시작/끝나는 잉크 경계"를 방향을 정해 찾는다 — 단어 시작
+// 경계는 오른쪽으로 훑어 공백→잉크로 바뀌는 첫 지점을, 단어 끝 경계는 왼쪽으로 훑어
+// 잉크→공백으로 바뀌는 지점을 찾는다. 앞뒤 단어가 붙어 있어(gap 문자가 사이에 없어)
+// 경계 하나가 동시에 "끝"이자 "시작"인 경우는 방향을 정할 수 없으므로 기존 snapToInkGap
+// (가운데로) 을 그대로 쓴다.
+function findInkEdge(darkness: Float64Array, x: number, radius: number, direction: 'start' | 'end'): number {
+  const lo = Math.max(0, Math.round(x - radius))
+  const hi = Math.min(darkness.length - 1, Math.round(x + radius))
+  const isInk = (col: number) => darkness[col]! >= INK_GAP_DARK_DELTA
+  if (direction === 'start') {
+    for (let col = lo; col <= hi; col++) {
+      if (isInk(col) && (col === 0 || !isInk(col - 1))) return col
+    }
+    return x
+  }
+  for (let col = hi; col >= lo; col--) {
+    if (isInk(col) && (col === darkness.length - 1 || !isInk(col + 1))) return col + 1
+  }
+  return x
+}
+
+// 문장부호(、。 등)와 숫자는 형태소 분석기가 앞뒤 단어와 한 토큰으로 묶어버리는 경우가
+// 있다(사용자 지적: "숫자, 문장부호가 박스에 포함됨") — segmentJapaneseWords/
+// segmentChineseWords 는 "일본어(한자/가나) 글자가 하나라도 있으면" 토큰을 통과시키므로,
+// 그 토큰의 앞/뒤에 숫자·문장부호가 붙어 있어도 그대로 살아남는다. 실제 클릭 대상은
+// 그 글자들이 아니므로, 토큰 경계의 양 끝에서 숫자·문장부호만 잘라내고 나머지는(전부
+// 잘려나가면 토큰 자체를 버려서) 기존 gap-문자 처리로 넘긴다.
+const WORD_EDGE_TRIM_RE = /[0-9、。・！？…「」『』（）()]/
+
 export async function groupCjkCharsGrid(
   lineRect: Rect,
   text: string,
   language: 'ja' | 'zh-Hans' | 'zh-Hant',
   vertical: boolean,
   typicalCellSize: number | null,
+  // 담당 A — 잉크 위치 기반 경계 보정용(2026-07-29). 가로쓰기 호출부만 원본 캡처
+  // 이미지를 넘긴다 — 세로쓰기 호출부는 생략(null)해서 기존 그리드 계산 그대로 둔다.
+  image: Buffer | null = null,
 ): Promise<Word[]> {
   const codepoints = [...text]
   if (codepoints.length === 0) return []
-  const boundaries = [
+  const rawBoundaries = [
     ...(language === 'ja' ? await segmentJapaneseWords(text) : await segmentChineseWords(text, language)),
   ].sort((a, b) => a.start - b.start)
+  // 가로쓰기에서만 트리밍한다(세로쓰기는 손 안 댐) — 위 WORD_EDGE_TRIM_RE 주석 참고.
+  const boundaries = vertical
+    ? rawBoundaries
+    : rawBoundaries
+        .map((b) => {
+          let start = b.start
+          let end = b.end
+          while (start < end && WORD_EDGE_TRIM_RE.test(codepoints[start]!)) start++
+          while (end > start && WORD_EDGE_TRIM_RE.test(codepoints[end - 1]!)) end--
+          return { text: codepoints.slice(start, end).join(''), start, end }
+        })
+        .filter((b) => b.start < b.end)
   if (process.env.DEBUG_OCR_DUMP) {
     const { writeFileSync } = require('node:fs') as typeof import('node:fs')
     const { join } = require('node:path') as typeof import('node:path')
@@ -437,7 +577,7 @@ export async function groupCjkCharsGrid(
       JSON.stringify({ text, language, boundariesCount: boundaries.length, boundaries }, null, 2),
     )
   }
-  const weights = computeSlotWeights(codepoints)
+  const weights = vertical ? computeSlotWeights(codepoints) : computeSlotWeightsHorizontal(codepoints)
   const cumulative: number[] = [0]
   for (const w of weights) cumulative.push(cumulative[cumulative.length - 1]! + w)
   const totalWeight = cumulative[cumulative.length - 1]!
@@ -449,7 +589,11 @@ export async function groupCjkCharsGrid(
   // 칸 가중치를 줄여서(검출 높이는 그대로 두고) 칸 크기를 살짝 더 크게 추정한다.
   // 완전히 0(칸 가중치 통째로 제외)이 아니라 작은 값(TRAILING_PUNCTUATION_WEIGHT)으로
   // 낮춘다 — 문장부호도 잉크가 아예 없는 건 아니라 어느 정도는 실제로 칸을 차지하므로
-  // (사용자 지적), 완전 제외보다 실측에 더 가깝다.
+  // (사용자 지적), 완전 제외보다 실측에 더 가깝다. 이 블록은 세로쓰기(computeSlotWeights)
+  // 에만 실질적으로 작동한다 — 가로쓰기(computeSlotWeightsHorizontal)는 이미 줄 끝
+  // 문장부호의 weights[last] 자체를 LINE_EDGE_PUNCTUATION_WEIGHT(동일한 0.4)로 낮춰서
+  // 계산하므로 아래 `lastWeight > TRAILING_PUNCTUATION_WEIGHT` 조건이 자연히 false 가
+  // 돼 중복 보정되지 않는다.
   const TRAILING_PUNCTUATION_RE = /[、。・！？…]$/
   const TRAILING_PUNCTUATION_WEIGHT = 0.4
   const lastWeight = weights.length > 0 ? weights[weights.length - 1]! : 0
@@ -462,6 +606,36 @@ export async function groupCjkCharsGrid(
   const cellSize =
     typicalCellSize ?? (vertical ? lineRect.height : lineRect.width) / totalWeightForCellSize
 
+  // 그리드 추정 위치(균등 칸 폭 가정)가 기본값이다 — 가로쓰기 + 원본 이미지가 있으면
+  // 각 글자 경계를 실제 잉크 없는 열로 스냅해서 폰트/자간에 따른 오차를 줄인다(양 끝
+  // 경계는 이미 검출기가 준 줄 범위 자체라 손 안 댐).
+  let positions = cumulative.map((c) => c * cellSize)
+  if (!vertical && image) {
+    const darkness = computeColumnDarkness(image, lineRect)
+    if (darkness) {
+      // 경계가 어떤 단어의 "시작"인지 "끝"인지에 따라 스냅 방향을 다르게 잡는다(위
+      // findInkEdge 주석 참고) — 둘 다 해당하면(사이에 gap 문자 없이 단어끼리 붙어 있음)
+      // 방향을 정할 수 없으니 기존 가운데-스냅으로 처리한다.
+      const startIdx = new Set(boundaries.map((b) => b.start))
+      const endIdx = new Set(boundaries.map((b) => b.end))
+      const midRadius = cellSize * 0.4
+      const edgeRadius = cellSize * 0.9
+      positions = positions.map((p, i) => {
+        if (i === 0 || i === positions.length - 1) return p
+        const isStart = startIdx.has(i)
+        const isEnd = endIdx.has(i)
+        if (isStart && !isEnd) return findInkEdge(darkness, p, edgeRadius, 'start')
+        if (isEnd && !isStart) return findInkEdge(darkness, p, edgeRadius, 'end')
+        if (isStart && isEnd) return snapToInkGap(darkness, p, midRadius)
+        return p
+      })
+      // 스냅이 이웃 경계를 앞지르지 않게(글자 순서가 뒤집히지 않게) 단조 증가를 보장한다.
+      for (let i = 1; i < positions.length; i++) {
+        if (positions[i]! < positions[i - 1]!) positions[i] = positions[i - 1]!
+      }
+    }
+  }
+
   const words: Word[] = []
   let pos = 0
   // boundaries 가 비운 구간(문장부호 등 형태소 분석기가 걸러낸 글자)은 원문 보존을 위해
@@ -472,8 +646,8 @@ export async function groupCjkCharsGrid(
   }
   for (const b of boundaries) {
     pushGapChars(b.start)
-    const start = cumulative[b.start]! * cellSize
-    const span = (cumulative[b.end]! - cumulative[b.start]!) * cellSize
+    const start = positions[b.start]!
+    const span = positions[b.end]! - start
     words.push({
       text: b.text,
       bbox: vertical
@@ -510,14 +684,6 @@ async function recognizeOrderedLines(
     return perLine.flatMap((words) => words!)
   }
   const texts = perLine.map((words) => words!.map((w) => w.text).join(''))
-  // 임시 진단 로그(2026-07-29) — Yomitoku 검출 도입 후 노이즈/텍스트 누락 재보고 확인용,
-  // 원인 확정되면 제거. 줄 rect + 그 줄에서 실제로 PaddleOCR 이 인식한 텍스트를 같이 남긴다.
-  if (!vertical) {
-    console.log(
-      '[recognizeOrderedLines-debug] recognized text per line:',
-      JSON.stringify(orderedLines.map((l, i) => ({ x: l.x, y: l.y, width: l.width, height: l.height, text: texts[i] }))),
-    )
-  }
   // 세로쓰기에서만 대시(―) 보정을 시도한다 — 가로쓰기 폴백 경로는 이 문제 대상이 아니다.
   const { texts: finalTexts, typicalCellSize } = vertical
     ? await insertUndetectedMarks(
@@ -539,7 +705,16 @@ async function recognizeOrderedLines(
     )
   }
   const grouped = await Promise.all(
-    orderedLines.map((line, i) => groupCjkCharsGrid(line, finalTexts[i]!, language, vertical, typicalCellSize)),
+    orderedLines.map(async (line, i) => {
+      const words = await groupCjkCharsGrid(line, finalTexts[i]!, language, vertical, typicalCellSize, vertical ? null : image)
+      // 담당 A — 가로쓰기 단어 단위 hover 를 시도했었는데(2026-07-29), 잉크 위치 기반
+      // 박스 계산이 아직 튜닝 중이라 우선 세로쓰기와 동일하게 줄 단위로 되돌린다(사용자
+      // 요청, 2026-07-29) — 단어별 위치 계산(groupCjkCharsGrid, 잉크 스냅 포함) 자체는
+      // 그대로 두고, 그 결과를 한 줄로 묶어 hover/선택만 줄 단위로 쓴다. 나중에 잉크
+      // 튜닝이 끝나면 이 lineId 부여만 다시 빼면 단어 단위로 복귀 가능.
+      const lineId = Math.random().toString(36).slice(2)
+      return words.map((w) => ({ ...w, lineId }))
+    }),
   )
   return grouped.flat()
 }

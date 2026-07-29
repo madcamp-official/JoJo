@@ -54,9 +54,6 @@ export async function detectLinesWithYomitoku(image: Buffer, bbox: Rect): Promis
   const tmpPath = await writeCrop(image, bbox)
   try {
     const res = await server.request<{ image_path: string }, { lines: RawLine[] }>({ image_path: tmpPath })
-    // 임시 진단 로그(2026-07-29) — 노이즈 재발/박스가 문장 단위로 넓어지는 문제 확인용,
-    // 원인 확인 후 제거. Yomitoku 검출 원본(크롭 기준 상대좌표 + score)을 그대로 찍는다.
-    console.log('[yomitoku-debug] raw detected lines:', JSON.stringify(res.lines))
     // 크롭 기준 상대좌표를 절대좌표로 되돌린다 — detectLinesWithPaddle 과 동일한 규약.
     return res.lines.map((l) => ({
       x: bbox.x + l.x0,
