@@ -8,6 +8,7 @@ import { currentVideoId } from './timedtext'
 import { startHighlight, setWordSegments, type WordHit } from './highlight'
 import { parseAnyCaptionPayload, parseWebVtt } from './captionParse'
 import type { SubLine, SubtitleSnapshot, WordSegment } from '@shared/extension'
+import { detectRawLanguage } from '@shared/languageDetect'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).
 type FromBackground =
@@ -117,13 +118,14 @@ let lastNetflixKey = ''
 // 뜸)에 오므로, 그 시점에 언어를 정하면 화면 자막이 뭐든 항상 기본값(en)으로 잘못 고른다.
 let pendingNetflix: { movieId: string; tracks: NetflixTrack[] } | null = null
 
-// 화면 자막 텍스트로 언어를 대략 추정한다(subtitleSource.ts의 휴리스틱과 같은 목적) —
-// 넷플릭스 트랙 language 코드와 매칭해 화면에 보이는 언어의 트랙을 고른다.
+// 화면 자막 텍스트로 언어를 추정한다(src/shared/languageDetect.ts 의 단일 소스 판별기) —
+// 넷플릭스 트랙 language 코드와 매칭해 화면에 보이는 언어의 트랙을 고른다. 한자는
+// zh-Hans/zh-Hant 까지 세분화해서 나오므로, 넷플릭스가 트랙을 그 단위로 구분해 내려줄
+// 때(예: zh-Hans-CN, zh-Hant-TW) 정확한 변형을 고를 수 있다 — 예전엔 zh 하나로만
+// 뭉뚱그려 후보 중 아무거나 첫 매치를 골랐다(2026-07-29, 간체 자막인데 번체 트랙을
+// 받아오던 문제의 트랙 선택 단계 원인).
 function detectDomLanguagePrefix(text: string): string {
-  if (/[぀-ヿ]/.test(text)) return 'ja'
-  if (/[一-鿿]/.test(text)) return 'zh'
-  if (/[가-힣]/.test(text)) return 'ko'
-  return 'en'
+  return detectRawLanguage(text) ?? 'en'
 }
 
 function trackWebvttUrl(t: NetflixTrack): string | undefined {
@@ -145,9 +147,16 @@ function pickNetflixTrack(tracks: NetflixTrack[], domText: string): NetflixTrack
     return !!trackWebvttUrl(t)
   })
   if (candidates.length === 0) return null
-  // 화면에 보이는 자막 언어와 맞는 트랙을 우선한다 — 매칭 실패 시에만 첫 트랙으로 폴백.
+  // 화면에 보이는 자막 언어와 맞는 트랙을 우선한다. prefix 가 zh-Hans/zh-Hant 처럼
+  // 세분화된 값이면 그 변형으로 먼저 찾고, 넷플릭스가 트랙을 zh 하나로만(변형 구분 없이)
+  // 내려준 경우에 대비해 zh 통짜 매칭으로 한 번 더 폴백한 뒤, 그래도 없으면 첫 트랙.
   const prefix = detectDomLanguagePrefix(domText)
-  return candidates.find((t) => t.language?.startsWith(prefix)) ?? candidates[0]!
+  const zhFallback = prefix.startsWith('zh') ? 'zh' : null
+  return (
+    candidates.find((t) => t.language?.startsWith(prefix)) ??
+    (zhFallback ? candidates.find((t) => t.language?.startsWith(zhFallback)) : undefined) ??
+    candidates[0]!
+  )
 }
 
 // pendingNetflix(매니페스트)가 있고 화면에 자막이 떠 있으면, 그 언어로 트랙을 골라 확보한다.

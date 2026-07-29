@@ -1,6 +1,6 @@
-import type { ExtractedSelection, Language } from '@shared/types'
+import type { ExtractedSelection } from '@shared/types'
 import { endsWithSentenceEnder } from '@shared/context'
-import { detectCjkLanguage } from '@shared/cjkDetect'
+import { detectLanguage } from '@shared/languageDetect'
 import { extensionBridge, type Transcript } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
 import { createPopupWindow, sendOverlayWords } from '../windows'
@@ -138,27 +138,26 @@ function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
         text: anchored.text,
         anchor: { start: anchored.start, end: anchored.end },
         words: [],
-        language: detectSubtitleLanguage(hit.lineText || anchored.text),
+        // transcript.language 는 bridge.ts 가 전체 cue를 이어붙인 텍스트로 이미 1회
+        // 판별해 캐시해둔 값이다 — 자막 줄 하나보다 훨씬 큰 표본이라 더 정확하고, 클릭
+        // 마다 재판별할 필요도 없다(2026-07-29).
+        language: transcript.language,
         source,
         extraction: 'direct',
       }
     }
   }
 
-  // 전체 자막이 아직 없으면(로드 전/트랙 없음) 현재 줄만이라도 보여준다.
+  // 전체 자막이 아직 없으면(로드 전/트랙 없음) 현재 줄만이라도 보여준다 — 이 경우엔
+  // 캐시된 language 가 없으니 그 줄만으로 판별한다.
   return {
     text: hit.lineText,
     anchor: { start: hit.wordOffsetInLine, end: hit.wordOffsetInLine + hit.word.length },
     words: [],
-    language: detectSubtitleLanguage(hit.lineText),
+    language: detectLanguage(hit.lineText),
     source,
     extraction: 'direct',
   }
-}
-
-// 화면 자막 텍스트로 언어를 추정한다(자막엔 OCR OSD 를 못 쓰므로 유니코드 블록 휴리스틱).
-function detectSubtitleLanguage(text: string): Language {
-  return detectCjkLanguage(text) ?? 'en'
 }
 
 // 전체 자막 cue 들을 이어 붙여 팝업용 text 를 만들고, 클릭 단어의 offset(anchor)을 찾는다.

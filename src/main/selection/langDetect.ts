@@ -1,6 +1,7 @@
 import { nativeImage } from 'electron'
 import { createWorker, OEM, type Worker } from 'tesseract.js'
 import type { Language, Rect } from '@shared/types'
+import { detectHanziVariant } from '@shared/languageDetect'
 
 // 담당 A — 언어 자동 감지 (PLAN.md §4.1 / §5 / §6)
 // 파이프라인 순서: 본문 영역 탐지(DocLayout-YOLO) → 언어 감지(여기) → 읽기 순서/OCR.
@@ -25,24 +26,6 @@ async function getOsdWorker(): Promise<Worker> {
   return osdWorker
 }
 
-// zh-Hans/zh-Hant 판별용 — 대부분의 상용한자가 스크립트별 고유 형태를 가진다는 점을
-// 이용한다(国/國, 汉/漢, 电/電, 头/頭 …). PLAN.md §5 가이드는 OpenCC 의 전체 간체/번체
-// 전용 한자 매핑 테이블을 그대로 가져와 쓰라고 하지만, 이 환경에서 그 데이터 파일을
-// 새로 내려받을 수 없어 대신 고빈도 상용한자 위주로 직접 추린 표본 집합을 쓴다 — 문장
-// 하나에도 이 중 여러 글자가 섞여 나올 만큼 흔한 글자들이라 다수결 판정에는 충분하다
-// (완전한 판별이 필요해지면 나중에 OpenCC 데이터로 교체 가능하도록 이 두 상수만 바꾸면
-// 됨 — 아래 로직은 그대로 재사용).
-const SIMP_ONLY_CHARS =
-  '国汉语学电车义长万头会说这现实让时后对还从与应当关开门问间阳阴儿医药业东经济记认识计设议讨论词试课谁请谢读写买卖张刘陈杨赵黄马华韩号图书画网络员层楼岁处尽卫严压邮银钱铁钟队阶际陆归灭击态种类给继续应该'
-const TRAD_ONLY_CHARS =
-  '國漢語學電車義長萬頭會說這現實讓時後對還從與應當關開門問間陽陰兒醫藥業東經濟記認識計設議討論詞試課誰請謝讀寫買賣張劉陳楊趙黃馬華韓號圖書畫網絡員層樓歲處盡衛嚴壓郵銀錢鐵鐘隊階際陸歸滅擊態種類給繼續應該'
-
-function countMatches(text: string, sampleChars: string): number {
-  let count = 0
-  for (const ch of text) if (sampleChars.includes(ch)) count++
-  return count
-}
-
 let zhSampleWorker: Worker | null = null
 
 async function getZhSampleWorker(): Promise<Worker> {
@@ -56,18 +39,16 @@ async function getZhSampleWorker(): Promise<Worker> {
 
 /**
  * OSD 가 "Han"(간체/번체 구분이 안 되는 한자)으로만 판정했을 때, 실제 스크립트를 표본
- * 문자 카운트로 가른다. 표본이 없거나(인식 실패) 동률이면 기본값 zh-Hans 로 폴백한다
- * (PLAN.md §5 가이드).
+ * 문자 카운트(@shared/languageDetect 의 detectHanziVariant, OpenCC 전체 간체/번체
+ * 전용 한자 매핑 기반)로 가른다. 인식 실패 시 기본값 zh-Hans 로 폴백한다.
  */
 async function detectChineseScript(target: Buffer): Promise<'zh-Hans' | 'zh-Hant'> {
   try {
     const worker = await getZhSampleWorker()
     const { data } = await worker.recognize(target)
-    const simpCount = countMatches(data.text, SIMP_ONLY_CHARS)
-    const tradCount = countMatches(data.text, TRAD_ONLY_CHARS)
-    console.log(`[langDetect] 간체/번체 표본 카운트: simp=${simpCount} trad=${tradCount}`)
-    if (simpCount === tradCount) return 'zh-Hans'
-    return simpCount > tradCount ? 'zh-Hans' : 'zh-Hant'
+    const variant = detectHanziVariant(data.text)
+    console.log(`[langDetect] 간체/번체 판별 결과: ${variant}`)
+    return variant
   } catch (err) {
     console.error('[langDetect] 간체/번체 판별 실패 — zh-Hans 로 폴백:', err)
     return 'zh-Hans'

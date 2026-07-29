@@ -1,7 +1,7 @@
 import { loadFile } from 'chinese-tokenizer'
 import { join } from 'path'
 import type { ZhWord } from '@shared/types'
-import { HAN_CHAR_RE } from '@shared/cjkDetect'
+import { HAN_CHAR_RE } from '@shared/languageDetect'
 
 // chinese-tokenizer(그리디 최장일치, CC-CEDICT) — zh-Hant(번체) 후보 엔진 중 하나.
 // main/nlp/chinese.ts 의 ZH_HANT_ENGINE 스위치가 'chinese-tokenizer' 일 때 쓴다.

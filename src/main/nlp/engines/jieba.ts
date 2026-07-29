@@ -1,7 +1,7 @@
 import { Jieba } from '@node-rs/jieba'
 import { dict } from '@node-rs/jieba/dict.js'
 import type { ZhWord } from '@shared/types'
-import { HAN_CHAR_RE } from '@shared/cjkDetect'
+import { HAN_CHAR_RE } from '@shared/languageDetect'
 
 // jieba(@node-rs/jieba, Rust/NAPI-RS) — zh-Hans(간체) 전용 엔진. main/nlp/chinese.ts 의
 // 디스패처가 호출한다. 실측 비교(사내 비교 보고서)에서 간체 F1 1.00(참조 문장 전부 일치),
