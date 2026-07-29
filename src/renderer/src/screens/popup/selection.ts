@@ -46,8 +46,8 @@ export interface PopupSelectionModel {
 // 감이 안 온다는 사용자 피드백으로 줄 수 기준으로 교체(2026-07-29) — 바이트 예산
 // 개념 자체를 폐기한다. LLM 문맥(설정 화면의 Byte 범위, settings.contextBytesBefore/
 // After)은 이 표시와 완전히 별개이며 여전히 바이트 기준 그대로다(buildContextBlock 참고).
-const DISPLAY_CONTEXT_LINES_BEFORE = 3
-const DISPLAY_CONTEXT_LINES_AFTER = 3
+export const DISPLAY_CONTEXT_LINES_BEFORE = 3
+export const DISPLAY_CONTEXT_LINES_AFTER = 3
 
 /** text 안에서 [selStart, selEnd) 선택이 속한 줄('\n' 구분)을 찾아, 그 앞 linesBefore줄 ·
  *  뒤 linesAfter줄까지 포함하는 문자 오프셋 범위를 반환한다. 문서 시작/끝 근처라 그만큼
@@ -357,25 +357,39 @@ interface DisplayText {
  * 로 별도 계산한다(@main/question/llm/adapter.ts buildContextBlock) — windowStart/
  * insertions 는 화면에서 재지정한 선택 범위를 extracted.text 오프셋으로 되돌리기 위한
  * 것일 뿐, 그 자체가 LLM 문맥의 상한이 되지 않는다.
+ *
+ * overrideRange: PopupScreen 이 실제 팝업 너비로 DOM 측정한 "화면상 줄" 범위(+문장 경계
+ * 확장, measureLines.ts)를 넘기면 그걸 그대로 쓴다 — DOM 측정은 컨테이너가 마운트된
+ * 뒤에만 가능해서, 마운트 직후(측정 전)엔 이 인자 없이 호출해 문단 기반 근사치
+ * (computeLineContextRange)로 먼저 보여주고, 측정이 끝나면 이 인자를 채워 정확한
+ * 범위로 다시 그린다(2026-07-29, 사용자 요청 — 팝업 화면상 실제 줄 수 기준).
  */
-export function buildDisplayText(extracted: ExtractedSelection): DisplayText {
-  // 원문 전체(extracted.text) 중 선택한 표현이 속한 줄 기준 앞 3줄·뒤 3줄만 "표시"에 쓴다.
-  const range = computeLineContextRange(
-    extracted.text,
-    extracted.anchor.start,
-    extracted.anchor.end,
-    DISPLAY_CONTEXT_LINES_BEFORE,
-    DISPLAY_CONTEXT_LINES_AFTER,
-  )
+export function buildDisplayText(
+  extracted: ExtractedSelection,
+  overrideRange?: { start: number; end: number },
+): DisplayText {
+  // overrideRange 가 없으면 원문 전체(extracted.text) 중 선택한 표현이 속한 문단 기준
+  // 앞 3개·뒤 3개 문단만 "표시"에 쓴다(DOM 측정 전 1차 근사치).
+  const range =
+    overrideRange ??
+    computeLineContextRange(
+      extracted.text,
+      extracted.anchor.start,
+      extracted.anchor.end,
+      DISPLAY_CONTEXT_LINES_BEFORE,
+      DISPLAY_CONTEXT_LINES_AFTER,
+    )
   const windowedText = extracted.text.slice(range.start, range.end)
   const windowedSelStart = extracted.anchor.start - range.start
   const windowedSelEnd = extracted.anchor.end - range.start
-  // 줄 기반 창은 항상 '\n' 바로 다음(=문단 시작)에서 시작한다 — 위 indentParagraphs 주석 참고.
+  // overrideRange 는 문장 경계까지 확장된 값이라(measureLines 사용부 참고) 문단 시작과
+  // 어긋날 수 있다 — 옛 바이트 기반 창과 동일한 방식으로 다시 판정해야 한다.
+  const firstIsParagraphStart = range.start === 0 || extracted.text[range.start - 1] === '\n'
   const { text: displayText, selStart, selEnd, insertions } = indentParagraphs(
     windowedText,
     windowedSelStart,
     windowedSelEnd,
-    true,
+    firstIsParagraphStart,
   )
   return { displayText, selStart, selEnd, windowStart: range.start, insertions }
 }
@@ -392,8 +406,9 @@ export function buildSelectionModel(
   jaResult?: JaTokenizeResult,
   zhWords?: ZhWord[],
   charLevel?: boolean,
+  overrideRange?: { start: number; end: number },
 ): PopupSelectionModel {
-  const { displayText, selStart, selEnd, windowStart, insertions } = buildDisplayText(extracted)
+  const { displayText, selStart, selEnd, windowStart, insertions } = buildDisplayText(extracted, overrideRange)
   const atoms = tokenizeAtoms(displayText, jaResult, zhWords, charLevel)
 
   // 선택 구간 [selStart, selEnd) 과 겹치는 atom 들을 초기 선택으로 잡는다.

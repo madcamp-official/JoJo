@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { Ref } from 'react'
 import type { PopupSelectionModel } from './selection'
 
 // 담당 B — 원문 문맥 표시 + 드래그 범위 재지정 (PLAN.md §4.1)
@@ -15,6 +16,10 @@ interface Props {
   charLevel?: boolean
   /** 언어별 전용 스타일(예: 일본어 전용 폰트, styles.css: .ctx-text.lang-ja) 훅. */
   className?: string
+  /** PopupScreen 이 실제 렌더링 너비/폰트로 "화면상 줄" 경계를 측정할 때 씀
+   *  (popup/measureLines.ts) — 이 루트 엘리먼트의 className/clientWidth를 그대로
+   *  복제해 오프스크린에서 측정한다. */
+  rootRef?: Ref<HTMLDivElement>
 }
 
 interface Segment {
@@ -102,7 +107,7 @@ function atomIndexAtPoint(atomEls: Map<number, HTMLSpanElement>, x: number, y: n
   return nearestAtomIndex(atomEls, x, y)
 }
 
-export function ContextView({ model, from, to, onChange, charLevel, className }: Props) {
+export function ContextView({ model, from, to, onChange, charLevel, className, rootRef }: Props) {
   const lo = Math.min(from, to)
   const hi = Math.max(from, to)
   const [dragging, setDragging] = useState(false)
@@ -160,6 +165,7 @@ export function ContextView({ model, from, to, onChange, charLevel, className }:
 
   return (
     <div
+      ref={rootRef}
       className={['ctx-text', dragging && 'dragging', charLevel && 'char-level', className]
         .filter(Boolean)
         .join(' ')}

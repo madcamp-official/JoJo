@@ -87,7 +87,7 @@ function stepForward(text: string, from: number, byteBudget: number): number {
 }
 
 /** p 를 포함하는 문장의 시작 인덱스 (직전 종결부호 다음, 선행 공백 스킵) */
-function sentenceStart(text: string, p: number): number {
+export function sentenceStart(text: string, p: number): number {
   let i = p
   while (i > 0 && !isSentenceEnder(text, i - 1)) i -= 1
   while (i < p && /\s/.test(text[i])) i += 1
@@ -95,7 +95,7 @@ function sentenceStart(text: string, p: number): number {
 }
 
 /** p 를 포함하는 문장의 끝 인덱스 (다음 종결부호 + 뒤따르는 닫는 따옴표 포함) */
-function sentenceEnd(text: string, p: number): number {
+export function sentenceEnd(text: string, p: number): number {
   let i = p
   while (i < text.length && !isSentenceEnder(text, i)) i += 1
   if (i < text.length) {

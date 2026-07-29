@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChatTurn,
   DictionarySourceId,
@@ -9,12 +9,20 @@ import type {
   QuestionResult,
   ZhWord,
 } from '@shared/types'
+import { sentenceEnd, sentenceStart } from '@shared/context'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
 import { FrequentQuestions } from './popup/FrequentQuestions'
-import { buildDisplayText, buildSelectionModel, deriveContext } from './popup/selection'
+import {
+  buildDisplayText,
+  buildSelectionModel,
+  deriveContext,
+  DISPLAY_CONTEXT_LINES_AFTER,
+  DISPLAY_CONTEXT_LINES_BEFORE,
+} from './popup/selection'
+import { measureVisualLineRange } from './popup/measureLines'
 import {
   mockBankExtraction,
   mockDevotionExtraction,
@@ -85,12 +93,54 @@ export function PopupScreen() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // 원문 문맥 표시 범위(2026-07-29, 사용자 요청) — 팝업이 실제로 렌더링되는 너비/폰트
+  // 기준 "화면상 줄"(단순 '\n' 문단 구분이 아니라 자동 줄바꿈까지 반영)로 선택 앞뒤
+  // 3줄을 잡되, 문장 경계까지는 확장한다(그래서 총 줄 수가 7줄보다 늘어날 수 있음 —
+  // 의도된 동작). DOM 측정(measureLines.ts)이 필요해 컨테이너가 실제로 마운트된
+  // 뒤에만 가능하므로, 마운트 전엔 buildDisplayText 의 문단 기반 근사치로 먼저 그리고
+  // 측정이 끝나면 이 값으로 교체해 다시 그린다. **팝업이 뜬 뒤 창 크기가 바뀌어도
+  // 재측정하지 않는다** — 의존성 배열이 baseCtx 뿐이라 resize 이벤트와 무관하게 처음
+  // 계산한 범위를 그대로 유지한다(사용자 요청 — "떠 있는 상태에서 너비가 바뀌어도
+  // 보이는 텍스트 범위는 그대로"). displayText(아래, 형태소 분석 대상)와 model(atom
+  // 계산)이 같은 범위를 봐야 하므로 이 state 를 두 곳보다 먼저 선언해 공유한다.
+  const ctxRootRef = useRef<HTMLDivElement>(null)
+  const [measuredRange, setMeasuredRange] = useState<{ start: number; end: number } | null>(null)
+  // 측정 대상 텍스트를 앵커 주변 일정 문자 수로 제한 — extracted.text 전체(문서 전체)를
+  // 매 문자 Range 쿼리로 재는 건 낭비이고, 실제로 필요한 3~7줄보다 훨씬 넉넉한 예산이라
+  // 잘릴 걱정 없이 성능만 보호한다.
+  const MEASURE_TEXT_BUDGET = 4000
+  useLayoutEffect(() => {
+    setMeasuredRange(null) // baseCtx 가 바뀌면 재측정 전까지 문단 기반 근사치로 되돌아감
+    const el = ctxRootRef.current
+    if (!el) return
+    const fullText = baseCtx.text
+    const sliceStart = Math.max(0, baseCtx.anchor.start - MEASURE_TEXT_BUDGET)
+    const sliceEnd = Math.min(fullText.length, baseCtx.anchor.end + MEASURE_TEXT_BUDGET)
+    const measured = measureVisualLineRange(
+      el,
+      fullText.slice(sliceStart, sliceEnd),
+      baseCtx.anchor.start - sliceStart,
+      baseCtx.anchor.end - sliceStart,
+      DISPLAY_CONTEXT_LINES_BEFORE,
+      DISPLAY_CONTEXT_LINES_AFTER,
+    )
+    if (!measured) return
+    const absStart = measured.start + sliceStart
+    const absEnd = measured.end + sliceStart
+    setMeasuredRange({ start: sentenceStart(fullText, absStart), end: sentenceEnd(fullText, absEnd) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseCtx])
+
   // 일본어는 가나 조각을 main/nlp/japanese.ts 의 활성 엔진(JA_ENGINE) 품사 기반으로
   // 병합한다 — 사전/모델 로드가 끝날 때까지의 짧은 순간은 즉석 대체 규칙(selection.ts
   // segmentKanaRunFallback)으로 먼저 그린다. displayText 는 형태소 분석에 넘길 대상
   // 문자열(atom 과 무관)이라 먼저 따로 계산한다. engine 태그를 같이 받아야 selection.ts
-  // 가 IPADIC/UniDic 중 맞는 병합 함수를 고를 수 있다.
-  const displayText = useMemo(() => buildDisplayText(baseCtx).displayText, [baseCtx])
+  // 가 IPADIC/UniDic 중 맞는 병합 함수를 고를 수 있다. measuredRange 가 반영되기 전/후로
+  // model(atom 계산)과 같은 범위를 봐야 하므로 여기도 같은 인자를 넘긴다.
+  const displayText = useMemo(
+    () => buildDisplayText(baseCtx, measuredRange ?? undefined).displayText,
+    [baseCtx, measuredRange],
+  )
   const [jaResult, setJaResult] = useState<JaTokenizeResult | undefined>(undefined)
   useEffect(() => {
     setJaResult(undefined)
@@ -123,9 +173,10 @@ export function PopupScreen() {
   // 한 글자씩 개별 선택할 수 있게 한다(selection.ts buildSelectionModel/tokenizeAtoms 참고).
   // en 등 다른 언어에선 Toolbar 가 토글 자체를 숨긴다.
   const [charLevel, setCharLevel] = useState(false)
+
   const model = useMemo(
-    () => buildSelectionModel(baseCtx, jaResult, zhWords, charLevel),
-    [baseCtx, jaResult, zhWords, charLevel],
+    () => buildSelectionModel(baseCtx, jaResult, zhWords, charLevel, measuredRange ?? undefined),
+    [baseCtx, jaResult, zhWords, charLevel, measuredRange],
   )
   const [range, setRange] = useState({ from: model.initialFrom, to: model.initialTo })
 
@@ -286,6 +337,7 @@ export function PopupScreen() {
             <span className="ctx-hint">드래그로 범위를 다시 지정할 수 있어요</span>
           </div>
           <ContextView
+            rootRef={ctxRootRef}
             model={model}
             from={range.from}
             to={range.to}
