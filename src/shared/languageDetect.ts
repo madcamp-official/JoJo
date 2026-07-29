@@ -19,7 +19,17 @@
 //     매핑(각 ~3800/~3200자, hanziVariants.ts)을 다수결로 쓴다.
 import { eld } from 'eld/extrasmall'
 import { SIMPLIFIED_ONLY_CHARS, TRADITIONAL_ONLY_CHARS } from './hanziVariants'
-import type { Language } from './types'
+import { LANGUAGES, LINK_LANGUAGES } from './languages'
+import type { AnyLanguage, Language } from './types'
+
+// tier1(LANGUAGES)∪tier2(LINK_LANGUAGES) 코드 집합 — eld 원시 코드가 이 중 하나면
+// "지원 언어(감지+최소 구글 링크)", 아니면 tier3(미지원)다. zh-Hans/zh-Hant는 이 Set에
+// 안 넣는다 — detectRawLanguage가 raw eld 'zh'를 먼저 detectHanziVariant로 가른 뒤
+// 넘겨주므로, 여기서는 그 결과값을 그대로 신뢰하면 된다.
+const SUPPORTED_CODES: ReadonlySet<string> = new Set([
+  ...Object.keys(LANGUAGES).filter((l) => l !== 'zh-Hans' && l !== 'zh-Hant'),
+  ...Object.keys(LINK_LANGUAGES),
+])
 
 export const HAN_CHAR_RE = /[一-鿿㐀-䶿]/
 
@@ -47,17 +57,29 @@ export function detectRawLanguage(text: string): string | null {
   return language
 }
 
-/** 앱이 실제 지원하는 4개 언어(en/ja/zh-Hans/zh-Hant)로 좁혀 반환한다. 그 외 언어가
- *  감지되면 en 폴백 — "라틴 문자=영어"라는 소거법이 아니라 실제 판별 결과를 좁히는
- *  것이므로, 나중에 지원 언어가 늘어나면 이 분기만 추가하면 된다. */
-export function detectLanguage(text: string): Language {
+/** tier1(완전지원)+tier2(링크만) 통틀어 "앱이 뭐라도 대응 가능한 언어"로 좁혀 반환한다.
+ *  tier3(둘 다 아님)면 null — **이전엔 여기서 무조건 'en'으로 폴백했는데(2026-07-29
+ *  넷플릭스 간체/번체 오판 버그와 같은 유형의 함정: 프랑스어 자막이 뜨면 "en으로 오판"이
+ *  아니라 "en 사전/발음 파이프라인이 프랑스어에 잘못 적용"되는 문제가 생김), tier2
+ *  도입(2026-07-30)을 계기로 폴백을 없애고 null(=tier3, 화면에 "미지원" 처리)로
+ *  명시했다.** null이 아니면 항상 LANGUAGES 또는 LINK_LANGUAGES 중 하나에 그 키가 있다
+ *  (SUPPORTED_CODES 기준으로 걸러졌으므로). */
+export function detectSupportedLanguage(text: string): AnyLanguage | null {
   const raw = detectRawLanguage(text)
-  if (raw === 'ja' || raw === 'zh-Hans' || raw === 'zh-Hant') return raw
-  return 'en'
+  if (raw === null) return null
+  if (raw === 'zh-Hans' || raw === 'zh-Hant') return raw
+  return SUPPORTED_CODES.has(raw) ? (raw as AnyLanguage) : null
 }
 
 /** CJK(ja/zh) 여부만 필요한 곳(예: hover 세그멘테이션 라우팅)에서 쓴다. */
 export function detectCjkVariant(text: string): 'ja' | 'zh-Hans' | 'zh-Hant' | null {
-  const lang = detectLanguage(text)
-  return lang === 'en' ? null : lang
+  const raw = detectRawLanguage(text)
+  return raw === 'ja' || raw === 'zh-Hans' || raw === 'zh-Hant' ? raw : null
+}
+
+/** tier1 4개로만 좁힌 판별 — LLM 사전처럼 tier1 전용 기능 게이팅에 쓴다(tier2/3는 전부
+ *  null). `detectSupportedLanguage`가 tier2까지 반환하는 것과 용도가 다르니 혼동 주의. */
+export function detectFullLanguage(text: string): Language | null {
+  const lang = detectSupportedLanguage(text)
+  return lang !== null && lang in LANGUAGES ? (lang as Language) : null
 }

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
+  AnyLanguage,
   ApiKeyId,
   AppMode,
   AppSettings,
@@ -177,10 +178,10 @@ const api = {
   // 내용으로 채워지는 깜빡임을 없애려고, 메인이 이 신호를 받을 때까지 창을 숨겨둔다.
   notifyPopupContentReady: (): void => ipcRenderer.send(IPC.POPUP_CONTENT_READY),
 
-  openGoogle: (mode: 'pron' | 'image', text: string, lang: Language): Promise<void> =>
+  openGoogle: (mode: 'pron' | 'image', text: string, lang: AnyLanguage): Promise<void> =>
     ipcRenderer.invoke(IPC.OPEN_GOOGLE, { mode, text, lang }),
 
-  openNaverDict: (text: string, lang: Language): Promise<void> =>
+  openNaverDict: (text: string, lang: AnyLanguage): Promise<void> =>
     ipcRenderer.invoke(IPC.OPEN_NAVER_DICT, { text, lang }),
 
   // 채팅창 마크다운 링크(사전 출처 등) 클릭 시 구글/네이버와 동일한 방식으로 열기

@@ -12,8 +12,8 @@ import {
   type TranscriptCue,
   type WordSegment,
 } from '@shared/extension'
-import { detectCjkVariant, detectLanguage } from '@shared/languageDetect'
-import type { Language } from '@shared/types'
+import { detectCjkVariant, detectSupportedLanguage } from '@shared/languageDetect'
+import type { AnyLanguage } from '@shared/types'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
 
@@ -23,7 +23,9 @@ export interface Transcript {
   // 전체 cue 를 이어붙인 텍스트로 1회만 판별해 저장한다(자막 줄 하나가 아니라 영상
   // 전체 분량을 봐야 zh-Hans/zh-Hant 오판이 줄고, 클릭마다 매번 재판별할 필요도 없다 —
   // 2026-07-29, "한 줄만 쓰지 말고 더 써도 되지 않냐"는 사용자 지적으로 도입).
-  language: Language
+  // null = tier3(감지된 언어가 없거나 앱이 대응 못 하는 언어) — subtitleSource.ts 가
+  // 팝업 대신 토스트로 처리한다.
+  language: AnyLanguage | null
 }
 
 // 담당 B — 크롬 확장 브릿지 (Electron main 쪽 WebSocket 서버).
@@ -144,7 +146,7 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         const transcript: Transcript = {
           videoId: msg.videoId,
           cues: msg.cues,
-          language: detectLanguage(fullText),
+          language: detectSupportedLanguage(fullText),
         }
         // 같은 videoId 재수신 시 최신으로 갱신(자막 언어 전환 등) — delete 후 set 으로
         // Map 삽입 순서를 "최근 수신 순"으로 유지한다(buildContextWindow 가 최근 것부터

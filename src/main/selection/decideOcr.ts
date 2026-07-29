@@ -1,4 +1,4 @@
-import type { Language, SelectionSource } from '@shared/types'
+import type { AnyLanguage, SelectionSource } from '@shared/types'
 import { readWindowText } from './accessibility'
 import { getSelectedWindowId, getSelectedWindowName } from './capture'
 import { detectLanguage } from './langDetect'
@@ -28,7 +28,7 @@ export interface ExtractionDecision {
   // 스스로 OCR 경로로 넘어간다(§4.1 "텍스트 양으로 분기" 원칙).
   mode: 'direct' | 'ocr' | 'subtitle' | 'web'
   source: SelectionSource
-  language: Language
+  language: AnyLanguage
 }
 
 const cache = new Map<string, ExtractionDecision>() // key: url ?? appName

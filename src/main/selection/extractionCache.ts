@@ -1,4 +1,4 @@
-import type { Language, Rect, SelectionSource, Word } from '@shared/types'
+import type { AnyLanguage, Rect, SelectionSource, Word } from '@shared/types'
 import { getPhysicalToDipScale, sendDebugBlocks, sendExtractionOcrStarted, sendOverlayWords } from '../windows'
 import { getSettings } from '../settingsStore'
 import { captureFocusedWindow, getSelectedWindowId } from './capture'
@@ -21,7 +21,7 @@ import { getRegion, getRegionSource } from './regionSelection'
 export interface CachedExtraction {
   text: string
   words: Word[]
-  language: Language
+  language: AnyLanguage
   source: SelectionSource
   extraction: 'direct' | 'ocr'
 }

@@ -19,6 +19,15 @@ import type { DictionarySourceId, DictionarySourceOption } from '@shared/types'
 // (2026-07-28) — 한자 하나하나의 뜻이 궁금할 수 있어, 팝업 범위 지정 단위를 기본
 // 단어 단위에서 한 글자씩으로 바꿔볼 수 있게 한다(selection.ts 참고). en 은 애초에
 // 단어 단위 개념만 있어 showCharLevelToggle=false 로 토글 자체를 숨긴다.
+//
+// showNaverDict/showAiDictionary: 언어 tier(2026-07-30 도입)별 기능 게이팅 — 계산은
+// PopupScreen.tsx가 하고(shared/languages.ts hasNaverDict/isFullLanguage) 여기는 그
+// 결과만 받아 렌더링만 결정한다.
+//   tier1(완전지원): 전부 true.
+//   tier2-A(구글+네이버): showNaverDict=true, showAiDictionary=false — "AI 사전"은
+//     언어별 사전 API 소스(FALLBACK_CHAINS)가 있어야 하는데 tier2는 없음. "AI 발음"은
+//     LLM 프롬프트만으로 되는 기능이라(IPA로 통일) tier1/tier2 구분 없이 항상 보여준다.
+//   tier2-B(구글만): showNaverDict=false, showAiDictionary=false.
 
 interface Props {
   onPron: () => void
@@ -26,6 +35,8 @@ interface Props {
   onGoogle: (mode: 'pron' | 'image') => void
   onNaverDict: () => void
   disabled?: boolean
+  showNaverDict: boolean
+  showAiDictionary: boolean
   dictSources: DictionarySourceOption[]
   selectedSource: DictionarySourceId | undefined
   onSelectSource: (id: DictionarySourceId) => void
@@ -74,6 +85,8 @@ export function Toolbar({
   onGoogle,
   onNaverDict,
   disabled,
+  showNaverDict,
+  showAiDictionary,
   dictSources,
   selectedSource,
   onSelectSource,
@@ -95,12 +108,16 @@ export function Toolbar({
         이미지
       </button>
 
-      <span className="llm-badge">
-        <NaverIcon />
-      </span>
-      <button className="tb-btn" onClick={onNaverDict}>
-        사전
-      </button>
+      {showNaverDict && (
+        <>
+          <span className="llm-badge">
+            <NaverIcon />
+          </span>
+          <button className="tb-btn" onClick={onNaverDict}>
+            사전
+          </button>
+        </>
+      )}
 
       {showCharLevelToggle && (
         <label className="char-level-toggle">
@@ -124,37 +141,41 @@ export function Toolbar({
         발음
       </button>
 
-      <button className="tb-btn" disabled={disabled} onClick={onDict}>
-        사전
-      </button>
-
-      {/* 임시 디버깅 토글+드롭다운(2026-07-28) — 구현된 사전 소스가 없으면 아예 안 보여준다.
-          토글이 꺼져 있으면(기본값) 정식 폴백 체인을 쓰고, 켜면 드롭다운에서 고른 소스를
-          강제 호출한다. */}
-      {dictSources.length > 0 && (
+      {showAiDictionary && (
         <>
-          <select
-            className="dict-source-select"
-            title="강제 호출할 소스(오른쪽 토글이 켜져 있을 때만 적용)"
-            value={selectedSource ?? ''}
-            disabled={disabled || !forceSource}
-            onChange={(e) => onSelectSource(e.target.value as DictionarySourceId)}
-          >
-            {dictSources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <label className="dict-force-toggle" title="켜면 폴백 체인 대신 왼쪽 드롭다운에서 고른 소스만 강제 호출(디버깅용)">
-            <input
-              type="checkbox"
-              checked={forceSource}
-              disabled={disabled}
-              onChange={(e) => onToggleForceSource(e.target.checked)}
-            />
-            직접 선택
-          </label>
+          <button className="tb-btn" disabled={disabled} onClick={onDict}>
+            사전
+          </button>
+
+          {/* 임시 디버깅 토글+드롭다운(2026-07-28) — 구현된 사전 소스가 없으면 아예 안 보여준다.
+              토글이 꺼져 있으면(기본값) 정식 폴백 체인을 쓰고, 켜면 드롭다운에서 고른 소스를
+              강제 호출한다. */}
+          {dictSources.length > 0 && (
+            <>
+              <select
+                className="dict-source-select"
+                title="강제 호출할 소스(오른쪽 토글이 켜져 있을 때만 적용)"
+                value={selectedSource ?? ''}
+                disabled={disabled || !forceSource}
+                onChange={(e) => onSelectSource(e.target.value as DictionarySourceId)}
+              >
+                {dictSources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <label className="dict-force-toggle" title="켜면 폴백 체인 대신 왼쪽 드롭다운에서 고른 소스만 강제 호출(디버깅용)">
+                <input
+                  type="checkbox"
+                  checked={forceSource}
+                  disabled={disabled}
+                  onChange={(e) => onToggleForceSource(e.target.checked)}
+                />
+                직접 선택
+              </label>
+            </>
+          )}
         </>
       )}
     </div>

@@ -1,6 +1,7 @@
+import { Notification } from 'electron'
 import type { ExtractedSelection } from '@shared/types'
 import { endsWithSentenceEnder } from '@shared/context'
-import { detectLanguage } from '@shared/languageDetect'
+import { detectSupportedLanguage } from '@shared/languageDetect'
 import { extensionBridge, type Transcript } from '../extension/bridge'
 import { getBrowserSource } from '../extension/activeTab'
 import { createPopupWindow, sendOverlayWords } from '../windows'
@@ -97,9 +98,21 @@ function waitForMatchingTranscript(videoId: string | null): Promise<void> {
   })
 }
 
+// tier3(감지는 되거나 아예 안 되거나 상관없이 앱이 대응 못 하는 언어) 클릭 시 팝업 대신
+// 짧은 OS 알림만 띄운다(2026-07-30, 사용자 결정 — "짧은 토스트만"). 기존 배너/오버레이
+// 인프라는 이 용도로 안 맞아서(선택 모드 진입 배너는 계속 떠 있는 상태용) 새로 만들지 않고
+// Electron 기본 Notification을 그대로 씀.
+function notifyUnsupportedLanguage(): void {
+  new Notification({ title: 'Nuance', body: '이 언어는 아직 지원하지 않습니다.' }).show()
+}
+
 async function onSubtitleClick(hit: SubtitleClickHit): Promise<void> {
   await waitForMatchingTranscript(hit.videoId)
   const selection = buildSelection(hit)
+  if (selection === null) {
+    notifyUnsupportedLanguage()
+    return
+  }
   if (!selection.text.trim()) return
   const win = createPopupWindow(selection)
   // 팝업 뜨는 동안 영상을 멈추고, 닫히면 다시 재생한다.
@@ -117,7 +130,8 @@ async function onSubtitleClick(hit: SubtitleClickHit): Promise<void> {
   }
 }
 
-function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
+// null = tier3(미지원 언어) — 호출부가 팝업 대신 토스트로 처리한다.
+function buildSelection(hit: SubtitleClickHit): ExtractedSelection | null {
   const source = getBrowserSource()?.source ?? { kind: 'youtube' as const }
   // videoId별 캐시(bridge.ts transcripts Map)라 탭/영상을 오가도 서로 덮어쓰지 않는다 —
   // 이 영상 것이 있으면 그대로 신뢰하면 된다(엉뚱한 영상 자막이 섞일 일 자체가 없음).
@@ -126,6 +140,10 @@ function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
   // 전체 자막(timedtext)이 있으면 그걸 통째로 text 로 주고 anchor 만 클릭 단어에 맞춘다 —
   // 팝업이 설정 바이트(contextBytesBefore/After)만큼 앞뒤를 알아서 보여준다(OCR/텍스트와 동일).
   if (transcript && transcript.cues.length > 0) {
+    // transcript.language 는 bridge.ts 가 전체 cue를 이어붙인 텍스트로 이미 1회 판별해
+    // 캐시해둔 값이다(자막 줄 하나보다 훨씬 큰 표본이라 더 정확, 클릭마다 재판별 불필요,
+    // 2026-07-29). null이면 tier3 — 앵커 계산도 할 필요 없이 바로 미지원 처리한다.
+    if (transcript.language === null) return null
     const anchored = anchorInTranscript(
       transcript.cues,
       hit.currentTime,
@@ -138,9 +156,6 @@ function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
         text: anchored.text,
         anchor: { start: anchored.start, end: anchored.end },
         words: [],
-        // transcript.language 는 bridge.ts 가 전체 cue를 이어붙인 텍스트로 이미 1회
-        // 판별해 캐시해둔 값이다 — 자막 줄 하나보다 훨씬 큰 표본이라 더 정확하고, 클릭
-        // 마다 재판별할 필요도 없다(2026-07-29).
         language: transcript.language,
         source,
         extraction: 'direct',
@@ -150,11 +165,13 @@ function buildSelection(hit: SubtitleClickHit): ExtractedSelection {
 
   // 전체 자막이 아직 없으면(로드 전/트랙 없음) 현재 줄만이라도 보여준다 — 이 경우엔
   // 캐시된 language 가 없으니 그 줄만으로 판별한다.
+  const language = detectSupportedLanguage(hit.lineText)
+  if (language === null) return null
   return {
     text: hit.lineText,
     anchor: { start: hit.wordOffsetInLine, end: hit.wordOffsetInLine + hit.word.length },
     words: [],
-    language: detectLanguage(hit.lineText),
+    language,
     source,
     extraction: 'direct',
   }
