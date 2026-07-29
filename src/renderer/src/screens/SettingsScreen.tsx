@@ -612,10 +612,6 @@ export function SettingsScreen() {
             아직 Merriam-Webster 키가 없으신가요? 발급받으러 가기 →
           </a>
         )}
-
-        <div className="settings-note">
-          <LockIcon /> API 키는 안전하게 암호화되어 저장되며, 외부로 전송되지 않습니다.
-        </div>
       </section>
 
       {/* 단축키 설정 */}
@@ -805,9 +801,9 @@ export function SettingsScreen() {
         </p>
         <p className="desc">
           지원 범위는 3단계입니다 — <strong>1단계</strong>(영어·일본어·중국어): 언어 특화
-          OCR·사전 검색·발음 표기(히라가나/병음 등 그 언어 학습에 맞는 표기)까지 전부
-          지원합니다. <strong>2단계</strong>: OCR과 IPA 발음, 구글 발음 검색은 되지만
-          사전 검색 기능은 없습니다 — 그중 네이버 사전 연결까지 되는 언어가
+          OCR·사전 검색·발음 표기(히라가나/병음 등 그 언어 학습에 맞는 표기)·형태소 분석기까지
+          전부 지원합니다. <strong>2단계</strong>: OCR과 IPA 발음, 구글 발음 검색은 되지만
+          사전 검색 기능은 없습니다 — 그중 네이버 사전 연결까지 되는 언어가{' '}
           <strong>2단계(A)</strong>, 안 되는 언어가 <strong>2단계(B)</strong>입니다(아래
           목록에서 구분).
         </p>
