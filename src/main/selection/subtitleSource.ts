@@ -68,10 +68,19 @@ interface SubtitleClickHit {
 // 클릭"처럼 정말 기다려야 하는 경우에만 최대 2.5초 더 기다린다.
 const TRANSCRIPT_WAIT_MS = 2500
 
+// 어떤 이유로든(자막 자체가 없는 영상, 계속 실패하는 네트워크 등) 끝내 안 오는 videoId는
+// 클릭할 때마다 매번 2.5초를 기다리게 되면 "팝업이 갑자기 확 느려졌다"처럼 느껴진다
+// (실사용 확인, 2026-07-29) — 한 번 타임아웃까지 다 기다려본 videoId는 표시해두고, 그
+// 다음부터는 대기 없이 바로(기존처럼 한 줄 폴백으로) 열리게 한다. 이후 배경에서 그
+// videoId의 transcript가 뒤늦게 도착하면(리스너는 계속 살아있음, bridge.ts) 정상적으로
+// 캐시되므로 다음 클릭부터는 이 표시와 무관하게 바로 매칭되어 문맥이 뜬다.
+const timedOutVideoIds = new Set<string>()
+
 function waitForMatchingTranscript(videoId: string | null): Promise<void> {
   if (!videoId) return Promise.resolve()
   const current = extensionBridge.getTranscript()
   if (current && current.videoId === videoId && current.cues.length > 0) return Promise.resolve()
+  if (timedOutVideoIds.has(videoId)) return Promise.resolve()
   return new Promise((resolve) => {
     const onTranscript = (t: Transcript): void => {
       if (t.videoId !== videoId || t.cues.length === 0) return
@@ -81,6 +90,7 @@ function waitForMatchingTranscript(videoId: string | null): Promise<void> {
     }
     const timer = setTimeout(() => {
       extensionBridge.off('transcript', onTranscript)
+      timedOutVideoIds.add(videoId)
       resolve()
     }, TRANSCRIPT_WAIT_MS)
     extensionBridge.on('transcript', onTranscript)
