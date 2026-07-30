@@ -99,6 +99,13 @@ export function ManualScreen() {
           ①이 잘 안 맞으면(예: 자막이 아닌 화면 요소를 잘못 잡음) 트레이 메뉴의 "OCR로
           전환"으로 ②로 강제 전환할 수 있습니다 — PDF는 양방향으로 다시 되돌릴 수도 있습니다.
         </p>
+        <p className="desc">
+          <strong>macOS 미리보기 PDF 직접 추출을 쓰려면</strong> "손쉬운 사용" 권한이
+          필요합니다 — 앱이 자동으로 권한을 요청하지 않으므로, 시스템 설정 &gt; 개인정보
+          보호 및 보안 &gt; 손쉬운 사용에서 "+" 버튼으로 Nuance를 직접 추가하고 켜야 합니다.
+          권한이 없으면 아무 안내 없이 조용히 OCR(②)로 대체되니, PDF에서 직접 추출이 안
+          되는 것 같으면 이 권한부터 확인하세요.
+        </p>
       </section>
 
       <section className="settings-section">
