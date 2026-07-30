@@ -400,7 +400,7 @@ async function recognizeRegion(
     // 같다.
     if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
       // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
-      // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: segmentit)로 다시 분리한다.
+      // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: ZH_HANT_ENGINE 설정값/jieba)로 다시 분리한다.
       lineWords = await buildCjkLineWords(line, language, region)
     } else if (language === 'th' || language === 'lo') {
       // 태국어/라오어는 형태소 분석기가 없어(2026-07-30 결정, tier2는 OCR만 지원) Tesseract

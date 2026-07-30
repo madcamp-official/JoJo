@@ -476,7 +476,7 @@ export function buildDisplayText(
 /**
  * ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. jaResult 를 주면
  * 일본어 가나 조각을 활성 엔진(jaResult.engine) 품사 기반으로 병합하고(없으면 즉석 대체
- * 규칙으로 근사), zhWords 를 주면 중국어 한자를 segmentit 단어 경계 기준으로 묶는다(없으면
+ * 규칙으로 근사), zhWords 를 주면 중국어 한자를 segmentChineseWords 단어 경계 기준으로 묶는다(없으면
  * 글자 단위). charLevel=true 면 ja/zh 둘 다 병합/단어 묶기를 건너뛰고 한자를 한 글자씩
  * 개별 atom 으로 만든다(팝업 툴바 "글자 단위" 토글, 2026-07-28).
  */

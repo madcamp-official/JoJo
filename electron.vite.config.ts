@@ -25,7 +25,6 @@ export default defineConfig({
         // (commonjsRequire 재할당, 빌드 에러) external 필수 — chinese-tokenizer 도 예방적으로 같이 뺀다.
         external: [
           'tesseract.js',
-          'segmentit',
           'lindera-wasm-nodejs-ipadic',
           '@node-rs/jieba',
           '@node-rs/jieba/dict.js', // dict.js 는 서브패스 import 라 위 '@node-rs/jieba' 항목과 별개로 매칭해야 함
