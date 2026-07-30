@@ -17,6 +17,7 @@
   - [UI · 설정](#b-ui)
   - [브라우저 확장 · 자막 추출 (MV3)](#b-ext)
 - [🤝 공동](#공동)
+- [🙈 코드는 살려두고 UI에서만 감춘 것](#hidden-ui)
 - [⚠️ 미해결 문제](#미해결-문제)
 
 <a id="a-담당"></a>
@@ -96,6 +97,7 @@
 - [ ] **(2026-07-30, 계획 재검토)** ~~브라우저에서 연 PDF — 확장 프로그램으로 텍스트 레이어를 직접 추출해 호버박스 표시~~ → **이 접근 자체가 불가능한 것으로 판명, 대안 조사 중.**
   - **왜 안 되는가**: 크롬 내장 PDF 뷰어는 별도 컴포넌트 확장(`chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/`)이 out-of-process iframe으로 띄우는 화면이라 (1) 우리 확장의 content script가 `<all_urls>`로도 다른 확장의 `chrome-extension://` origin에는 주입 자체가 안 되고, (2) 설령 주입돼도 PDFium이 캔버스/플러그인 표면에 픽셀로 그리는 방식이라 `webArticle.ts`/`articleHighlight.ts`가 의존하는 DOM 텍스트 노드 + `getBoundingClientRect()` 모델이 원천적으로 성립하지 않는다(글자 좌표 자체를 주는 API가 없음). 파이어폭스 pdf.js는 진짜 DOM 텍스트 레이어가 있지만 그 뷰어도 특권 `resource://` 페이지라 마찬가지로 확장이 못 건드림.
   - **검토한 대안**: (A) DNR로 PDF 네비게이션을 확장 내장 pdf.js 페이지로 리다이렉트해 뷰어 자체를 대체(모질라 PDF.js 확장 방식) — URL 패턴 매칭이라 확장자 없는 PDF·POST 생성 PDF는 놓치고 쿠키/인증 있는 PDF는 재fetch 문제가 있음. (B) Nuance 자체 내장 뷰어(epub/txt와 동일 방향)로 흡수 — 가장 견고하지만 "브라우저에서 연 PDF" 시나리오 자체를 못 살림. (C) 크롬 창에 macOS 접근성 API(AX) 시도 — Preview.app에서 검증된 경로를 브라우저 창에도 그대로 적용 가능한지 실측 → **아래에서 실측, 성공으로 확인, (C)를 채택.**
+  - **(2026-07-31) 대안 (A) DNR 리다이렉트도 프로토타입으로 실측 — 실패, 이 경로 폐기.** 최소 확장(manifest + `declarativeNetRequest` 규칙 + `viewer.html`)을 만들어 별도 프로필 크롬에 로드하고 로컬 서버로 서빙한 실제 PDF 를 열어봤다. 규칙 형태를 두 가지로(정규식 + `regexSubstitution` 으로 원본 URL 을 쿼리에 넘기는 방식 / 오해 소지를 없앤 `urlFilter: "*.pdf"` + `extensionPath` 고정 리다이렉트) 시도했으나 **둘 다 리다이렉트가 아예 발동하지 않았다** — AX 로 실제 렌더된 창을 조회해도 크롬 내장 뷰어 그대로였고, 로컬 서버 로그에도 우리 뷰어가 원본을 다시 fetch 한 흔적이 없었다(manifest/rules JSON 문법 오류 없음, 크롬 로그에도 확장 오류 없음). 크롬이 메인 프레임의 PDF Content-Type 처리를 DNR 훅보다 앞서거나 별개 경로에서 하는 것으로 보인다. **참고**: 크롬 설정에는 "특정 확장을 PDF 핸들러로 지정"하는 사용자 옵션 자체가 없다(`chrome://settings/content/pdfDocuments` 는 "크롬에서 열기 / 다운로드" 둘뿐). → 브라우저에서 연 PDF 는 mac 은 AX 경로(위), Windows 는 OCR, 그리고 사용자가 직접 여는 경우엔 자체 뷰어로 커버한다.
   - **(2026-07-30, macOS 실측 조사 완료 — (C) 채택 근거)** Swift 스크립트로 `AXUIElement` API를 크롬 창(실제 텍스트 레이어 있는 PDF, `9780198570004.pdf`)에 직접 호출해 확인.
     - **PDF 본문 텍스트가 실제로 AX 트리에 노출됨**: 창 전체를 얕은 깊이(≤12)로만 훑으면 PDF 내용이 하나도 안 보이는데(툴바 그룹/버튼만 잡힘), 이는 PDF 콘텐츠가 `AXWebArea`가 **세 겹 중첩된 구조**(크롬 창 웹뷰 → PDF 뷰어 확장 UI 웹뷰 → PDF 콘텐츠 자체 웹뷰, 깊이 약 24) 안에 있어서였다. 깊이 제한 없이 전수 순회하면 실제 페이지 안에 `AXStaticText` 노드가 4,701개 잡히고 텍스트도 실제 본문("An Introduction to Quantum Computing", "Phillip Kaye" 등 저자명)과 정확히 일치.
     - **좌표 API도 Preview.app과 동일한 방식으로 정상 동작**: 각 `AXStaticText` 노드가 `AXBoundsForRange`/`AXStringForRange` 파라미터 속성을 노출하고, opaque `AXTextMarker`가 아니라 **Preview.app과 동일한 단순 `CFRange` 기반**(`AXValueCreate(.cfRange, ...)`)이라 코드 재사용이 가능하다. 문자 범위(0,5)만 지정해도 그 부분 문자열의 정확한 좌표("An In" → `(632, 306, 66, 24)`)가 나오고 `AXStringForRange`로 확인한 문자열도 일치. **주의**: 노드 자신의 `AXPosition`/`AXSize`는 줄바꿈 포함 멀티라인 텍스트에서 왜곡되거나(예: height=0) 대표값만 주므로 신뢰하지 말고, 항상 `AXBoundsForRange`로 원하는 문자 범위를 직접 질의해야 함(Preview.app 조사 때와 동일한 결론).
@@ -108,7 +110,14 @@
     - **Preview.app + 스캔본(이미지) PDF**: 페이지가 `AXImage` 리프 노드(자식 0개, 텍스트 속성 전혀 없음)로만 노출됨 — 애초에 텍스트 레이어가 없는 파일이라 당연히 AX로도 못 얻는다(기존처럼 OCR 필요).
     - **Kindle for Mac(임포트 epub·구매한 책 둘 다 동일)**: 리딩 화면이 커스텀 `AXGenericElement`로 페이지 전체 텍스트를 `AXValue`/`AXStringForRange`로는 정확히 준다(텍스트 추출은 됨). **하지만 `AXBoundsForRange`/`AXRangeForLine`이 사실상 고장나 있음** — 어떤 범위를 넣어도 항상 창 자신의 좌상단 좌표에 크기 0을 붙인 동일한 자리표시자 값만 반환(에러 없이 "성공"이라고는 응답하지만 의미 없는 값). 임포트한 epub("Exhalation")과 실제 구매한 책("Mother of Learning") 둘 다 정확히 같은 증상이라, 파일 포맷 차이가 아니라 **Kindle 앱 자체가 좌표 조회 부분을 구현 안 해놓은 것**으로 보인다. → 이 좌표 문제 때문에 epub/txt는 외부 뷰어 접근성 API에 기대는 대신 **Nuance 자체 내장 뷰어**로 방향을 바꿈(아래 항목).
     - **결론(2026-07-30 계획 확정)**: PDF(Preview, 텍스트 레이어 있는 경우)는 AX만으로 텍스트+좌표 둘 다 확보 가능해 그대로 채택. Kindle 등 외부 epub 뷰어는 좌표가 안 나와(위 결론) 접근성 API 경로 자체를 epub/txt에는 적용하지 않기로 하고, 대신 자체 뷰어로 대체(하이브리드 방식은 채택하지 않음).
-- [ ] **(2026-07-30, 계획 변경)** epub/txt — Nuance 앱 안에 자체 뷰어(렌더러)를 만들어 원본 파일을 직접 파싱·표시하고, 그 자체 렌더러 위에서 웹페이지와 동일한 방식(direct 텍스트 추출 + 좌표)으로 호버박스를 띄운다. 외부 뷰어(Kindle 등)의 접근성 API 좌표 문제(바로 위 조사 참고)를 원천적으로 피함 — 좌표까지 우리 렌더러가 직접 계산하므로 접근성 API 자체가 필요 없어짐.
+- [x] ~~**(2026-07-30, 계획 변경)** epub/txt — Nuance 앱 안에 자체 뷰어(렌더러)를 만들어 원본 파일을 직접 파싱·표시하고, 그 자체 렌더러 위에서 웹페이지와 동일한 방식(direct 텍스트 추출 + 좌표)으로 호버박스를 띄운다.~~ → **(2026-07-31) pdf/epub/txt 세 포맷 모두 구현 완료**(`feat/doc-viewer`). 범위가 epub/txt 에서 **PDF 까지** 넓어졌다 — 브라우저 PDF 를 확장으로 가로채는 마지막 대안(DNR 리다이렉트)마저 실측 실패해(아래 항목) 자체 뷰어가 PDF 의 답이기도 하게 됐기 때문.
+  - **진입점**: 메인 화면 "PDF / EPUB / TXT 뷰어" 버튼 → 확장자를 셋으로 제한한 파일 다이얼로그 → 전용 뷰어 창(`createViewerWindow`, `windows.ts`). 파일은 메인이 `fs` 로 읽어 IPC 로 넘긴다(contextIsolation 유지 — 렌더러는 fs 에 직접 접근하지 않음).
+  - **호버박스는 확장과 같은 소스를 공유한다(핵심)** — `extension/src/` 의 `domWords`/`webArticle`/`articleHighlight`/`hoverBox`/`wordSegments` 가 `chrome.*` API 를 한 곳도 안 쓰는 순수 DOM 코드였고 진입점(`startArticleHighlight`)도 이미 콜백 주입식이라, `src/shared/hover/` 로 옮기고 확장은 그대로 import 하도록 바꾸는 것만으로 확장·뷰어가 한 소스를 쓴다(빌드 설정 변경 불필요 — 양쪽 다 이미 `@shared` alias 보유). 전역 `document`/`window` 를 쓰던 소수 지점은 넘어오는 컨테이너에서 유도(`container.ownerDocument`/`.defaultView`)하도록 일반화했고, 이 한 번의 일반화가 epub(epubjs iframe = 별도 document) 까지 자동으로 해결했다. 문단 선택자만 주입 가능하게 해(`paragraphSelector`) PDF 는 pdf.js 텍스트 레이어 span 을 문단으로 쓴다.
+  - **CJK 형태소 분할도 공용화** — 확장 bridge 와 뷰어가 `main/nlp/segmentCjk.ts` 를 공유한다. 경로마다 다른 기준으로 쪼개면 같은 문장인데 hover 로 묶이는 단위가 갈리므로 반드시 한 소스여야 한다.
+  - **포맷별 렌더링**: PDF 는 **원본 레이아웃 유지**(pdf.js 캔버스 + 그 위 투명 텍스트 레이어 — 그림/수식/다단이 원본 그대로), epub 은 epubjs(페이지네이션·CSS·폰트 위임), txt 는 빈 줄 기준 문단을 `<p>` 로. epub/txt 는 글자 크기 슬라이더 + 라이트/다크 전환 제공(PDF 는 원본을 그대로 보여주는 게 목적이라 제외).
+  - **뷰어 창은 창 선택 목록에 일부러 남긴다** — `capture.ts` 의 "Nuance 자기 창 제외" 필터에 뷰어 창만 예외를 뒀다(`isViewerWindow`). 스캔본 PDF 처럼 direct 추출이 안 되는 문서는 사용자가 그 창을 골라 기존 OCR 을 얹을 수 있다. `decideOcr.ts` 는 손대지 않았다(일반 창은 자동으로 OCR 로 떨어짐).
+  - **주의(하마터면 못 찾을 뻔한 것)**: `pdfjs-dist` 는 **v4 로 고정**해야 한다. v6 는 `Promise.try` 를 쓰는데 이 프로젝트의 Electron 31(Chromium 126)엔 없어서 PDF 가 한 장도 안 그려진다(런타임 TypeError). v4.10 에도 `TextLayer` API 가 그대로 있어 코드 변경 없이 동작하며, `page.render()` 의 `canvas` 인자만 v4 시그니처에 맞추면 된다.
+  - [ ] **남은 검증** — 뷰어 창을 창 선택으로 골라 OCR 이 실제로 도는지는 미확인(작업 워크트리에 python venv 가 없어 OCR 엔진이 안 떠서 확인 못 함). 대형 문서 성능(수백 쪽 PDF 초기 렌더 비용)도 실사용 확인 필요 — 현재는 전 페이지를 한 번에 그린다(284쪽 PDF 로 동작 자체는 확인).
 - [x] ~~언어 자동 감지 (유니코드 블록 기반 경량 분류) — 현재 `detectLanguage()`는 항상 `'en'` 반환하는 스텁.~~ → **tier2 확장(2026-07-30)에 맞춰 구현 완료**: `langDetect.ts`가 Tesseract OSD(`osd.traineddata`)로 스크립트(문자 체계)만 먼저 가볍게 판별하고, 라틴/키릴/아랍/데바나가리처럼 한 스크립트에 여러 언어가 걸리는 경우 `resolveAmbiguousScript()`가 대표 언어팩으로 1차 OCR한 텍스트를 eld(자막 판별기와 동일)로 재판별한다(zh-Hans/zh-Hant를 가르던 패턴의 일반화).
 - [x] OCR 엔진 연동 — **범용 엔진(전체 언어 공통/자동감지용) + 언어별 최적 엔진(개별 특화) 이중 구조**로 결정.
   - [x] 범용 엔진: **Tesseract.js** 채택 확정 및 연동 완료 — `ocr.ts`: `captureFocusedWindow()`(창 캡처 → PNG) → `createWorker` → `recognize(image, {}, {blocks:true})` → block/paragraph/line 을 평탄화해 단어별 bbox 추출. 언어별 워커를 재사용(언어 바뀌면 재생성)하고, `detectLanguage()`가 고른 `Language`로 traineddata를 선택. 실제 창 캡처 + OCR 로 검증됨(단, 언어 자동 감지가 스텁이라 항상 `eng` 모델 사용 — 한국어 등 미지원 언어 인식 시 깨진 텍스트가 나오는 게 정상, 언어 자동 감지 구현 후 해소).
@@ -384,6 +393,25 @@
   - **트랙 선택 단계도 함께 수정**: `content.ts`의 `pickNetflixTrack`이 넷플릭스 후보 트랙 중 `zh` 접두사만 보고 아무거나 첫 매치를 고르던 것을, `detectDomLanguagePrefix`가 이제 zh-Hans/zh-Hant까지 세분화해 반환하므로 그 값으로 먼저 매칭하고 (넷플릭스가 트랙을 zh 하나로만 내려주는 경우에 대비해) zh 통짜 매칭으로 폴백하도록 변경 — 표시 라벨만이 아니라 애초에 받아오는 트랙 자체가 틀릴 수 있던 근본 원인.
 
 <a id="미해결-문제"></a>
+
+<a id="hidden-ui"></a>
+
+## 🙈 코드는 살려두고 UI에서만 감춘 것
+
+개발 중에 쓰던 보조 기능들 — **지우지 않고 화면에만 안 뜨게** 해뒀다(2026-07-31 사용자 요청).
+나중에 다시 필요하면 아래 적힌 한 곳만 되돌리면 그대로 살아난다.
+
+- [ ] **팝업 미리보기(데모) 버튼** — 메인 화면 개편(2026-07-31) 때 UI에서만 뺐다. 목업 데이터
+  (`src/renderer/src/screens/popup/mockSelection.ts`, 영어/영어 동음이의어/일본어/중국어 간체·번체
+  5종)와 이를 소비하는 경로(`IPC.OPEN_POPUP`의 `demo` 인자, preload `openPopup(demo?)`,
+  `PopupScreen.tsx`의 demo 쿼리 분기)는 **전부 그대로 살아 있다**. 되살리려면
+  `MainScreen.tsx`에 `window.nuance.openPopup('hobbit')` 같은 버튼만 다시 넣으면 된다
+  (`#/popup?demo=hobbit` 형태로도 직접 열 수 있다).
+- [ ] **사전 답변 맨 윗줄 `[DEBUG] entries/readings/senses/대응어` 표시** — 채팅창에 노출되던
+  진단 줄을 껐다. `src/main/question/dictionary.ts`의 `SHOW_DEBUG_COUNTS_LINE = false` 상수
+  하나로만 제어하며, 줄을 조립하는 `withDebugCountsLine()`과 그 호출부들은 그대로 둔 상태다
+  — 다시 보려면 이 상수를 `true`로 바꾸기만 하면 된다. (원래 목적: LLM이 "대응어:" 줄을 아예
+  안 준 건지, 줬는데 로컬 길이 비율 필터가 걸러낸 건지 구분하기 위함 — senseSelect.ts 참고.)
 
 ## ⚠️ 미해결 문제
 

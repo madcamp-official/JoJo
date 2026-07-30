@@ -467,12 +467,20 @@ function emit(onChunk: (chunk: QuestionResult) => void, result: QuestionResult):
 // 지우면 된다(각 호출부는 `withDebugCountsLine(outcome.formatted, ...)` →
 // `outcome.formatted` 로 되돌리면 끝, 다른 로직은 안 건드려도 됨).
 // ============================================================================
+/**
+ * UI 노출 스위치(2026-07-31, 사용자 요청 — "코드는 없애지 말고 UI에서만 안 보이게").
+ * 조사할 일이 생기면 이 상수만 true 로 되돌리면 디버그 줄이 다시 채팅창 맨 위에 뜬다.
+ * 아래 조립 로직과 호출부는 그대로 살아 있다.
+ */
+const SHOW_DEBUG_COUNTS_LINE = false
+
 function withDebugCountsLine(
   formatted: string,
   entries: DictionaryEntry<Language>[] | undefined,
   senseCount: number,
   selected: ReturnType<typeof parseJudgeReply>,
 ): string {
+  if (!SHOW_DEBUG_COUNTS_LINE) return formatted
   const entryCount = entries?.length ?? 0
   const readingCount = entries?.reduce((sum, e) => sum + e.readings.length, 0) ?? 0
   // LLM이 "대응어:" 줄을 실제로 줬는지 — combineTranslation이 길이 비율로 걸러내
