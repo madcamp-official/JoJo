@@ -839,7 +839,7 @@ export function SettingsScreen() {
                 disabled={settings.language === 'auto'}
                 onChange={(e) => void patch({ language: e.target.value as AnyLanguage })}
               >
-                <optgroup label="1단계 — 특화 OCR·사전·발음·형태소 분석기 전부 지원">
+                <optgroup label="1단계 — 특화 OCR·사전·특화된 발음·형태소 분석기 전부 지원">
                   {TIER1_CODES_SORTED.map((code) => (
                     <option key={code} value={code}>
                       {languageLabel(code)}
