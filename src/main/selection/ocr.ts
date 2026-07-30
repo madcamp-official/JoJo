@@ -386,11 +386,18 @@ async function recognizeRegion(
     if (clippedLines.has(line)) continue
 
     let lineWords: Word[]
-    // 단어 단위가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28)은 세로쓰기 일본어
-    // (NDLOCR-Lite, ocrNdlocr.ts)에만 남기고 되돌렸다(2026-07-29 재요청) — 가로쓰기
-    // 영어/중국어는 Tesseract 단어 bbox 가 이미 충분히 정확해서 줄 단위로 묶을 이유가
-    // 없고, 오히려 문장부호까지 뭉뚱그려 보이는 부작용만 있었다. lineId 를 안 붙이면
-    // wordMapping.ts findLineWordsAtPoint 가 알아서 단어 단위(그 단어 하나만)로 폴백한다.
+    // 단어 단위가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28)은 가로쓰기
+    // 영어(아래 else 분기)에는 되돌렸다(2026-07-29 재요청) — Tesseract 단어 bbox 가 이미
+    // 충분히 정확해서 줄 단위로 묶을 이유가 없고, 오히려 문장부호까지 뭉뚱그려 보이는
+    // 부작용만 있었다. lineId 를 안 붙이면 wordMapping.ts findLineWordsAtPoint 가 알아서
+    // 단어 단위(그 단어 하나만)로 폴백한다.
+    // ja/zh 는 반대로 줄 단위를 유지한다 — buildCjkLineWords(아래)가 이 파일과 별개로
+    // ocrPaddle.ts(PaddleOCR, 실제 기본 경로)의 groupCjkCharsGrid 처럼 줄마다 lineId 를
+    // 붙인다. 예전엔 여기(Tesseract 폴백)만 lineId 를 안 붙여서, PaddleOCR/NDLOCR 가
+    // 실패했을 때만(Python 환경 없음 등) hover 가 줄 단위 → 단어 단위로 조용히 바뀌는
+    // 불일치가 있었다(2026-07-30, 사용자 지적 — "어느 엔진이 실제로 인식했는지에 따라
+    // hover 단위가 갈리면 안 된다") — 이제 어느 경로로 인식되든 ja/zh hover 단위가 항상
+    // 같다.
     if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
       // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
       // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: segmentit)로 다시 분리한다.
@@ -483,6 +490,16 @@ async function recognizeRegion(
  * 의미 단위 단어 경계를 다시 잡아 Word[] 를 만든다. 잘린 단어(isWordClippedByRegion/
  * looksTruncated)는 기존과 동일하게 제외하되, 제외된 자리는 분석기가 단어를 이어붙이지
  * 못하게 끊어준다(연속 구간=run 단위로 분석기를 돌린다).
+ *
+ * 이 경로는 PaddleOCR/NDLOCR 이 실패했을 때만 타는 Tesseract 폴백이다(runOcr 참고) —
+ * 단어 경계 자체는 원래도 이 파일과 ocrPaddle.ts(groupCjkCharsGrid)가 똑같이
+ * segmentJapaneseWords/segmentChineseWords 하나만 호출해 이미 단일 소스였지만, hover
+ * 단위를 줄로 묶을지(lineId)는 ocrPaddle.ts 만 하고 있어서 어느 엔진이 실제로 인식했는지에
+ * 따라 CJK hover 가 줄 단위(PaddleOCR 성공) ↔ 단어 단위(Tesseract 폴백)로 갈리는 불일치가
+ * 있었다(2026-07-30, 사용자 지적) — PaddleOCR 경로와 동일하게 이 줄의 모든 단어에 같은
+ * lineId 를 붙여 hover granularity 도 엔진과 무관하게 통일한다(ocrPaddle.ts:
+ * recognizeOrderedLines 주석 참고 — "잉크 튜닝이 끝나면 lineId 부여만 빼면 단어 단위로
+ * 복귀 가능"이므로, 그 결정이 바뀌면 여기도 같이 바꿔야 한다).
  */
 async function buildCjkLineWords(
   line: { words: { text: string; bbox: OcrBbox; symbols?: OcrSymbol[]; confidence: number }[]; bbox: OcrBbox },
@@ -524,7 +541,8 @@ async function buildCjkLineWords(
       })
     }
   }
-  return words
+  const lineId = Math.random().toString(36).slice(2)
+  return words.map((w) => ({ ...w, lineId }))
 }
 
 // 맨 위/아래 줄의 높이가 다른 줄들의 중앙값보다 이 비율 미만이면 "세로로 잘린 줄"로 본다.
