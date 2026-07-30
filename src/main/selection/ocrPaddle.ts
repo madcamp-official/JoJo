@@ -118,13 +118,37 @@ const DETECTION_ONLY_LANGUAGE: Language = 'en'
  * (예: 두 문장의 순서가 통째로 바뀜) — 1~2초 아끼자고 읽기 순서가 틀리는 건 손해가 커서
  * 다시 뺐다. 크롭 하나를 통째로(워커 하나로) 검출해야 조각 경계로 인한 오차가 없다.
  */
+// 담당 A — unclip_ratio 실험(2026-07-30, 사용자 요청). PaddleX TextDetection 의 검출
+// 후처리 기본값은 unclip_ratio=2.0 — 모델이 내부적으로 살짝 줄여 잡은 텍스트 영역을
+// 이 배율만큼 부풀려 최종 박스로 만든다. 문장부호 몇 개짜리처럼 잉크가 희소한 짧은
+// 줄은 이 부풀림이 상대적으로 더 크게 작용해 경계가 옆 열 쪽으로 번질 여지가 커진다는
+// 가설로 낮춰서 실측 비교한다(env `OCR_DET_UNCLIP_RATIO` 로 값 지정, 기본은 실험값
+// 1.5 — 지정 없이 undefined 로 두면 파이썬 쪽이 기본값 그대로 씀). 정상 줄까지 너무
+// 타이트해져 잉크가 잘리는 부작용이 없는지 실사용 재확인 후 상수로 굳히거나 되돌릴 것.
+const DET_UNCLIP_RATIO = process.env.OCR_DET_UNCLIP_RATIO
+  ? Number(process.env.OCR_DET_UNCLIP_RATIO)
+  : 1.5
+
 export async function detectLinesWithPaddle(image: Buffer, cropBbox: Rect): Promise<Rect[] | null> {
   const tmpPath = await writeCrop(image, cropBbox)
   try {
     const { lines } = await server.request<
-      { image_path: string; language: string; mode: 'detect_lines' },
+      {
+        image_path: string
+        language: string
+        mode: 'detect_lines'
+        det_unclip_ratio?: number
+      },
       { lines: RawLine[] }
-    >({ image_path: tmpPath, language: DETECTION_ONLY_LANGUAGE, mode: 'detect_lines' })
+    >({
+      image_path: tmpPath,
+      language: DETECTION_ONLY_LANGUAGE,
+      mode: 'detect_lines',
+      det_unclip_ratio: DET_UNCLIP_RATIO,
+    })
+    if (process.env.DEBUG_OCR_DUMP) {
+      console.log(`[ocrPaddle] detect_lines unclip_ratio=${DET_UNCLIP_RATIO} lines=${lines.length}`)
+    }
     return lines.map((l) => ({
       x: cropBbox.x + l.x0,
       y: cropBbox.y + l.y0,
@@ -284,7 +308,17 @@ export function excludeFuriganaHorizontal<T extends Rect>(
 // 사실 같은 원인이었다. 진짜 같은 열의 서로 다른 조각은 x가 사실상 거의 동일하게 검출돼
 // (중심 거리 몇 px 이내) 이 정도로 낮춰도 안전하게 병합되고, 실측된 진짜 다른 열 간격
 // (비율 약 1.48~1.55)은 확실히 걸러진다.
-const COLUMN_GAP_RATIO = 1.2
+// 담당 A — 1.2 → 0.85 로 재하향(2026-07-30, 사용자 제보 "열 순서가 다소 바뀜" +
+// DEBUG_OCR_DUMP(texts-*.json 의 gapRatioToMedian) 실측 확인). 세로쓰기 다단 소설
+// 캡처에서 최종 순서가 오른쪽→왼쪽 단조 감소를 어기는 지점(예: center 1385.5→1418,
+// 703.5→727)이 9곳 있었는데, 전부 그 지점의 gapRatioToMedian 이 0.90~1.02(=바로 앞
+// 열 간격의 딱 1배)로 몰려 있었다 — 즉 실제로는 서로 다른 두 좁은 열의 중심 거리가
+// medianWidth 의 1.0배 정도인데 gapThreshold(medianWidth*1.2)에 못 미쳐 같은 열로
+// 오합쳐지고, 그 안에서 y로 재정렬되며 두 열의 줄이 번갈아 섞였다(전형적인 "핑퐁"
+// 패턴). 진짜 같은 열의 조각은 중심 거리가 "몇 px 이내"(위 COLUMN_GAP_RATIO 첫 하향
+// 시점 주석 참고)라 0.85 로 낮춰도 안전하게 병합되고, 이번에 문제였던 1.0배 간격은
+// 확실히 걸러진다.
+const COLUMN_GAP_RATIO = 0.85
 
 // excludeFurigana 와 같은 이유로 제네릭화(ocrYomitoku.ts 에서 "Rect + 텍스트" 쌍을
 // 그대로 재정렬하는 데 재사용) — 내부는 Rect 필드만 본다.
@@ -356,6 +390,62 @@ export function clusterVerticalLinesIntoColumns<T extends Rect>(lines: T[]): T[]
   const orderedColumns = columnOrder.map((i) => columns[i]!)
   for (const column of orderedColumns) column.sort((a, b) => a.y - b.y) // 열 안에서는 위→아래
   return orderedColumns.flat()
+}
+
+// 담당 A — 중앙값 배수 기준 폐기(2026-07-30, 재재수정 — 2차 시도(중앙값×4)를 실측
+// 확인해보니 175줄이 12열로 쪼개져 있었다). 실제 간격 목록을 직접 찍어보니(예:
+// left=441/480/562/643/760/799/1050/1175/...) 진짜 열 경계는 딱 하나(799→1050,
+// 251px)뿐인데, 같은 열 안에서도 문단 들여쓰기 스타일이 여러 단계라(신규 문단/
+// 이어지는 줄/인용구 등) 37~125px대 간격이 여러 번 나왔다 — "간격이 작은 것과 큰 것
+// 딱 두 부류"라는 중앙값 배수의 전제 자체가 안 맞았다(들여쓰기 간격들이 그 사이 어딘가
+// 넓게 퍼져 있음). 대신 **전체 간격 중 최댓값 대비 비율**로 판단한다 — 진짜 열 사이
+// 거터는 어떤 들여쓰기 차이보다도 압도적으로 커야 다단 레이아웃이 성립하므로, 최댓값의
+// 상당 부분(70%) 이상인 간격만 열 경계로 인정하면 자잘한 들여쓰기 차이는 다 걸러지고
+// 압도적으로 큰 진짜 거터만 남는다(위 실측 데이터로 검증: 251px 하나만 197.75px(=251×0.7)
+// 문턱을 넘고 나머지(최대 125px)는 다 걸러짐).
+const COLUMN_GAP_MAX_RATIO_HORIZONTAL = 0.7
+const COLUMN_GAP_MIN_PX = 30
+
+/**
+ * 담당 A — 가로쓰기 다단 줄 재군집화(2026-07-30, 사용자 제보 — "가로쓰기 2단인데 y좌표가
+ * 높은 순서대로 열 무관하게 나온다"). `mergeIntoColumns`(layoutDetect.ts)를 블록의 왼쪽
+ * 경계 x 기준으로 고쳤는데도 이 증상이 재현된 원인은 더 앞단이었다 — DocLayout이 이
+ * 캡처에서 본문 커버리지가 낮다고 판단해(0.2% < 50%, `MIN_BODY_COVERAGE_RATIO`) 블록
+ * 자체를 버리고 선택 영역 전체를 하나의 크롭으로 스캔하는 폴백 경로(`ocr.ts: runOcr`)로
+ * 빠졌는데, 그 폴백에서 실제 줄 순서를 정하는 `recognizeLinesWithPaddle`(아래)이 단순
+ * `sort((a,b)=>a.y-b.y)`로 열 구분 없이 y좌표로만 정렬하고 있었다 — 두 열이 한 크롭
+ * 안에 섞여 있으면 이 정렬이 정확히 "y가 낮은 순서대로, 열 무관"이라는 증상을 만든다.
+ * 세로쓰기가 이미 겪은 것과 똑같은 근본 문제(clusterVerticalLinesIntoColumns 도입 계기)
+ * 라 같은 해법을 줄(line) 단위에 적용한다 — 블록용 재군집화(layoutDetect.ts)와 같은
+ * 이유로 왼쪽 경계 x 기준, 왼쪽→오른쪽 순서. 다만 임계값 계산 방식은 위 주석대로
+ * 다르다(요소 폭 비율이 아니라 간격들의 상대 크기).
+ */
+export function clusterHorizontalLinesIntoColumns<T extends Rect>(lines: T[]): T[] {
+  if (lines.length <= 1) return lines
+  const byLeft = [...lines].sort((a, b) => a.x - b.x)
+
+  const gaps = byLeft.slice(1).map((l, i) => l.x - byLeft[i]!.x)
+  const maxGap = gaps.length > 0 ? Math.max(...gaps) : 0
+  // 열 경계로 인정하는 간격 — "최댓값의 상당 부분(비율)" 과 "절대 최소 px" 중 큰 쪽.
+  // maxGap 이 작으면(진짜 단일 열, 우연히 조금 큰 간격 하나뿐인 경우) 비율만으론 그
+  // 사소한 간격도 항상 "최댓값의 100%"라 걸릴 수 있어 절대 하한이 필요하다.
+  const gapThreshold = Math.max(maxGap * COLUMN_GAP_MAX_RATIO_HORIZONTAL, COLUMN_GAP_MIN_PX)
+
+  const columns: T[][] = [[byLeft[0]!]]
+  for (let i = 1; i < byLeft.length; i++) {
+    if (gaps[i - 1]! > gapThreshold) columns.push([])
+    columns[columns.length - 1]!.push(byLeft[i]!)
+  }
+  for (const column of columns) column.sort((a, b) => a.y - b.y) // 열 안에서는 위→아래
+
+  if (process.env.DEBUG_OCR_DUMP) {
+    console.log(
+      `[ocrPaddle] clusterHorizontalLinesIntoColumns: ${lines.length}줄 → ${columns.length}열` +
+        ` (maxGap=${maxGap.toFixed(1)}, threshold=${gapThreshold.toFixed(1)}), ` +
+        columns.map((c) => `left=${Math.round(c[0]!.x)}(줄${c.length})`).join(', '),
+    )
+  }
+  return columns.flat()
 }
 
 // 검출된 줄 bbox 를 여백 없이 그대로 크롭하면 글자 획이 경계에 살짝 걸려 잘리는 경우가
@@ -726,11 +816,27 @@ async function recognizeOrderedLines(
   recModel?: string,
 ): Promise<Word[] | null> {
   const recStart = Date.now()
+  // 담당 A — 줄별 개별 소요시간 기록(2026-07-30, 사용자 제보 — 세로쓰기 다단 캡처가
+  // 전체적으로 너무 오래 걸리는 것 아니냐는 의심). 워커 풀(POOL_SIZE, 대기줄이 큐잉되는
+  // 구조)을 통과하는 호출이라 이 개별 시간엔 실제 인식 시간뿐 아니라 풀 대기 시간도
+  // 섞여 있다 — 총 소요시간을 풀 크기로 단순히 나눈 값과 실측 개별 시간 분포를 비교해
+  // "풀이 부족해서 느린 것"인지 "호출 자체가 원래 느린 것"인지 구분하는 데 쓴다.
+  const perLineTimings: number[] = []
   const perLine = await Promise.all(
-    orderedLines.map((line) => recognizeWithPaddle(image, language, padLine(line), recModel)),
+    orderedLines.map(async (line) => {
+      const lineStart = Date.now()
+      try {
+        return await recognizeWithPaddle(image, language, padLine(line), recModel)
+      } finally {
+        perLineTimings.push(Date.now() - lineStart)
+      }
+    }),
   )
+  const sortedTimings = [...perLineTimings].sort((a, b) => a - b)
   console.log(
-    `[timing]     줄별 인식(recognizeWithPaddle, ${orderedLines.length}줄 병렬): ${Date.now() - recStart}ms`,
+    `[timing]     줄별 인식(recognizeWithPaddle, ${orderedLines.length}줄 병렬): ${Date.now() - recStart}ms` +
+      ` (개별 min=${sortedTimings[0]}ms max=${sortedTimings[sortedTimings.length - 1]}ms` +
+      ` median=${sortedTimings[Math.floor(sortedTimings.length / 2)]}ms, POOL_SIZE=${defaultPoolSize()})`,
   )
   if (perLine.some((words) => !words)) return null
   // 단어 단위가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28)은 세로쓰기 일본어
@@ -1018,7 +1124,12 @@ export function insertGapPlaceholdersForLine(
   // 경우 원시 단위의 text 는 아직 `'`/`'` 그대로다. 잉크가 좁아 다음 글자와의 간격이
   // 벌어지는 현상은 정확한 쉼표로 읽혔든 아포스트로피로 오독됐든 똑같이 일어나므로
   // 함께 걸러야 한다.
-  const NARROW_PUNCTUATION_RE = /[、。，！？…'’]/
+  // 담당 A — 세미콜론(；)/콜론(：) 추가(2026-07-30, 사용자 제보 + DEBUG_OCR_DUMP 실측
+  // 확인 — "허결호가 문장부호 앞뒤로 불필요하게 추가됨"). gaps-*.json 실제 덤프에서
+  // "；→但" 0.618, "；→可" 0.647, "；→也" 0.618 처럼 세미콜론 뒤 간격만 따로 몰려
+  // 있었다 — 위 쉼표/마침표와 완전히 같은 원인(잉크가 좁은 문장부호가 자기 칸을 다
+  // 못 채워 다음 글자와의 간격에 여백이 얹힘)인데 이 두 문자만 목록에서 빠져 있었다.
+  const NARROW_PUNCTUATION_RE = /[、。，！？…'’；：]/
   const skipGapAfter = (prevText: string) => NARROW_PUNCTUATION_RE.test(prevText)
 
   // 담당 A — 마침표/쉼표 미검출 진단용(2026-07-30, 사용자 제보 — "문장 중간 마침표/
@@ -1067,6 +1178,38 @@ export function insertGapPlaceholdersForLine(
   return codepoints.join('')
 }
 
+/**
+ * 담당 A — 실제 인식된 원시 단위들의 세로 간격(잉크 위치)에서 칸 크기를 직접 잰다
+ * (2026-07-30, 사용자 제보 두 건의 공통 원인 수정 — "텍스트 박스가 밑으로 한 칸
+ * 길어짐"(이전 실행)과 "텍스트 박스가 거의 모든 열에서 짧아짐"(다음 실행)이 같은
+ * 화면·같은 텍스트인데 정반대로 나타났다). DEBUG_OCR_DUMP 실측: 실제 칸 크기는
+ * ~32.5px(열 간 피치로 역산)인데 estimateCellSizeFromIndent(들여쓰기 최빈값 기반)가
+ * 한 번은 34, 다음 번엔 28을 내놨다 — 감지된 줄 bbox 상단이 캡처마다 몇 px 씩 다르게
+ * 잡히면 최빈값이 다른 무리로 튀는 불안정한 방식이라, 이 값으로 격자를 나누면 19글자
+ * 열에서 오차가 글자 수만큼 누적돼(+1.5px×19 ≈ 한 칸 초과 / -4.5px×19 ≈ 네 칸 미달)
+ * 박스 길이가 실행마다 달라졌다. 인접한 원시 단위 사이 y 간격(다음 단위 시작 − 이전
+ * 단위 시작을 이전 단위 글자 수로 나눈 값)은 실제 잉크가 놓인 자리에서 직접 재는
+ * 값이라 캡처 노이즈에 훨씬 안정적이다 — 미검출 구간이 사이에 낀 쌍은 값이 튀지만
+ * 소수라 중앙값이 걸러낸다.
+ */
+function measureCellPitchFromUnits(perLine: Word[][]): number | null {
+  const pitches: number[] = []
+  for (const units of perLine) {
+    const bboxUnits = units.filter((w) => w.bbox)
+    for (let k = 1; k < bboxUnits.length; k++) {
+      const prev = bboxUnits[k - 1]!
+      const prevChars = [...prev.text].length
+      if (prevChars === 0) continue
+      const pitch = (bboxUnits[k]!.bbox!.y - prev.bbox!.y) / prevChars
+      if (pitch > 0) pitches.push(pitch)
+    }
+  }
+  // 표본이 너무 적으면(짧은 열 한두 개뿐) 중앙값도 우연에 좌우된다 — 이 경우 null 을
+  // 반환해 기존 추정(들여쓰기/줄 높이 기반)에 맡긴다.
+  if (pitches.length < 5) return null
+  return median(pitches)
+}
+
 async function insertUndetectedMarks(
   lines: Rect[],
   perLine: Word[][],
@@ -1080,10 +1223,66 @@ async function insertUndetectedMarks(
     })
     .filter((v): v is number => v !== null)
   const fallbackCellSize = rawCellSizes.length > 0 ? median(rawCellSizes) : null
-  const typicalCellSize = estimateCellSizeFromIndent(lines) ?? fallbackCellSize
+  // 실측 잉크 피치를 최우선으로 쓴다(위 measureCellPitchFromUnits 주석 참고) — 표본
+  // 부족으로 실패할 때만 기존 추정(들여쓰기 최빈값 → 줄 높이/글자 수)으로 폴백.
+  const typicalCellSize =
+    measureCellPitchFromUnits(perLine) ?? estimateCellSizeFromIndent(lines) ?? fallbackCellSize
+  if (process.env.DEBUG_OCR_DUMP) {
+    console.log(
+      `[insertUndetectedMarks] cellSize: 실측피치=${measureCellPitchFromUnits(perLine)?.toFixed(2) ?? 'null'}` +
+        ` 들여쓰기=${estimateCellSizeFromIndent(lines) ?? 'null'} 줄높이폴백=${fallbackCellSize?.toFixed(2) ?? 'null'}`,
+    )
+  }
   if (!typicalCellSize) return { texts, typicalCellSize: null }
 
-  const newTexts = lines.map((line, i) =>
+  // 담당 A — 열 끝 문장부호(마침표 등) 완전 미검출 대응(2026-07-30, 사용자 제보 — "열 끝
+  // 마침표가 누락되는 경우가 아직 있음, 아예 허결호로도 안 나옴"). trailing-gap 판정은
+  // "검출된 줄 bbox 하단 − 마지막 인식 단위 하단"을 재는데, 검출 모델이 끝 문장부호를
+  // 줄 bbox 에 아예 안 포함시키면(잉크가 작아 검출 경계가 그 앞 글자에서 끝남) 이 간격
+  // 자체가 0이라 원리적으로 잡을 수 없다. 대신 페이지 공통 하단(본문 열들이 가장 많이
+  // 끝나는 y, 조판된 세로쓰기는 문단 마지막 열이 아닌 한 하단이 정렬됨)을 구해서, 거기에
+  // 약 한 칸(0.6~1.6칸)만 못 미치는 열은 끝 글자 하나가 검출에서 빠진 것으로 보고 하단을
+  // 공통 하단까지 연장한다 — 그러면 기존 trailing-gap 로직이 그 자리에 자리표자를 넣는다.
+  // 문단 마지막 열처럼 정당하게 일찍 끝나는 열은 보통 두 칸 이상 짧아서 이 범위에 안
+  // 걸린다(걸리는 최악의 경우도 자리표자 하나가 더 붙는 정도).
+  const roundedBottoms = lines.map((l) => Math.round((l.y + l.height) / 5) * 5)
+  const bottomCounts = new Map<number, number>()
+  for (const b of roundedBottoms) bottomCounts.set(b, (bottomCounts.get(b) ?? 0) + 1)
+  let commonBottom: number | null = null
+  let commonCount = 0
+  for (const [b, c] of bottomCounts) {
+    // 동점이면 더 큰 y(더 아래) 쪽 — 짧은 열 무리가 아니라 "가득 찬" 열 무리를 잡아야 한다.
+    if (c > commonCount || (c === commonCount && commonBottom !== null && b > commonBottom)) {
+      commonCount = c
+      commonBottom = b
+    }
+  }
+  // 공통 하단이라 부를 만큼 표본이 모였을 때만(3개 이상) 적용 — 열이 몇 개 없는 캡처에서
+  // 우연히 겹친 하단을 기준 삼지 않게 한다.
+  let extendedCount = 0
+  const adjustedLines =
+    commonBottom !== null && commonCount >= 3
+      ? lines.map((l) => {
+          const shortfall = commonBottom! - (l.y + l.height)
+          if (
+            shortfall >= typicalCellSize * GAP_RATIO_THRESHOLD &&
+            shortfall <= typicalCellSize * 1.6
+          ) {
+            extendedCount++
+            return { ...l, height: commonBottom! - l.y }
+          }
+          return l
+        })
+      : lines
+
+  if (process.env.DEBUG_OCR_DUMP) {
+    console.log(
+      `[insertUndetectedMarks] commonBottom=${commonBottom ?? 'null'} commonCount=${commonCount}/${lines.length}` +
+        ` extended=${extendedCount}`,
+    )
+  }
+
+  const newTexts = adjustedLines.map((line, i) =>
     insertGapPlaceholdersForLine(line, perLine[i]!, texts[i]!, typicalCellSize, 0, placeholder),
   )
   return { texts: newTexts, typicalCellSize }
@@ -1171,7 +1370,10 @@ export async function recognizeLinesWithPaddle(
   // 필터 자체는 중국어 줄엔 걸릴 일이 없어 사실상 no-op이었지만, 불필요한 검사 비용을
   // 없애고 "중국어에 후리가나 필터가 적용된다"는 오해를 코드로도 막기 위해 언어로 분기한다.
   const bodyLines = language === 'ja' ? excludeFuriganaHorizontal(lines) : lines
-  const ordered = [...bodyLines].sort((a, b) => a.y - b.y)
+  // 담당 A — 단순 y정렬 대신 열 재군집화(2026-07-30, clusterHorizontalLinesIntoColumns
+  // 주석 참고) — 이 함수가 다단 영역 전체를 한 크롭으로 받는 경우(DocLayout 폴백 등)
+  // 열 구분 없이 y로만 정렬하면 서로 다른 열의 줄이 섞여 읽힌다.
+  const ordered = clusterHorizontalLinesIntoColumns(bodyLines)
   return recognizeOrderedLines(image, language, ordered, false, LIGHT_RECOGNITION_MODEL)
 }
 

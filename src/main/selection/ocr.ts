@@ -7,6 +7,7 @@ import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
 import { detectLayoutBlocks, filterBlocksByRegion, type LayoutBlock, mergeIntoColumns, padRect } from './layoutDetect'
 import {
+  clusterHorizontalLinesIntoColumns,
   detectLinesWithPaddle,
   isVerticalByLineShape,
   recognizeLinesWithPaddle,
@@ -320,8 +321,12 @@ async function runNonTesseractOcr(
       if (language === 'ja') {
         const yomiLines = await detectLinesWithYomitoku(image, padded)
         if (yomiLines) {
-          lines = yomiLines
-          words = await recognizeLinesWithNdlocr(image, yomiLines)
+          // 담당 A — 열 재군집화(2026-07-30, clusterHorizontalLinesIntoColumns 주석
+          // 참고) — 이 크롭(padded)이 다단 영역 전체일 수 있어(DocLayout 폴백 등),
+          // Yomitoku 가 준 원시 검출 순서를 그대로 안 믿고 왼쪽 열부터 정렬한다.
+          const orderedYomiLines = clusterHorizontalLinesIntoColumns(yomiLines)
+          lines = orderedYomiLines
+          words = await recognizeLinesWithNdlocr(image, orderedYomiLines)
         }
       }
       words ??= await recognizeLinesWithPaddle(image, language, padded, lines)

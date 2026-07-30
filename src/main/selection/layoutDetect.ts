@@ -100,39 +100,98 @@ export async function warmUp(): Promise<void> {
   await detectLayoutBlocks(TINY_PNG)
 }
 
+// 담당 A — 블록 왼쪽 경계(left edge) x좌표로 재군집화(2026-07-30, 사용자 제보 — "가로쓰기
+// 2단인데 오른쪽 맨 위 줄부터 시작해서 왼쪽/오른쪽이 줄마다 번갈아 나옴"). 예전엔
+// layout_detect.py 가 매긴 `column` 필드를 그대로 믿고 그 번호로 그룹핑+정렬했는데,
+// 실측 확인 결과 이 값이 "물리적으로 어느 열인지"가 아니라 모델이 페이지를 훑는
+// 내부 순서(휴리스틱)를 그대로 반영하는 것으로 보여, 두 열의 블록이 0,1,0,1... 처럼
+// 번갈아 번호 매겨지면 그룹핑 자체가 서로 다른 열의 블록을 한데 묶어버렸다. 세로쓰기가
+// 이미 겪고 고친 것과 같은 부류의 문제(clusterVerticalLinesIntoColumns, ocrPaddle.ts)라
+// 같은 해법을 쓴다 — 다만 기준 좌표가 다르다: 세로쓰기 열은 폭이 대략 글자 하나로
+// 일정해 중심 x 로 비교하면 되지만, 가로쓰기 블록(문단)은 폭이 문단 길이에 따라
+// 들쭉날쭉해서 중심 x 가 불안정하다. 대신 왼쪽 정렬/양쪽 정렬 조판에서 거의 항상
+// 안정적인 **왼쪽 경계** x 로 비교한다 — 같은 열의 문단들은 길이와 무관하게 왼쪽
+// 경계가 거의 일치하고, 다른 열은 열 하나 폭만큼 뚜렷이 떨어져 있다. 정렬 방향도
+// 세로쓰기(중심 x 내림차순=오른쪽부터)와 반대로 왼쪽 경계 x 오름차순(왼쪽부터, 가로쓰기
+// 관례)을 쓴다.
+const COLUMN_LEFT_GAP_RATIO = 0.5
+
 /**
- * 같은 열(column, layout_detect.py 가 매긴 인덱스)의 블록들을 하나로 합친다. 모델이
- * 한 열 안의 문단을 여러 블록으로 쪼개 검출하는 경우가 있는데, 블록마다 따로
- * Tesseract 를 돌리면 그 블록 경계가 실제 문장 중간을 가로질러 글자가 잘리는 문제가
- * 있었다(실사용 중 "선택 영역 중간에도 클릭 안 되는 단어 + 팝업에서 첫 글자 잘림"으로
- * 재현) — 열 전체를 한 번에 인식해서 열과 열 "사이"의 진짜 여백에서만 경계가 생기게
- * 한다. 라벨은 그 열에서 가장 많이 나온 라벨을 대표로 쓴다.
+ * 같은 열의 블록들을 하나로 합친다. 모델이 한 열 안의 문단을 여러 블록으로 쪼개
+ * 검출하는 경우가 있는데, 블록마다 따로 Tesseract 를 돌리면 그 블록 경계가 실제
+ * 문장 중간을 가로질러 글자가 잘리는 문제가 있었다(실사용 중 "선택 영역 중간에도
+ * 클릭 안 되는 단어 + 팝업에서 첫 글자 잘림"으로 재현) — 열 전체를 한 번에 인식해서
+ * 열과 열 "사이"의 진짜 여백에서만 경계가 생기게 한다. 라벨은 그 열에서 가장 많이
+ * 나온 라벨을 대표로 쓴다.
  */
 export function mergeIntoColumns(blocks: LayoutBlock[]): LayoutBlock[] {
-  const byColumn = new Map<number, LayoutBlock[]>()
-  for (const block of blocks) {
-    const group = byColumn.get(block.column)
-    if (group) group.push(block)
-    else byColumn.set(block.column, [block])
+  if (blocks.length <= 1) return blocks
+
+  const widths = [...blocks].map((b) => b.bbox.width).sort((a, b) => a - b)
+  const medianWidth = widths[Math.floor(widths.length / 2)]!
+  const gapThreshold = medianWidth * COLUMN_LEFT_GAP_RATIO
+
+  const byLeft = [...blocks].sort((a, b) => a.bbox.x - b.bbox.x) // 왼쪽 열부터(가로쓰기 관례)
+
+  const columns: LayoutBlock[][] = []
+  const columnLeftSum: number[] = []
+  const columnCount: number[] = []
+  for (const block of byLeft) {
+    const left = block.bbox.x
+    // clusterVerticalLinesIntoColumns 와 동일한 이유로 "바로 직전 열"이 아니라 지금까지
+    // 만들어진 모든 열 중 가장 가까운(그리고 임계값 이내인) 열을 찾아 합친다 — 한 열이
+    // 노이즈로 잠깐 조각나도 나중에 다시 원래 열로 정확히 합쳐지게 하기 위함.
+    let bestIdx = -1
+    let bestDist = Infinity
+    for (let i = 0; i < columns.length; i++) {
+      const dist = Math.abs(columnLeftSum[i]! / columnCount[i]! - left)
+      if (dist < gapThreshold && dist < bestDist) {
+        bestDist = dist
+        bestIdx = i
+      }
+    }
+    if (bestIdx >= 0) {
+      columns[bestIdx]!.push(block)
+      columnLeftSum[bestIdx]! += left
+      columnCount[bestIdx]!++
+    } else {
+      columns.push([block])
+      columnLeftSum.push(left)
+      columnCount.push(1)
+    }
   }
 
-  return [...byColumn.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([column, group]) => {
-      const x0 = Math.min(...group.map((b) => b.bbox.x))
-      const y0 = Math.min(...group.map((b) => b.bbox.y))
-      const x1 = Math.max(...group.map((b) => b.bbox.x + b.bbox.width))
-      const y1 = Math.max(...group.map((b) => b.bbox.y + b.bbox.height))
-      const labelCounts = new Map<string, number>()
-      for (const b of group) labelCounts.set(b.label, (labelCounts.get(b.label) ?? 0) + 1)
-      const label = [...labelCounts.entries()].sort((a, b) => b[1] - a[1])[0]![0]
-      return {
-        bbox: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
-        label,
-        confidence: Math.min(...group.map((b) => b.confidence)),
-        column,
-      }
-    })
+  // 펼치기 전에 각 열의 평균 왼쪽 경계 x 로 다시 정렬해, 단일 패스 도중 조각남과
+  // 무관하게 최종 열 순서가 항상 왼쪽→오른쪽으로 정확하게 한다.
+  const columnOrder = columns
+    .map((_, i) => i)
+    .sort((a, b) => columnLeftSum[a]! / columnCount[a]! - columnLeftSum[b]! / columnCount[b]!)
+
+  if (process.env.DEBUG_OCR_DUMP) {
+    console.log(
+      `[layoutDetect] mergeIntoColumns: ${blocks.length}블록 → ${columns.length}열, ` +
+        columnOrder
+          .map((i) => `left=${Math.round(columnLeftSum[i]! / columnCount[i]!)}(블록${columnCount[i]})`)
+          .join(', '),
+    )
+  }
+
+  return columnOrder.map((i, orderedIndex) => {
+    const group = columns[i]!
+    const x0 = Math.min(...group.map((b) => b.bbox.x))
+    const y0 = Math.min(...group.map((b) => b.bbox.y))
+    const x1 = Math.max(...group.map((b) => b.bbox.x + b.bbox.width))
+    const y1 = Math.max(...group.map((b) => b.bbox.y + b.bbox.height))
+    const labelCounts = new Map<string, number>()
+    for (const b of group) labelCounts.set(b.label, (labelCounts.get(b.label) ?? 0) + 1)
+    const label = [...labelCounts.entries()].sort((a, b) => b[1] - a[1])[0]![0]
+    return {
+      bbox: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
+      label,
+      confidence: Math.min(...group.map((b) => b.confidence)),
+      column: orderedIndex,
+    }
+  })
 }
 
 /**

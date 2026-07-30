@@ -87,7 +87,13 @@ def get_detector() -> TextDetection:
     return _detector
 
 
-def detect_lines(image_path: str, _language: str) -> list[dict]:
+def detect_lines(
+    image_path: str,
+    _language: str,
+    unclip_ratio: float | None = None,
+    box_thresh: float | None = None,
+    thresh: float | None = None,
+) -> list[dict]:
     """줄 단위 박스만 필요할 때(세로쓰기 일본어 등 — ocr.ts 참고) 쓴다.
 
     예전엔 `PaddleOCR.predict()`(검출+인식 풀 파이프라인)를 통째로 돌리고 인식된 텍스트
@@ -97,9 +103,22 @@ def detect_lines(image_path: str, _language: str) -> list[dict]:
     `TextDetection`(검출 전용, 인식 없음)으로 바꾸니 같은 크롭이 7초 안팎으로 끝났다.
     `_language` 는 이제 안 쓴다(검출은 언어를 안 타서 — Node 쪽이 여전히 이 필드를
     요청에 실어 보내므로 시그니처만 유지하고 무시한다, 프로토콜 변경 없이 교체하려고).
+
+    담당 A — unclip_ratio/box_thresh/thresh 실험 인자 추가(2026-07-30, 사용자 요청 —
+    "문장부호만 있는 짧은/희소한 줄의 검출 박스 경계가 흔들리는 게 모델 파라미터로
+    조정 가능한지 試". 지금까지는 전부 PaddleX 기본값(thresh=0.3, box_thresh=0.6,
+    unclip_ratio=2.0)을 그대로 썼는데(`get_detector()` 가 이 인자들을 아예 안 넘겼음),
+    `TextDetection.predict()` 가 호출 시점에 이 셋을 오버라이드로 받는다는 걸 소스
+    확인(`paddlex/inference/models/text_detection/predictor.py`). unclip_ratio 는 모델이
+    내부적으로 살짝 줄여 잡은 텍스트 영역을 얼마나 부풀려 최종 박스로 만들지 정하는
+    값이라, 낮추면 좁은/희소한 줄의 경계가 옆 열로 번지는 정도를 줄일 수 있을 것으로
+    예상 — None 이면 기존과 동일하게 기본값 그대로 동작(하위호환, ocrPaddle.ts 가 아직
+    이 값을 안 넘기면 무영향).
     """
     detector = get_detector()
-    results = detector.predict(image_path)
+    results = detector.predict(
+        image_path, unclip_ratio=unclip_ratio, box_thresh=box_thresh, thresh=thresh
+    )
     lines = []
     for r in results:
         polys = r.get("dt_polys")
@@ -152,7 +171,13 @@ def serve():
         try:
             req = json.loads(line)
             if req.get("mode") == "detect_lines":
-                lines = detect_lines(req["image_path"], req["language"])
+                lines = detect_lines(
+                    req["image_path"],
+                    req["language"],
+                    unclip_ratio=req.get("det_unclip_ratio"),
+                    box_thresh=req.get("det_box_thresh"),
+                    thresh=req.get("det_thresh"),
+                )
                 print(json.dumps({"lines": lines}), flush=True)
             else:
                 # rec_model 이 없으면(기존 호출부) 기본 모델 그대로 — 프로토콜 하위호환.

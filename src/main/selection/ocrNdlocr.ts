@@ -694,8 +694,29 @@ async function writeLineCrop(image: Buffer, line: Rect): Promise<string> {
  */
 export async function recognizeLinesWithNdlocr(image: Buffer, lines: Rect[]): Promise<Word[] | null> {
   const bodyLines = excludeFuriganaHorizontal(lines)
+  if (process.env.DEBUG_OCR_DUMP && bodyLines.length !== lines.length) {
+    console.log(
+      `[ocrNdlocr] excludeFuriganaHorizontal: ${lines.length}줄 → ${bodyLines.length}줄 (${lines.length - bodyLines.length}줄 후리가나로 제외됨)`,
+    )
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    const kept = new Set(bodyLines)
+    writeFileSync(
+      join(process.env.DEBUG_OCR_DUMP, `furigana-filter-${Date.now()}.json`),
+      JSON.stringify(
+        lines.map((l) => ({ bbox: l, kept: kept.has(l) })),
+        null,
+        2,
+      ),
+    )
+  }
   if (bodyLines.length === 0) return []
-  const ordered = [...bodyLines].sort((a, b) => a.y - b.y)
+  // 담당 A — 순수 y정렬 제거(2026-07-30, 사용자 제보 — "가로쓰기 2단인데 순서가 여전히
+  // 안 고쳐짐"). 유일한 호출부(ocr.ts)가 이미 `clusterHorizontalLinesIntoColumns`로
+  // 열까지 반영해 정확한 순서로 정렬해 넘기는데, 여기서 다시 y로만 재정렬해버려서 그
+  // 결과를 그대로 덮어쓰고 있었다 — 다단 영역에서는 y만으로 정렬하면 열 구분이 사라져
+  // 정확히 그 증상(y 낮은 순서대로 열 무관)이 재발한다. 입력 순서를 그대로 신뢰한다.
+  const ordered = bodyLines
   try {
     const texts = await Promise.all(
       ordered.map(async (line) => {
@@ -711,6 +732,21 @@ export async function recognizeLinesWithNdlocr(image: Buffer, lines: Rect[]): Pr
         }
       }),
     )
+    // 담당 A — 줄별 인식 결과 진단용(2026-07-30, 사용자 제보 — "순서는 맞는데 중간 줄
+    // 2개가 아예 인식이 안 됨"). 어느 줄이 빈 텍스트로 돌아왔는지(=NDLOCR 인식 실패로
+    // groupCjkCharsGrid 가 바로 빈 배열을 반환해 그 줄이 통째로 사라짐) 직접 확인한다.
+    if (process.env.DEBUG_OCR_DUMP) {
+      const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+      const { join } = require('node:path') as typeof import('node:path')
+      writeFileSync(
+        join(process.env.DEBUG_OCR_DUMP, `ndlocr-horiz-lines-${Date.now()}.json`),
+        JSON.stringify(
+          ordered.map((line, i) => ({ bbox: line, text: texts[i], empty: !texts[i]?.trim() })),
+          null,
+          2,
+        ),
+      )
+    }
     // 담당 A — 가로쓰기 단어 단위 hover 를 시도했었는데(2026-07-29), 잉크 위치 기반 박스
     // 계산이 아직 튜닝 중이라 우선 세로쓰기와 동일하게 줄 단위로 되돌린다(사용자 요청,
     // 2026-07-29) — 단어별 위치 계산(groupCjkCharsGrid, 잉크 스냅 포함) 자체는 그대로
