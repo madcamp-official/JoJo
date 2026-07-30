@@ -992,6 +992,12 @@ button:disabled { cursor: not-allowed; }
 .viewer-screen.dark .style-divider { background: #39414f; }
 .viewer-screen.dark .style-toggle { border-color: #454d5c; }
 .viewer-screen.dark .style-toggle button { background: #2a3140; color: #9aa3b2; }
+/* 선택 상태는 다크에서도 칠해야 한다 — 위 다크 규칙(.viewer-screen.dark .style-toggle
+   button)이 라이트의 `.style-toggle button.on` 보다 특이도가 높아 선택 색을 덮어버렸다
+   (다크에서 어떤 버튼이 켜져 있는지 안 보이던 원인). 같은 특이도로 다시 지정한다. */
+.viewer-screen.dark .style-toggle button.on { background: var(--theme); color: #fff; }
+.viewer-screen.dark .style-toggle button:hover { background: rgba(124, 58, 237, 0.22); }
+.viewer-screen.dark .style-toggle button.on:hover { background: var(--theme); }
 .viewer-screen.dark .style-toggle button + button { border-left-color: #454d5c; }
 .viewer-screen.dark .viewer-style-panel input[type='range'] { background: #414a59; }
 .viewer-screen.dark .viewer-style-btn { color: #9aa3b2; }
