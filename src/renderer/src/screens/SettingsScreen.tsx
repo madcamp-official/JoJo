@@ -757,9 +757,6 @@ export function SettingsScreen() {
 
         <div className="byte-preview-legend">
           <span>
-            <span className="swatch excluded" /> 포함 제외
-          </span>
-          <span>
             <span className="swatch selected" /> 사용자 선택 영역
           </span>
           <span>

@@ -335,10 +335,9 @@ button:disabled { cursor: not-allowed; }
 
 .byte-preview-legend { display: flex; gap: 16px; align-items: center; font-size: 11px; color: #6b7280; margin: 14px 0 8px; }
 .byte-preview-legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
-.swatch.excluded { background: #e5e7eb; }
 .swatch.selected { background: var(--theme); }
-.swatch.range { background: var(--theme-weak); border: 1px solid var(--theme); }
-.swatch.extend { background: color-mix(in srgb, #2f6bff 20%, white); border: 1px solid #2f6bff; }
+.swatch.range { background: var(--theme-weak); }
+.swatch.extend { background: color-mix(in srgb, #2f6bff 20%, white); }
 .byte-preview {
   position: relative; /* selected-span offsetTop 기준(스크롤 자동 이동) */
   border: 1px solid #e6e8ec; border-radius: 8px; padding: 14px 16px; font-size: 13px;
@@ -348,7 +347,7 @@ button:disabled { cursor: not-allowed; }
 .byte-preview .excluded { color: #b3b9c2; }
 .byte-preview .context-span { background: var(--theme-weak); }
 .byte-preview .extend-span { background: color-mix(in srgb, #2f6bff 18%, white); }
-.byte-preview .selected-span { background: var(--theme); color: var(--theme-text); border-radius: 0; padding: 0 2px; }
+.byte-preview .selected-span { background: var(--theme); color: var(--theme-text); border-radius: 3px; padding: 0 2px; }
 
 .lang-options { display: flex; flex-direction: column; gap: 10px; }
 .lang-option {
