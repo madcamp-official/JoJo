@@ -1,0 +1,10 @@
+# NDLOCR-Lite(ocr_ndlocr.py) 전용 — 공용 requirements.txt 와 절대 같이 설치하지 말 것.
+# 이 패키지는 numpy/opencv/onnxruntime 을 낮은 버전으로 못박아(pin) 끌어내리는데,
+# 공용 venv(python/.venv)의 PaddleOCR/Yomitoku 가 요구하는 버전과 충돌해서 한 번
+# 실제로 공용 환경이 깨진 적이 있다 — 그래서 별도 venv(python/.venv-ndlocr-test)에
+# 이 파일만 설치한다. 설치 방법은 README.md "NDLOCR-Lite(일본어 특화 인식)" 참고.
+#
+# PyPI 에는 없는 패키지라 GitHub 저장소를 직접 가리킨다. 저장소 이름 주의 —
+# ndlkotenocr-lite(별도 저장소)가 아니라 ndlocr-lite 다. 전자에는 이 코드가 쓰는
+# _run_ocr_on_image_array 와 deim/parseq-202604 모델이 없다.
+ndlocr-lite @ git+https://github.com/ndl-lab/ndlocr-lite
