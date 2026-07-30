@@ -262,18 +262,24 @@ export function Overlay() {
       onMouseMove={onRootMouseMove}
       onMouseUp={onRootMouseUp}
     >
-      {debugBlocks.map((block, i) => (
-        <div
-          key={i}
-          className="debug-block"
-          style={{
-            left: block.x,
-            top: block.y,
-            width: block.width,
-            height: block.height,
-          }}
-        />
-      ))}
+      {/* 자동 탐지 영역 시각화(2026-07-30 디자인 변경, 사용자 요청) — 예전엔 블록마다
+          노란 점선 사각형을 그렸는데, 이제 반대로 "탐지된 영역만 투명하게 뚫린 반투명
+          회색 덮개"로 보여준다(테두리 없음) — 영역 수동 드래그 UI(.region-dim)와 동일한
+          시각 언어. 블록이 여러 개(다단 등)라 box-shadow 트릭으론 구멍을 여러 개 못
+          뚫어서 SVG mask(흰 바탕=칠함, 검정 사각형=구멍)로 처리한다. */}
+      {debugBlocks.length > 0 && (
+        <svg className="region-mask" width="100%" height="100%">
+          <defs>
+            <mask id="region-holes">
+              <rect width="100%" height="100%" fill="white" />
+              {debugBlocks.map((block, i) => (
+                <rect key={i} x={block.x} y={block.y} width={block.width} height={block.height} fill="black" />
+              ))}
+            </mask>
+          </defs>
+          <rect width="100%" height="100%" fill="rgba(128, 128, 128, 0.5)" mask="url(#region-holes)" />
+        </svg>
+      )}
       {hoveredBox && (
         <div
           className="word-box"

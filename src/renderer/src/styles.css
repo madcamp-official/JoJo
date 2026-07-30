@@ -130,14 +130,12 @@ button:disabled { cursor: not-allowed; }
   pointer-events: none;
 }
 
-/* 개발 전용 디버그(Overlay.tsx: debugBlocks) — OCR이 실제로 인식에 넘긴 블록/열
-   경계를 반투명 사각형으로 보여준다. word-box 와 구분되도록 노란 계열로 — 상시 여러
-   개가 겹쳐 뜰 수 있어 클릭을 가로채면 안 된다(pointer-events: none). */
-.debug-block {
-  position: absolute; box-sizing: border-box;
+/* 자동 탐지 영역 시각화(Overlay.tsx: debugBlocks) — 탐지된 블록 자리만 투명하게 뚫린
+   반투명 회색 덮개(SVG mask, 2026-07-30 디자인 변경 — 예전 노란 점선 사각형 대체).
+   클릭을 가로채면 안 된다(pointer-events: none). */
+.region-mask {
+  position: absolute; inset: 0;
   pointer-events: none;
-  border: 1px dashed rgba(234, 179, 8, 0.9);
-  background: rgba(234, 179, 8, 0.12);
 }
 
 /* OCR 대상 영역을 드래그로 그리는 동안(Overlay.tsx: needsRegion) 캡처 도구처럼 화면을
