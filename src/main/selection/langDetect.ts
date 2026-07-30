@@ -4,6 +4,7 @@ import type { AnyLanguage, Rect } from '@shared/types'
 import { detectHanziVariant, detectRawLanguage } from '@shared/languageDetect'
 import { getOcrLangCode } from '@shared/languages'
 import { getLanguageOverride } from '../settingsStore'
+import { TESSDATA_CACHE_PATH } from './tessdataCache'
 
 // 담당 A — 언어 자동 감지 (PLAN.md §5.1 / §6 / §7)
 // 파이프라인 순서: 본문 영역 탐지(DocLayout-YOLO) → 언어 감지(여기) → 읽기 순서/OCR.
@@ -28,7 +29,7 @@ async function getOsdWorker(): Promise<Worker> {
   // worker.detect() 는 osd.traineddata 안의 "Legacy" 엔진 모델을 요구한다 — 기본
   // OEM(LSTM_ONLY)로 만들면 "LSTM requested, but not present!!"로 LSTM 을 대신
   // 로드하려다 실패해서 "requires Legacy model, which was not loaded" 에러가 난다.
-  if (!osdWorker) osdWorker = await createWorker('osd', OEM.TESSERACT_ONLY)
+  if (!osdWorker) osdWorker = await createWorker('osd', OEM.TESSERACT_ONLY, { cachePath: TESSDATA_CACHE_PATH })
   return osdWorker
 }
 
@@ -38,7 +39,7 @@ const probeWorkers = new Map<string, Worker>()
 async function getProbeWorker(ocrLang: string): Promise<Worker> {
   const existing = probeWorkers.get(ocrLang)
   if (existing) return existing
-  const worker = await createWorker(ocrLang)
+  const worker = await createWorker(ocrLang, undefined, { cachePath: TESSDATA_CACHE_PATH })
   probeWorkers.set(ocrLang, worker)
   return worker
 }

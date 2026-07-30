@@ -15,6 +15,7 @@ import {
 import { recognizeLinesWithNdlocr, recognizeVerticalColumnWithNdlocr } from './ocrNdlocr'
 import { detectLinesWithYomitoku } from './ocrYomitoku'
 import { BODY_LABELS, getCachedDetection } from './regionSelection'
+import { TESSDATA_CACHE_PATH } from './tessdataCache'
 
 // YOLO 블록 bbox 를 Tesseract crop 사각형으로 쓸 때 더하는 여유(padRect 주석 참고) —
 // 실측 결과 가로는 줄 끝 단어가 통째로 깨지지 않으려면 50px은 필요했고(10~30px 는
@@ -43,7 +44,7 @@ let workerLang: AnyLanguage | null = null
 async function getWorker(language: AnyLanguage): Promise<Worker> {
   if (worker && workerLang === language) return worker
   if (worker) await worker.terminate()
-  worker = await createWorker(getOcrLangCode(language))
+  worker = await createWorker(getOcrLangCode(language), undefined, { cachePath: TESSDATA_CACHE_PATH })
   workerLang = language
   return worker
 }
