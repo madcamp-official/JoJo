@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { CaptureSource } from '@shared/types'
+import { isViewerWindow } from '../windows'
 
 const execFileAsync = promisify(execFile)
 // win32Capture 는 koffi 로 user32.dll 등을 로드하므로 최상단 static import 로 두면
@@ -60,8 +61,12 @@ async function listWindowsWin32(): Promise<CaptureSource[]> {
     './win32Capture'
   )
 
+  // 자체 문서 뷰어 창은 일부러 남긴다 — 사용자가 뷰어 창을 창 선택으로 골라 direct 추출
+  // 위에 OCR 을 추가로 얹을 수 있어야 한다(뷰어가 텍스트를 못 뽑는 스캔본 PDF 등).
   const ownHwnds = new Set(
-    BrowserWindow.getAllWindows().map((w) => w.getNativeWindowHandle().readBigUInt64LE(0)),
+    BrowserWindow.getAllWindows()
+      .filter((w) => !isViewerWindow(w))
+      .map((w) => w.getNativeWindowHandle().readBigUInt64LE(0)),
   )
 
   const targets = listWin32Windows().filter((win) => !ownHwnds.has(win.hwnd))
@@ -85,7 +90,12 @@ async function listWindowsWin32(): Promise<CaptureSource[]> {
 }
 
 async function listWindowsElectron(): Promise<CaptureSource[]> {
-  const ownSourceIds = new Set(BrowserWindow.getAllWindows().map((w) => w.getMediaSourceId()))
+  // 뷰어 창만 예외로 목록에 남긴다(위 win32 경로와 같은 이유).
+  const ownSourceIds = new Set(
+    BrowserWindow.getAllWindows()
+      .filter((w) => !isViewerWindow(w))
+      .map((w) => w.getMediaSourceId()),
+  )
 
   const sources = await desktopCapturer.getSources({
     types: ['window'],

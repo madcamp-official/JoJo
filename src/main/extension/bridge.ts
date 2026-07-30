@@ -14,8 +14,7 @@ import {
 } from '@shared/extension'
 import { detectSupportedLanguage, resolveCjkLanguage } from '@shared/languageDetect'
 import type { AnyLanguage } from '@shared/types'
-import { segmentChineseWords } from '../nlp/chinese'
-import { segmentJapaneseWords } from '../nlp/japanese'
+import { segmentCjkText } from '../nlp/segmentCjk'
 import { getLanguageOverride } from '../settingsStore'
 
 export interface Transcript {
@@ -301,20 +300,13 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
 
   private async segmentAndSend(text: string, lang: 'ja' | 'zh-Hans' | 'zh-Hant'): Promise<void> {
     try {
-      // ja는 원시 형태소(tokenizeJapanese)가 아니라 segmentJapaneseWords(OCR 단어 분리와
-      // 동일 — JA_ENGINE에 맞는 mergeJaTokens/mergeJaTokensUnidic으로 문절 단위까지 병합)를
-      // 써야 한다 — 팝업의 atom 경계(popup/selection.ts mergeJaTokensForEngine)와 동일한
-      // 기준이어야, hover 박스에서 묶이는 단위와 클릭 후 팝업에서 묶이는 단위가 일치한다.
-      // 원시 토큰을 그대로 쓰면 "食べられちゃった"가 자막에선 食べ/られちゃっ/た로 쪼개져
-      // 보이는데 팝업에선 하나로 묶여 나오는 불일치가 생겼다(2026-07-29 사용자 제보).
       const ctxWindow = this.buildContextWindow(text)
       const targetText = ctxWindow?.windowText ?? text
       const lineOffset = ctxWindow?.lineOffset ?? 0
 
-      const rawWords: WordSegment[] =
-        lang === 'ja'
-          ? (await segmentJapaneseWords(targetText)).map((t) => ({ start: t.start, end: t.end }))
-          : (await segmentChineseWords(targetText, lang)).map((w) => ({ start: w.start, end: w.end }))
+      // 분할 자체는 자체 뷰어(ipc.ts VIEWER_SEGMENT)와 같은 소스를 쓴다 — 경계가 갈리면
+      // hover 로 묶이는 단위가 경로마다 달라진다(segmentCjk.ts 주석 참고).
+      const rawWords: WordSegment[] = await segmentCjkText(targetText, lang)
 
       // 문맥 윈도우 기준 offset을 화면 줄(text) 기준으로 되돌린다 — 윈도우 밖으로 걸치는
       // 세그먼트는 줄 경계로 잘라내고, 아예 줄과 안 겹치면 버린다.

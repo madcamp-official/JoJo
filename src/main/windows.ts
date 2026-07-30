@@ -896,3 +896,49 @@ export function getPopupBounds(): { x: number; y: number; width: number; height:
   if (!popupWindow || popupWindow.isDestroyed()) return null
   return popupWindow.getBounds()
 }
+
+// ── 자체 문서 뷰어(pdf/epub/txt) ────────────────────────────────────────────
+// 외부 뷰어(크롬 내장 PDF 뷰어·Kindle 등)는 텍스트나 좌표를 신뢰할 수 있게 주지 않아서
+// (TODO.md 96~111 조사 참고) 우리가 직접 파싱·렌더링한다. 우리 DOM 위에서 웹페이지와
+// 똑같은 방식으로 호버박스를 띄우므로 접근성 API도 OCR도 필요 없고 mac/Windows가 동일하다.
+
+/** 뷰어 창 하나가 열고 있는 파일 — 렌더러가 VIEWER_GET_FILE 로 pull 해간다. */
+export interface ViewerFile {
+  path: string
+  name: string
+  kind: 'pdf' | 'epub' | 'txt'
+}
+
+const viewerFiles = new Map<number, ViewerFile>()
+
+export function createViewerWindow(file: ViewerFile): BrowserWindow {
+  const { x, y } = centerOnCursorDisplay(900, 900)
+  const win = new BrowserWindow({
+    width: 900,
+    height: 900,
+    x,
+    y,
+    show: true,
+    title: file.name,
+    autoHideMenuBar: true,
+    icon: resolveIconPath(),
+    webPreferences: { preload, sandbox: false },
+  })
+  viewerFiles.set(win.webContents.id, file)
+  win.on('closed', () => viewerFiles.delete(win.webContents.id))
+  loadRoute(win, 'viewer')
+  return win
+}
+
+/** 이 webContents 가 속한 뷰어 창이 열고 있는 파일(없으면 null). */
+export function getViewerFile(webContentsId: number): ViewerFile | null {
+  return viewerFiles.get(webContentsId) ?? null
+}
+
+/**
+ * 뷰어 창인지 — capture.ts 가 "Nuance 자기 창은 캡처 목록에서 제외" 필터를 만들 때 이
+ * 창들만 예외로 남겨, 사용자가 뷰어 창을 창 선택으로 골라 OCR 도 얹을 수 있게 한다.
+ */
+export function isViewerWindow(win: BrowserWindow): boolean {
+  return viewerFiles.has(win.webContents.id)
+}

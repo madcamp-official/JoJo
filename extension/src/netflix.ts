@@ -3,7 +3,7 @@
 // 문맥)은 이 파일이 아니라 netflixNetworkHook.ts(매니페스트 가로채기 + WebVTT 다운로드)로
 // 확보한다 — youtube.ts 와 동일하게 화면 DOM은 "지금 이 순간" 좌표만 담당한다.
 import type { SubLine, SubtitleSnapshot } from '@shared/extension'
-import { extractWordsAndText, observeContainer, videoCurrentTime, viewportInfo } from './domWords'
+import { extractWordsAndText, observeContainer, videoCurrentTime, viewportInfo } from '@shared/hover/domWords'
 
 const TEXT_CONTAINER = '.player-timedtext-text-container'
 

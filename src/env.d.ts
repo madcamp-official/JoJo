@@ -6,6 +6,12 @@ declare module '*?raw' {
   export default content
 }
 
+// 에셋의 최종 URL 을 문자열로 받는다(PdfView 가 pdf.js 워커 경로를 이렇게 얻는다).
+declare module '*?url' {
+  const url: string
+  export default url
+}
+
 interface ImportMetaEnv {
   readonly MAIN_VITE_GPT_API_KEY?: string
   readonly MAIN_VITE_GEMINI_API_KEY?: string

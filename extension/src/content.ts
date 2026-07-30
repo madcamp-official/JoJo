@@ -3,15 +3,15 @@
 // 보낸다. background 가 WS 로 앱에 중계한다. 자막 캡처는 앱이 선택 모드일 때만 켜진다(setCapture).
 import { extractSubtitleSnapshot, isYoutubeWatch, observeSubtitles } from './youtube'
 import { extractNetflixSnapshot, isNetflixWatch, observeNetflixSubtitles, currentNetflixMovieId } from './netflix'
-import { videoCurrentTime } from './domWords'
+import { videoCurrentTime } from '@shared/hover/domWords'
 import { currentVideoId } from './timedtext'
 import { startHighlight, type WordHit } from './highlight'
-import { setWordSegments } from './wordSegments'
+import { setWordSegments } from '@shared/hover/wordSegments'
 import { parseAnyCaptionPayload, parseWebVtt } from './captionParse'
 import { MIN_WEB_TEXT_LENGTH, type SubLine, type SubtitleSnapshot, type WordSegment } from '@shared/extension'
 import { detectRawLanguage } from '@shared/languageDetect'
-import { findMainContent, extractArticleText } from './webArticle'
-import { startArticleHighlight, type ArticleWordHit } from './articleHighlight'
+import { findMainContent, extractArticleText } from '@shared/hover/webArticle'
+import { startArticleHighlight, type ArticleWordHit } from '@shared/hover/articleHighlight'
 
 // content ↔ background 내부 메시지(확장 안에서만 씀).
 type FromBackground =

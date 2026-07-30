@@ -17,9 +17,12 @@ import type {
   QuestionResult,
   Rect,
   SelectionContext,
+  ViewerFilePayload,
+  ViewerWordHit,
   Word,
   ZhWord,
 } from '@shared/types'
+import type { WordSegment } from '@shared/extension'
 
 // preload — 렌더러에 안전한 API 만 노출 (공동)
 const api = {
@@ -219,6 +222,21 @@ const api = {
   // main/nlp/chinese.ts 가 결정)
   tokenizeChinese: (text: string, language: 'zh-Hans' | 'zh-Hant'): Promise<ZhWord[]> =>
     ipcRenderer.invoke(IPC.TOKENIZE_ZH, text, language),
+
+  // 자체 문서 뷰어(pdf/epub/txt) — 파일 선택 다이얼로그를 띄우고 고른 파일로 뷰어 창을 연다.
+  // 취소하면 false.
+  openDocumentFile: (): Promise<boolean> => ipcRenderer.invoke(IPC.VIEWER_OPEN_FILE_DIALOG),
+
+  // 뷰어 렌더러가 자기 창에 열린 파일 내용을 가져온다(txt 는 text, pdf/epub 는 bytes).
+  getViewerFile: (): Promise<ViewerFilePayload | null> => ipcRenderer.invoke(IPC.VIEWER_GET_FILE),
+
+  // 뷰어 문단의 CJK 형태소 분할 — 확장이 WebSocket 으로 하던 것과 같은 분할기(segmentCjk.ts).
+  segmentViewerText: (text: string): Promise<WordSegment[]> =>
+    ipcRenderer.invoke(IPC.VIEWER_SEGMENT, text),
+
+  // 뷰어에서 단어 클릭 — 확장의 pageClick 과 같은 역할(메인이 팝업을 띄운다).
+  viewerWordClicked: (hit: ViewerWordHit): Promise<void> =>
+    ipcRenderer.invoke(IPC.VIEWER_WORD_CLICKED, hit),
 }
 
 contextBridge.exposeInMainWorld('nuance', api)

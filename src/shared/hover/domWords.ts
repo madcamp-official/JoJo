@@ -6,8 +6,10 @@ import { HOVER_WORD_ATOM_PATTERN } from '@shared/wordTokenize'
 import { unionRects } from '@shared/wordMapping'
 
 // 텍스트 노드의 [start,end) 구간 사각형. 줄바꿈으로 여러 조각이면 union 한다.
+// 전역 document 가 아니라 노드 자신의 문서에서 Range 를 만든다 — 자체 뷰어의 epub 은
+// epubjs 가 내용을 iframe 안에 띄우므로(별도 document) 전역을 쓰면 엉뚱한 문서를 잰다.
 export function rangeRect(node: Text, start: number, end: number): RectPx | null {
-  const range = document.createRange()
+  const range = (node.ownerDocument ?? document).createRange()
   try {
     range.setStart(node, start)
     range.setEnd(node, end)
@@ -193,7 +195,9 @@ export interface WordsAndText {
 // 통째로 덮음). 한 번의 순회로 text 와 words[].start/end 를 함께 만들면 그 자체로 항상
 // 같은 좌표계를 쓰게 되어 이 어긋남이 애초에 발생할 수 없다.
 export function extractWordsAndText(root: HTMLElement): WordsAndText {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+  // rangeRect 와 같은 이유로 root 자신의 문서에서 순회기를 만든다(epub iframe 대응).
+  const doc = root.ownerDocument ?? document
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
     acceptNode: (n) => {
       if (n.nodeType === Node.ELEMENT_NODE) {
         return NON_TEXT_ELEMENT_RE.test((n as Element).tagName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT

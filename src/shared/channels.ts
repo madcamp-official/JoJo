@@ -73,6 +73,20 @@ export const IPC = {
   // 팝업 직전 추출 결과 전달 = 팝업 트리거 (A → B). 최종 선택 확정은 B가 팝업에서.
   SELECTION_EXTRACTED: 'selection:extracted',
 
+  // 자체 문서 뷰어(pdf/epub/txt) — 외부 뷰어의 접근성 API 좌표 문제를 피해 우리가 직접
+  // 파싱·렌더링하고, 그 DOM 위에서 웹페이지와 똑같은 방식으로 호버박스를 띄운다(TODO.md).
+  // OPEN_FILE_DIALOG: 메인 화면 "파일 열기" → 확장자 제한 다이얼로그 → 뷰어 창 생성까지.
+  VIEWER_OPEN_FILE_DIALOG: 'viewer:openFileDialog',
+  // 뷰어 렌더러가 자기 창에 열린 파일의 내용을 pull 한다(contextIsolation 유지 —
+  // 렌더러는 fs 에 직접 접근하지 않고 메인이 읽어 넘긴다).
+  VIEWER_GET_FILE: 'viewer:getFile',
+  // 뷰어 안에서 단어를 클릭 — 확장의 pageClick 과 같은 역할(viewerSource.ts 가 받아
+  // ExtractedSelection 으로 감싸 기존 팝업을 띄운다).
+  VIEWER_WORD_CLICKED: 'viewer:wordClicked',
+  // 뷰어 문단의 CJK 형태소 분할 요청 — 확장은 WebSocket 으로 하던 것을 IPC 로 연결한다
+  // (메인의 기존 nlp/ 분할기를 그대로 호출).
+  VIEWER_SEGMENT: 'viewer:segment',
+
   // 질문 (담당 B)
   QUESTION_REQUEST: 'question:request',
   QUESTION_STREAM: 'question:stream',

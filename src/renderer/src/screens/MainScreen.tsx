@@ -26,6 +26,11 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
         <button className="primary" disabled={!warmedUp} onClick={() => goto('picker')}>
           창 선택
         </button>
+        {/* 자체 문서 뷰어 — pdf/epub/txt 를 Nuance 안에서 직접 열어 본다. 외부 뷰어와 달리
+            텍스트·좌표를 우리가 직접 계산하므로 OCR 없이 바로 호버박스가 뜬다. */}
+        <button className="primary" onClick={() => void window.nuance.openDocumentFile()}>
+          파일 열기
+        </button>
         {!warmedUp && <p className="hint">텍스트 인식 엔진을 준비하는 중이에요…</p>}
         {selected && <p className="hint">선택됨: {selected.name}</p>}
 
