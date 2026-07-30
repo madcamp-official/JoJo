@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron'
 import { IPC } from '@shared/channels'
-import { createMainWindow, getMainWindow, setQuitting } from './windows'
+import { createMainWindow, createViewerWindow, getMainWindow, setQuitting } from './windows'
 import { createTray } from './tray'
 import { registerIpc } from './ipc'
 import { applyExtractionDecision, registerModeShortcut } from './selection/shortcut'
@@ -53,6 +53,11 @@ if (!app.requestSingleInstanceLock()) {
 
     registerContextMenu()
     createMainWindow()
+    if (process.env.NUANCE_VIEWER_FILE) {
+      const fp = process.env.NUANCE_VIEWER_FILE
+      const ext = fp.split('.').pop()!.toLowerCase() as 'pdf' | 'epub' | 'txt'
+      createViewerWindow({ path: fp, name: fp.split('/').pop()!, kind: ext })
+    }
     createTray()
     registerIpc()
     startExtensionBridge() // 크롬 확장이 접속할 로컬 WebSocket 서버 시작
