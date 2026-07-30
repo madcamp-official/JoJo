@@ -358,14 +358,15 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   if (process.platform === 'darwin') {
     // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
     win.setHiddenInMissionControl(true)
-    // NSTrackingArea 기반 커서 관리(2026-07-31 재적용 — 한 번 넣었다가 호버박스 위치
-    // 회귀의 용의자로 급히 되돌렸는데, 되돌려도 그 회귀가 그대로여서 무관함이 확인됨.
-    // macCursorTracking.ts 주석 참고) — 활성 앱 여부와 무관하게 hit-test 로 커서가
-    // 반영되게 한다. 실패해도 예외 없이 false 만 반환하고, 기존 폴링
-    // (syncMacCursorPolling/macDesiredCursor)이 그대로 동작하므로 안전망은 유지된다.
-    void import('./selection/macCursorTracking').then(({ attachCursorTracking }) => {
-      if (!win.isDestroyed()) attachCursorTracking(win.getNativeWindowHandle(), () => macDesiredCursor)
-    })
+    // NSTrackingArea(cursorUpdate: + NSTrackingActiveAlways) 기반 커서 관리를 시도했다가
+    // 제거함(2026-07-31). 사파리 탭 바의 "+" 버튼처럼 활성 앱이 아니어도 커서가 바뀌는
+    // 정식 경로라 기대했지만, **실측으로 cursorUpdate: 가 한 번도 호출되지 않는 것을
+    // 확인**했다(진단 로그 + CDP 로 오버레이 DOM 확인: 단어 위 호버가 잡혀 클릭스루가
+    // 꺼진(hovering-word) 상태에서도 콜백 미호출). 동적으로 만든 ObjC 클래스와 영구
+    // 등록 콜백만 남고 효과는 0이라 걷어냈다 — 커서는 기존 폴링(syncMacCursorPolling →
+    // macWindow.ts setMacCursor)이 계속 담당한다. 남은 한계: NSCursor.set() 은 우리 앱이
+    // 한 번이라도 활성화된 뒤에야(예: 팝업이 뜨면서 app.focus) 듣는 것으로 보이며, 다른
+    // 앱이 포커스를 가진 동안에는 반영되지 않는다.
   }
   win.on('closed', () => {
     if (overlayWindow === win) overlayWindow = null
