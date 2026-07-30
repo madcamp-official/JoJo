@@ -320,6 +320,12 @@ export function abandonInFlightExtraction(): void {
  * 문맥이 뒤섞이는 것보다 "이전 문맥 없음"이 안전하므로 병합을 포기하고 원본을 그대로
  * 돌려준다. 찾으면 앞/뒤 각각 이전 회차 쪽이 더 길 때만(스크롤 등으로 지금은 안 보이지만
  * 이전엔 보였던 부분이 있을 때만) 그쪽 텍스트로 교체한다 — 현재가 더 길면 그대로 둔다.
+ *
+ * 담당 A(2026-07-31) — 위 "정확히 한 번만 나타남" 정렬은 스크롤처럼 두 캡처 사이에
+ * 실제로 겹치는 내용이 있을 때만 통한다. 겹치는 내용이 아예 없는 "완전히 다음 페이지로
+ * 넘어감"은 못 찾는 게 정상인데, 그 경우에도 클릭 지점이 지금 텍스트 맨 앞부분이면
+ * 직전 회차 전체를 정렬 없이 그대로 앞에 붙인다(PAGE_TURN_NEAR_START_THRESHOLD, 사용자
+ * 결정 — 겹치는 부분이 없어도 무조건 이어붙임).
  */
 // 담당 A — 상한 추가(2026-07-31, 사용자 제보 — "재추출 시 이전 문맥 병합이 잘 안 되는
 // 것 같다"). 이 상수 미만이면 기존처럼 '\n' 경계로 확장한 줄을 정렬 기준으로 쓴다(영어
@@ -336,6 +342,25 @@ const MAX_ANCHOR_LINE_LENGTH = 300
 // 덮어썼다. 정렬 기준으로 삼기엔 너무 짧은 anchor 면 병합을 포기한다 — 오정렬로 문맥이
 // 뒤섞이는 것보다 "이전 문맥 없음"이 안전하다(위 함수 주석의 원칙과 동일).
 const MIN_ANCHOR_LENGTH_FOR_MERGE = 20
+
+// 담당 A — 페이지 전환 폴백 추가(2026-07-31, 사용자 제보 — "다음 페이지 첫 부분을
+// 클릭했는데 이전 페이지 내용을 모른다"). 위 두 상수는 전부 "지금 텍스트와 직전 회차
+// 텍스트가 실제로 겹치는 부분이 있다"(스크롤 등)는 걸 전제로 그 겹치는 지점을 문자
+// 그대로 찾는(prev.text.indexOf) 방식이다 — 책/문서의 "다음 페이지로 넘어감"은 겹치는
+// 내용이 아예 없는 게 정상이라(이전 페이지 끝과 새 페이지 시작이 이어지는 문장이 아닌 한)
+// 이 방식으로는 원리적으로 못 찾는다. 정렬 기준을 못 찾았을 때, 클릭 지점이 지금 텍스트의
+// 맨 앞부분(=페이지를 열자마자 보이는 부분)이면 "직전 페이지에서 이어지는 중"으로 보고
+// 정렬 없이 직전 회차 텍스트 전체를 그대로 앞에 이어붙인다(사용자 결정 — 겹치는 내용이
+// 전혀 없어도 무조건 붙임). 뒤로 얼마나 보여줄지는 항상 그렇듯 팝업 표시(줄 수)/LLM
+// 문맥(바이트) 쪽이 anchor 기준으로 알아서 자른다 — 여기선 자르지 않고 전체를 붙여도 된다.
+const PAGE_TURN_NEAR_START_THRESHOLD = 100
+
+// 담당 A — 페이지 전환 이어붙이기 구분자(2026-07-31, 사용자 요청 — "앞에 이어붙일 때
+// 언어 특성을 고려해서 띄어쓰기 한 칸 추가"). 공백으로 단어를 구분하는 언어(영어 등)는
+// 이전 페이지 끝과 새 페이지 시작 사이에 공백이 없으면 두 단어가 그대로 붙어버린다 —
+// ocr.ts 가 "띄어쓰기 없는 문자 체계"로 보고 단어 사이를 공백 없이 이어붙이는 언어와
+// 정확히 같은 기준(ja/zh-Hans/zh-Hant/th/lo)으로, 이 언어들만 구분자를 안 넣는다.
+const SPACELESS_LANGUAGES: ReadonlySet<AnyLanguage> = new Set(['ja', 'zh-Hans', 'zh-Hant', 'th', 'lo'])
 
 export function mergeWithPreviousContext(
   text: string,
@@ -365,6 +390,17 @@ export function mergeWithPreviousContext(
 
   const prevIdx = prev.text.indexOf(anchorLine)
   if (prevIdx === -1 || prev.text.indexOf(anchorLine, prevIdx + 1) !== -1) {
+    // 겹치는 지점을 못 찾았다 — 완전히 새 페이지로 넘어갔을 가능성. 클릭 지점이 지금
+    // 텍스트 맨 앞부분이면 정렬 없이 직전 회차 전체를 그대로 앞에 붙인다(위
+    // PAGE_TURN_NEAR_START_THRESHOLD 주석 참고).
+    if (lineStart <= PAGE_TURN_NEAR_START_THRESHOLD) {
+      const separator = SPACELESS_LANGUAGES.has(prev.language) ? '' : ' '
+      return {
+        text: prev.text + separator + text,
+        anchorStart: prev.text.length + separator.length + anchorStart,
+        anchorEnd: prev.text.length + separator.length + anchorEnd,
+      }
+    }
     return { text, anchorStart, anchorEnd }
   }
 
