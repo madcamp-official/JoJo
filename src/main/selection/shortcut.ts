@@ -1,7 +1,6 @@
 import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
-  consumeDebugBlocksVisible,
   onWindowResized,
   sendOverlayNotice,
   sendRegionSelectionNeeded,
@@ -77,7 +76,11 @@ function exitSelectMode(): void {
 }
 
 export function toggleMode(): void {
-  if (consumeDebugBlocksVisible()) return
+  // "자동 탐지 블록이 떠 있으면 첫 누름은 블록만 지운다"는 규칙(2026-07-29)은 제거됨
+  // (2026-07-30 사용자 결정 — "모드 전환 버튼은 무조건 모드 전환만") : 개발 모드에선
+  // 매 추출마다 블록이 항상 다시 떠서(extractionCache.ts import.meta.env.DEV 분기),
+  // 화면이 자주 바뀌는 콘텐츠에선 누를 때마다 블록 지우기로만 소비돼 사실상 선택
+  // 모드에서 못 빠져나오는 문제가 있었다.
   if (mode === 'select') {
     exitSelectMode()
     return

@@ -652,27 +652,13 @@ export function sendOverlayWords(words: Word[]): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_WORDS, words)
 }
 
-// 지금 오버레이에 자동 탐지 블록이 떠 있는지 — shortcut.ts: toggleMode 가 모드 전환
-// 단축키를 "블록이 떠 있으면 첫 번째 누름은 블록만 지우고, 그다음 누름부터 실제로
-// 모드를 바꾼다"로 처리하는 데 쓴다(사용자 요청, 2026-07-29 — 블록이 보이는 상태에서
-// 무심코 단축키를 눌렀다가 바로 모드까지 바뀌어버리는 게 불편하다는 피드백).
-let debugBlocksVisible = false
-
-/** OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 반투명 사각형으로 보여준다 —
- * 텍스트 영역 자동 탐지(autoDetectRegion) 결과 시각화(extractionCache.ts 가 조건 판단). */
+/** OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 시각화한다(회색 덮개+투명 구멍)
+ * — 텍스트 영역 자동 탐지(autoDetectRegion) 결과 시각화(extractionCache.ts 가 조건 판단).
+ * 예전엔 "블록이 떠 있으면 모드 전환 첫 누름은 블록만 지운다" 규칙용 상태 추적
+ * (debugBlocksVisible/consumeDebugBlocksVisible)이 같이 있었는데 규칙 제거(2026-07-30,
+ * shortcut.ts: toggleMode 주석 참고)와 함께 정리됨. */
 export function sendDebugBlocks(blocks: Rect[]): void {
-  debugBlocksVisible = blocks.length > 0
   overlayWindow?.webContents.send(IPC.DEBUG_BLOCKS, blocks)
-}
-
-/**
- * 블록이 떠 있으면 지우고 true 를 반환한다(호출부가 "이번 누름은 여기서 소비했다"고
- * 판단해 그 외 동작을 건너뛰게) — 블록이 없으면 아무 것도 안 하고 false.
- */
-export function consumeDebugBlocksVisible(): boolean {
-  if (!debugBlocksVisible) return false
-  sendDebugBlocks([])
-  return true
 }
 
 /** 선택 모드 진입/리사이즈/화면 변화 감지로 재추출이 시작될 때 호출 — 오버레이에
