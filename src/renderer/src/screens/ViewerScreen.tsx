@@ -40,6 +40,8 @@ import { SlidersIcon } from './icons'
 
 /** 툴바 높이를 아직 못 잰 첫 프레임에만 쓰는 대체값. */
 const TOOLBAR_FALLBACK_PX = 46
+/** 툴바 높이에 얹는 여유 — 딱 높이까지만 인정하면 경계에서 깜빡여 집기 힘들다(사용자 요청). */
+const TOOLBAR_REVEAL_SLACK_PX = 24
 
 export function ViewerScreen() {
   const [file, setFile] = useState<ViewerFilePayload | null>(null)
@@ -112,11 +114,13 @@ export function ViewerScreen() {
   // 안 되므로).
   const [barShown, setBarShown] = useState(true)
   const barRef = useRef<HTMLElement | null>(null)
+  const [barH, setBarH] = useState(TOOLBAR_FALLBACK_PX)
   useEffect(() => {
     // 기준선은 툴바가 실제로 차지하는 높이 그 자체다 — 넉넉한 고정값을 쓰면 툴바가 없는
     // 빈 띠에서도 튀어나와 "왜 지금 뜨지?" 싶어진다(사용자 지적). 숨은 상태에서도
     // visibility 로만 감추므로 offsetHeight 는 그대로 살아 있다.
-    const limit = (): number => barRef.current?.offsetHeight || TOOLBAR_FALLBACK_PX
+    const limit = (): number =>
+      (barRef.current?.offsetHeight || TOOLBAR_FALLBACK_PX) + TOOLBAR_REVEAL_SLACK_PX
     const onMove = (e: MouseEvent) => setBarShown(e.clientY <= limit())
     window.addEventListener('mousemove', onMove)
 
@@ -144,6 +148,19 @@ export function ViewerScreen() {
       for (const [d, fn] of bound) d.removeEventListener('mousemove', fn)
     }
   }, [])
+
+  const barVisible = barShown || styleOpen || tocOpen || searchOpen
+
+  // 툴바 높이는 창 폭에 따라(컨트롤 줄바꿈) 달라질 수 있어 실제 값을 따라간다.
+  useEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const measure = (): void => setBarH(el.offsetHeight || TOOLBAR_FALLBACK_PX)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [file])
 
   const goPage = useCallback((dir: 'next' | 'prev') => {
     setTurn((t) => ({ dir, tick: t.tick + 1 }))
@@ -202,7 +219,7 @@ export function ViewerScreen() {
 
   return (
     <div className={`screen viewer-screen${dark && isReflowable ? ' dark' : ''}`}>
-      <header ref={barRef} className={`viewer-toolbar${barShown || styleOpen || tocOpen || searchOpen ? '' : ' hidden'}`}>
+      <header ref={barRef} className={`viewer-toolbar${barVisible ? '' : ' hidden'}`}>
         <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
           <ArrowLeftIcon />
         </button>
@@ -271,7 +288,10 @@ export function ViewerScreen() {
         </div>
       </header>
 
-      <div className="viewer-body" ref={containerRef}>
+      {/* 툴바는 본문 위에 겹쳐 뜨므로, 떠 있는 동안은 본문 영역을 그만큼 아래로 내려
+          첫 줄이 가려지지 않게 한다(사용자 지적). 자리를 상시 비워두지는 않는다 —
+          숨었을 때 위쪽에 빈 띠가 남으면 그것대로 거슬린다(예전 지적). */}
+      <div className="viewer-body" ref={containerRef} style={{ marginTop: barVisible ? barH : 0 }}>
         {error && <p className="hint">{error}</p>}
         {!file && !error && <p className="hint">불러오는 중...</p>}
         <div ref={animRef} className="viewer-anim">
