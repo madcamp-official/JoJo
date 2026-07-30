@@ -828,10 +828,17 @@ button:disabled { cursor: not-allowed; }
    창 오른쪽에 스크롤바가 두 줄로 겹쳐 보이고, 본문 스크롤바도 그만큼 안쪽으로 밀린다
    (실측: pdf 에서 루트 스크롤바 15px 탓에 본문 스크롤바가 x=885 에 그려짐). */
 html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hidden; }
-.viewer-screen { display: flex; flex-direction: column; width: 100%; overflow: hidden; }
+.viewer-screen {
+  display: flex; flex-direction: column; width: 100%; overflow: hidden;
+  /* 본문 위아래 공통 여백 — 툴바(약 53px)보다 커야 겹쳐 뜬 툴바가 첫 줄을 안 덮는다. */
+  --viewer-gutter: 72px;
+}
 
 .viewer-toolbar {
-  display: flex; align-items: center; gap: 16px;
+  /* 좁은 창에서도 절대 줄바꿈하지 않는다 — 두 줄이 되면 겹쳐 뜬 툴바가 본문을 더 덮는다.
+     대신 제목이 먼저 줄어들고(min-width:0), 그래도 모자라면 아래 미디어쿼리가 우선순위
+     낮은 것부터 감춘다(사용자 지적: 폭이 좁아지면 메뉴바가 깨짐). */
+  display: flex; align-items: center; gap: 16px; flex-wrap: nowrap;
   padding: 10px 16px; border-bottom: 1px solid #e2e8f0;
   /* 본문 위에 겹쳐 띄운다 — 자리를 차지하면 숨겼을 때도 위쪽에 빈 띠가 남는다
      (사용자 지적). 겹쳐두면 숨을 때 그 공간이 그대로 본문이 되고, 나타날 때도
@@ -851,21 +858,33 @@ html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hid
   opacity: 0; transform: translateY(-6px); visibility: hidden; pointer-events: none;
   transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s linear 0.22s;
 }
-.viewer-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer-title {
+  font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* 남는 폭을 먹되 필요하면 0까지 줄어든다 — 컨트롤을 밀어내지 않게. */
+  flex: 1 1 auto; min-width: 0;
+}
 .viewer-back, .viewer-theme {
   display: inline-flex; align-items: center; justify-content: center;
   background: none; border: none; padding: 4px; cursor: pointer; color: inherit; flex: none;
 }
 .viewer-back:hover, .viewer-theme:hover { opacity: 0.6; }
-.viewer-controls { display: flex; align-items: center; gap: 10px; margin-left: auto; position: relative; }
+.viewer-controls { display: flex; align-items: center; gap: 10px; margin-left: auto; position: relative; flex: none; }
+
+/* 폭이 모자라면 읽는 데 덜 중요한 것부터 뺀다 — 제목(파일명은 창 제목에도 있다) →
+   확대 배율 숫자(버튼은 남는다) 순. */
+@media (max-width: 720px) {
+  .viewer-toolbar { gap: 10px; padding: 10px 12px; }
+  .viewer-title { display: none; }
+}
+@media (max-width: 560px) {
+  .viewer-zoom-value { display: none; }
+}
 .viewer-font-value { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* 세로만 스크롤한다 — 페이지는 가운데 정렬이라 가로로 넘길 일이 없는데, 확대 등으로
    잠깐 넘치면 아래쪽에 쓸데없는 가로 스크롤바가 생긴다(사용자 지적). */
 .viewer-body {
   flex: 1; overflow-x: hidden; overflow-y: auto; position: relative;
-  /* 툴바가 뜨고 지는 것과 같은 속도로 내려갔다 올라온다(ViewerScreen: marginTop). */
-  transition: margin-top 0.22s ease;
 }
 /* 스크롤 모드의 스크롤바는 여기 하나뿐이고, 이 요소가 창 폭 전체라 그대로 창 맨
    오른쪽에 붙는다(사용자 요청). 본문 여백을 아무리 넓혀도 스크롤바는 따라 들어오지
@@ -881,14 +900,16 @@ html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hid
 .viewer-screen.dark .epub-container::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.24); background-clip: content-box; }
 
 /* txt/epub 본문 — 읽기 좋은 폭으로 가운데 정렬. font-size 는 인라인으로 주입된다. */
-/* 아래는 위보다 넉넉히 — 진도 표시가 깔리는 자리이기도 하고, 위아래가 같으면
-   마지막 줄이 화면 끝에 붙어 보인다(2026-07-31 사용자 지적). */
-.viewer-doc { padding-top: 32px; padding-bottom: 72px; line-height: 1.8; }
+/* 위아래를 같은 값으로, 툴바 높이보다 넉넉하게 — 툴바는 본문 위에 겹쳐 뜨는데 본문을
+   밀어내지는 않으므로(사용자 지정), 이 여백이 곧 "덮이지 않는 자리"가 된다. 아래쪽은
+   진도 표시가 깔리는 자리이기도 하다. 스크롤해 올라간 글이 툴바에 가리는 건 허용
+   범위다(사용자 지정). */
+.viewer-doc { padding-top: var(--viewer-gutter); padding-bottom: var(--viewer-gutter); line-height: 1.8; }
 .viewer-doc p { margin: 0 0 1.2em; white-space: pre-wrap; }
 
 /* PDF — 캔버스 위에 투명 텍스트 레이어를 정확히 겹친다(pdf.js 표준 구조). 텍스트는 눈에
    보이지 않지만 진짜 DOM 이라 호버 스택이 좌표를 잰다. */
-.pdf-host { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px; }
+.pdf-host { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: var(--viewer-gutter) 16px; }
 .pdf-page { position: relative; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2); }
 .pdf-page canvas { display: block; }
 .pdf-page .textLayer {
@@ -900,7 +921,7 @@ html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hid
   color: transparent; transform-origin: 0 0;
 }
 
-.epub-host { width: 100%; height: 100%; padding-bottom: 26px; }
+.epub-host { width: 100%; height: 100%; padding-top: var(--viewer-gutter); padding-bottom: var(--viewer-gutter); }
 
 
 /* 다크 모드 — txt/epub 전용(PDF 는 원본 레이아웃을 그대로 보여주는 게 목적이라 제외).
