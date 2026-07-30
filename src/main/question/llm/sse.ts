@@ -45,6 +45,35 @@ export async function* readSse(res: Response): AsyncGenerator<string> {
   }
 }
 
+/** cacheableContext(문맥 블록)를 system 프롬프트에 합쳐 넣는다 — GPT/Gemini 는 Claude 와
+ *  달리 문맥을 별도 캐시 블록으로 분리하는 API 제어가 없어(Claude 는 cache_control 로
+ *  system 배열의 별도 원소에 붙임, claude.ts 참고) 이 방식(system 뒤에 이어붙여 prefix
+ *  재사용에 의존)을 쓴다. 두 어댑터가 이 병합 문자열을 각자 복제해 갖고 있던 것을
+ *  통합했다(2026-07-30). */
+export function mergeSystemWithContext(system: string, cacheableContext?: string): string {
+  return cacheableContext ? `${system}\n\n[문맥]\n${cacheableContext}` : system
+}
+
+/** 일부 provider/모델 세대는 temperature 기본값(1) 외의 값을 400 으로 거부한다(거부
+ *  조건은 provider/모델 등급마다 다르다 — gpt.ts/claude.ts 의 실측 확인 주석 참고). 첫
+ *  요청이 400이고 그 provider의 거부 신호(isTemperatureRejection)와 일치할 때만
+ *  temperature 없이 한 번 더 요청한다 — 매번 무조건 생략하지 않아야, temperature 를
+ *  받아주는 모델로 바뀌었을 때 원래 의도(응답 안정성)가 그대로 산다. GPT/Claude 어댑터가
+ *  이 재시도 구조를 각자 복제해 갖고 있던 것을 통합했다(2026-07-30). */
+export async function withTemperatureFallback(
+  request: (includeTemperature: boolean) => Promise<Response>,
+  isTemperatureRejection: (detail: string) => boolean,
+): Promise<Response> {
+  let res = await request(true)
+  if (!res.ok && res.status === 400) {
+    const detail = await res.clone().text()
+    if (isTemperatureRejection(detail)) {
+      res = await request(false)
+    }
+  }
+  return res
+}
+
 /** 응답이 실패면 본문을 읽어 LlmHttpError 를 던진다 (호출부에서 classifyLlmError 로 분류). */
 export async function ensureOk(res: Response, label: string): Promise<void> {
   if (res.ok) return

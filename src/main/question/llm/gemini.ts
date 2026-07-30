@@ -1,5 +1,5 @@
 import type { LlmClient, LlmConfig, LlmRequest } from './adapter'
-import { ensureOk, readSse } from './sse'
+import { ensureOk, mergeSystemWithContext, readSse } from './sse'
 
 // 담당 B — Gemini(Google) 클라이언트 (streamGenerateContent, SSE)
 // https://ai.google.dev/api/generate-content#method:-models.streamgeneratecontent
@@ -13,9 +13,7 @@ export function createGeminiClient(config: LlmConfig): LlmClient {
         parts: [{ text: m.content }],
       }))
 
-      const systemText = req.cacheableContext
-        ? `${req.system}\n\n[문맥]\n${req.cacheableContext}`
-        : req.system
+      const systemText = mergeSystemWithContext(req.system, req.cacheableContext)
 
       // 키는 URL 쿼리 대신 헤더로 전달(로깅 유출 방지).
       const url =
