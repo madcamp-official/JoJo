@@ -12,7 +12,7 @@ import {
   type TranscriptCue,
   type WordSegment,
 } from '@shared/extension'
-import { detectCjkVariant, detectSupportedLanguage } from '@shared/languageDetect'
+import { detectSupportedLanguage, resolveCjkLanguage } from '@shared/languageDetect'
 import type { AnyLanguage } from '@shared/types'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
@@ -34,6 +34,7 @@ export interface Transcript {
 // 접속은 항상 최신 소켓 1개만 유효(브라우저 하나 기준)로 둔다.
 
 const KEEPALIVE_MS = 20_000 // 서비스 워커는 ~30초 유휴 시 종료됨 — 그 전에 ping 을 보내 살려둔다.
+const SEGMENT_INFLIGHT_TIMEOUT_MS = 4000 // 세그멘테이션 요청 "진행 중" 취급을 몇 ms까지 유지할지(재시도 허용 간격)
 
 type BridgeEvents = {
   activeTab: [ExtActiveTab | null]
@@ -61,9 +62,19 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
   private transcripts = new Map<string, Transcript>()
   private lastCaptureActive = false
   private lastPageCaptureActive = false
-  // 이미 세그멘테이션을 요청/전송한 자막 줄 텍스트 — subtitles 스냅샷이 자주(폴링 300ms
-  // 등) 갱신되므로 같은 줄을 반복해서 재분석하지 않는다.
-  private segmentedLines = new Set<string>()
+  // 세그멘테이션 요청/응답 상태 — 자막(subtitles 폴링)과 웹 문단(pageParagraphText) 양쪽이
+  // requestWordSegments 하나를 공유한다(아래). 두 Map으로 나눈 이유:
+  //  - segmentResults: 완료된 결과 캐시. 같은 텍스트가 다시 요청되면(자막은 300ms 폴링이라
+  //    당연히 반복되고, 웹도 재요청 재시도가 있다) 재계산 없이 즉시 재전송한다 — 응답
+  //    메시지가 확장 쪽에 전달되지 못한 경우(탭 전환 중 릴레이 실패 등)에도 다음 요청 때
+  //    다시 보내줄 수 있다.
+  //  - segmentInFlightSince: "진행 중" 요청의 시작 시각. 완료 전까지는 중복 계산을 막되,
+  //    영원히 막으면 안 된다 — 예전엔 Set 하나로 "요청함=완료 아니면 끝까지 스킵" 취급해서,
+  //    응답이 소실되면(성공했지만 send 실패 등) 그 줄/문단이 영원히 글자 단위로 고정되는
+  //    구조적 버그가 있었다(2026-07-30, 자막 CJK 그루핑 실패 사용자 제보로 발견). 타임아웃이
+  //    지나면 다시 시도한다.
+  private segmentResults = new Map<string, WordSegment[]>()
+  private segmentInFlightSince = new Map<string, number>()
 
   start(): void {
     if (this.wss) return
@@ -178,8 +189,8 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         this.emit('pageClick', { text: msg.text, anchorStart: msg.anchorStart, anchorEnd: msg.anchorEnd, url: msg.url })
         break
       case 'pageParagraphText':
-        // 자막의 'subtitles' 케이스와 동일한 메서드를 그대로 재사용 — CJK 여부 판정·
-        // dedup(segmentedLines)·문맥 윈도우 구성까지 전부 공용 로직이라 새로 만들 필요가
+        // 자막의 'subtitles' 케이스와 동일한 메서드를 그대로 재사용 — CJK 여부 판정(eld
+        // 폴백 포함)·결과 캐시·in-flight 재시도까지 전부 공용 로직이라 새로 만들 필요가
         // 없다. 응답도 동일한 'wordSegments' 메시지로 온다(articleHighlight.ts가 소비).
         this.requestWordSegments([msg.text])
         break
@@ -222,18 +233,31 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
     return this.transcripts.get(videoId) ?? null
   }
 
-  // CJK 자막 줄을 감지해 앱의 zh/ja 세그멘터로 분석한 뒤 확장에 내려준다 — 브라우저는
-  // 공백 없는 CJK 텍스트를 글자 단위로만 쪼갤 수 있어서(youtube.ts), hover 박스를 실제
-  // 단어 단위로 묶으려면 형태소 분석 결과가 필요하다(highlight.ts). 새로 보이는 줄에
-  // 대해서만 1회 요청한다.
+  // CJK 텍스트(자막 줄 또는 웹 문단)를 감지해 앱의 zh/ja 세그멘터로 분석한 뒤 확장에
+  // 내려준다 — 브라우저는 공백 없는 CJK 텍스트를 글자 단위로만 쪼갤 수 있어서
+  // (youtube.ts/domWords.ts), hover 박스를 실제 단어 단위로 묶으려면 형태소 분석 결과가
+  // 필요하다. 자막(subtitles 폴링, 'subtitles' 케이스)과 웹 문단(hover 진입 시 1회,
+  // 'pageParagraphText' 케이스)이 이 메서드 하나를 공유한다 — 예전엔 웹만 eld 폴백/재시도
+  // 캐시를 갖고 있어서, 순수 CJK 문단인데도 eld가 못 잡거나 응답이 소실되면 그 줄/문단이
+  // 영원히 글자 단위로 고정되는 문제가 자막에도 똑같이 있었다(2026-07-30, "로직 통합해서
+  // 자막도 웹처럼" 사용자 지시).
   private requestWordSegments(lineTexts: string[]): void {
     for (const text of lineTexts) {
-      if (!text || this.segmentedLines.has(text)) continue
+      if (!text) continue
+      const cached = this.segmentResults.get(text)
+      if (cached) {
+        // 이미 끝난 텍스트도 다시 보내준다 — 확장 쪽이 이전 응답을 못 받았을 수 있다
+        // (탭 전환 중 릴레이 실패 등). 재계산은 없으니 비용은 무시할 만하다.
+        this.send({ type: 'wordSegments', lineText: text, words: cached })
+        continue
+      }
+      const startedAt = this.segmentInFlightSince.get(text)
+      if (startedAt !== undefined && Date.now() - startedAt < SEGMENT_INFLIGHT_TIMEOUT_MS) continue
       // CJK(ja/zh)가 아니면 세그멘테이션 불필요 — 라틴 등은 브라우저의 공백 기준
       // 단어 분리로 이미 충분하다.
-      const lang = detectCjkVariant(text)
+      const lang = resolveCjkLanguage(text)
       if (!lang) continue
-      this.segmentedLines.add(text)
+      this.segmentInFlightSince.set(text, Date.now())
       void this.segmentAndSend(text, lang)
     }
   }
@@ -302,18 +326,17 @@ class ExtensionBridge extends EventEmitter<BridgeEvents> {
         }))
         .filter((w) => w.end > w.start)
 
-      // 분석 결과가 비어도(엔진이 그 줄을 통째로 못 쪼갠 경우 등) segmentedLines 에 남겨두면
-      // hover 는 그 줄에 대해 영원히 글자 단위로 고정된다 — 다음에 같은 줄이 다시 보일 때
-      // 재시도할 수 있게 표시를 지운다(2026-07-29 사용자 제보로 발견).
-      if (words.length === 0) {
-        this.segmentedLines.delete(text)
-        return
-      }
+      // 분석 결과가 비어도(엔진이 그 줄을 통째로 못 쪼갠 경우 등) in-flight 표시를 남겨두면
+      // hover 는 그 줄에 대해 영원히 글자 단위로 고정된다 — 다음 요청(자막은 다음 폴링,
+      // 웹은 재시도 타이머) 때 재시도할 수 있게 지운다(2026-07-29 사용자 제보로 발견).
+      this.segmentInFlightSince.delete(text)
+      if (words.length === 0) return
+      this.segmentResults.set(text, words)
       this.send({ type: 'wordSegments', lineText: text, words })
     } catch (err) {
-      console.warn('[ext-bridge] 자막 줄 세그멘테이션 실패:', (err as Error)?.message)
-      // 실패도 마찬가지로 재시도 가능하게 표시를 지운다.
-      this.segmentedLines.delete(text)
+      console.warn('[ext-bridge] 세그멘테이션 실패:', (err as Error)?.message)
+      // 실패도 마찬가지로 재시도 가능하게 in-flight 표시를 지운다.
+      this.segmentInFlightSince.delete(text)
     }
   }
 

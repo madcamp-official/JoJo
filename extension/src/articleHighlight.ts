@@ -7,9 +7,9 @@
 // 마다 수백 번의 Range.getClientRects() 호출이 발생해 너무 느리다 — 그래서
 // document.elementFromPoint()로 먼저 "어느 문단이냐"만 싸게 알아낸 뒤, 그 문단 하나에
 // 대해서만 wordsInParagraph()를 지연 계산 + 캐시한다(다른 문단으로 옮길 때만 재계산).
-import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 import type { RectPx, SubWord } from '@shared/extension'
 import { groupRectsByLine } from '@shared/wordMapping'
+import { hideHoverBox, showHoverBoxesAt } from './hoverBox'
 import type { ArticleExtraction, ArticleParagraph } from './webArticle'
 import { extractArticleText, wordsInParagraph } from './webArticle'
 import { getWordSegments } from './wordSegments'
@@ -21,83 +21,9 @@ export interface ArticleWordHit {
   anchorEnd: number
 }
 
-// 화면 줄바꿈에 걸친 단어(예: "当地政府"가 두 줄에 나뉘어 걸림)는 박스 하나가 아니라
-// 줄 개수만큼 필요하다(groupWordAt의 rects 참고) — 풀로 관리해 매번 만들고 지우지 않는다.
-let boxes: HTMLDivElement[] = []
-
-// 전체화면 API는 전체화면 엘리먼트와 그 자손만 top layer에 그린다(highlight.ts와 동일 이유).
-function boxParent(): HTMLElement {
-  return (document.fullscreenElement as HTMLElement | null) ?? document.documentElement
-}
-
-function createBox(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.className = 'nuance-article-word-highlight'
-  Object.assign(el.style, {
-    position: 'fixed',
-    boxSizing: 'border-box',
-    border: `${WORD_BOX_STYLE.borderWidth}px solid ${WORD_BOX_STYLE.borderColor}`,
-    background: WORD_BOX_STYLE.background,
-    borderRadius: `${WORD_BOX_STYLE.borderRadius}px`,
-    pointerEvents: 'none',
-    zIndex: '2147483647',
-    display: 'none',
-  })
-  boxParent().appendChild(el)
-  return el
-}
-
-// 필요한 개수만큼 박스를 확보한다(부족하면 새로 만들고, 남으면 숨겨서 재사용 대기).
-function ensureBoxes(count: number): HTMLDivElement[] {
-  while (boxes.length < count) boxes.push(createBox())
-  return boxes
-}
-
-function onFullscreenChange(): void {
-  for (const el of boxes) boxParent().appendChild(el)
-}
-
-// 박스 자신은 pointerEvents:none 이라 실제 마우스는 밑에 깔린 페이지 요소가 받는다 —
-// highlight.ts와 동일한 이유로 `*` 전체 선택자에 !important 를 건 스타일시트를 주입해야
-// 조상 인라인 스타일이 있어도 자손까지 커서가 강제 적용된다.
-let cursorOverridden = false
-let cursorStyleEl: HTMLStyleElement | null = null
-function ensureCursorStyle(): HTMLStyleElement {
-  if (cursorStyleEl) return cursorStyleEl
-  const el = document.createElement('style')
-  el.textContent = 'html.nuance-hover-pointer, html.nuance-hover-pointer * { cursor: pointer !important; }'
-  document.documentElement.appendChild(el)
-  cursorStyleEl = el
-  return el
-}
-function setHoveringCursor(hovering: boolean): void {
-  if (hovering === cursorOverridden) return
-  cursorOverridden = hovering
-  ensureCursorStyle()
-  document.documentElement.classList.toggle('nuance-hover-pointer', hovering)
-}
-
-function hideBox(): void {
-  for (const el of boxes) el.style.display = 'none'
-  setHoveringCursor(false)
-}
-
-// rects 는 줄마다 하나씩(groupRectsByLine 결과) — 화면 줄바꿈에 걸친 단어는 배열 길이가
-// 2 이상이 된다. 필요한 개수만큼만 보이고 나머지 풀은 숨긴다.
-function showBoxesAt(rects: RectPx[]): void {
-  const els = ensureBoxes(rects.length)
-  const p = WORD_BOX_STYLE.padding
-  rects.forEach((rect, i) => {
-    const el = els[i]!
-    el.style.left = `${rect.x - p}px`
-    el.style.top = `${rect.y - p}px`
-    el.style.width = `${rect.width + p * 2}px`
-    el.style.height = `${rect.height + p * 2}px`
-    el.style.display = 'block'
-  })
-  for (let i = rects.length; i < els.length; i++) els[i]!.style.display = 'none'
-  setHoveringCursor(rects.length > 0)
-}
+// hover 박스 렌더링(줄바꿈에 걸치면 줄마다 따로 그리는 박스 풀)/커서 오버라이드/전체화면
+// 재부착은 자막(highlight.ts)과 공유하는 hoverBox.ts 로 옮겼다(2026-07-30, 자막/웹 각자
+// 복제해 갖고 있던 드리프트 정리).
 
 // 문단별 단어 rect 캐시(hover 박스 표시 전용, 성능 목적) — 같은 문단에 마우스가 머무는
 // 동안은 재계산하지 않는다. 클릭 결과 전송에는 안 쓴다(resolveClick이 매번 새로 계산).
@@ -114,16 +40,21 @@ function invalidateCache(): void {
 // 참고). 형태소 분석 결과를 요청할지 판단하는 데만 쓰는 가벼운 문자 판정.
 const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
 
-// 형태소 분석을 이미 요청한 문단 텍스트 — 같은 문단을 여러 번 재진입해도 중복 요청하지
-// 않는다(응답 전 다시 hover해도 재요청 안 함). 앱 쪽(bridge.ts segmentedLines)도 dedup
-// 하지만, 그건 응답이 온 뒤에나 걸러지므로 왕복 전에 여기서 먼저 거른다.
-const requestedSegments = new Set<string>()
+// 형태소 분석을 이미 요청한 문단 텍스트와 그 요청 시각 — 같은 문단을 짧은 시간 안에 여러
+// 번 재진입해도 중복 요청하지 않는다(응답 전 다시 hover해도 재요청 안 함). 시각을 남겨
+// SEGMENT_RETRY_MS 가 지나면 재시도한다 — 예전엔 영구 Set(한 번 요청하면 끝까지 스킵)이라,
+// 요청이 앱(bridge.ts)까지는 갔지만 응답이 확장 쪽에 전달되지 못하면(탭 전환 중 릴레이
+// 실패 등) 그 문단이 영원히 글자 단위 hover 로 고정되는 문제가 있었다(2026-07-30).
+const SEGMENT_RETRY_MS = 4000
+const requestedSegmentsAt = new Map<string, number>()
 let requestSegmentsFn: ((text: string) => void) | null = null
 
 function ensureSegmentsRequested(paragraphText: string): void {
   if (!CJK_CHAR_RE.test(paragraphText)) return
-  if (getWordSegments(paragraphText) || requestedSegments.has(paragraphText)) return
-  requestedSegments.add(paragraphText)
+  if (getWordSegments(paragraphText)) return
+  const requestedAt = requestedSegmentsAt.get(paragraphText)
+  if (requestedAt !== undefined && Date.now() - requestedAt < SEGMENT_RETRY_MS) return
+  requestedSegmentsAt.set(paragraphText, Date.now())
   requestSegmentsFn?.(paragraphText)
 }
 
@@ -223,8 +154,8 @@ function resolveClick(x: number, y: number): ArticleWordHit | null {
 
 function onMouseMove(e: MouseEvent): void {
   const rects = hoverHitAt(e.clientX, e.clientY)
-  if (rects) showBoxesAt(rects)
-  else hideBox()
+  if (rects) showHoverBoxesAt(rects)
+  else hideHoverBox()
 }
 
 let onWordClick: ((hit: ArticleWordHit) => void) | null = null
@@ -236,7 +167,7 @@ function onClick(e: MouseEvent): void {
   e.preventDefault()
   e.stopImmediatePropagation()
   e.stopPropagation()
-  hideBox()
+  hideHoverBox()
   onWordClick?.(hit)
 }
 
@@ -248,7 +179,7 @@ function onClick(e: MouseEvent): void {
 // 다시 보여준다.
 function onViewportChange(): void {
   invalidateCache()
-  hideBox()
+  hideHoverBox()
 }
 
 export function startArticleHighlight(
@@ -266,20 +197,18 @@ export function startArticleHighlight(
   window.addEventListener('click', onClick, true)
   window.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
   window.addEventListener('resize', onViewportChange, { passive: true })
-  document.addEventListener('fullscreenchange', onFullscreenChange)
   return () => {
     window.removeEventListener('mousemove', onMouseMove, true)
     window.removeEventListener('click', onClick, true)
     window.removeEventListener('scroll', onViewportChange, { capture: true } as EventListenerOptions)
     window.removeEventListener('resize', onViewportChange)
-    document.removeEventListener('fullscreenchange', onFullscreenChange)
-    hideBox()
+    hideHoverBox()
     invalidateCache()
     paragraphByEl = new Map()
     fullTextRef = ''
     containerRef = null
     onWordClick = null
     requestSegmentsFn = null
-    requestedSegments.clear()
+    requestedSegmentsAt.clear()
   }
 }
