@@ -234,6 +234,9 @@ const api = {
   segmentViewerText: (text: string): Promise<WordSegment[]> =>
     ipcRenderer.invoke(IPC.VIEWER_SEGMENT, text),
 
+  // 뷰어 뒤로가기 — 뷰어 창을 닫고 메인 창으로 돌아간다.
+  viewerBack: (): Promise<void> => ipcRenderer.invoke(IPC.VIEWER_BACK),
+
   // 뷰어에서 단어 클릭 — 확장의 pageClick 과 같은 역할(메인이 팝업을 띄운다).
   viewerWordClicked: (hit: ViewerWordHit): Promise<void> =>
     ipcRenderer.invoke(IPC.VIEWER_WORD_CLICKED, hit),

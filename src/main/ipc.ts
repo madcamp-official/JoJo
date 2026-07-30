@@ -40,6 +40,7 @@ import {
   getPopupBounds,
   getViewerFile,
   openSettingsWindow,
+  showMainWindowAtRoute,
   showMacSelectionOverlay,
   setMainWindowRoute,
   setOverlayInteractive,
@@ -338,6 +339,12 @@ export function registerIpc(): void {
     }
     const buf = await readFile(file.path)
     return { ...file, bytes: new Uint8Array(buf) }
+  })
+
+  // 뷰어 뒤로가기 — 이 뷰어 창을 닫고 메인 창을 다시 띄운다.
+  ipcMain.handle(IPC.VIEWER_BACK, async (e) => {
+    showMainWindowAtRoute('main')
+    BrowserWindow.fromWebContents(e.sender)?.close()
   })
 
   // 뷰어에서 단어 클릭 — 확장의 pageClick 과 같은 역할(viewerSource.ts 가 팝업을 띄운다).

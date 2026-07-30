@@ -5,6 +5,7 @@ import { TxtView } from '../viewer/TxtView'
 import { PdfView } from '../viewer/PdfView'
 import { EpubView } from '../viewer/EpubView'
 import { useHoverHighlight } from '../viewer/useHoverHighlight'
+import { ArrowLeftIcon, MoonIcon, SunIcon } from './icons'
 
 // 자체 문서 뷰어(pdf/epub/txt) — 외부 뷰어(크롬 내장 PDF 뷰어·Kindle 등)는 텍스트나 좌표를
 // 신뢰할 수 있게 주지 않아서(TODO.md 96~111 조사) 우리가 직접 파싱·렌더링한다. 우리 DOM
@@ -19,6 +20,7 @@ export function ViewerScreen() {
   const [file, setFile] = useState<ViewerFilePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fontSize, setFontSize] = useState(FONT_SIZE_DEFAULT)
+  const [dark, setDark] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -39,26 +41,40 @@ export function ViewerScreen() {
     })
   }, [])
 
-  const showFontControl = file?.kind === 'txt' || file?.kind === 'epub'
+  // PDF 는 원본 레이아웃(캔버스)을 그대로 보여주는 게 목적이라 글자 크기·배경을 우리가
+  // 바꾸지 않는다 — txt/epub 만 조절 UI 를 띄운다.
+  const isReflowable = file?.kind === 'txt' || file?.kind === 'epub'
 
   return (
-    <div className="screen viewer-screen">
+    <div className={`screen viewer-screen${dark && isReflowable ? ' dark' : ''}`}>
       <header className="viewer-toolbar">
+        <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
+          <ArrowLeftIcon />
+        </button>
         <span className="viewer-title" title={file?.path}>
           {file?.name ?? '문서'}
         </span>
-        {showFontControl && (
-          <label className="viewer-font-control">
-            글자 크기
-            <input
-              type="range"
-              min={FONT_SIZE_MIN}
-              max={FONT_SIZE_MAX}
-              value={fontSize}
-              onChange={(e) => setFontSize(Number(e.target.value))}
-            />
-            <span className="viewer-font-value">{fontSize}px</span>
-          </label>
+        {isReflowable && (
+          <div className="viewer-controls">
+            <button
+              className="viewer-theme"
+              title={dark ? '라이트 모드로' : '다크 모드로'}
+              onClick={() => setDark((v) => !v)}
+            >
+              {dark ? <SunIcon /> : <MoonIcon />}
+            </button>
+            <label className="viewer-font-control">
+              글자 크기
+              <input
+                type="range"
+                min={FONT_SIZE_MIN}
+                max={FONT_SIZE_MAX}
+                value={fontSize}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+              />
+              <span className="viewer-font-value">{fontSize}px</span>
+            </label>
+          </div>
         )}
       </header>
 
@@ -67,9 +83,14 @@ export function ViewerScreen() {
         {!file && !error && <p className="hint">불러오는 중…</p>}
         {file?.kind === 'txt' && <TxtView file={file} fontSize={fontSize} />}
         {file?.kind === 'pdf' && <PdfView file={file} />}
-        {file?.kind === 'epub' && <EpubView file={file} fontSize={fontSize} />}
+        {file?.kind === 'epub' && <EpubView file={file} fontSize={fontSize} dark={dark} />}
       </div>
-      <HoverBinding file={file} containerRef={containerRef} requestSegments={requestSegments} deps={[fontSize]} />
+      <HoverBinding
+        file={file}
+        containerRef={containerRef}
+        requestSegments={requestSegments}
+        deps={[fontSize, dark]}
+      />
     </div>
   )
 }

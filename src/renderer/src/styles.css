@@ -737,7 +737,13 @@ button:disabled { cursor: not-allowed; }
   padding: 10px 16px; border-bottom: 1px solid #e2e8f0; flex: none;
 }
 .viewer-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.viewer-font-control { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 13px; color: #64748b; }
+.viewer-back, .viewer-theme {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; padding: 4px; cursor: pointer; color: inherit; flex: none;
+}
+.viewer-back:hover, .viewer-theme:hover { opacity: 0.6; }
+.viewer-controls { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+.viewer-font-control { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #64748b; }
 .viewer-font-value { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .viewer-body { flex: 1; overflow: auto; position: relative; }
@@ -761,3 +767,10 @@ button:disabled { cursor: not-allowed; }
 }
 
 .epub-host { width: 100%; height: 100%; }
+
+/* 다크 모드 — txt/epub 전용(PDF 는 원본 레이아웃을 그대로 보여주는 게 목적이라 제외).
+   epub 은 내용이 iframe 안이라 바깥 CSS 가 안 닿아서 epubjs 테마로 따로 주입한다
+   (EpubView.tsx) — 여기서는 툴바/여백 등 바깥 껍데기만 어둡게 한다. */
+.viewer-screen.dark { background: #1f2430; color: #e5e7eb; }
+.viewer-screen.dark .viewer-toolbar { border-bottom-color: #374151; }
+.viewer-screen.dark .viewer-font-control { color: #9ca3af; }

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LlmProvider } from '@shared/types'
-import { Pencil, Trash2, Settings, FolderOpen, BookOpen, HelpCircle } from 'lucide-react'
+import { Pencil, Trash2, Settings, FolderOpen, BookOpen, HelpCircle, ArrowLeft, Sun, Moon } from 'lucide-react'
 
 // 담당 B — UI 아이콘 세트 (이모지 대체용, 인라인 SVG)
 // 액션 아이콘은 currentColor 라인 스타일(Feather 계열)로 통일해 텍스트 색을 따라간다.
@@ -71,6 +71,19 @@ export function BookIcon({ size = 20 }: { size?: number }) {
 
 export function HelpIcon({ size = 16 }: { size?: number }) {
   return <HelpCircle size={size} strokeWidth={2} aria-hidden="true" />
+}
+
+// 뷰어 툴바용 — 뒤로가기/라이트·다크 전환.
+export function ArrowLeftIcon({ size = 18 }: { size?: number }) {
+  return <ArrowLeft size={size} strokeWidth={2} aria-hidden="true" />
+}
+
+export function SunIcon({ size = 16 }: { size?: number }) {
+  return <Sun size={size} strokeWidth={2} aria-hidden="true" />
+}
+
+export function MoonIcon({ size = 16 }: { size?: number }) {
+  return <Moon size={size} strokeWidth={2} aria-hidden="true" />
 }
 
 export function CheckIcon({ size = 14 }: { size?: number }) {

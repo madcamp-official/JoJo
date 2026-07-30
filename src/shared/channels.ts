@@ -83,6 +83,9 @@ export const IPC = {
   // 뷰어 안에서 단어를 클릭 — 확장의 pageClick 과 같은 역할(viewerSource.ts 가 받아
   // ExtractedSelection 으로 감싸 기존 팝업을 띄운다).
   VIEWER_WORD_CLICKED: 'viewer:wordClicked',
+  // 뷰어 뒤로가기 — 뷰어 창을 닫고 메인 창을 다시 보여준다(뷰어는 별도 창이라
+  // 같은 창 안에서 라우트를 되돌리는 대신 창을 닫는 게 자연스럽다).
+  VIEWER_BACK: 'viewer:back',
   // 뷰어 문단의 CJK 형태소 분할 요청 — 확장은 WebSocket 으로 하던 것을 IPC 로 연결한다
   // (메인의 기존 nlp/ 분할기를 그대로 호출).
   VIEWER_SEGMENT: 'viewer:segment',

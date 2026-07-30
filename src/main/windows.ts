@@ -924,8 +924,11 @@ export function createViewerWindow(file: ViewerFile): BrowserWindow {
     icon: resolveIconPath(),
     webPreferences: { preload, sandbox: false },
   })
-  viewerFiles.set(win.webContents.id, file)
-  win.on('closed', () => viewerFiles.delete(win.webContents.id))
+  // id 를 지금 붙잡아둔다 — 'closed' 시점엔 webContents 가 이미 파괴돼 있어서 그때 다시
+  // 읽으면 "Object has been destroyed" 로 던진다(실행 중 확인).
+  const wcId = win.webContents.id
+  viewerFiles.set(wcId, file)
+  win.on('closed', () => viewerFiles.delete(wcId))
   loadRoute(win, 'viewer')
   return win
 }
@@ -940,5 +943,6 @@ export function getViewerFile(webContentsId: number): ViewerFile | null {
  * 창들만 예외로 남겨, 사용자가 뷰어 창을 창 선택으로 골라 OCR 도 얹을 수 있게 한다.
  */
 export function isViewerWindow(win: BrowserWindow): boolean {
+  if (win.isDestroyed()) return false
   return viewerFiles.has(win.webContents.id)
 }

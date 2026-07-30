@@ -6,7 +6,7 @@ import type { ViewerFilePayload } from '@shared/types'
 // 호버 스택이 컨테이너의 ownerDocument/defaultView 를 쓰도록 일반화돼 있어(articleHighlight.ts)
 // 그 iframe 문서를 그대로 넘기면 리스너·히트테스트·박스가 전부 같은 좌표계로 맞는다.
 
-export function EpubView({ file, fontSize }: { file: ViewerFilePayload; fontSize: number }) {
+export function EpubView({ file, fontSize, dark }: { file: ViewerFilePayload; fontSize: number; dark: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const renditionRef = useRef<Rendition | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -34,10 +34,18 @@ export function EpubView({ file, fontSize }: { file: ViewerFilePayload; fontSize
     }
   }, [file])
 
-  // 글자 크기 — epubjs 는 iframe 안 문서에 테마로 주입해야 한다(바깥 CSS 는 안 닿는다).
+  // 글자 크기·배색 — epubjs 는 내용이 iframe 안에 있어 바깥 CSS 가 안 닿는다. 테마로
+  // 직접 주입해야 한다.
   useEffect(() => {
     renditionRef.current?.themes.fontSize(`${fontSize}px`)
   }, [fontSize])
+
+  useEffect(() => {
+    const themes = renditionRef.current?.themes
+    if (!themes) return
+    themes.override('color', dark ? '#e5e7eb' : '#111827')
+    themes.override('background', dark ? '#1f2430' : '#ffffff')
+  }, [dark])
 
   return (
     <>

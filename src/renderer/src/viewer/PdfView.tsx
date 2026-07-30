@@ -53,7 +53,7 @@ export function PdfView({ file }: { file: ViewerFilePayload }) {
           host.appendChild(pageEl)
 
           const ctx = canvas.getContext('2d')
-          if (ctx) await page.render({ canvasContext: ctx, viewport, canvas }).promise
+          if (ctx) await page.render({ canvasContext: ctx, viewport }).promise
           if (cancelled) return
 
           const textLayer = new pdfjs.TextLayer({
