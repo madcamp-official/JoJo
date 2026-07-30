@@ -227,12 +227,28 @@ button:disabled { cursor: not-allowed; }
 .window-grid {
   flex: 1; overflow-y: auto;
   display: grid; grid-template-columns: repeat(3, 1fr);
-  grid-auto-rows: min-content; gap: 12px;
+  grid-auto-rows: min-content; gap: 10px;
+  /* 스크롤바가 창 오른쪽 끝에 바로 붙어 보인다는 피드백(2026-07-31) — 스크롤바는
+     이 요소 자신의 테두리 바로 안쪽에 그려지므로, 오른쪽에만 여유 padding 을 더 줘서
+     창 가장자리와 스크롤바 사이에 여백을 만든다. 창 자체 크기(windows.ts ROUTE_SIZES
+     고정값)는 이 padding 과 무관하게 안 바뀐다 — 스크롤바 위치만 안쪽으로 옮겨지고,
+     그 대가로 타일 폭이 16px 만큼(전체 폭 대비 2% 미만) 아주 조금 줄어든다.
+     8px→16px(2026-07-31 사용자 요청, 여백을 더 크게). */
+  padding-right: 16px;
 }
+/* 담당 A — 스크롤바를 화면 테마(어두운 배경 + 보라 포인트)에 맞춰 커스텀(2026-07-31
+   사용자 요청). Electron 은 OS 와 무관하게 항상 Chromium 렌더러라 ::-webkit-scrollbar
+   가 Windows/macOS 양쪽에서 동일하게 적용된다 — 별도 분기 필요 없음. */
+.window-grid::-webkit-scrollbar { width: 10px; }
+.window-grid::-webkit-scrollbar-track { background: transparent; }
+.window-grid::-webkit-scrollbar-thumb {
+  background: #3f3f4a; border-radius: 5px; border: 2px solid #1e1e24; background-clip: padding-box;
+}
+.window-grid::-webkit-scrollbar-thumb:hover { background: var(--theme); background-clip: padding-box; }
 .window-tile {
   display: flex; flex-direction: column; gap: 6px; min-width: 0;
   background: #2a2a33; border: 2px solid transparent; border-radius: 8px;
-  padding: 8px; cursor: pointer; color: inherit; text-align: left;
+  padding: 6px; cursor: pointer; color: inherit; text-align: left;
 }
 /* hover(파랑)와 이미 선택된 창(보라)을 구분한다(2026-07-29 사용자 요청) — 전엔 둘 다
    --theme(보라)라 새로 고르려는 창에 커서를 올려도 이미 선택된 창처럼 보였다.
@@ -241,7 +257,11 @@ button:disabled { cursor: not-allowed; }
 .window-tile:hover { border-color: var(--blue); }
 .window-tile.selected { border-color: var(--purple); }
 .window-tile .thumb {
-  width: 100%; height: 170px; border-radius: 4px; background: #000; overflow: hidden;
+  /* 담당 A — 170px→150px(2026-07-31 사용자 요청) — 목록이 3줄이 되면 스크롤이 생겨서,
+     이 창(picker, windows.ts ROUTE_SIZES 860×760 고정 크기) 안에 정확히 3줄이 스크롤
+     없이 다 들어가도록 썸네일/타일 크기를 줄임(위 grid gap 12→10px, 타일 padding
+     8→6px 도 같은 목적). */
+  width: 100%; height: 150px; border-radius: 4px; background: #000; overflow: hidden;
 }
 .window-tile .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .window-tile span {
