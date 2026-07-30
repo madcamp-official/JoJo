@@ -190,23 +190,13 @@ export function EpubView({
     void book.loaded.navigation
       .then((nav) => {
         if (cancelled) return
-        const entries: TocEntry[] = []
-        const walk = (items: { label?: string; href?: string; subitems?: unknown[] }[], depth: number): void => {
-          for (const it of items) {
-            if (it.href) {
-              const href = it.href
-              entries.push({
-                label: (it.label ?? '').trim() || '(제목 없음)',
-                depth,
-                go: () => void rendition.display(href),
-              })
-            }
-            if (Array.isArray(it.subitems) && it.subitems.length > 0) {
-              walk(it.subitems as typeof items, depth + 1)
-            }
-          }
-        }
-        walk((nav.toc ?? []) as Parameters<typeof walk>[0], 0)
+        const build = (items: { label?: string; href?: string; subitems?: unknown[] }[]): TocEntry[] =>
+          items.map((it) => ({
+            label: (it.label ?? '').trim() || '(제목 없음)',
+            go: () => void (it.href ? rendition.display(it.href) : undefined),
+            children: Array.isArray(it.subitems) ? build(it.subitems as typeof items) : [],
+          }))
+        const entries = build((nav.toc ?? []) as Parameters<typeof build>[0])
         onToc(entries)
       })
       // 목차가 없는 epub 도 흔하다 — 실패해도 조용히 넘어간다(버튼이 안 뜰 뿐).
