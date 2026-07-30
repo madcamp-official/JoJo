@@ -104,6 +104,20 @@ function paragraphOffsets(paragraphText: string, words: SubWord[]): number[] {
   const offsets: number[] = []
   for (const w of words) {
     const found = paragraphText.indexOf(w.text, searchFrom)
+    // TEMP DEBUG(2026-07-30) — 호버박스 vs 팝업 선택 불일치 원인 진단용. indexOf 가 못
+    // 찾으면(-1) words 배열에 paragraphText 에는 없는 단어가 섞여 있다는 뜻 — 그 뒤
+    // 모든 단어의 오프셋이 통째로 밀린다(가설: wordsInElement 가 visibility:hidden 텍스트도
+    // 포함하는데 paragraphText 조립은 그걸 제외해서 어긋남). 원인 확인되면 이 로그 제거.
+    if (found < 0) {
+      console.warn(
+        '[hover-debug] paragraphOffsets: word not found in paragraphText, offset 밀림 가능',
+        JSON.stringify(w.text),
+        'searchFrom=',
+        searchFrom,
+        'paragraphText 근처=',
+        JSON.stringify(paragraphText.slice(Math.max(0, searchFrom - 20), searchFrom + 20)),
+      )
+    }
     const off = found >= 0 ? found : searchFrom
     offsets.push(off)
     searchFrom = off + w.text.length
@@ -166,6 +180,10 @@ function findWordIndexAt(words: SubWord[], x: number, y: number): number {
   return -1
 }
 
+// TEMP DEBUG(2026-07-30) — 방금 hover 박스가 보여준 단어/좌표를 기억해뒀다가, 클릭 시점의
+// resolveClick 결과와 비교해 어디서 어긋나는지 콘솔에 찍는다. 원인 확인되면 제거.
+let lastHoverDebug: { text: string; rect: RectPx; x: number; y: number } | null = null
+
 // hover 박스 표시 전용 — 캐시(성능 목적)를 쓴다. 클릭 결과 전송에는 안 쓴다(resolveClick 참고).
 function hoverHitAt(x: number, y: number): RectPx | null {
   const target = document.elementFromPoint(x, y)
@@ -184,7 +202,9 @@ function hoverHitAt(x: number, y: number): RectPx | null {
   if (idx < 0) return null
   const paragraphText = fullTextRef.slice(info.start, info.end)
   const offsets = paragraphOffsets(paragraphText, cachedWords)
-  return groupWordAt(paragraphText, cachedWords, offsets, idx).rect
+  const grouped = groupWordAt(paragraphText, cachedWords, offsets, idx)
+  lastHoverDebug = { text: grouped.text, rect: grouped.rect, x, y }
+  return grouped.rect
 }
 
 // 클릭 지점의 앵커(본문 전체 텍스트 + 절대 오프셋)를 계산한다. 캡처 시작 시점에 만든
@@ -199,18 +219,38 @@ function resolveClick(x: number, y: number): ArticleWordHit | null {
   if (!containerRef) return null
   const target = document.elementFromPoint(x, y)
   const p = target?.closest<HTMLParagraphElement>('p') ?? null
-  if (!p) return null
+  if (!p) {
+    console.warn('[hover-debug] resolveClick: 클릭 지점에 문단(p) 없음', { x, y, lastHoverDebug })
+    return null
+  }
   const fresh = extractArticleText(containerRef)
   const info = fresh.paragraphs.find((fp) => fp.el === p)
-  if (!info) return null
+  if (!info) {
+    console.warn('[hover-debug] resolveClick: 클릭한 문단이 fresh 추출 결과에 없음', { p, lastHoverDebug })
+    return null
+  }
   const words = wordsInParagraph(p)
   const idx = findWordIndexAt(words, x, y)
-  if (idx < 0) return null
+  if (idx < 0) {
+    console.warn('[hover-debug] resolveClick: 클릭 좌표에서 fresh words 매칭 실패', { x, y, lastHoverDebug })
+    return null
+  }
   const paragraphText = fresh.fullText.slice(info.start, info.end)
   const offsets = paragraphOffsets(paragraphText, words)
   // 세그먼트가 아직 응답 전이면(드묾 — hover 때 이미 요청해뒀을 확률이 높음) 글자 단위로
   // 폴백한다(highlight.ts와 동일 특성).
   const grouped = groupWordAt(paragraphText, words, offsets, idx)
+  // TEMP DEBUG(2026-07-30) — 호버박스 vs 팝업 선택 불일치 원인 진단용. 원인 확인되면 제거.
+  const mismatch = lastHoverDebug ? lastHoverDebug.text !== grouped.text : null
+  console.log('[hover-debug] resolveClick 결과', {
+    clickXY: { x, y },
+    hoverText: lastHoverDebug?.text,
+    hoverRect: lastHoverDebug?.rect,
+    hoverXY: lastHoverDebug ? { x: lastHoverDebug.x, y: lastHoverDebug.y } : null,
+    clickText: grouped.text,
+    clickRect: grouped.rect,
+    textMismatch: mismatch,
+  })
   return {
     text: grouped.text,
     fullText: fresh.fullText,
