@@ -40,6 +40,8 @@ import { SlidersIcon } from './icons'
 
 /** 툴바 높이를 아직 못 잰 첫 프레임에만 쓰는 대체값. */
 const TOOLBAR_FALLBACK_PX = 46
+/** 툴바 높이에 얹는 여유 — 딱 높이까지만 인정하면 경계에서 깜빡여 집기 힘들다(사용자 요청). */
+const TOOLBAR_REVEAL_SLACK_PX = 24
 
 export function ViewerScreen() {
   const [file, setFile] = useState<ViewerFilePayload | null>(null)
@@ -116,7 +118,8 @@ export function ViewerScreen() {
     // 기준선은 툴바가 실제로 차지하는 높이 그 자체다 — 넉넉한 고정값을 쓰면 툴바가 없는
     // 빈 띠에서도 튀어나와 "왜 지금 뜨지?" 싶어진다(사용자 지적). 숨은 상태에서도
     // visibility 로만 감추므로 offsetHeight 는 그대로 살아 있다.
-    const limit = (): number => barRef.current?.offsetHeight || TOOLBAR_FALLBACK_PX
+    const limit = (): number =>
+      (barRef.current?.offsetHeight || TOOLBAR_FALLBACK_PX) + TOOLBAR_REVEAL_SLACK_PX
     const onMove = (e: MouseEvent) => setBarShown(e.clientY <= limit())
     window.addEventListener('mousemove', onMove)
 
