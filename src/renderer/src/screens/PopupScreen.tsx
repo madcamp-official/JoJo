@@ -12,6 +12,7 @@ import type {
 import { sentenceEnd, skipPartialSentenceForward } from '@shared/context'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
 import { getLanguageName, hasNaverDict, isFullLanguage, isRtlLanguage } from '@shared/languages'
+import { DEFAULT_MODELS } from '@shared/providers'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
@@ -105,10 +106,18 @@ export function PopupScreen() {
   // language도 그걸로 정해졌다"고 봐도 안전하다는 점을 이용해 팝업이 뜰 때 설정을 한 번만
   // 조회한다(2026-07-30, 사용자 요청 — 자동판별인지 수동 지정인지 분간이 안 간다는 피드백).
   const [languageOverridden, setLanguageOverridden] = useState(false)
+  // 툴바 "AI" 배지 옆에 지금 실제로 호출되는 모델을 보여주기 위한 값(2026-07-30, 사용자
+  // 요청) — llm/adapter.ts의 `settings.models[provider] || DEFAULT_MODELS[provider]`와
+  // 동일한 계산을 그대로 재사용해, 사용자가 모델을 직접 고르지 않았을 때도(기본값 적용)
+  // 실제 호출되는 모델명이 어긋나지 않게 한다. provider 를 아직 안 골랐으면(llm === null)
+  // null — Toolbar 가 이 경우 "AI"만 보여주고 괄호를 생략한다.
+  const [currentModel, setCurrentModel] = useState<string | null>(null)
   useEffect(() => {
     let active = true
     window.nuance.getSettings().then((s) => {
-      if (active) setLanguageOverridden(s.language !== 'auto')
+      if (!active) return
+      setLanguageOverridden(s.language !== 'auto')
+      setCurrentModel(s.llm ? s.models[s.llm] || DEFAULT_MODELS[s.llm] : null)
     })
     return () => {
       active = false
@@ -551,6 +560,7 @@ export function PopupScreen() {
           onGoogle={google}
           onNaverDict={naverDict}
           disabled={busy}
+          currentModel={currentModel}
           showNaverDict={hasNaverDict(baseCtx.language)}
           showAiDictionary={isFullLanguage(baseCtx.language)}
           dictSources={dictSources}

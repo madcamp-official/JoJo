@@ -33,6 +33,9 @@ interface Props {
   onGoogle: (mode: 'pron' | 'image') => void
   onNaverDict: () => void
   disabled?: boolean
+  /** 지금 실제로 호출되는 모델명 — provider 를 아직 안 골랐으면(설정 미완료) null,
+   *  이때는 배지에 "AI"만 보여주고 괄호를 생략한다. */
+  currentModel: string | null
   showNaverDict: boolean
   showAiDictionary: boolean
   dictSources: DictionarySourceOption[]
@@ -80,6 +83,7 @@ export function Toolbar({
   onGoogle,
   onNaverDict,
   disabled,
+  currentModel,
   showNaverDict,
   showAiDictionary,
   dictSources,
@@ -114,7 +118,7 @@ export function Toolbar({
       <span className="tb-spacer" />
 
       <span className="llm-badge">
-        AI
+        AI{currentModel ? `(${currentModel})` : ''}
       </span>
 
       <button className="tb-btn" disabled={disabled} onClick={onPron}>
