@@ -1,7 +1,7 @@
 // 크롬 확장(MV3) 번들러 — extension/src/*.ts → extension/dist/*.js + manifest 복사.
 // content script 는 ES module 이 될 수 없고 background 도 단일 파일로 자립하므로 둘 다 IIFE 로 번들한다.
 import { build, context } from 'esbuild'
-import { mkdirSync, copyFileSync, rmSync } from 'node:fs'
+import { mkdirSync, copyFileSync, rmSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,6 +29,15 @@ function copyManifest() {
   copyFileSync(resolve(root, 'extension/manifest.json'), resolve(outDir, 'manifest.json'))
 }
 
+function copyIcons() {
+  const iconsSrcDir = resolve(root, 'extension/icons')
+  const iconsOutDir = resolve(outDir, 'icons')
+  mkdirSync(iconsOutDir, { recursive: true })
+  for (const file of readdirSync(iconsSrcDir)) {
+    copyFileSync(resolve(iconsSrcDir, file), resolve(iconsOutDir, file))
+  }
+}
+
 rmSync(outDir, { recursive: true, force: true })
 mkdirSync(outDir, { recursive: true })
 
@@ -39,7 +48,10 @@ if (watch) {
       {
         name: 'copy-manifest',
         setup(b) {
-          b.onEnd(() => copyManifest())
+          b.onEnd(() => {
+            copyManifest()
+            copyIcons()
+          })
         },
       },
     ],
@@ -49,5 +61,6 @@ if (watch) {
 } else {
   await build(buildOptions)
   copyManifest()
+  copyIcons()
   console.log('[build-extension] built extension/dist')
 }
