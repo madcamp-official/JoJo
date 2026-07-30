@@ -1,5 +1,4 @@
 import { app, BrowserWindow } from 'electron'
-import { IPC } from '@shared/channels'
 import { createMainWindow, getMainWindow, setQuitting } from './windows'
 import { createTray } from './tray'
 import { registerIpc } from './ipc'
@@ -12,7 +11,7 @@ import { registerContextMenu } from './contextMenu'
 import { warmJapaneseTokenizer } from './nlp/japanese'
 import { warmChineseSegmenter } from './nlp/chinese'
 import { cleanupOrphanedPythonServers, killAllPythonServers } from './selection/pythonServer'
-import { startWarmUp } from './selection/warmup'
+import { ensureCjkEngineWarm, startGeneralWarmUp } from './selection/warmup'
 import { startExtensionBridge } from './extension/bridge'
 import { startActiveTabTracker } from './extension/activeTab'
 import { registerRejudgeOnTabChange, reevaluator } from './extension/reevaluate'
@@ -88,17 +87,18 @@ if (!app.requestSingleInstanceLock()) {
       void import('./selection/inputHook').then(({ startInputHook }) => startInputHook())
     }
 
-    // 담당 A — 실험용 브랜치(experiment/doclayout-yolo). DocLayout-YOLO/PaddleOCR
-    // 는 Python 서브프로세스라 첫 호출에 모델 로딩만 8~20초씩 걸린다(실측
-    // 확인) — 사용자가 실제로 선택 모드에 들어가서 처음 쓸 때 이 지연을 겪지 않도록,
-    // 앱이 뜨자마자(창을 아직 안 골랐어도) 백그라운드로 미리 예열해둔다. 완료 시점을
-    // 메인 창(창 선택 화면)에 알려서, 예열 중엔 창 선택 버튼을 막아둔다(MainScreen.tsx)
-    // — 안 그러면 예열이 덜 끝난 채로 선택 모드에 들어가서 결국 같은 대기를 겪는다.
-    // await 는 안 한다 — 실패해도(Python 환경 없음 등) startWarmUp() 자체는 각 엔진의
-    // warmUp() 이 에러를 내부에서 삼키므로 곧 resolve 되고, 앱 시작 자체를 막지 않는다.
-    void startWarmUp().then(() => {
-      getMainWindow()?.webContents.send(IPC.WARMUP_READY)
-    })
+    // 담당 A — 예열 시점/방식 재설계(2026-07-31, 사용자 요청 — warmup.ts 상단 주석 참고).
+    // DocLayout-YOLO(범용 엔진)는 언어와 무관하게 항상 필요해 앱이 뜨자마자 백그라운드로
+    // 예열을 시작한다 — 끝나기를 기다리지 않고 창 선택도 바로 허용한다(예전처럼 버튼을
+    // 막지 않음). 아직 예열 중일 때 선택 모드에 들어가면 그 대기 시간만큼
+    // extractionCache.ts 가 "엔진 예열 중..." 알림을 띄운다.
+    void startGeneralWarmUp()
+    // 언어가 이미 일본어/중국어로 수동 고정돼 있으면 그 CJK 엔진도 지금 바로 예열을
+    // 시작한다 — 처음 선택 모드에 들어갈 때까지 기다리지 않는다(설정에서 방금 고정한
+    // 경우의 즉시 예열은 ipc.ts: SETTINGS_SET 핸들러가 담당).
+    if (settings.language === 'ja' || settings.language === 'zh-Hans' || settings.language === 'zh-Hant') {
+      void ensureCjkEngineWarm(settings.language)
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow()

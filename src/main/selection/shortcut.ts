@@ -2,7 +2,6 @@ import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
   onWindowResized,
-  sendExtractionStarted,
   sendOverlayNotice,
   sendRegionSelectionNeeded,
   setOverlayMode,
@@ -274,13 +273,12 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
 // OCR 영역/캡처/변화감지 흐름으로 진입한다 — decision.mode 가 애초에 ocr/direct 였을 때,
 // 그리고 web 모드가 텍스트 부족으로 startWebMode 의 콜백을 통해 폴백할 때 공유한다.
 function startOcrFallback(epoch: number): void {
-  // "언어 감지 & 텍스트 영역 탐지 중..." 배너는 실제로 OCR 경로가 확정된 지금 시점에만
-  // 띄운다(2026-07-30 사용자 제보 — 예전엔 Overlay.tsx가 mode==='select' 가 되는
-  // 즉시 판정 결과와 무관하게 이 배너부터 켜서, 크롬 창을 선택했을 때 decideExtraction()
-  // 의 활성 탭 대기(최대 1.2초, waitForBrowserSource) 동안 최종적으론 subtitle/web 으로
-  // 판정될 페이지에서도 OCR 문구가 먼저 잠깐 떴다). 이제 판정이 끝나 OCR 로 확정된
-  // 뒤에만 메인이 명시적으로 신호를 보낸다 — subtitle/web 경로는 이 신호 자체가 없다.
-  sendExtractionStarted()
+  // 추출 진행 알림(엔진 예열/영역 탐지/언어 감지/텍스트 추출)은 실제로 OCR 경로가
+  // 확정된 지금 시점 이후, refreshExtractionCache→runExtraction() 이 단계별로 알아서
+  // 띄운다(extractionCache.ts) — 예전엔 여기서 미리 "추출 중" 배너부터 켰는데, 그러면
+  // (2026-07-30 사용자 제보) 크롬 창을 선택했을 때 decideExtraction() 의 활성 탭 대기
+  // (최대 1.2초, waitForBrowserSource) 동안 최종적으론 subtitle/web 으로 판정될
+  // 페이지에서도 OCR 문구가 먼저 잠깐 떴다. subtitle/web 경로는 이 신호 자체가 없다.
   if (getRegion()) {
     refreshExtractionCache()
     startChangeWatcher()

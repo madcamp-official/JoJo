@@ -79,16 +79,6 @@ const api = {
   forwardScroll: (deltaX: number, deltaY: number): void =>
     ipcRenderer.send(IPC.OVERLAY_FORWARD_SCROLL, { deltaX, deltaY }),
 
-  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열
-  // 완료 여부(MainScreen 이 창 선택 버튼을 막을지 판단).
-  getWarmupStatus: (): Promise<boolean> => ipcRenderer.invoke(IPC.WARMUP_GET),
-
-  onWarmupReady: (cb: () => void): (() => void) => {
-    const listener = () => cb()
-    ipcRenderer.on(IPC.WARMUP_READY, listener)
-    return () => ipcRenderer.removeListener(IPC.WARMUP_READY, listener)
-  },
-
   getMode: (): Promise<AppMode> => ipcRenderer.invoke(IPC.GET_MODE),
 
   onModeChanged: (cb: (mode: AppMode) => void): (() => void) => {
@@ -108,20 +98,12 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.EXTRACTION_WORDS, listener)
   },
 
-  // 화면 변화 감지로 백그라운드 재추출이 시작될 때 수신(changeWatcher.ts) — 끝나면
-  // onExtractionWords 가 다시 와서 "추출 중" 표시를 끈다.
-  onExtractionStarted: (cb: () => void): (() => void) => {
-    const listener = () => cb()
-    ipcRenderer.on(IPC.EXTRACTION_STARTED, listener)
-    return () => ipcRenderer.removeListener(IPC.EXTRACTION_STARTED, listener)
-  },
-
-  // 언어 감지가 끝나고 실제 OCR 이 시작될 때 수신(extractionCache.ts) — 추출 중 배너를
-  // "언어 감지 & 텍스트 영역 탐지" 단계에서 "텍스트 추출" 단계로 넘긴다.
-  onExtractionOcrStarted: (cb: () => void): (() => void) => {
-    const listener = () => cb()
-    ipcRenderer.on(IPC.EXTRACTION_OCR_STARTED, listener)
-    return () => ipcRenderer.removeListener(IPC.EXTRACTION_OCR_STARTED, listener)
+  // 추출 파이프라인의 현재 단계 문구 수신(extractionCache.ts: runExtraction()) — 오버레이
+  // 배너에 그대로 표시한다. 끝나면 onExtractionWords 가 다시 와서 배너를 끈다.
+  onExtractionPhase: (cb: (text: string) => void): (() => void) => {
+    const listener = (_e: unknown, text: string) => cb(text)
+    ipcRenderer.on(IPC.EXTRACTION_PHASE, listener)
+    return () => ipcRenderer.removeListener(IPC.EXTRACTION_PHASE, listener)
   },
 
   // OCR이 실제로 인식에 넘긴 블록/열 경계 수신 — 텍스트 영역 자동 탐지 결과 시각화

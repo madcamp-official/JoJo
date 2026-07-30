@@ -768,16 +768,12 @@ export function sendDebugBlocks(blocks: Rect[]): void {
   overlayWindow?.webContents.send(IPC.DEBUG_BLOCKS, blocks)
 }
 
-/** 선택 모드 진입/리사이즈/화면 변화 감지로 재추출이 시작될 때 호출 — 오버레이에
- * "언어 감지 & 텍스트 영역 탐지 중..." 표시(1단계)를 띄운다. */
-export function sendExtractionStarted(): void {
-  overlayWindow?.webContents.send(IPC.EXTRACTION_STARTED)
-}
-
-/** extractionCache.ts 가 언어 감지를 끝내고 실제 OCR 을 시작할 때 호출 — 오버레이 표시를
- * "텍스트 추출 중..."(2단계)으로 넘긴다. */
-export function sendExtractionOcrStarted(): void {
-  overlayWindow?.webContents.send(IPC.EXTRACTION_OCR_STARTED)
+/** extractionCache.ts: runExtraction() 이 파이프라인의 각 단계(엔진 예열/영역 탐지/언어
+ * 감지/CJK 엔진 예열/텍스트 추출)에 진입할 때마다 호출 — 오버레이 배너를 그 단계 문구로
+ * 바꾼다. 끝나면(sendOverlayWords 도착) Overlay.tsx 가 알아서 배너를 끄므로 보통 null 을
+ * 명시적으로 보낼 필요는 없다. */
+export function sendExtractionPhase(text: string): void {
+  overlayWindow?.webContents.send(IPC.EXTRACTION_PHASE, text)
 }
 
 /** shortcut.ts 가 선택 모드 진입 시(영역 미지정) 또는 "영역 재선택" 요청 시 호출. */

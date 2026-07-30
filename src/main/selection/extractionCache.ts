@@ -1,10 +1,12 @@
 import type { AnyLanguage, Rect, SelectionSource, Word } from '@shared/types'
-import { getPhysicalToDipScale, sendDebugBlocks, sendExtractionOcrStarted, sendOverlayWords } from '../windows'
+import { getLanguageName } from '@shared/languages'
+import { getPhysicalToDipScale, sendDebugBlocks, sendExtractionPhase, sendOverlayWords } from '../windows'
 import { getSettings } from '../settingsStore'
 import { captureFocusedWindow, getSelectedWindowId } from './capture'
 import { detectLanguage } from './langDetect'
-import { getLastExtractionBlocks, runOcr } from './ocr'
+import { getLastExtractionBlocks, resolveLayout, runOcr } from './ocr'
 import { getRegion, getRegionSource } from './regionSelection'
+import { ensureCjkEngineWarm, isCjkEngineWarm, isGeneralEngineWarm, startGeneralWarmUp } from './warmup'
 
 // 담당 A — 선택 창 추출 결과 캐시 (PLAN.md §5.1 / §8)
 // 클릭할 때마다 캡처+OCR을 새로 돌리면 매번 1~3초씩 걸린다 — 대신 선택 모드
@@ -59,16 +61,36 @@ async function runExtraction(): Promise<CachedExtraction> {
   const overallStart = Date.now()
   const image = await timed('capture', () => captureFocusedWindow())
   // getRegion() 은 이미 캡처 좌표계(물리 픽셀)로 저장돼 있어(regionSelection.ts:
-  // submitRegionFromOverlay 가 변환) 추가 변환 없이 그대로 runOcr 에 넘길 수 있다.
+  // submitRegionFromOverlay 가 변환) 추가 변환 없이 그대로 resolveLayout/runOcr 에 넘길 수 있다.
   const region = getRegion() ?? undefined
-  // 본문 영역이 정해진 뒤에 그 영역만으로 언어를 감지한다(langDetect.ts) — 영역 밖의
-  // 메뉴바 등 다른 언어 UI 텍스트에 안 흔들리도록, 캡처 → 영역 확정 → 언어 감지 →
-  // OCR 순서로 실행한다.
+
+  // 담당 A — 추출 파이프라인 5단계 알림 재설계(2026-07-31, 사용자 요청). 범용 엔진
+  // (DocLayout-YOLO)은 앱 시작 시 백그라운드로 예열이 시작되지만(main/index.ts), 그
+  // 예열이 아직 안 끝난 채로 선택 모드에 들어오면 여기서 그 대기를 그대로 겪는다 —
+  // 예열 중일 때만 "엔진 예열 중..." 을 띄운다(이미 끝났으면 조용히 넘어간다).
+  if (!isGeneralEngineWarm()) {
+    sendExtractionPhase('엔진 예열 중...')
+    await startGeneralWarmUp()
+  }
+  // "DocLayout 을 한 다음에 언어 탐지가 일어나게" — 레이아웃(영역) 탐지를 언어 감지보다
+  // 먼저 실행한다. region 은 이미 확정돼 있으므로(위 getRegion()) 이 순서 변경이 언어
+  // 감지의 정확도(영역 밖 다른 언어 UI 텍스트에 안 흔들림)에는 영향이 없다.
+  sendExtractionPhase('영역 탐지 중...')
+  const layout = await timed('layout detect', () => resolveLayout(image, region))
+
+  sendExtractionPhase('언어 감지 중...')
   const language = await timed('language detect', () => detectLanguage(image, region))
-  // 언어 감지까지 끝났으니 추출 중 배너를 "텍스트 추출" 단계로 넘긴다(사용자 요청,
-  // 2026-07-29 — 그 전까지는 "언어 감지 & 텍스트 영역 탐지" 단계로 표시됨).
-  sendExtractionOcrStarted()
-  const extracted = await timed(`ocr(${language})`, () => runOcr(image, language, region))
+
+  // CJK 전용 엔진(PaddleOCR 인식/NDLOCR-lite/Yomitoku)은 최종 언어가 실제로 ja/zh 로
+  // 판별된 이 시점에야 필요해진다 — 설정에서 이미 수동 고정돼 있었거나(main/index.ts,
+  // ipc.ts) 직전 선택 모드에서 같은 언어를 이미 썼다면 대부분 여기서 곧바로 통과한다.
+  if ((language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') && !isCjkEngineWarm(language)) {
+    sendExtractionPhase(`${getLanguageName(language)} 인식 엔진 준비 중...`)
+    await ensureCjkEngineWarm(language)
+  }
+
+  sendExtractionPhase('텍스트 추출 중...')
+  const extracted = await timed(`ocr(${language})`, () => runOcr(image, language, layout, region))
   console.log(`[timing] total: ${Date.now() - overallStart}ms`)
 
   // OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 반투명 사각형으로 보여준다 —

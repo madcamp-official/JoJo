@@ -1559,43 +1559,32 @@ export async function recognizeLinesWithPaddle(
 }
 
 /**
- * 앱 시작 시(warmup.ts) 미리 불러서 풀의 워커 전부에 PaddleOCR 엔진을 만들어둔다 —
+ * 언어 하나(ja/zh-Hans/zh-Hant) 분의 PaddleOCR 엔진을 예열한다(warmup.ts 가 호출) —
  * 워커마다 모델을 독립적으로 로드하므로(프로세스 간 공유 안 됨) 한 워커만 예열하면
  * 나머지는 실제 사용 시점에야 콜드 스타트를 겪는다. 위치 전용 엔진(en, detectLinesWithPaddle
- * 이 항상 쓰는 것)과 인식 엔진(ja/zh-Hans/zh-Hant)을 전부 예열한다.
+ * 이 항상 쓰는 것)은 어느 언어든 공통으로 필요해 항상 같이 예열한다.
  *
- * zh-Hans/zh-Hant 는 원래 여기 빠져 있었다(2026-07-30 발견) — `ocr_paddle.py: get_engine`
- * 이 엔진을 언어별(`LANG_MAP` 값 기준: ja→japan, zh-Hans→ch, zh-Hant→chinese_cht)로 따로
- * 캐싱해서, 밑에 깔린 모델 가중치 파일 자체는(코드 주석 확인: PP-OCRv6_medium_det/_rec로
- * 넷 다 동일) 같아도 언어 태그가 다르면 `PaddleOCR(...)` 인스턴스를 처음부터 다시 만든다
- * — ja 만 예열해뒀으니 중국어 세로쓰기를 앱 켜고 처음 인식할 때 워커마다 이 생성 비용을
- * 그 자리에서 치렀다(실측 확인: 단계별 타이밍 로그로 "줄별 인식" 9.6초 중 대부분이
- * `Creating model: (...)` 콘솔 출력과 겹침 — 진짜 추론 시간이 아니라 콜드 스타트였음).
- * 세로쓰기 경로(recognizeVerticalColumnWithPaddle)는 recModel 을 안 넘겨 항상 기본 모델
- * (RECOGNITION_MODEL_NAME, medium)을 쓰므로 여기 예열도 모델명을 안 넘겨 그대로 맞춘다.
+ * 담당 A — 언어별 개별 예열로 분리(2026-07-31, 사용자 요청 — 예열 시점을 "설정에서
+ * 그 언어로 고정하는 순간" / "선택 모드에서 그 언어로 최종 판정되는 순간"으로 나눠야
+ * 해서, 세 언어를 한 번에 묶어 예열하던 기존 warmUp() 으로는 표현할 수 없었다). 언어별로
+ * 독립된 워커 풀 왕복이라 detect_lines 와 인식 엔진 둘을 병렬로 예열한다.
  *
  * `server.warmUpAll()`은 `recognizeWithPaddle`/`detectLinesWithPaddle`(에러를 내부에서
  * 잡아 null 반환)을 거치지 않고 서버에 직접 요청하므로 Python 쪽 에러가 나면 그대로
- * reject 된다 — 개별 호출을 따로 잡아야 언어 하나가 실패해도(예: 특정 언어 모델 다운로드
- * 실패) 나머지 언어는 그대로 예열되고, warmup.ts 의 `Promise.all([...])`도 절대 reject
- * 되지 않는다(안 잡으면 "예열 완료" 상태로 못 넘어가 창 선택 버튼이 계속 막힘). 언어별로
- * 독립된 워커 풀 왕복이라 순차보다 병렬(Promise.all)이 전체 예열 시간도 줄인다.
+ * reject 된다 — 개별 호출을 따로 잡아야 하나가 실패해도(예: 모델 다운로드 실패) 예열
+ * 완료 상태로 넘어가지 못해 계속 막히는 일이 없다.
  */
-export async function warmUp(): Promise<void> {
+export async function warmUpLanguage(language: 'ja' | 'zh-Hans' | 'zh-Hant'): Promise<void> {
   try {
     const tmpPath = await writeCrop(TINY_PNG, { x: 0, y: 0, width: 1, height: 1 })
     try {
-      const warmUpLanguage = (language: string) =>
-        server
-          .warmUpAll({ image_path: tmpPath, language })
-          .catch((err) => console.error(`[ocrPaddle] ${language} 예열 실패(무시):`, err))
       await Promise.all([
         server
           .warmUpAll({ image_path: tmpPath, language: DETECTION_ONLY_LANGUAGE, mode: 'detect_lines' })
           .catch((err) => console.error('[ocrPaddle] 줄 검출 엔진 예열 실패(무시):', err)),
-        warmUpLanguage('ja'),
-        warmUpLanguage('zh-Hans'),
-        warmUpLanguage('zh-Hant'),
+        server
+          .warmUpAll({ image_path: tmpPath, language })
+          .catch((err) => console.error(`[ocrPaddle] ${language} 예열 실패(무시):`, err)),
       ])
     } finally {
       void unlink(tmpPath).catch(() => {})

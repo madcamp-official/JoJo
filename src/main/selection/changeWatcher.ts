@@ -1,5 +1,5 @@
 import { nativeImage } from 'electron'
-import { sendDebugBlocks, sendExtractionStarted, sendOverlayWords } from '../windows'
+import { sendDebugBlocks, sendOverlayWords } from '../windows'
 import { getSettings } from '../settingsStore'
 import { captureFocusedWindow } from './capture'
 import { abandonInFlightExtraction, peekCachedExtraction, refreshExtractionCache } from './extractionCache'
@@ -230,8 +230,8 @@ function runExtractionCycle(bitmap: Buffer | null): void {
         // 반영되지 않고 이번 호출 결과만 반영된다("진행 중인 추출을 취소하고 새로
         // 시작"과 동일한 효과). 이 사이클(autoDetectRegion+refreshExtractionCache)
         // 이 끝날 때까지 잠금을 들고 있다가 완료되면(성공/실패 무관, finally) 풀어서
-        // 다음 settle 사이클이 겹치지 않게 한다.
-        sendExtractionStarted() // 오버레이에 "텍스트 추출 중..." 표시(초기 진입 때와 동일한 배너)
+        // 다음 settle 사이클이 겹치지 않게 한다. 추출 진행 알림은 refreshExtractionCache
+        // →runExtraction() 이 단계별로 알아서 띄운다(extractionCache.ts).
         return refreshExtractionCache()
       })
       .catch((err) => {
@@ -242,7 +242,6 @@ function runExtractionCycle(bitmap: Buffer | null): void {
     // 자동 탐지가 꺼져 있으면(사용자 요청, 2026-07-29) 영역 자체는 처음 지정한
     // 그대로 두고, 그 안의 내용만 다시 인식한다 — 사용자가 직접 고른 영역을
     // 화면 변화 때마다 임의로 다시 잡으면 안 된다는 명시적 요구.
-    sendExtractionStarted()
     void refreshExtractionCache()
       .catch((err) => {
         console.error('[changeWatcher] 재추출 실패:', err)
