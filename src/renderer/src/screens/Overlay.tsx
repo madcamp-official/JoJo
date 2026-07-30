@@ -44,18 +44,17 @@ export function Overlay() {
   // 배열로 남는다(onDebugBlocks 자체는 등록해도 무해 — 그냥 아무 이벤트도 안 옴).
   const [debugBlocks, setDebugBlocks] = useState<Rect[]>([])
   const [resolving, setResolving] = useState(false)
-  // 메인이 OCR 경로가 실제로 확정된 뒤(shortcut.ts: startOcrFallback, changeWatcher.ts
-  // 재추출 등)에만 onExtractionStarted 를 보내 이 배너를 켠다 — 모드 진입 즉시(판정 전)
-  // 켜지 않는다(2026-07-30, 사용자 제보 — 크롬 창을 선택하면 decideExtraction() 의 활성
-  // 탭 대기(최대 1.2초) 동안, 최종적으론 subtitle/web 으로 판정될 페이지에서도 이 OCR
-  // 전용 문구가 먼저 잠깐 떴었다). onExtractionWords 로 결과(성공/실패 모두 빈 배열이라도)
-  // 가 오면 끈다.
-  const [extracting, setExtracting] = useState(false)
-  // 추출 중 배너를 2단계로 나눠 보여준다(사용자 요청, 2026-07-29) — extracting 이 켜지는
-  // 시점(OCR 확정 직후/화면 변화 감지)엔 아직 "언어 감지 & 텍스트 영역 탐지" 단계이고,
-  // extractionCache.ts 가 언어 감지를 끝내고 실제 OCR 을 시작하면(onExtractionOcrStarted)
-  // "텍스트 추출" 단계로 넘어간다.
-  const [extractionPhase, setExtractionPhase] = useState<'detect' | 'ocr'>('detect')
+  // 담당 A — 5단계 진행 알림으로 재설계(2026-07-31, 사용자 요청). 메인이 OCR 경로가
+  // 실제로 확정된 뒤(shortcut.ts: startOcrFallback, changeWatcher.ts 재추출 등)에만
+  // onExtractionPhase 를 보내 이 배너를 켠다 — 모드 진입 즉시(판정 전) 켜지 않는다
+  // (2026-07-30, 사용자 제보 — 크롬 창을 선택하면 decideExtraction() 의 활성 탭 대기
+  // (최대 1.2초) 동안, 최종적으론 subtitle/web 으로 판정될 페이지에서도 이 OCR 전용
+  // 문구가 먼저 잠깐 떴었다). extractionCache.ts: runExtraction() 이 실제로 거치는
+  // 단계(엔진 예열/영역 탐지/언어 감지/CJK 엔진 예열/텍스트 추출)마다 그때그때 문구를
+  // 보내오므로, 여기서는 그 문구를 그대로 표시만 한다 — 예전처럼 2단계 문구를 렌더러가
+  // 직접 조립하지 않는다. onExtractionWords 로 결과(성공/실패 모두 빈 배열이라도)가
+  // 오면 끈다.
+  const [extractionPhaseText, setExtractionPhaseText] = useState<string | null>(null)
   const [needsRegion, setNeedsRegion] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
@@ -85,7 +84,7 @@ export function Overlay() {
       window.nuance.onExtractionWords((w) => {
         setWords(w)
         setHoveredLine([]) // 새 단어 목록엔 이전 hover 대상과 같은 객체가 없어서, 안 지우면 낡은 위치의 박스가 남는다
-        setExtracting(false)
+        setExtractionPhaseText(null)
         // 어떤 경로(OCR 성공/빈 결과, 자막 모드의 빈 배열)든 도착했다는 건 더 이상 영역
         // 선택을 기다릴 필요가 없다는 뜻 — 자막 모드로 전환되기 직전에 REGION_SELECTION_NEEDED
         // 가 먼저 와 있었던 경우(판정 경합) 그 드래그 안내가 남아있지 않도록 같이 끈다.
@@ -94,26 +93,15 @@ export function Overlay() {
     [],
   )
 
-  // 화면 변화 감지로 백그라운드 재추출이 시작될 때(changeWatcher.ts)도 초기 진입 때와
-  // 같은 "텍스트 추출 중..." 표시를 띄운다 — onExtractionWords 가 오면 자동으로 꺼진다.
-  // 단, 위 modeRef 주석의 레이스를 막기 위해 지금 선택 모드일 때만 반영한다.
+  // 화면 변화 감지로 백그라운드 재추출이 시작될 때(changeWatcher.ts)도, 선택 모드 진입
+  // 시에도(shortcut.ts) extractionCache.ts: runExtraction() 이 실제로 거치는 단계마다
+  // 그때그때 문구를 보내온다(엔진 예열/영역 탐지/언어 감지/CJK 엔진 예열/텍스트 추출,
+  // 최대 5단계 — 이미 예열돼 있으면 예열 단계는 생략) — onExtractionWords 가 오면
+  // 자동으로 꺼진다. 위 modeRef 주석의 레이스를 막기 위해 지금 선택 모드일 때만 반영한다.
   useEffect(
     () =>
-      window.nuance.onExtractionStarted(() => {
-        if (modeRef.current === 'select') {
-          setExtracting(true)
-          setExtractionPhase('detect')
-        }
-      }),
-    [],
-  )
-
-  // 언어 감지가 끝나고 실제 OCR 이 시작되는 시점(extractionCache.ts) — 배너 문구를
-  // "텍스트 추출" 단계로 넘긴다. onExtractionStarted 와 같은 이유로 선택 모드일 때만 반영.
-  useEffect(
-    () =>
-      window.nuance.onExtractionOcrStarted(() => {
-        if (modeRef.current === 'select') setExtractionPhase('ocr')
+      window.nuance.onExtractionPhase((text) => {
+        if (modeRef.current === 'select') setExtractionPhaseText(text)
       }),
     [],
   )
@@ -124,7 +112,7 @@ export function Overlay() {
         // 모드 진입과 동시에(캐시된 영역이 없어서) 오거나, 리사이즈 감지로 모드 중간에
         // 올 수도 있다 — 두 경우 다 이전 단어/hover 를 비우고 드래그 대기 상태로 전환한다.
         setNeedsRegion(true)
-        setExtracting(false)
+        setExtractionPhaseText(null)
         setWords([])
         setHoveredLine([])
         setDragStart(null)
@@ -161,7 +149,7 @@ export function Overlay() {
       setWords([])
       setHoveredLine([])
       setDebugBlocks([])
-      setExtracting(false)
+      setExtractionPhaseText(null)
       setNeedsRegion(false)
       setDragStart(null)
       setDragCurrent(null)
@@ -267,7 +255,9 @@ export function Overlay() {
 
     justSubmittedRegionRef.current = true
     setNeedsRegion(false)
-    setExtracting(true)
+    // 메인이 실제 단계별 알림(onExtractionPhase)을 보내올 때까지의 짧은 공백을 메운다 —
+    // 곧 첫 실제 단계 문구로 덮어써진다.
+    setExtractionPhaseText('텍스트 추출 준비 중...')
     await window.nuance.submitRegion(rect)
   }
 
@@ -355,12 +345,10 @@ export function Overlay() {
           선택된 영역에 한하여 화면 변화를 감지하고 텍스트를 추출합니다.
         </div>
       ) : (
-        (extracting || resolving) && (
+        (extractionPhaseText || resolving) && (
           <div className="overlay-resolving">
             <span className="overlay-spinner" />
-            {extracting && extractionPhase === 'detect'
-              ? '언어 감지 & 텍스트 영역 탐지 중...'
-              : '텍스트 추출 중...'}
+            {extractionPhaseText ?? '텍스트 추출 중...'}
           </div>
         )
       )}

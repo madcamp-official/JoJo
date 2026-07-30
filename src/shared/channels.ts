@@ -28,14 +28,14 @@ export const IPC = {
   OVERLAY_FORWARD_SCROLL: 'overlay:forwardScroll',
   // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록을 오버레이로 통지 (extractionCache.ts)
   EXTRACTION_WORDS: 'selection:words',
-  // 추출 진행 알림 1단계("언어 감지 & 텍스트 영역 탐지") — 선택 모드 진입, 리사이즈,
-  // 화면 내용 변화 감지로 재추출이 시작될 때 오버레이에 표시를 띄운다(changeWatcher.ts,
-  // Overlay.tsx 의 모드 진입 effect). 언어 감지가 끝나고 실제 OCR 이 시작되면
-  // EXTRACTION_OCR_STARTED 가 2단계("텍스트 추출")로 문구를 넘기고, 끝나면
-  // EXTRACTION_WORDS 가 표시를 끈다.
-  EXTRACTION_STARTED: 'selection:extractionStarted',
-  // 추출 진행 알림 2단계 — 언어 감지 완료 후 실제 OCR 을 시작하는 시점(extractionCache.ts).
-  EXTRACTION_OCR_STARTED: 'selection:extractionOcrStarted',
+  // 추출 파이프라인의 현재 단계 문구 — 담당 A(2026-07-31 재설계, 사용자 요청). 예전엔
+  // EXTRACTION_STARTED("언어 감지 & 텍스트 영역 탐지")/EXTRACTION_OCR_STARTED("텍스트
+  // 추출") 2단계 고정 채널이었는데, 이제 extractionCache.ts: runExtraction() 이 실제로
+  // 거치는 단계마다(엔진 예열/영역 탐지/언어 감지/CJK 엔진 예열/텍스트 추출, 최대 5단계
+  // — 앞의 예열 2개는 이미 예열돼 있으면 생략) 그때그때 문구를 실어 보낸다. 다음 단계로
+  // 넘어갈 때마다 새 문구로 덮어쓰면 되고, 끝나면(EXTRACTION_WORDS 도착) Overlay.tsx 가
+  // 알아서 배너를 끈다 — 명시적으로 null 을 보낼 필요는 보통 없다.
+  EXTRACTION_PHASE: 'selection:extractionPhase',
   // OCR 대상 영역 지정 — 선택 모드 진입 시 영역이 없으면 메인이 오버레이에 드래그
   // 선택을 요청하고(REGION_SELECTION_NEEDED), 오버레이가 드래그 완료 시 그 영역을
   // 돌려준다(SUBMIT_REGION). OVERLAY_NOTICE 는 리사이즈로 영역이 무효화됐을 때 같은
@@ -49,13 +49,6 @@ export const IPC = {
   // — 자동 탐지로 잡힌 영역일 때만 보내고(설정 OFF 이거나 사용자가 수동으로 영역을
   // 지정했으면 안 보냄), 개발 모드에서는 그 조건과 무관하게 항상 보낸다(디버깅용).
   DEBUG_BLOCKS: 'debug:blocks',
-
-  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout-YOLO/PaddleOCR
-  // Python 엔진 예열 상태. 앱 시작 시 백그라운드로 예열을 시작하는데(main/index.ts),
-  // 다 끝나기 전에 사용자가 창 선택을 누르면 첫 선택 모드 진입 때 예열 대기 시간을
-  // 그대로 겪게 된다 — 그래서 예열 중엔 창 선택 버튼을 막고 안내를 보여준다.
-  WARMUP_GET: 'warmup:get',
-  WARMUP_READY: 'warmup:ready',
 
   // 메인/피커/설정 화면 전환 (공동) — 세 화면은 한 창을 재사용한다(동시 표시 불필요).
   // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.

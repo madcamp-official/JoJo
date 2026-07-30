@@ -29,7 +29,7 @@ import {
 } from './selection/capture'
 import { clearExtractionHistory, invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
 import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
-import { isWarmedUp } from './selection/warmup'
+import { ensureCjkEngineWarm } from './selection/warmup'
 import { onViewerWordClicked } from './selection/viewerSource'
 import {
   createPopupWindow,
@@ -118,13 +118,6 @@ export function registerIpc(): void {
     getMainWindow()?.hide()
   })
 
-  // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열
-  // 완료 여부. MainScreen 이 마운트 시 조회하고(예열 도중 창을 새로고침/재오픈해도
-  // 상태를 다시 알 수 있게), 이후 변화는 WARMUP_READY push(main/index.ts)로 받는다.
-  ipcMain.handle(IPC.WARMUP_GET, async (): Promise<boolean> => {
-    return isWarmedUp()
-  })
-
   ipcMain.handle(IPC.GET_MODE, async () => getOverlayMode())
 
   ipcMain.handle(
@@ -189,6 +182,11 @@ export function registerIpc(): void {
       updateNamedShortcut('windowDeselect', patch.windowDeselectShortcut)
     if (patch.manualRegionShortcut !== undefined) updateNamedShortcut('manualRegion', patch.manualRegionShortcut)
     if (patch.forceOcrShortcut !== undefined) updateNamedShortcut('forceOcr', patch.forceOcrShortcut)
+    // 설정에서 일본어/중국어로 수동 고정하는 순간 바로 그 CJK 엔진 예열을 시작한다
+    // (사용자 요청, 2026-07-31) — 선택 모드에 처음 들어갈 때까지 기다리지 않는다.
+    if (patch.language === 'ja' || patch.language === 'zh-Hans' || patch.language === 'zh-Hant') {
+      void ensureCjkEngineWarm(patch.language)
+    }
     // settingsShortcut 은 더 이상 메인 프로세스에 등록할 게 없다 — 각 렌더러가 로컬
     // keydown 으로 직접 판정하며, 매 keydown 마다 window.nuance.getSettings() 로 최신
     // 값을 그때그때 조회하므로(App.tsx) 저장만 해두면 된다.

@@ -76,7 +76,7 @@ export function getLastExtractionBlocks(): Rect[] {
 }
 
 
-interface LayoutInfo {
+export interface LayoutInfo {
   blocks: LayoutBlock[]
   vertical: boolean
   /** DocLayout 이 블록을 못 찾아서(blocks=0) 대신 찾아둔 PaddleOCR 줄 — 캐시에서 왔을
@@ -91,8 +91,14 @@ interface LayoutInfo {
  * 지정한 경우 등) 새로 검출한다. 캐시 재사용 시 blocks 는 이미지 전체 기준으로 검출된
  * 것이라 region 이 있으면 그 안에 겹치는 것만 걸러낸다(layoutDetect.ts: filterBlocksByRegion
  * — Python 쪽 detect() 가 region 인자로 하던 필터링을 캐시 재사용 시엔 JS 에서 대신함).
+ *
+ * 담당 A — export 로 전환(2026-07-31, 사용자 요청 — 예열/알림 파이프라인 재설계 —
+ * "DocLayout 을 한 다음에 언어 탐지가 일어나게"). 예전엔 runOcr() 맨 처음에서만 내부
+ * 호출했는데, extractionCache.ts: runExtraction() 이 언어 감지보다 먼저 이 결과가
+ * 필요해져서(레이아웃 탐지 → 언어 감지 → OCR 순서로 바뀜, "영역 탐지 중..." 알림도 이
+ * 지점에서 뜬다) 바깥에서 먼저 호출하고 그 결과를 runOcr() 에 인자로 넘긴다.
  */
-async function resolveLayout(image: Buffer, region: Rect | undefined): Promise<LayoutInfo> {
+export async function resolveLayout(image: Buffer, region: Rect | undefined): Promise<LayoutInfo> {
   const cached = getCachedDetection()
   if (cached) {
     const blocks = region ? filterBlocksByRegion(cached.blocks, region) : cached.blocks
@@ -128,8 +134,13 @@ export interface Extracted {
   words: Word[]
 }
 
-export async function runOcr(image: Buffer, language: AnyLanguage, region?: Rect): Promise<Extracted> {
-  const { blocks: rawBlocks, vertical: shapeVertical, fallbackLines } = await resolveLayout(image, region)
+export async function runOcr(
+  image: Buffer,
+  language: AnyLanguage,
+  layout: LayoutInfo,
+  region?: Rect,
+): Promise<Extracted> {
+  const { blocks: rawBlocks, vertical: shapeVertical, fallbackLines } = layout
   // regionSelection.ts(autoDetectRegion)는 본문 영역 경계를 계산할 때 본문 라벨
   // (BODY_LABELS: doc_title/paragraph_title/text)만 남기고 header/image/aside_text/
   // number 등은 거르는데, 정작 여기(실제 인식 단계)서는 그 필터가 전혀 적용 안 되고
