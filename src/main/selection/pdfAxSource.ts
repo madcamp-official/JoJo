@@ -130,63 +130,46 @@ function sameLine(a: Rect, b: Rect): boolean {
 
 /**
  * 문단 하나를 Word[] 로 바꾼다. **`AXRangeForLine`이 주는 "줄" 개념은 아예 안 쓴다**
- * (macAx.ts: AxParagraph 주석 참고 — 이 PDF에서 신뢰할 수 없다고 실측 확인됨). 문단 전체
- * 텍스트를 한 번에 토큰화하고(줄 경계 때문에 단어가 쪼개지는 문제 자체가 원천적으로
- * 없어짐), 각 단어의 bbox 는 그 단어의 문자 범위만 AX 에 물어서 얻는다.
- *
- * 문단 "안"의 줄바꿈은 여기서 만들지 않는다(사용자 요청, 2026-07-31 — "줄바꿈 문단
- * 단위로 되게 해줘"): 원래 텍스트의 공백은 그대로 공백으로 남기고, 화면상 시각적 줄이
- * 바뀌는 지점이라도 팝업에는 자연스럽게 이어 붙여 보여준다(팝업 쪽 CSS 가 알아서
- * 다시 줄바꿈한다) — 실제 문단 경계('\n')는 이 문단(AX 노드) 자체가 끝나는 지점에서만,
- * 호출부(extractOnce)가 다음 문단과의 기하 관계로 판정한다.
+ * (macAx.ts: AxParagraph 주석 참고 — 이 PDF에서 신뢰할 수 없다고 실측 확인됨). 대신
+ * 문단 전체 텍스트를 한 번에 토큰화하고(줄 경계 때문에 단어가 쪼개지는 문제 자체가
+ * 원천적으로 없어짐), 각 단어의 bbox 는 그 단어의 문자 범위만 AX 에 물어서 얻는다.
+ * 화면상 줄바꿈이 필요한 지점(팝업 문맥 계산용 `\n`)은 AX 에 묻지 않고, 인접한 두
+ * 단어의 실제 렌더 좌표를 비교해(Y 겹침 여부) 우리가 직접 판정한다 — 그 사이의 공백
+ * 토큰을 줄바꿈이면 '\n'으로, 아니면 원래 공백 그대로 남긴다.
  */
 async function wordsOfParagraph(paragraph: AxParagraph): Promise<Word[]> {
   const tokens = await tokenizeLine(paragraph.text)
-  return tokens.map((t) => ({
-    text: t.text,
+  const withBounds = tokens.map((t) => ({
+    ...t,
     bbox: t.text.trim() ? (paragraph.boundsOf(t.start, t.text.length) ?? undefined) : undefined,
   }))
-}
 
-/** words 안에서 bbox 를 가진 첫/마지막 단어를 찾는다(공백 토큰은 좌표가 없어서 건너뛴다). */
-function firstBbox(words: Word[]): Rect | undefined {
-  return words.find((w) => w.bbox)?.bbox
-}
-function lastBbox(words: Word[]): Rect | undefined {
-  for (let i = words.length - 1; i >= 0; i--) if (words[i]!.bbox) return words[i]!.bbox
-  return undefined
-}
-
-/** 들여쓰기 판정 임계값 — 첫 줄 들여쓰기는 보통 글자 크기(=한 줄 bbox 높이)의 절반
- *  이상이다. 이 책(The Hobbit) 조판은 문단 사이 빈 줄 없이 첫 줄 들여쓰기만으로 문단을
- *  구분하므로(실측 스크린샷 확인, 2026-07-31), 세로 간격이 아니라 가로 시작 위치로
- *  문단 경계를 판정해야 한다. */
-const INDENT_THRESHOLD_EM = 0.5
-
-/**
- * 문단(AX 노드) 경계에서 진짜 새 문단이 시작되는지 판정한다. AX 트리의 텍스트 노드
- * 하나가 실제로는 "문단"이 아니라 문장/구절 단위로 쪼개져 있는 경우가 있어서(실측,
- * 2026-07-31 — 문장마다 줄바꿈이 생기는 버그로 발견), 노드 경계를 곧이곧대로 문단
- * 경계로 믿을 수 없다. 대신 다음 노드의 첫 단어가:
- *  - 이전 노드의 마지막 단어와 같은 줄에 있으면(문장 중간에 노드가 쪼개진 경우) 무조건
- *    이어지는 문단이고,
- *  - 다른 줄이면, 페이지의 "보통 왼쪽 여백"보다 들여써져 있는지로 새 문단인지 판정한다
- *    (본문 줄바꿈은 여백에 딱 붙고, 새 문단 첫 줄만 들여쓰기된다).
- */
-function isParagraphBreak(prev: Rect, next: Rect, pageLeftMargin: number): boolean {
-  if (sameLine(prev, next)) return false
-  return next.x > pageLeftMargin + next.height * INDENT_THRESHOLD_EM
-}
-
-/** 문단(AX 노드) 경계가 이어지는 문단으로 판정됐을 때, 그 경계에 실제 공백 문자가
- *  하나도 없어서 두 노드의 텍스트가 그냥 붙어버리는 걸 막는다(예: "...middle."+"The
- *  door..."). 이미 한쪽 끝에 공백이 있으면 중복 삽입하지 않는다. */
-function needsSpaceBetween(prevWords: Word[], nextWords: Word[]): boolean {
-  const prevLast = prevWords[prevWords.length - 1]
-  const nextFirst = nextWords[0]
-  const prevEndsWithSpace = !prevLast || /\s$/.test(prevLast.text)
-  const nextStartsWithSpace = !nextFirst || /^\s/.test(nextFirst.text)
-  return !prevEndsWithSpace && !nextStartsWithSpace
+  const words: Word[] = []
+  for (let i = 0; i < withBounds.length; i++) {
+    const cur = withBounds[i]!
+    if (cur.text.trim()) {
+      words.push({ text: cur.text, bbox: cur.bbox })
+      continue
+    }
+    // 공백(또는 좌표 없는) 토큰 — 앞뒤로 가장 가까운, 좌표를 가진 실제 단어를 찾아 줄이
+    // 바뀌는 지점인지 판정한다.
+    let prevBbox: Rect | undefined
+    for (let j = i - 1; j >= 0; j--) {
+      if (withBounds[j]!.bbox) {
+        prevBbox = withBounds[j]!.bbox
+        break
+      }
+    }
+    let nextBbox: Rect | undefined
+    for (let j = i + 1; j < withBounds.length; j++) {
+      if (withBounds[j]!.bbox) {
+        nextBbox = withBounds[j]!.bbox
+        break
+      }
+    }
+    words.push({ text: prevBbox && nextBbox && !sameLine(prevBbox, nextBbox) ? '\n' : cur.text })
+  }
+  return words
 }
 
 interface AxExtraction {
@@ -214,33 +197,14 @@ async function extractOnce(windowId: number): Promise<AxExtraction | null> {
     const words: Word[] = []
     for (const [pageIdx, page] of result.pages.entries()) {
       if (pageIdx > 0) words.push({ text: '\n' }) // 페이지 경계
-      // 문단(AX 노드) 하나하나가 실제 시각적 "문단"과 일치한다고 믿을 수 없다(위
-      // isParagraphBreak 주석 참고 — 문장 단위로 쪼개진 노드가 있음이 실측으로 확인됨).
-      // 그래서 노드 경계마다 무조건 개행하지 않고, 페이지 전체의 "보통 왼쪽 여백"부터
-      // 먼저 구해야 한다 — 여백은 노드 하나만 봐서는 알 수 없고 페이지의 모든 단어를
-      // 봐야 한다.
-      const paragraphWordLists = await Promise.all(page.paragraphs.map((p) => wordsOfParagraph(p)))
-      const marginCandidates = paragraphWordLists.flatMap((ws) => ws.filter((w) => w.bbox).map((w) => w.bbox!.x))
-      const pageLeftMargin = marginCandidates.length > 0 ? Math.min(...marginCandidates) : Infinity
-
-      let prevWords: Word[] | null = null
-      for (const curWords of paragraphWordLists) {
-        if (curWords.length === 0) continue
-        const last = words[words.length - 1]
-        if (prevWords) {
-          const prevB = lastBbox(prevWords)
-          const nextB = firstBbox(curWords)
-          const isBreak = prevB && nextB ? isParagraphBreak(prevB, nextB, pageLeftMargin) : true
-          if (isBreak) {
-            if (last && last.text !== '\n') words.push({ text: '\n' })
-          } else if (needsSpaceBetween(prevWords, curWords)) {
-            words.push({ text: ' ' })
-          }
-        } else if (last && last.text !== '\n') {
-          words.push({ text: '\n' }) // 페이지 맨 처음 문단인데 개행이 아직 없는 경우
-        }
-        words.push(...curWords)
-        prevWords = curWords
+      for (const paragraph of page.paragraphs) {
+        // 문단 경계에는 항상 개행 — 문서/페이지 맨 처음이거나 이미 개행으로 끝난 경우
+        // (페이지 경계 직후 등)는 중복 삽입을 막는다. 문단 "안"의 줄바꿈은
+        // wordsOfParagraph 가 실제 렌더 좌표로 직접 판정해서 이미 넣어준다 — 여기서는
+        // AX 가 보고하는 줄 개념을 아예 신경 쓸 필요가 없다(macAx.ts: AxParagraph 주석).
+        const prevWord = words[words.length - 1]
+        if (prevWord && prevWord.text !== '\n') words.push({ text: '\n' })
+        words.push(...(await wordsOfParagraph(paragraph)))
       }
     }
     // 문서 끝에도 개행을 남겨둔다(다음 페이지가 이어질 수도, 여기서 끝일 수도 있지만

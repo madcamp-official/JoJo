@@ -710,8 +710,11 @@ function syncMacCursorPolling(): void {
       const p = screen.getCursorScreenPoint()
       const b = overlayWindow.getBounds()
       const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
+      // OVERLAY_CURSOR 는 hover 판정의 유일한 통로(mac 은 클릭스루라 렌더러에 mousemove 가
+      // 안 옴)라 안/밖과 무관하게 항상 보내야 한다(2026-07-31 회귀 — 아래 커서 강제
+      // 게이팅과 같은 조건에 잘못 묶었더니 OCR·PDF-direct 호버박스 위치가 전부 어긋났다).
+      overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
       if (inside) {
-        overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
         macWindowModule?.setMacCursor(macDesiredCursor ?? 'arrow')
         macCursorWasInside = true
       } else if (macCursorWasInside) {
