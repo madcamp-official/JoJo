@@ -55,10 +55,15 @@ export function openWindowPicker(): void {
   showMainWindowAtRoute('picker')
 }
 
-// 단축키가 해제(빈 문자열)돼 있으면 Electron MenuItem 에 accelerator 를 아예 안 준다 —
-// 빈 문자열을 그대로 넘기면 Electron 이 이상한 표시를 만들 수 있어서다.
-function accel(a: string): string | undefined {
-  return a || undefined
+// Windows 에서 accelerator 프로퍼티를 주면 OS가 현재 로케일로 키 이름을 자체 렌더링해
+// (예: ',' 가 "콤마"로 표시) 설정 화면 표시와 다르게 보인다 — 한때 Windows/Linux 만
+// accelerator 대신 라벨에 직접 텍스트를 붙이는 방식으로 바꿨었지만(2026-07-30),
+// 그러면 트레이 메뉴가 열려 있는 동안 그 키를 눌러 항목을 바로 선택하는 네이티브 동작이
+// 같이 없어진다(accelerator 프로퍼티가 "표시"와 "메뉴 열려있을 때 키로 선택" 두 기능을
+// 겸하고 있어 분리가 안 됨, 실사용 확인). 후자 기능을 지키기로 하고 원래대로 되돌림
+// (2026-07-30 사용자 결정 — "콤마" 표시는 감수).
+function menuEntry(label: string, shortcut: string): { label: string; accelerator?: string } {
+  return { label, accelerator: shortcut || undefined }
 }
 
 function buildTrayMenu(): Menu {
@@ -76,27 +81,23 @@ function buildTrayMenu(): Menu {
           // 모드 전환(일반 ↔ 선택, 2026-07-29 트레이 노출 요청) — 대상 창이 있어야 뜻이
           // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+`)을 그대로 표시.
           {
-            label: '모드 전환',
-            accelerator: accel(settings.modeShortcut),
+            ...menuEntry('모드 전환', settings.modeShortcut),
             click: toggleMode,
           },
           {
-            label: '창 선택 전환',
-            accelerator: accel(settings.windowSelectShortcut),
+            ...menuEntry('창 선택 전환', settings.windowSelectShortcut),
             click: openWindowPicker,
           },
           {
-            label: '창 선택 해제',
-            accelerator: accel(settings.windowDeselectShortcut),
+            ...menuEntry('창 선택 해제', settings.windowDeselectShortcut),
             click: deselectWindow,
           },
         ]
-      : [{ label: '창 선택', accelerator: accel(settings.windowSelectShortcut), click: openWindowPicker }]),
+      : [{ ...menuEntry('창 선택', settings.windowSelectShortcut), click: openWindowPicker }]),
     ...(inSelectMode
       ? [
           {
-            label: '영역 수동 선택',
-            accelerator: accel(settings.manualRegionShortcut),
+            ...menuEntry('영역 수동 선택', settings.manualRegionShortcut),
             click: requestManualRegionSelection,
           },
         ]
@@ -104,13 +105,12 @@ function buildTrayMenu(): Menu {
     ...(inDirectExtraction
       ? [
           {
-            label: 'OCR로 전환',
-            accelerator: accel(settings.forceOcrShortcut),
+            ...menuEntry('OCR로 전환', settings.forceOcrShortcut),
             click: requestForceOcr,
           },
         ]
       : []),
-    { label: '설정', accelerator: accel(settings.settingsShortcut), click: openSettingsWindow },
+    { ...menuEntry('설정', settings.settingsShortcut), click: openSettingsWindow },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
   ])

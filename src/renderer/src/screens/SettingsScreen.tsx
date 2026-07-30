@@ -199,6 +199,17 @@ const KEY_LABELS: Record<string, string> = {
   PageDown: 'PgDn',
 }
 
+// 6개 단축키 필드 전체 목록 — 중복 검사(다른 필드가 이미 같은 조합을 쓰는지)와 경고
+// 문구에 쓸 라벨을 한 곳에서 관리한다(2026-07-30).
+const SHORTCUT_FIELDS = [
+  { key: 'modeShortcut', label: '모드 전환' },
+  { key: 'windowSelectShortcut', label: '창 선택 / 전환' },
+  { key: 'windowDeselectShortcut', label: '창 선택 해제' },
+  { key: 'manualRegionShortcut', label: '영역 수동 선택' },
+  { key: 'forceOcrShortcut', label: 'OCR로 전환' },
+  { key: 'settingsShortcut', label: '설정 화면 열기' },
+] as const
+
 function formatAccelerator(accelerator: string): string {
   if (!accelerator) return '해제됨'
   return accelerator
@@ -239,6 +250,9 @@ export function SettingsScreen() {
     | 'forceOcrShortcut'
     | null
   >(null)
+  // 방금 녹화하려던 키 조합이 다른 단축키와 겹쳐 저장을 막았을 때 보여줄 경고 문구
+  // (2026-07-30 사용자 요청 — 겹치면 등록만 막고 조용히 하나가 죽는 대신 알려줘야 함).
+  const [shortcutError, setShortcutError] = useState<string | null>(null)
   // 현재 provider 의 키 검증 결과(유효성 + 사용 가능 모델). 무과금 GET 기반.
   const [validation, setValidation] = useState<ProviderValidation | null>(null)
   const [validating, setValidating] = useState(false)
@@ -331,6 +345,13 @@ export function SettingsScreen() {
     }
   }, [settings != null])
 
+  // 녹화 핸들러가 최신 settings 를 읽을 수 있게(의존성에 settings 를 넣으면 매 타이핑마다
+  // 리스너를 갈아끼우게 되므로 ref 로 우회).
+  const settingsForRecordingRef = useRef(settings)
+  useEffect(() => {
+    settingsForRecordingRef.current = settings
+  }, [settings])
+
   useEffect(() => {
     if (!recordingField) return
     const onKeyDown = (e: KeyboardEvent) => {
@@ -342,6 +363,18 @@ export function SettingsScreen() {
       const accelerator = toAccelerator(e)
       if (!accelerator) return // 유효하지 않은 조합은 무시하고 계속 대기
       const field = recordingField
+      const current = settingsForRecordingRef.current
+      // 다른 단축키가 이미 같은 조합을 쓰고 있으면 저장을 막는다(2026-07-30 사용자 요청) —
+      // Electron globalShortcut 은 같은 accelerator 를 두 번 등록하면 나중 것이 앞의 콜백을
+      // 조용히 덮어써서, UI 상 둘 다 "지정됨"으로 보여도 실제로는 하나가 죽은 단축키가
+      // 되는 문제가 있었다.
+      const conflict = current && SHORTCUT_FIELDS.find((f) => f.key !== field && current[f.key] === accelerator)
+      if (conflict) {
+        setShortcutError(`"${formatAccelerator(accelerator)}"는 이미 "${conflict.label}"에 사용 중인 조합입니다.`)
+        setRecordingField(null)
+        return
+      }
+      setShortcutError(null)
       setRecordingField(null)
       void patch({ [field]: accelerator })
     }
@@ -351,6 +384,11 @@ export function SettingsScreen() {
   }, [recordingField])
 
   if (!settings) return <div className="screen settings-screen" />
+
+  function startRecording(field: NonNullable<typeof recordingField>): void {
+    setShortcutError(null) // 새로 녹화를 시작하면 이전 충돌 경고는 지운다
+    setRecordingField(field)
+  }
 
   async function patch(p: Partial<AppSettings>) {
     const next = await window.nuance.setSettings(p)
@@ -652,7 +690,16 @@ export function SettingsScreen() {
             기본값으로 초기화
           </button>
         </div>
-        <p className="desc">연필 아이콘을 눌러 원하는 키 조합으로 다시 등록할 수 있습니다.</p>
+        <p className="desc">
+          {IS_MAC
+            ? 'Cmd·Ctrl·Opt·Shift 중 최소 하나를 포함한 키 조합, 또는 F1~F12 단독 키를 등록할 수 있습니다.'
+            : 'Ctrl·Alt·Shift 중 최소 하나를 포함한 키 조합, 또는 F1~F12 단독 키를 등록할 수 있습니다.'}
+        </p>
+        {shortcutError && (
+          <span className="err">
+            <WarnIcon /> {shortcutError}
+          </span>
+        )}
         <div className="shortcut-row">
           <span className="label">모드 전환 (일반 ↔ 선택)</span>
           <div className="shortcut-control">
@@ -662,7 +709,7 @@ export function SettingsScreen() {
                 : formatAccelerator(settings.modeShortcut)}
             </span>
             <EditDeleteGroup
-              onEdit={() => setRecordingField('modeShortcut')}
+              onEdit={() => startRecording('modeShortcut')}
               onDelete={() => void patch({ modeShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.modeShortcut}
@@ -678,7 +725,7 @@ export function SettingsScreen() {
                 : formatAccelerator(settings.windowSelectShortcut)}
             </span>
             <EditDeleteGroup
-              onEdit={() => setRecordingField('windowSelectShortcut')}
+              onEdit={() => startRecording('windowSelectShortcut')}
               onDelete={() => void patch({ windowSelectShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.windowSelectShortcut}
@@ -694,7 +741,7 @@ export function SettingsScreen() {
                 : formatAccelerator(settings.windowDeselectShortcut)}
             </span>
             <EditDeleteGroup
-              onEdit={() => setRecordingField('windowDeselectShortcut')}
+              onEdit={() => startRecording('windowDeselectShortcut')}
               onDelete={() => void patch({ windowDeselectShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.windowDeselectShortcut}
@@ -710,7 +757,7 @@ export function SettingsScreen() {
                 : formatAccelerator(settings.manualRegionShortcut)}
             </span>
             <EditDeleteGroup
-              onEdit={() => setRecordingField('manualRegionShortcut')}
+              onEdit={() => startRecording('manualRegionShortcut')}
               onDelete={() => void patch({ manualRegionShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.manualRegionShortcut}
@@ -726,7 +773,7 @@ export function SettingsScreen() {
                 : formatAccelerator(settings.forceOcrShortcut)}
             </span>
             <EditDeleteGroup
-              onEdit={() => setRecordingField('forceOcrShortcut')}
+              onEdit={() => startRecording('forceOcrShortcut')}
               onDelete={() => void patch({ forceOcrShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.forceOcrShortcut}
@@ -742,7 +789,7 @@ export function SettingsScreen() {
                 : formatAccelerator(settings.settingsShortcut)}
             </span>
             <EditDeleteGroup
-              onEdit={() => setRecordingField('settingsShortcut')}
+              onEdit={() => startRecording('settingsShortcut')}
               onDelete={() => void patch({ settingsShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.settingsShortcut}

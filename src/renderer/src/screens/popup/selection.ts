@@ -28,6 +28,9 @@ import { WORD_ATOM_PATTERN } from '@shared/wordTokenize'
 export interface Atom {
   start: number
   end: number
+  /** ja 활용형의 사전 기본형(atomsFromMergedTokens 가 병합된 토큰의 baseForm 을 그대로
+   *  옮겨둠) — wordsFromAtoms 가 이 값을 Word.baseForm 으로 실어 dictionary.ts 로 넘긴다. */
+  baseForm?: string
 }
 
 export interface PopupSelectionModel {
@@ -305,7 +308,7 @@ function atomsFromMergedTokens(jaResult: JaTokenizeResult): Atom[] {
   const atoms: Atom[] = []
   for (const t of mergeJaTokensForEngine(jaResult)) {
     if (!SELECTABLE_CONTENT_RE.test(t.surface)) continue
-    atoms.push({ start: t.start, end: t.start + t.surface.length })
+    atoms.push({ start: t.start, end: t.start + t.surface.length, baseForm: t.baseForm })
   }
   return atoms
 }
@@ -473,7 +476,7 @@ export function buildDisplayText(
 /**
  * ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. jaResult 를 주면
  * 일본어 가나 조각을 활성 엔진(jaResult.engine) 품사 기반으로 병합하고(없으면 즉석 대체
- * 규칙으로 근사), zhWords 를 주면 중국어 한자를 segmentit 단어 경계 기준으로 묶는다(없으면
+ * 규칙으로 근사), zhWords 를 주면 중국어 한자를 segmentChineseWords 단어 경계 기준으로 묶는다(없으면
  * 글자 단위). charLevel=true 면 ja/zh 둘 다 병합/단어 묶기를 건너뛰고 한자를 한 글자씩
  * 개별 atom 으로 만든다(팝업 툴바 "글자 단위" 토글, 2026-07-28).
  */
@@ -505,11 +508,16 @@ export function buildSelectionModel(
   return { displayText, atoms, initialFrom, initialTo, windowStart, insertions }
 }
 
-function splitWords(selectedText: string): Word[] {
-  return selectedText
-    .split(/[-\s]+/)
-    .filter(Boolean)
-    .map((t) => ({ text: t }))
+/** atoms(팝업이 이미 확정한 선택 단위 — ja/zh 는 형태소 분석+병합 로직까지 거친 결과)를
+ *  그대로 SelectionContext.words 로 옮긴다. 예전엔 selectedText 를 `/[-\s]+/` 로 다시
+ *  쪼개는 별도 정규식을 썼는데, 이러면 사전 조회(dictionary.ts)가 쓰는 단어 분해와
+ *  기준이 어긋난다(2026-07-30, 사용자 지적 — "사전에 들어갈 때 쪼개는 것도 팝업 atom
+ *  단위랑 똑같이"). tokenizeAtoms 가 이미 언어별 규칙(영어/라틴 하이픈 분리, 일본어
+ *  조사·조동사 병합, 중국어 세그멘터 단어 경계)을 다 적용해뒀으므로 그 결과를 그대로
+ *  재사용하기만 하면 된다.
+ */
+function wordsFromAtoms(displayText: string, atoms: Atom[]): Word[] {
+  return atoms.map((a) => ({ text: displayText.slice(a.start, a.end), baseForm: a.baseForm }))
 }
 
 /**
@@ -525,6 +533,7 @@ function contextFromRange(
   insertions: number[],
   start: number,
   end: number,
+  atoms: Atom[],
 ): SelectionContext {
   const selectedText = displayText.slice(start, end)
   return {
@@ -532,7 +541,7 @@ function contextFromRange(
     fullText: base.text,
     selStart: windowStart + toWindowedOffset(start, insertions),
     selEnd: windowStart + toWindowedOffset(end, insertions),
-    words: splitWords(selectedText),
+    words: wordsFromAtoms(displayText, atoms),
     language: base.language,
     source: base.source,
     extraction: base.extraction,
@@ -556,7 +565,8 @@ export function deriveContext(
   const b = model.atoms[hi]
   // atom 이 하나도 없거나 범위가 유효하지 않으면(공백·기호만 넘어온 경우 등)
   // 초기 선택(anchor)으로 fallback한다 — anchor 는 이미 base.text(원문) 좌표이므로
-  // display 매핑을 거치지 않고 그대로 쓴다.
+  // display 매핑을 거치지 않고 그대로 쓴다. 이 경우 겹치는 atom 자체가 없어 words 도
+  // 통째로 하나의 단어로 둔다(쪼갤 atom 정보가 없는 예외 상황).
   if (!a || !b) {
     const selectedText = base.text.slice(base.anchor.start, base.anchor.end)
     return {
@@ -564,11 +574,19 @@ export function deriveContext(
       fullText: base.text,
       selStart: base.anchor.start,
       selEnd: base.anchor.end,
-      words: splitWords(selectedText),
+      words: selectedText ? [{ text: selectedText }] : [],
       language: base.language,
       source: base.source,
       extraction: base.extraction,
     }
   }
-  return contextFromRange(base, model.displayText, model.windowStart, model.insertions, a.start, b.end)
+  return contextFromRange(
+    base,
+    model.displayText,
+    model.windowStart,
+    model.insertions,
+    a.start,
+    b.end,
+    model.atoms.slice(lo, hi + 1),
+  )
 }

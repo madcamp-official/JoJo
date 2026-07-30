@@ -322,7 +322,7 @@ button:disabled { cursor: not-allowed; }
 .shortcut-control { display: flex; gap: 8px; align-items: center; }
 .shortcut-keys {
   min-width: 96px; text-align: center; padding: 8px 14px; border-radius: 8px;
-  border: 1px solid #dbe0e6; background: #f6f7f9; font-size: 13px; font-family: ui-monospace, monospace;
+  border: 1px solid #dbe0e6; background: #f6f7f9; font-size: 13px;
   white-space: nowrap;
 }
 .shortcut-keys.recording { border-color: var(--theme); color: var(--theme); background: var(--theme-weak); }
