@@ -745,7 +745,22 @@ function syncMacCursorPolling(): void {
       if (!overlayWindow || overlayWindow.isDestroyed() || !overlayVisible) return
       const p = screen.getCursorScreenPoint()
       const b = overlayWindow.getBounds()
-      const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
+      const insideOverlayRect = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
+      // 담당 milleion — 팝업이 대상 창(오버레이) 화면 영역 "안"에서 뜨는 경우가 흔하다
+      // (2026-07-31, 사용자 제보 — "팝업창 내부 버튼들이 커서 모양이 클릭 모양으로 안
+      // 변해"). 위 insideOverlayRect 는 순수 사각형 좌표 비교라 그 위에 다른 창(팝업)이
+      // 실제로 떠서 마우스를 가로채고 있는지는 모른다 — 팝업이 오버레이 사각형 안에서
+      // 열리면, 마우스가 팝업 버튼 위에 있어도 "오버레이 안"으로 오판해 매 틱 NSCursor
+      // 를 계속 강제해서 팝업 자신의(Chromium 표준) 버튼 hover 커서를 못 먹게 막았다.
+      // 팝업이 떠 있고 그 자신의 사각형 안에 커서가 있으면 오버레이 "밖"으로 취급한다.
+      const popupBounds = popupWindow && !popupWindow.isDestroyed() && popupWindow.isVisible() ? popupWindow.getBounds() : null
+      const insidePopup =
+        !!popupBounds &&
+        p.x >= popupBounds.x &&
+        p.x < popupBounds.x + popupBounds.width &&
+        p.y >= popupBounds.y &&
+        p.y < popupBounds.y + popupBounds.height
+      const inside = insideOverlayRect && !insidePopup
       // OVERLAY_CURSOR 는 hover 판정의 유일한 통로(mac 은 클릭스루라 렌더러에 mousemove 가
       // 안 옴)라 안/밖과 무관하게 항상 보내야 한다(2026-07-31 회귀 — 아래 커서 강제
       // 게이팅과 같은 조건에 잘못 묶었더니 OCR·PDF-direct 호버박스 위치가 전부 어긋났다).
