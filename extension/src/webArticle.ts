@@ -3,7 +3,7 @@
 // (Mozilla Readability.js와 같은 발상의 경량 버전). 실측(웹소설 4곳·뉴스 3곳, 2026-07-29)으로
 // 이 방식이 통할 공통 구조("본문 하나에 <p> 밀집 + 주변 UI 대비 압도적 텍스트 밀도")를 확인했다.
 import type { SubWord } from '@shared/extension'
-import { extractWordsAndText } from './domWords'
+import { extractWordsAndText, isHidden } from './domWords'
 
 // 본문 후보에서 제외할 컨테이너 — nav/footer/광고/댓글 등 흔한 보일러플레이트 패턴.
 // 사이트별 등록이 아니라 범용 키워드라 특정 사이트에 종속되지 않는다.
@@ -12,11 +12,6 @@ const BOILERPLATE_PATTERN =
 
 const CANDIDATE_SELECTOR = 'article, main, [role="main"], div, section'
 const MIN_PARAGRAPHS_FOR_CANDIDATE = 3
-
-function isHidden(el: Element): boolean {
-  const style = getComputedStyle(el)
-  return style.display === 'none' || style.visibility === 'hidden'
-}
 
 // 조상 중 하나라도 숨겨져 있으면 진짜로 안 보인다(getComputedStyle 은 상속을 반영하지
 // 않는다 — display:none 인 조상 아래 자손은 스스로는 display:block 이어도 화면엔 안 그려짐).
