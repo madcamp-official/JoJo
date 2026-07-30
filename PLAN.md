@@ -412,8 +412,10 @@ JoJo/
 │   │   │   ├── capture.ts       #   창 목록/캡처 — win32는 네이티브 우선(desktopCapturer 폴백), macOS는 목록에 desktopCapturer·캡처는 screencapture -l + 선택 창 id 보관
 │   │   │   ├── win32Capture.ts  #   Windows 네이티브 창 열거·캡처(koffi FFI, 가려짐/최소화 대응)
 │   │   │   ├── macWindow.ts     #   macOS CoreGraphics/AppKit 바인딩(koffi) — bounds 조회·창 raise
-│   │   │   ├── decideOcr.ts     #   추출 방식 판정(direct/ocr/subtitle/web 4갈래) — `shortcut.ts`(진입 시)·`extension/reevaluate.ts`(탭/URL 변화 재판정)가 호출하는 핵심 디스패처
-│   │   │   ├── extractDirect.ts #   소스별 직접 추출 — txt(win32 전용) 구현, epub/pdf/web 미구현
+│   │   │   ├── decideOcr.ts     #   추출 방식 판정(direct/ocr/subtitle/web 4갈래) — `shortcut.ts`(진입 시)·`extension/reevaluate.ts`(탭/URL 변화 재판정)가 호출하는 핵심 디스패처. 브라우저(확장)·macOS 프리뷰 PDF(AX) 외 나머지는 전부 OCR — 임의 PDF 뷰어의 "텍스트 양으로 direct/ocr 판정"은 아직 미구현
+│   │   │   ├── pdfAxSource.ts   #   macOS 프리뷰(Preview.app) PDF를 접근성(AX) API로 텍스트+좌표 직접 추출 — 구현 완료(OCR 불필요)
+│   │   │   ├── macAx.ts         #   macOS Accessibility(AX) 바인딩(koffi) — pdfAxSource.ts가 사용
+│   │   │   ├── viewerSource.ts  #   Nuance 자체 뷰어(txt/epub/PDF) 클릭 → 팝업 연결(뷰어 자체 추출은 renderer/viewer 담당)
 │   │   │   ├── webSource.ts     #   일반 웹페이지 DOM 텍스트 direct 추출(범용 본문 탐지, 2026-07-30 구현 완료)
 │   │   │   ├── subtitleSource.ts #  유튜브/넷플릭스 자막 direct 추출 + anchor 매칭
 │   │   │   ├── extractionCache.ts # 선택 모드 진입 시 캡처+OCR 선행 캐싱(단일 슬롯)
@@ -428,7 +430,7 @@ JoJo/
 │   │   │   ├── ocrYomitoku.ts   #   일본어 전용 Yomitoku 엔진 래퍼
 │   │   │   ├── pythonServer.ts  #   NDLOCR/PaddleOCR/Yomitoku 등 python 상주 서버 공용 브릿지
 │   │   │   ├── langDetect.ts    #   언어 자동 감지 — tier2 확장(2026-07-30) 대응 완료: OSD 스크립트 판별 + eld 재판별(§2 참고)
-│   │   │   └── accessibility.ts #   접근성 API(AX/UIA) 브릿지 — readWindowText(Windows) 구현, readActiveWindow 미구현
+│   │   │   └── accessibility.ts #   전자책 뷰어(Kindle/Apple Books 등) 렌더 텍스트용 범용 접근성 API(AX/UIA) 브릿지 — readActiveWindow 미구현(스텁). macOS 프리뷰 PDF는 이 경로가 아니라 전용 pdfAxSource.ts/macAx.ts로 별도 구현됨
 │   │   ├── nlp/                 # 🤝 공동 소유 — 언어별 형태소 분석(OCR 단어 분리 + 팝업 atom 병합 공용)
 │   │   │   ├── japanese.ts      #   일본어 엔진 디스패처 — JA_ENGINE 상수로 lindera/sudachi-b/sudachi-c 전환, tokenizeJapanese/segmentJapaneseWords 외부 계약은 엔진 무관 고정
 │   │   │   ├── engines/         #   엔진별 구현 — ja: lindera.ts(WASM, IPADIC) / sudachi.ts(python 상주 서버, UniDic) · zh: jieba.ts(@node-rs/jieba, zh-Hans 고정) / intl-zh.ts(Intl.Segmenter) / chineseTokenizer.ts(CC-CEDICT 그리디)
@@ -509,4 +511,4 @@ JoJo/
 
 **시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). OCR 파이프라인을 쓰려면 Python venv 를 따로 준비해야 한다(`npm run dev` 가 자동 설치하지 않는다 — `python/README.md` 참고: 공용 `.venv` + NDLOCR-Lite 격리 `.venv-ndlocr-test`). venv 가 없어도 앱은 뜨고 인식 품질만 떨어진다. 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `npm run build:ext`로 빌드한 `extension/dist`를 `chrome://extensions`에서 로드(개발자 모드 → 압축해제된 확장 프로그램 로드) — native messaging host 등록 불필요(로컬 WebSocket 사용).
 
-**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)·브라우저 확장(유튜브·넷플릭스 자막)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract/NDLOCR/PaddleOCR→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, DOM 텍스트(일반 웹페이지, 담당: milleion)도 2026-07-30 구현 완료(범용 본문 탐지+자막 경로와 동일한 확장 hover/클릭 direct 추출 구조, 상세는 TODO.md). 직접 추출(epub/pdf)·접근성 API(AX/UIA)는 아직 미구현. 언어 자동 감지(`langDetect.ts`)는 tier2 확장(2026-07-30)에 맞춰 구현 완료. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
+**표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)·브라우저 확장(유튜브·넷플릭스 자막)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract/NDLOCR/PaddleOCR→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, DOM 텍스트(일반 웹페이지, 담당: milleion)도 2026-07-30 구현 완료(범용 본문 탐지+자막 경로와 동일한 확장 hover/클릭 direct 추출 구조, 상세는 TODO.md). txt/epub/PDF 직접 추출은 Nuance 자체 뷰어(`viewerSource.ts` + renderer `viewer/`)로 구현 완료했고, macOS 프리뷰(Preview.app) PDF는 접근성 API(AX)로 텍스트+좌표를 직접 추출하는 전용 경로(`pdfAxSource.ts`/`macAx.ts`)도 구현 완료. 다만 창 선택으로 연 그 외 대상(Kindle/Apple Books 등 외부 전자책 뷰어, macOS 프리뷰가 아닌 PDF 뷰어)은 `accessibility.ts`의 범용 접근성 API(AX/UIA) 브릿지가 아직 스텁이라 전부 OCR로 처리된다. 언어 자동 감지(`langDetect.ts`)는 tier2 확장에 맞춰 구현 완료. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
