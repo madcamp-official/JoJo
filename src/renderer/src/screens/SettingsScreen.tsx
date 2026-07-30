@@ -732,7 +732,7 @@ export function SettingsScreen() {
           </div>
         )}
         <div className="shortcut-row">
-          <span className="label">모드 전환 (일반 ↔ 선택)</span>
+          <span className="label">일반 ↔ 선택 모드 전환</span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recordingField === 'modeShortcut' ? ' recording' : ''}`}>
               {recordingField === 'modeShortcut'
