@@ -811,6 +811,10 @@ button:disabled { cursor: not-allowed; }
 /* 100vw 는 세로 스크롤바 너비까지 포함한 값이라, 스크롤바가 생기면 내용이 그만큼 넓어져
    **가짜 가로 스크롤바**가 창 아래에 깔린다(사용자 제보로 확인: scrollWidth 1008 vs
    clientWidth 993 = 딱 스크롤바 15px 차이). 뷰어는 부모를 꽉 채우면 되므로 100% 를 쓴다. */
+/* 뷰어 창의 세로 스크롤은 .viewer-body 하나여야 한다 — 문서 루트까지 스크롤이 생기면
+   창 오른쪽에 스크롤바가 두 줄로 겹쳐 보이고, 본문 스크롤바도 그만큼 안쪽으로 밀린다
+   (실측: pdf 에서 루트 스크롤바 15px 탓에 본문 스크롤바가 x=885 에 그려짐). */
+html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hidden; }
 .viewer-screen { display: flex; flex-direction: column; width: 100%; overflow: hidden; }
 
 .viewer-toolbar {
@@ -846,10 +850,18 @@ button:disabled { cursor: not-allowed; }
 /* 세로만 스크롤한다 — 페이지는 가운데 정렬이라 가로로 넘길 일이 없는데, 확대 등으로
    잠깐 넘치면 아래쪽에 쓸데없는 가로 스크롤바가 생긴다(사용자 지적). */
 .viewer-body { flex: 1; overflow-x: hidden; overflow-y: auto; position: relative; }
-/* 스크롤바는 감춘다 — 창 높이만큼 길게 붙어 있어 "창 전체 스크롤바"처럼 보이는데,
-   읽는 화면에서는 눈에 거슬린다(사용자 요청). 스크롤 자체는 그대로 된다. */
-.viewer-body { scrollbar-width: none; }
-.viewer-body::-webkit-scrollbar { width: 0; height: 0; }
+/* 스크롤 모드의 스크롤바는 여기 하나뿐이고, 이 요소가 창 폭 전체라 그대로 창 맨
+   오른쪽에 붙는다(사용자 요청). 본문 여백을 아무리 넓혀도 스크롤바는 따라 들어오지
+   않는다 — 여백은 안쪽 .viewer-doc 이 갖기 때문이다.
+   가로 스크롤바는 여전히 없앤다: 확대 등으로 잠깐 넘칠 때만 생기는데 읽는 데 방해된다. */
+.viewer-body::-webkit-scrollbar, .epub-container::-webkit-scrollbar { width: 10px; height: 0; }
+.viewer-body::-webkit-scrollbar-thumb, .epub-container::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.22); border-radius: 5px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+.viewer-body::-webkit-scrollbar-thumb:hover, .epub-container::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, 0.38); background-clip: content-box; }
+.viewer-screen.dark .viewer-body::-webkit-scrollbar-thumb,
+.viewer-screen.dark .epub-container::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.24); background-clip: content-box; }
 
 /* txt/epub 본문 — 읽기 좋은 폭으로 가운데 정렬. font-size 는 인라인으로 주입된다. */
 /* 아래는 위보다 넉넉히 — 진도 표시가 깔리는 자리이기도 하고, 위아래가 같으면
@@ -939,17 +951,31 @@ button:disabled { cursor: not-allowed; }
 }
 .viewer-toc-close:hover { color: var(--theme); }
 .viewer-toc-list { overflow-y: auto; padding: 6px 0; }
+.viewer-toc-row { display: flex; align-items: center; padding-right: 8px; }
+.viewer-toc-row:hover { background: rgba(124, 58, 237, 0.08); }
+.viewer-toc-row:hover .viewer-toc-item { color: var(--theme); }
+
+/* 펼침 화살표 — 하위가 없을 때도 같은 너비를 비워 제목 시작선을 맞춘다. */
+.viewer-toc-caret {
+  flex: none; width: 20px; height: 26px; display: flex; align-items: center; justify-content: center;
+  background: none; border: none; padding: 0; cursor: pointer; color: #9ca3af;
+  transition: transform 0.15s;
+}
+.viewer-toc-caret.placeholder { cursor: default; }
+.viewer-toc-caret.open { transform: rotate(90deg); }
+.viewer-toc-caret:hover:not(.placeholder) { color: var(--theme); }
+
 .viewer-toc-item {
-  display: block; width: 100%; text-align: left; background: none; border: none;
+  flex: 1; min-width: 0; text-align: left; background: none; border: none;
   font: inherit; font-size: 13px; color: inherit; cursor: pointer;
-  padding: 7px 14px; line-height: 1.4;
+  padding: 7px 4px; line-height: 1.4;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.viewer-toc-item:hover { background: rgba(124, 58, 237, 0.08); color: var(--theme); }
 
 .viewer-screen.dark .viewer-toc { background: #1f2430; border-right-color: #374151; }
 .viewer-screen.dark .viewer-toc-head { border-bottom-color: #374151; }
-.viewer-screen.dark .viewer-toc-item:hover { background: rgba(124, 58, 237, 0.22); color: #c4b5fd; }
+.viewer-screen.dark .viewer-toc-row:hover { background: rgba(124, 58, 237, 0.22); }
+.viewer-screen.dark .viewer-toc-row:hover .viewer-toc-item { color: #c4b5fd; }
 
 /* ── 보기 설정 패널 ─────────────────────────────────────────────────────────
    글자 크기·자간·줄 간격·여백·넘김 효과를 툴바 버튼 하나 뒤로 접었다. */

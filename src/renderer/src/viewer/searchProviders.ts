@@ -56,20 +56,23 @@ export async function searchEpub(
   // (실측: 기다리지 않았을 때 spine items = 0).
   await book.ready
   // epubjs 타입에는 spine 순회가 얇게만 있어 실제 구조에 맞춰 좁혀 쓴다.
-  type SpineItem = { href: string; load(req: unknown): Promise<Document>; unload(): void }
+  type SpineItem = { href: string; load(req: unknown): Promise<ParentNode | null>; unload(): void }
   const spine = book.spine as unknown as { spineItems?: SpineItem[]; each?(fn: (i: SpineItem) => void): void }
   const items: SpineItem[] = []
   if (Array.isArray(spine.spineItems)) items.push(...spine.spineItems)
   else spine.each?.((it) => items.push(it))
 
   for (const [ci, item] of items.entries()) {
-    let doc: Document | null = null
+    let root: ParentNode | null = null
     try {
-      doc = await item.load(book.load.bind(book))
+      root = await item.load(book.load.bind(book))
     } catch {
       continue // 못 읽는 챕터는 건너뛴다(표지 이미지 전용 등)
     }
-    const text = doc?.body?.textContent ?? ''
+    // load() 가 주는 건 Document 가 아니라 그 documentElement 다(epubjs Section.load 는
+    // this.contents = xml.documentElement 를 resolve 한다). Document 인 줄 알고 .body 를
+    // 읽으면 undefined 라 본문이 늘 빈 문자열이 됐고, 그게 검색이 항상 0곳이던 이유다.
+    const text = root?.querySelector('body')?.textContent ?? ''
     for (const at of findAll(text, query)) {
       const snippet = makeSnippet(text, at, query.length)
       const href = item.href

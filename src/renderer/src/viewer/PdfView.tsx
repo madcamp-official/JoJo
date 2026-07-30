@@ -72,18 +72,23 @@ async function buildPdfToc(
   const outline = await doc.getOutline().catch(() => null)
   if (!outline || outline.length === 0) return []
 
-  const entries: TocEntry[] = []
-  const walk = async (items: typeof outline, depth: number): Promise<void> => {
+  // 아웃라인은 이미 items 로 중첩돼 있다 — 그 모양 그대로 트리를 만든다(접기/펼치기용).
+  const build = async (items: NonNullable<typeof outline>): Promise<TocEntry[]> => {
+    const out: TocEntry[] = []
     for (const item of items) {
       const index = await resolvePageIndex(doc, item.dest)
-      if (index !== null) {
-        entries.push({ label: item.title || '(제목 없음)', depth, go: () => goToPage(index) })
-      }
-      if (item.items?.length) await walk(item.items, depth + 1)
+      const children = item.items?.length ? await build(item.items) : []
+      // 목적지를 못 푸는 항목이라도 하위가 있으면 묶음 제목으로 남긴다.
+      if (index === null && children.length === 0) continue
+      out.push({
+        label: item.title || '(제목 없음)',
+        go: () => (index !== null ? goToPage(index) : undefined),
+        children,
+      })
     }
+    return out
   }
-  await walk(outline, 0)
-  return entries
+  return build(outline)
 }
 
 async function resolvePageIndex(doc: PDFDocumentProxy, dest: unknown): Promise<number | null> {

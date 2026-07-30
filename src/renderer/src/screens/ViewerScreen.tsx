@@ -38,8 +38,8 @@ import { SlidersIcon } from './icons'
 // 접근성 API 도 OCR 도 필요 없고 mac/Windows 가 동일하게 동작한다.
 
 
-/** 커서가 창 위쪽 이 범위 안에 들어오면 툴바를 보여준다. */
-const TOOLBAR_REVEAL_PX = 90
+/** 툴바 높이를 아직 못 잰 첫 프레임에만 쓰는 대체값. */
+const TOOLBAR_FALLBACK_PX = 46
 
 export function ViewerScreen() {
   const [file, setFile] = useState<ViewerFilePayload | null>(null)
@@ -111,25 +111,29 @@ export function ViewerScreen() {
   // 가져가면 나타난다. 설정 패널이 열려 있는 동안은 계속 띄워둔다(조작 중에 사라지면
   // 안 되므로).
   const [barShown, setBarShown] = useState(true)
+  const barRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
-    const onMove = (e: MouseEvent) => setBarShown(e.clientY <= TOOLBAR_REVEAL_PX)
+    // 기준선은 툴바가 실제로 차지하는 높이 그 자체다 — 넉넉한 고정값을 쓰면 툴바가 없는
+    // 빈 띠에서도 튀어나와 "왜 지금 뜨지?" 싶어진다(사용자 지적). 숨은 상태에서도
+    // visibility 로만 감추므로 offsetHeight 는 그대로 살아 있다.
+    const limit = (): number => barRef.current?.offsetHeight || TOOLBAR_FALLBACK_PX
+    const onMove = (e: MouseEvent) => setBarShown(e.clientY <= limit())
     window.addEventListener('mousemove', onMove)
 
     // epub 본문은 iframe 안이라 그 위에서 움직이면 부모 창에 mousemove 가 오지 않는다 —
-    // 툴바가 뜬 채로 남아 있던 이유다(2026-07-31 사용자 제보). iframe 안에서의 움직임은
-    // 곧 "커서가 본문 영역에 있다"는 뜻이므로 바로 숨긴다.
-    const docs: Document[] = []
+    // 툴바가 뜬 채로 남아 있던 이유다(2026-07-31 사용자 제보). iframe 좌표는 그 창 기준이라
+    // 프레임의 화면상 위치를 더해 창 좌표로 옮긴 뒤 같은 기준선으로 판정한다.
+    const bound: Array<[Document, (e: MouseEvent) => void]> = []
     const attach = (): void => {
       for (const f of Array.from(document.querySelectorAll<HTMLIFrameElement>('.viewer-body iframe'))) {
         const d = f.contentDocument
-        if (d && !docs.includes(d)) {
-          d.addEventListener('mousemove', hideBar)
-          docs.push(d)
+        if (!d || bound.some(([doc]) => doc === d)) continue
+        const onFrameMove = (e: MouseEvent): void => {
+          setBarShown(e.clientY + f.getBoundingClientRect().top <= limit())
         }
+        d.addEventListener('mousemove', onFrameMove)
+        bound.push([d, onFrameMove])
       }
-    }
-    function hideBar(): void {
-      setBarShown(false)
     }
     // iframe 은 나중에(챕터 로드 때마다) 새로 생기므로 주기적으로 다시 붙인다.
     attach()
@@ -137,7 +141,7 @@ export function ViewerScreen() {
     return () => {
       window.removeEventListener('mousemove', onMove)
       window.clearInterval(timer)
-      for (const d of docs) d.removeEventListener('mousemove', hideBar)
+      for (const [d, fn] of bound) d.removeEventListener('mousemove', fn)
     }
   }, [])
 
@@ -198,7 +202,7 @@ export function ViewerScreen() {
 
   return (
     <div className={`screen viewer-screen${dark && isReflowable ? ' dark' : ''}`}>
-      <header className={`viewer-toolbar${barShown || styleOpen || tocOpen || searchOpen ? '' : ' hidden'}`}>
+      <header ref={barRef} className={`viewer-toolbar${barShown || styleOpen || tocOpen || searchOpen ? '' : ' hidden'}`}>
         <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
           <ArrowLeftIcon />
         </button>
@@ -211,9 +215,6 @@ export function ViewerScreen() {
           {file?.name ?? '문서'}
         </span>
         <div className="viewer-controls">
-          <button className="viewer-style-btn" title="검색" onClick={() => setSearchOpen((v) => !v)}>
-            <SearchIcon />
-          </button>
           {/* 일반/선택 모드는 읽는 중에 자주 바꾸는 스위치라 설정 패널에 넣지 않고
               메뉴바에 그대로 노출한다(사용자 지정). */}
           <div className="style-toggle bar-toggle">
@@ -238,6 +239,11 @@ export function ViewerScreen() {
               <span className="viewer-zoom-value">{Math.round(zoom * 100)}%</span>
             </>
           )}
+          {/* 검색은 설정 버튼 바로 왼쪽에 붙인다(사용자 지정) — 둘 다 "패널을 여는"
+              버튼이라 같은 자리에 모아두는 편이 찾기 쉽다. */}
+          <button className="viewer-style-btn" title="검색" onClick={() => setSearchOpen((v) => !v)}>
+            <SearchIcon />
+          </button>
           {/* 읽기 방식·테마·글자 설정·넘김 효과를 전부 이 버튼 뒤 패널로 접었다 —
               툴바에 컨트롤을 늘어놓으면 금방 지저분해진다(사용자 요청). */}
           <button
