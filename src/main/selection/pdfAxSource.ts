@@ -178,6 +178,18 @@ function isParagraphBreak(prev: Rect, next: Rect, pageLeftMargin: number): boole
   return next.x > pageLeftMargin + next.height * INDENT_THRESHOLD_EM
 }
 
+/**
+ * 지금까지 쌓은 words 가 이미 개행으로 끝나는지 — 문단 경계에 개행을 중복으로 넣지
+ * 않으려고 확인한다. **`words[last].text === '\n'` 로 비교하면 안 된다**(사용자 제보,
+ * 2026-07-31 — 팝업에서 문단 사이에 빈 줄이 생김): AX 가 주는 문단 텍스트(AXValue)는
+ * 그 자체가 이미 개행으로 끝나는 경우가 많은데(실측: `"...richer. \n"`), 그 마지막
+ * 토큰은 `" \n"`(공백+개행)이라 정확 일치 검사를 통과해버려 개행이 하나 더 붙었다.
+ */
+function endsWithNewline(words: Word[]): boolean {
+  const last = words[words.length - 1]
+  return last !== undefined && /\n\s*$/.test(last.text)
+}
+
 /** 문단(AX 노드) 경계가 이어지는 문단으로 판정됐을 때, 그 경계에 실제 공백 문자가
  *  하나도 없어서 두 노드의 텍스트가 그냥 붙어버리는 걸 막는다(예: "...middle."+"The
  *  door..."). 이미 한쪽 끝에 공백이 있으면 중복 삽입하지 않는다. */
@@ -232,11 +244,11 @@ async function extractOnce(windowId: number): Promise<AxExtraction | null> {
           const nextB = firstBbox(curWords)
           const isBreak = prevB && nextB ? isParagraphBreak(prevB, nextB, pageLeftMargin) : true
           if (isBreak) {
-            if (last && last.text !== '\n') words.push({ text: '\n' })
+            if (last && !endsWithNewline(words)) words.push({ text: '\n' })
           } else if (needsSpaceBetween(prevWords, curWords)) {
             words.push({ text: ' ' })
           }
-        } else if (last && last.text !== '\n') {
+        } else if (last && !endsWithNewline(words)) {
           words.push({ text: '\n' }) // 페이지 맨 처음 문단인데 개행이 아직 없는 경우
         }
         words.push(...curWords)
@@ -245,7 +257,7 @@ async function extractOnce(windowId: number): Promise<AxExtraction | null> {
     }
     // 문서 끝에도 개행을 남겨둔다(다음 페이지가 이어질 수도, 여기서 끝일 수도 있지만
     // 어느 쪽이든 무해).
-    if (words.length > 0 && words[words.length - 1]!.text !== '\n') words.push({ text: '\n' })
+    if (words.length > 0 && !endsWithNewline(words)) words.push({ text: '\n' })
 
     const text = words.map((w) => w.text).join('')
     if (!text.trim()) return null // 글자가 전혀 없음(순수 삽화 페이지 등) — 진짜 빈 결과
