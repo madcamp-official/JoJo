@@ -269,6 +269,23 @@ const FURIGANA_HEIGHT_RATIO = 1.15
 const FURIGANA_X_OVERLAP_MIN = 0.5
 const FURIGANA_MAX_GAP_RATIO_VERTICAL = 2
 
+// 담당 A — 방향성(위/아래) 조건 추가(2026-07-31, 사용자 제보 — "제목 밑 작가 이름이
+// 인식이 안 됨"). 후리가나는 항상 본문 글자 **위**에 붙는데, 기존 조건엔 위/아래
+// 구분이 전혀 없어서 "더 큰 이웃이 가까이 있음"만 보고 판정했다 — 제목(큰 폰트)
+// 바로 아래 작가 이름(제목보다 작고 본문보다 큰 폰트)이 제목과 x가 겹치고 y 간격도
+// 가까워서 "제목의 후리가나"로 오판·제외되고 있었다. 후리가나 후보(line)는 그 큰
+// 이웃(other)보다 반드시 위에 있어야 한다(line.y < other.y)는 조건을 추가 — 진짜
+// 후리가나는 이 조건을 항상 만족하고, 큰 텍스트 아래에 오는 작은/중간 텍스트(작가
+// 이름, 부제 등)는 이 조건에서 자연히 제외된다.
+// 담당 A — 폭 조건 추가(2026-07-31, 사용자 제보 — "ほか 후리가나 하나가 인식됨").
+// DEBUG_OCR_DUMP 덤프로 실측 확인: 좁은 후리가나 박스(w=26,h=21) 하나가 그 바로 위(주의
+// — 위 방향성 조건 자체는 이 박스→몸통 방향이 아니라 반대로 적용됐다) **넓은 본문 줄**
+// (w=1507,h=18)보다 근소하게(21 vs 18×1.15=20.7) 더 크게 측정돼 "더 큰 이웃"으로 잘못
+// 인식됐다 — 그 결과 넓은 본문 줄이 "이 좁은 박스의 후리가나"로 거꾸로 오판·제외되고,
+// 정작 좁은 박스 자신은 걸러줄 상대가 없어져 그대로 살아남았다(후리가나가 본문처럼
+// 인식됨). 후리가나는 그게 딸린 본문 줄보다 항상 좁거나 같아야 한다 — "더 큰 이웃(other)"
+// 후보는 반드시 candidate(line)보다 넓어야 한다는 조건을 추가해, 좁은 박스가 넓은 줄의
+// "몸통"인 척하는 이 역방향 오판을 막는다.
 export function excludeFuriganaHorizontal<T extends Rect>(
   lines: T[],
   heightRatio: number = FURIGANA_HEIGHT_RATIO,
@@ -277,6 +294,8 @@ export function excludeFuriganaHorizontal<T extends Rect>(
     const hasTallerNeighbor = lines.some((other) => {
       if (other === line) return false
       if (other.height < line.height * heightRatio) return false
+      if (other.width < line.width) return false
+      if (line.y >= other.y) return false
       if (xOverlapFraction(line, other) < FURIGANA_X_OVERLAP_MIN) return false
       return yGap(line, other) <= line.height * FURIGANA_MAX_GAP_RATIO_VERTICAL
     })

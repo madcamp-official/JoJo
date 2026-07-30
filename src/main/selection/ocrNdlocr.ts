@@ -147,6 +147,11 @@ function hasGapMarker(text: string): boolean {
   return GAP_MARKER_RE.test(text)
 }
 
+// 담당 A — 대사/독백 줄 시작 기호로 문단 판정 보강(2026-07-30). 세로쓰기/가로쓰기
+// 공용(축과 무관한 텍스트 신호라 그대로 재사용) — alignColumnStarts(세로)와
+// detectRowParagraphStarts(가로) 둘 다에서 참조하도록 모듈 스코프로 뺐다.
+const PARAGRAPH_LEADING_MARK_RE = /^[「『―—]/
+
 interface AlignedLine extends LineCandidate {
   // 스페이스 마커가 있거나(위 주석) 줄 길이 계산상 미검출 구간이 의심되는 줄 —
   // resolveSuspiciousLines 가 이 줄만 PaddleOCR 로 다시 인식해서 마커를 채운다.
@@ -401,7 +406,6 @@ function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | nul
     // 사례가 실측에서 확인됨. 위 들여쓰기 판정과 무관하게(그 판정이 성공했든 잔여값 초과로
     // 실패했든) 독립적인 신호로 얹는다 — 세로쓰기 일본어 소설에서 이 기호로 시작하는 줄이
     // 새 문단이 아닐 확률은 낮다고 보고 안전하다고 판단.
-    const PARAGRAPH_LEADING_MARK_RE = /^[「『―—]/
     if (i > 0 && !paragraphStart && PARAGRAPH_LEADING_MARK_RE.test(line.text)) paragraphStart = true
 
     // 담당 A — "이전 열이 공통 하단까지 못 채우고 짧게 끝남" 신호(사용자 제안,
@@ -779,6 +783,110 @@ async function writeLineCrop(image: Buffer, line: Rect): Promise<string> {
   return tmpPath
 }
 
+// 담당 A — 가로쓰기 문단 판정(2026-07-30, 사용자 요청 — "기초 줄바꿈부터, 세로쓰기
+// 기준을 갖고올 수 있는지"). 세로쓰기 alignColumnStarts/computeBaseline과 같은 원리를
+// 축만 x로 회전해 그대로 쓴다 — 세로쓰기는 "열이 기준선보다 아래서 시작하면 들여쓰기",
+// 가로쓰기는 "줄이 왼쪽 여백(leftMargin)보다 오른쪽에서 시작하면 들여쓰기"로 대응.
+// computeBaseline(ocrPaddle.ts, y축 전용)을 그대로 못 써서 x축 버전을 별도로 둔다.
+function computeLeftMargin(bodyLines: Rect[]): number | null {
+  if (bodyLines.length < 2) return null
+  const rounded = bodyLines.map((l) => Math.round(l.x / 5) * 5)
+  const counts = new Map<number, number>()
+  for (const x of rounded) counts.set(x, (counts.get(x) ?? 0) + 1)
+  let leftMargin = rounded[0]!
+  let bestCount = 0
+  for (const [x, c] of counts) {
+    // 동점이면 더 작은 x(=들여쓰기 없는 "기준" 쪽일 가능성이 더 큼)를 우선한다.
+    if (c > bestCount || (c === bestCount && x < leftMargin)) {
+      bestCount = c
+      leftMargin = x
+    }
+  }
+  return leftMargin
+}
+
+// estimateCellSizeFromIndent(ocrPaddle.ts, y축 전용)과 같은 원리의 x축 버전 — 실제
+// 들여쓰기 폭(대략 전각 스페이스 한 칸)의 최빈값을 구한다. 이 값을 "짧게 끝난 줄"
+// 판정(아래 SHORT_LINE_GAP_RATIO)의 기준 단위로도 함께 쓴다 — 세로쓰기가 typicalCellSize
+// 하나를 들여쓰기 스냅과 짧은 열 판정 양쪽에 공유해 쓰는 것과 같은 패턴.
+function estimateIndentWidthHorizontal(bodyLines: Rect[], leftMargin: number): number | null {
+  const diffs = bodyLines.map((l) => l.x - leftMargin).filter((d) => d > 5)
+  if (diffs.length === 0) return null
+  const roundedDiffs = diffs.map((d) => Math.round(d / 2) * 2)
+  const diffCounts = new Map<number, number>()
+  for (const d of roundedDiffs) diffCounts.set(d, (diffCounts.get(d) ?? 0) + 1)
+  let best = roundedDiffs[0]!
+  let bestDiffCount = 0
+  for (const [d, c] of diffCounts) {
+    if (c > bestDiffCount) {
+      bestDiffCount = c
+      best = d
+    }
+  }
+  return best
+}
+
+// commonBottom(ocrNdlocr.ts, 세로쓰기 짧은 열 신호)과 같은 원리의 x축 버전 — 줄들의
+// 오른쪽 끝(rightEdge) 최빈값. 본문 줄 대부분이 페이지 오른쪽 여백까지 꽉 채워서
+// 끝나므로, 이 공통 오른쪽 끝이 "줄이 끝까지 다 채워졌을 때의 rightEdge"가 된다.
+function computeCommonRightEdge(bodyLines: Rect[]): number | null {
+  if (bodyLines.length < 2) return null
+  const rounded = bodyLines.map((l) => Math.round((l.x + l.width) / 5) * 5)
+  const counts = new Map<number, number>()
+  for (const x of rounded) counts.set(x, (counts.get(x) ?? 0) + 1)
+  let commonRightEdge = rounded[0]!
+  let bestCount = 0
+  for (const [x, c] of counts) {
+    if (c > bestCount || (c === bestCount && x > commonRightEdge)) {
+      bestCount = c
+      commonRightEdge = x
+    }
+  }
+  return commonRightEdge
+}
+
+const INDENT_SNAP_RESIDUAL_RATIO = 0.35
+// 실측 전 초기값(2026-07-30) — 세로쓰기는 실측(i=7 케이스)으로 1.0→0.3까지 낮춘
+// 이력이 있다. 가로쓰기는 아직 실측 데이터가 없어 그 중간값으로 시작하고,
+// DEBUG_OCR_DUMP 로그로 실사용 재현 후 다시 조정한다.
+const SHORT_LINE_GAP_RATIO = 0.5
+
+// 사용자 제안(2026-07-30) 그대로: 줄 x가 오른쪽 끝까지 꽉 찼으면 다음 줄(x+1)은
+// "붙여쓰기(이어짐)"인지 "들여쓰기(새 문단)"인지를 들여쓰기 신호로만 가른다. 줄 x가
+// 중간에 짧게 끝났으면 다음 줄은 들여쓰기 여부와 무관하게 무조건 새 문단이다(문장이
+// 거기서 끝났다는 뜻이므로). 대사/독백 시작 기호(PARAGRAPH_LEADING_MARK_RE)는 두
+// 경우 모두와 독립적으로 항상 우선 적용되는 별도 신호.
+function detectRowParagraphStarts(lines: Rect[], texts: string[]): boolean[] {
+  const leftMargin = computeLeftMargin(lines)
+  const indentWidth = leftMargin !== null ? estimateIndentWidthHorizontal(lines, leftMargin) : null
+  const commonRightEdge = computeCommonRightEdge(lines)
+  return lines.map((line, i) => {
+    if (i === 0) return false
+    const text = texts[i] ?? ''
+    if (PARAGRAPH_LEADING_MARK_RE.test(text)) return true
+    if (leftMargin === null || indentWidth === null) return false
+    let prevReachesRightEdge = true
+    if (commonRightEdge !== null) {
+      const prev = lines[i - 1]!
+      const prevRightEdge = prev.x + prev.width
+      const shortfall = commonRightEdge - prevRightEdge
+      prevReachesRightEdge = shortfall <= indentWidth * SHORT_LINE_GAP_RATIO
+    }
+    if (!prevReachesRightEdge) return true
+    const offset = line.x - leftMargin
+    const residual = Math.abs(offset - indentWidth)
+    const paragraphStart = residual <= indentWidth * INDENT_SNAP_RESIDUAL_RATIO
+    if (process.env.DEBUG_OCR_DUMP) {
+      console.log(
+        `[ocrNdlocr] detectRowParagraphStarts: i=${i} text="${text.slice(0, 10)}" x=${line.x} ` +
+          `leftMargin=${leftMargin} indentWidth=${indentWidth} offset=${offset} residual=${residual.toFixed(2)} ` +
+          `prevReachesRightEdge=${prevReachesRightEdge} paragraphStart=${paragraphStart}`,
+      )
+    }
+    return paragraphStart
+  })
+}
+
 /**
  * Yomitoku 로 검출한 가로쓰기 줄들을 NDLOCR-lite 인식기로 읽는다 — 검출은 이미
  * 끝난 상태로 받으므로(detector 미사용) 여기서는 후리가나 필터링(검출 결과 재사용
@@ -853,7 +961,21 @@ export async function recognizeLinesWithNdlocr(image: Buffer, lines: Rect[]): Pr
         return words.map((w) => ({ ...w, lineId }))
       }),
     )
-    return grouped.flat()
+    // 담당 A — 문단 분리/줄바꿈 정리(2026-07-30, 사용자 요청 — 기초 줄바꿈부터, 세로쓰기
+    // 기준 이식). 예전엔 이 함수가 줄 사이 구분자를 아예 안 넣어서(그냥 flat) 페이지
+    // 전체가 줄바꿈 하나 없는 문자열이 됐었다(팝업 문맥 범위 계산이 "줄 하나"로 오인 —
+    // recognizeOrderedLines 가 겪었던 것과 같은 버그, 그쪽만 먼저 고쳐져 있었음). 여기서는
+    // 그 최소 수정("줄마다 무조건 \n")보다 한 단계 더 나아가 detectRowParagraphStarts 로
+    // 진짜 새 문단인 줄만 \n 을 넣고, 문단 중간에 줄바꿈된(=이어지는) 줄은 공백 없이 바로
+    // 이어붙인다(가로쓰기 일본어는 원래 띄어쓰기 없는 문자 체계라 이어붙여도 자연스럽다) —
+    // "불필요한 줄바꿈 삭제"까지 이 한 번의 삽입 지점에서 같이 해결된다.
+    const paragraphStarts = detectRowParagraphStarts(ordered, texts)
+    const flat: Word[] = []
+    for (let i = 0; i < grouped.length; i++) {
+      if (i > 0 && paragraphStarts[i]) flat.push({ text: '\n' })
+      flat.push(...grouped[i]!)
+    }
+    return flat
   } catch (err) {
     console.error('[ocrNdlocr] 가로쓰기 인식 실패 — PaddleOCR 로 폴백:', err)
     return null
