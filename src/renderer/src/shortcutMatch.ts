@@ -7,6 +7,12 @@ export const IS_MAC = navigator.platform.toUpperCase().includes('MAC')
 
 const NON_KEY_MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
 
+/** 수식키(Ctrl/Alt/Shift/Cmd) 단독 입력인지 — 조합키를 누르는 도중 자연히 먼저 발생하는
+ *  중간 상태라 무시해야 한다(경고를 띄우면 정상적인 조합 입력 중에도 매번 뜬다). */
+export function isModifierOnlyKey(key: string): boolean {
+  return NON_KEY_MODIFIERS.has(key)
+}
+
 /** F1~F12 처럼 수식키 없이 단독으로도 전역 단축키로 적절한 키 */
 export function isStandaloneKey(key: string): boolean {
   return /^F([1-9]|1[0-2])$/.test(key)

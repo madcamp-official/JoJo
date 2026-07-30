@@ -5,7 +5,7 @@ import { MW_DICTIONARY_SIGNUP_URL } from '@shared/dictionaries'
 import { LANGUAGES, LANGUAGE_ORDER, LINK_LANGUAGES } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 import { goto } from '../navigate'
-import { IS_MAC, toAccelerator, unsafeAcceleratorReason } from '../shortcutMatch'
+import { IS_MAC, isModifierOnlyKey, toAccelerator, unsafeAcceleratorReason } from '../shortcutMatch'
 import {
   ProviderLogo,
   CheckIcon,
@@ -361,7 +361,25 @@ export function SettingsScreen() {
         return
       }
       const accelerator = toAccelerator(e)
-      if (!accelerator) return // 유효하지 않은 조합은 무시하고 계속 대기
+      if (!accelerator) {
+        // 수식키 단독 입력(Ctrl/Alt/Shift/Cmd만 누른 상태)은 조합키를 누르는 도중 항상
+        // 먼저 발생하는 중간 상태라 조용히 계속 대기한다 — 여기서 경고를 띄우면 정상적인
+        // 조합 입력 중에도 매번 뜬다. 그 외(F1~F12가 아닌 일반 키를 수식키 없이 단독으로
+        // 누른 경우)는 사용자가 끝까지 누른 "완결된" 시도인데도 지금까지 아무 안내 없이
+        // 조용히 무시되고 있었다(2026-07-31 사용자 제보로 발견 — "등록이 막힐 때 경고가
+        // 일부만 뜬다") — 등록이 왜 안 됐는지 알 수 있게 다른 두 경우(예약된 조합/충돌)와
+        // 동일한 방식으로 경고를 띄운다.
+        if (!isModifierOnlyKey(e.key)) {
+          const key = e.key.length === 1 ? e.key.toUpperCase() : e.key
+          setShortcutError(
+            `"${key}" 단독으로는 등록할 수 없습니다 — ${
+              IS_MAC ? 'Cmd·Ctrl·Opt·Shift' : 'Ctrl·Alt·Shift'
+            } 중 최소 하나를 포함하거나, F1~F12 키를 사용하세요.`,
+          )
+          setRecordingField(null)
+        }
+        return
+      }
       const field = recordingField
       // Shift 하나만 걸고 실제로 입력되는 문자 키를 누르면 그 문자 입력 자체를 가로채고,
       // OS/다른 앱 필수 단축키(Cmd+Q 등)를 등록하면 그 기능이 시스템 전체에서 먹통이
@@ -707,9 +725,6 @@ export function SettingsScreen() {
           {IS_MAC
             ? 'Cmd·Ctrl·Opt·Shift 중 최소 하나를 포함한 키 조합, 또는 F1~F12 단독 키를 등록할 수 있습니다.'
             : 'Ctrl·Alt·Shift 중 최소 하나를 포함한 키 조합, 또는 F1~F12 단독 키를 등록할 수 있습니다.'}
-          {' '}Shift만 걸고 문자 키를 조합하면(예: Shift+T) 그 문자 입력을 가로채 타이핑이 깨지므로 등록할 수 없고,
-          다른 단축키와 겹치거나 OS·다른 앱의 필수 단축키({IS_MAC ? 'Cmd+Q, Cmd+Space 등' : 'Alt+F4, Ctrl+C 등'})와
-          겹치는 조합도 등록이 막히고 이유가 안내됩니다.
         </p>
         {shortcutError && (
           <div className="settings-warning">
@@ -823,8 +838,9 @@ export function SettingsScreen() {
           </button>
         </div>
         <p className="desc">
-          선택한 표현을 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
-          전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
+          선택한 표현을 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요.
+          <br />
+          실제 전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
         </p>
 
         <label className="byte-link-toggle">
@@ -888,40 +904,26 @@ export function SettingsScreen() {
       {/* 텍스트 영역 자동 탐지 */}
       <section className="settings-section">
         <h2>텍스트 영역 자동 탐지</h2>
-        <p className="desc">
-          활성화 시 선택 모드로 전환을 하거나 선택 모드 내에서 창의 크기가 변할 때 자동으로
-          텍스트 영역을 탐지합니다. 탐지된 영역은 모드 전환 단축키로 확인할 수 있으며,
-          페이지 구조에 따라 본문이 아닌 영역(헤더·사이드바 등)이 노이즈로 함께 잡힐 수
-          있습니다. 원하는 결과가 아니라면 선택 모드에서 트레이 메뉴의 &quot;영역 수동
-          선택&quot;으로 직접 지정할 수 있습니다.
-        </p>
-        <label className="byte-link-toggle">
-          <input
-            type="checkbox"
-            checked={settings.autoDetectRegion}
-            onChange={(e) => void patch({ autoDetectRegion: e.target.checked })}
-          />
-          활성화
-        </label>
+        <div className="auto-region-row">
+          <p className="desc">
+            활성화 시 텍스트 영역이 자동으로 탐지되며, 페이지 구조에 따라 헤더·사이드바 등
+            본문이 아닌 영역이 함께 포함될 수 있습니다. 이 경우 트레이 메뉴의
+            &quot;영역 수동 선택&quot;을 통해 탐지 영역을 직접 지정할 수 있습니다.
+          </p>
+          <label className="byte-link-toggle">
+            <input
+              type="checkbox"
+              checked={settings.autoDetectRegion}
+              onChange={(e) => void patch({ autoDetectRegion: e.target.checked })}
+            />
+            활성화
+          </label>
+        </div>
       </section>
 
       {/* 언어 선택 */}
       <section className="settings-section">
         <h2>언어 선택</h2>
-        <p className="desc">
-          자동: 자막/화면 텍스트로 언어를 매번 자동 판별합니다. 자막·웹 텍스트는 정확도가
-          높지만, 화면 캡처(OCR) 판별은 폰트나 레이아웃에 따라 틀리는 경우가 있어 상대적으로
-          정확도가 낮습니다. 자동 판별이 계속 틀리는 콘텐츠를 볼 때는 특정 언어를 선택해
-          판별 자체를 건너뛰고 고정하세요.
-        </p>
-        <p className="desc">
-          지원 범위는 3단계입니다 — <strong>1단계</strong>(영어·일본어·중국어): 언어 특화
-          OCR · 사전 검색 · 특화된 발음 표기(히라가나/한어병음 등 그 언어 학습에 맞는 표기) · 형태소 분석기까지
-          전부 지원합니다. <strong>2단계</strong>: 범용 OCR과 IPA 발음, 구글 발음 검색은 되지만
-          사전 검색 기능은 없습니다 — 그중 네이버 사전 연결까지 되는 언어가{' '}
-          <strong>2단계(A)</strong>, 안 되는 언어가 <strong>2단계(B)</strong>입니다(아래
-          목록에서 구분).
-        </p>
         <div className="lang-options">
           <label className="lang-option">
             <input
@@ -932,7 +934,7 @@ export function SettingsScreen() {
             />
             <div>
               <div className="title">자동 언어 감지</div>
-              <div className="desc">자막/화면 텍스트로 언어를 매번 자동으로 판별합니다.</div>
+              <div className="desc">자막이나 화면에 나오는 텍스트의 언어를 자동으로 감지합니다.</div>
             </div>
           </label>
           <label className="lang-option">
@@ -945,7 +947,7 @@ export function SettingsScreen() {
             <div>
               <div className="title">사용자 지정</div>
               <div className="desc">
-                자동 판별을 끄고 항상 선택한 언어 하나로 고정합니다.
+                실제 텍스트의 언어와 상관없이, 지정한 언어로 고정해 인식합니다.
               </div>
             </div>
             <div className="lang-select">

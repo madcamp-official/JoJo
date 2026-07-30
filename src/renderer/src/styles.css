@@ -267,11 +267,13 @@ button:disabled { cursor: not-allowed; }
   background: #fff; border: 1px solid #e6e8ec; border-radius: 12px;
   padding: 20px 22px; margin-bottom: 16px;
 }
-.settings-section h2 { font-size: 15px; margin: 0 0 2px; }
+.settings-section h2 { font-size: 15px; margin: 0 0 4px; }
 .settings-section .desc { font-size: 12px; color: #8b93a1; margin: 0 0 14px; text-align: justify; }
 /* 섹션 제목 옆 "기본값으로 초기화" 버튼(단축키/문맥 범위 섹션, 2026-07-30) — h2 자체 마진은
-   그대로 두고 이 줄에서만 좌우 정렬한다. */
-.settings-section .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+   0으로 두고(가로줄 안에서 세로 정렬만), 대신 이 줄(section-header) 자체에 h2 와 동일한
+   아래 여백을 줘서 일반 h2 섹션과 똑같은 제목-설명 간격을 유지한다(2026-07-31 — 원래
+   이 줄엔 아래 여백이 아예 없어서 일반 섹션보다 간격이 좁았던 걸 통일하면서 바로잡음). */
+.settings-section .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
 .settings-section .section-header h2 { margin: 0; }
 .reset-btn {
   background: #fff; border: 1px solid #dbe0e6; border-radius: 6px; cursor: pointer;
@@ -329,7 +331,11 @@ button:disabled { cursor: not-allowed; }
 .apikey-row label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 6px; }
 .apikey-field { position: relative; flex: 1; }
 .apikey-field input {
-  width: 100%; padding: 10px 40px 10px 12px; border-radius: 8px; border: 1px solid #dbe0e6;
+  /* 담당 B — 높이를 옆 수정/삭제 버튼 그룹(.edit-delete-group, 테두리 포함 28px)에
+     맞춤(2026-07-31 사용자 요청, .shortcut-keys 와 동일한 수정) — 세로 padding 대신
+     고정 height 로 제어. */
+  width: 100%; height: 28px; box-sizing: border-box; padding: 0 40px 0 12px;
+  border-radius: 8px; border: 1px solid #dbe0e6;
   font-size: 13px; font-family: inherit; background: #fff; color: #1e2230;
 }
 .apikey-field input:disabled { background: #f6f7f9; color: #6b7280; }
@@ -342,9 +348,13 @@ button:disabled { cursor: not-allowed; }
 .shortcut-row .label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .shortcut-control { display: flex; gap: 8px; align-items: center; }
 .shortcut-keys {
-  min-width: 96px; text-align: center; padding: 8px 14px; border-radius: 8px;
+  /* 담당 B — 높이를 옆 수정/삭제 버튼 그룹(.edit-delete-group, 테두리 포함 28px)에
+     맞춤(2026-07-31 사용자 요청) — 이전엔 세로 padding(8px)만 지정해서 폰트 높이에 따라
+     28px보다 더 커 보였다. */
+  min-width: 96px; text-align: center; padding: 0 14px; border-radius: 8px;
   border: 1px solid #dbe0e6; background: #f6f7f9; font-size: 13px;
-  white-space: nowrap;
+  white-space: nowrap; height: 28px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .shortcut-keys.recording { border-color: var(--theme); color: var(--theme); background: var(--theme-weak); }
 
@@ -364,6 +374,15 @@ button:disabled { cursor: not-allowed; }
   color: #4b5563; margin: 2px 0 14px; cursor: pointer; user-select: none;
 }
 .byte-link-toggle input { accent-color: var(--theme); }
+/* 텍스트 영역 자동 탐지 섹션(2026-07-31) — 설명 텍스트와 활성화 토글을 한 줄에 나란히
+   배치. 설명이 여러 줄로 접힐 수 있어(단일 줄인 토글과 달리) center 로 정렬해야 토글이
+   문단 중앙에 자연스럽게 걸린다. */
+.auto-region-row { display: flex; align-items: center; gap: 16px; }
+/* word-break: keep-all — 기본값(어절 중간 아무 데서나 줄바꿈)이 "포함"을 "포"+"함"으로
+   쪼개는 등 한글 단어 중간에서 줄이 바뀌는 문제가 있었다(2026-07-31 사용자 제보) —
+   공백 기준 어절 단위로만 줄바꿈하도록 강제. */
+.auto-region-row .desc { margin: 0; flex: 1; word-break: keep-all; }
+.auto-region-row .byte-link-toggle { margin: 0; flex-shrink: 0; }
 .settings-warning {
   margin-top: 12px; padding: 10px 12px; border-radius: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
@@ -388,12 +407,29 @@ button:disabled { cursor: not-allowed; }
 
 .lang-options { display: flex; flex-direction: column; gap: 10px; }
 .lang-option {
-  display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 8px;
+  /* 담당 B — align-items: center(2026-07-31, 사용자 제보 — "패널 내부 위/아래 여백이
+     다름"). flex-start 였을 때는 "사용자 지정" 패널의 select가 텍스트 블록보다 커서
+     아래쪽에만 여백이 남는 것처럼 보였다 — 세로 중앙 정렬로 바꾸면 패딩이 위/아래 어느
+     쪽에서 재는 것처럼 보이든 항상 대칭으로 보인다. 세로 padding 12px→6px(2026-07-31,
+     사용자 요청 — 패널 높이를 기존의 3/4 정도로 축소, 내부 텍스트는 이미 center 정렬).
+     가로 padding 은 그대로 12px 유지. */
+  display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 8px;
   border: 1px solid #e6e8ec; cursor: pointer;
 }
-.lang-option input[type='radio'] { margin-top: 3px; accent-color: var(--theme); }
+/* 라디오 버튼이 옆 2줄짜리 텍스트(제목+설명) 세로 중앙에 안 맞아 보인다는 피드백
+   (2026-07-31) — 네이티브 radio 는 브라우저 기본 margin/box 계산이 flex 중앙 정렬
+   결과를 미묘하게 어긋나 보이게 만들 수 있어, 크기와 margin 을 명시적으로 고정한다. */
+.lang-option input[type='radio'] {
+  accent-color: var(--theme); margin: 0; width: 16px; height: 16px; flex-shrink: 0;
+}
 .lang-option .title { font-size: 13px; font-weight: 500; }
-.lang-option .desc { font-size: 12px; color: #8b93a1; margin-top: 2px; }
+/* margin 을 shorthand 전체로 지정하는 이유(2026-07-31, "패널 텍스트가 세로 중앙에 안
+   옴" 버그의 진짜 원인) — 섹션 공용 규칙 `.settings-section .desc`(margin: 0 0 14px)와
+   특이도가 같아 "나중에 선언된 쪽"이 이기는데, 여기서 margin-top 만 선언하면
+   margin-bottom: 14px 는 공용 규칙 값이 그대로 살아남는다. 그 보이지 않는 14px 아래
+   여백이 텍스트 블록 높이에 포함돼, flex 중앙 정렬 기준이 아래로 부풀며 텍스트 두 줄이
+   패널 위쪽으로 밀려 보였다(라디오 위치를 아무리 옮겨도 안 맞아 보였던 이유). */
+.lang-option .desc { font-size: 12px; color: #8b93a1; margin: 2px 0 0; }
 /* 언어 59개 전체를 담는 드롭다운(2026-07-30, 기존 tier1 4개짜리 pill 버튼 목록에서 교체.
    쿠르드어 제외 전수조사 이후 60→59, 아래 주석 참고)
    — optgroup(tier1/2-A/2-B) 라벨이 브라우저 기본 렌더링으로 굵게+들여쓰기 구분돼 별도
