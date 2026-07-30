@@ -1,22 +1,22 @@
 import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
-  consumeDebugBlocksVisible,
   onWindowResized,
+  sendExtractionStarted,
   sendOverlayNotice,
   sendRegionSelectionNeeded,
   setOverlayMode,
 } from '../windows'
 import { getSettings } from '../settingsStore'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
-import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
+import { abandonInFlightExtraction, invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
 import { isWebModeActive, startWebMode, stopWebMode } from './webSource'
 import { getBrowserSource } from '../extension/activeTab'
 
-// 담당 A — 모드 전환 전역 단축키 (PLAN.md §4, 기본 macOS: Option+Q / Windows: Alt+Q)
+// 담당 A — 모드 전환 전역 단축키 (PLAN.md §4, 기본 macOS: Option+` / Windows: Alt+`)
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
 let mode: AppMode = 'normal'
 let currentAccelerators: string[] = []
@@ -77,7 +77,11 @@ function exitSelectMode(): void {
 }
 
 export function toggleMode(): void {
-  if (consumeDebugBlocksVisible()) return
+  // "자동 탐지 블록이 떠 있으면 첫 누름은 블록만 지운다"는 규칙(2026-07-29)은 제거됨
+  // (2026-07-30 사용자 결정 — "모드 전환 버튼은 무조건 모드 전환만") : 개발 모드에선
+  // 매 추출마다 블록이 항상 다시 떠서(extractionCache.ts import.meta.env.DEV 분기),
+  // 화면이 자주 바뀌는 콘텐츠에선 누를 때마다 블록 지우기로만 소비돼 사실상 선택
+  // 모드에서 못 빠져나오는 문제가 있었다.
   if (mode === 'select') {
     exitSelectMode()
     return
@@ -151,6 +155,12 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     // 자막 경로 — OCR 영역 선택/캡처/변화감지를 전부 중단하고 확장 자막을 쓴다.
     stopWebMode()
     stopChangeWatcher()
+    // 첫 판정이 일시적으로 OCR 로 잘못 났다가(확장 활성 탭 보고 도착 전) 이번 재판정으로
+    // 넘어온 경우, 그 판정이 이미 시작한 OCR 인식이 백그라운드에서 계속 돌다가 완료
+    // 시점에 결과를 커밋(sendOverlayWords 등)해 direct 추출과 OCR 이 동시에 도는 것처럼
+    // 보이는 문제(2026-07-30 사용자 제보) — 진행 중인 추출을 폐기해 커밋 가드가 결과를
+    // 버리게 한다(changeWatcher 복귀 판정과 동일한 메커니즘).
+    abandonInFlightExtraction()
     startSubtitleMode()
     return
   }
@@ -168,6 +178,7 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     stopSubtitleMode()
     stopWebMode()
     stopChangeWatcher()
+    abandonInFlightExtraction() // subtitle 분기와 동일 — 낡은 OCR 판정이 시작한 진행 중 인식 폐기
     startWebMode(() => {
       if (wasDirectExtraction) exitSelectMode()
       else startOcrFallback(epoch)
@@ -192,6 +203,13 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
 // OCR 영역/캡처/변화감지 흐름으로 진입한다 — decision.mode 가 애초에 ocr/direct 였을 때,
 // 그리고 web 모드가 텍스트 부족으로 startWebMode 의 콜백을 통해 폴백할 때 공유한다.
 function startOcrFallback(epoch: number): void {
+  // "언어 감지 & 텍스트 영역 탐지 중…" 배너는 실제로 OCR 경로가 확정된 지금 시점에만
+  // 띄운다(2026-07-30 사용자 제보 — 예전엔 Overlay.tsx가 mode==='select' 가 되는
+  // 즉시 판정 결과와 무관하게 이 배너부터 켜서, 크롬 창을 선택했을 때 decideExtraction()
+  // 의 활성 탭 대기(최대 1.2초, waitForBrowserSource) 동안 최종적으론 subtitle/web 으로
+  // 판정될 페이지에서도 OCR 문구가 먼저 잠깐 떴다). 이제 판정이 끝나 OCR 로 확정된
+  // 뒤에만 메인이 명시적으로 신호를 보낸다 — subtitle/web 경로는 이 신호 자체가 없다.
+  sendExtractionStarted()
   if (getRegion()) {
     refreshExtractionCache()
     startChangeWatcher()
@@ -309,7 +327,7 @@ function expandAccelerator(accelerator: string): string[] {
   return [accelerator, accelerator.replace('CommandOrControl', 'Control')]
 }
 
-export function registerModeShortcut(accelerator = 'Alt+Q'): void {
+export function registerModeShortcut(accelerator = 'Alt+`'): void {
   if (!accelerator) return // 빈 문자열 = 단축키 해제 상태(등록 안 함)
   const accelerators = expandAccelerator(accelerator)
   accelerators.forEach((a) => globalShortcut.register(a, toggleMode))

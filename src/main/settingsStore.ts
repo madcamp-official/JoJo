@@ -9,7 +9,7 @@ import type { AnyLanguage, AppSettings } from '@shared/types'
 const DEFAULT_SETTINGS: AppSettings = {
   llm: null, // 기본 provider 를 임의 지정하지 않음 — 사용자가 처음 고르기 전엔 미선택
   language: 'auto',
-  modeShortcut: 'Alt+Q',
+  modeShortcut: 'Alt+`',
   // macOS 는 Cmd/Ctrl 을 서로 다른 물리 키로 취급(둘 다 registerModeShortcut 처럼 한 accelerator
   // 에 뭉뚱그리지 않음) — 관례상 Cmd. Windows 는 Ctrl 밖에 없으니 그대로 Ctrl.
   settingsShortcut: process.platform === 'darwin' ? 'Command+,' : 'Control+,',
@@ -20,9 +20,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   windowDeselectShortcut: 'Alt+2',
   manualRegionShortcut: 'Alt+3',
   forceOcrShortcut: 'Alt+4',
-  contextBytesBefore: 1024,
-  contextBytesAfter: 1024,
-  contextBytesLinked: true,
+  // 앞뒤 비대칭 기본값(2026-07-30, 사용자 요청 — 앞 700 / 뒤 300) — 값 자체가 다르므로
+  // contextBytesLinked 기본값도 false 로 함께 바꿔야 앞뒤가 실제로 다르다는 걸 UI가
+  // 일관되게 보여준다(linked=true 면 "앞·뒤 공통" 단일 컨트롤로 합쳐 보여주는데, 그 상태로
+  // 서로 다른 700/300을 들고 있으면 화면엔 700만 보이고 실제 뒤 값(300)은 안 보이는
+  // 모순이 생김).
+  contextBytesBefore: 700,
+  contextBytesAfter: 300,
+  contextBytesLinked: false,
   models: {},
   autoDetectRegion: false,
 }

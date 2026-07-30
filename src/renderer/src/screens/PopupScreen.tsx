@@ -367,11 +367,13 @@ export function PopupScreen() {
   // 선택 범위가 바뀔 때마다(초기 선택 포함) 현재 선택된 표현을 클립보드에 자동 복사한다
   // — 팝업에서 원문 문맥을 재지정해가며 찾아본 단어를 바로 다른 곳에 붙여넣고 싶을 때를
   // 위함. 빈 문자열까지 복사하면 사용자가 다른 데서 복사해둔 내용을 덮어써버리므로 제외.
+  // navigator.clipboard 가 아니라 메인 프로세스 클립보드(IPC)를 쓴다(2026-07-30) —
+  // navigator.clipboard 는 문서가 포커스돼 있어야 동작해서, 첫 페인트 전까지 숨겨진 채로
+  // 만들어지는 팝업의 "뜬 직후" 초기 복사가 조용히 실패했다(사용자 제보 — 팝업이 뜬
+  // 직후엔 복사가 안 되고 범위를 손으로 바꾼 뒤부터만 됐던 원인).
   useEffect(() => {
     if (!currentCtx.selectedText) return
-    navigator.clipboard.writeText(currentCtx.selectedText).catch(() => {
-      // 클립보드 접근 실패는 조용히 무시 — 핵심 기능(선택/질문)에 영향 없음
-    })
+    void window.nuance.copyToClipboard(currentCtx.selectedText)
   }, [currentCtx.selectedText])
 
   // ---- 사전 소스 직접 선택(정식 기능, 2026-07-30 격상) -----------------------

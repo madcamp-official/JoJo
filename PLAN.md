@@ -101,13 +101,14 @@
 
 | 채널 | 대상 | 텍스트 확보 방식 |
 |------|------|------------------|
-| 데스크톱 | txt/epub 뷰어 | 원본 파일 직접 추출 |
-| 데스크톱 | PDF 뷰어 | 추출 시도 → 텍스트 양으로 판정(적으면 OCR) |
+| 데스크톱 | txt/epub | **Nuance 자체 내장 뷰어**로 열어 원본 파일 직접 추출(2026-07-30 계획 변경 — 외부 뷰어의 접근성 API에 기대지 않음, 근거는 §5.1 참고) |
+| 데스크톱 | PDF(macOS 프리뷰, 텍스트 레이어 있는 경우) | 접근성 API(AX)로 텍스트+좌표 직접 획득, OCR 미사용(2026-07-30 계획 변경) |
+| 데스크톱 | PDF(그 외 뷰어·스캔본) | 추출 시도 → 텍스트 양으로 판정(적으면 OCR) |
 | 데스크톱 | Kindle/Apple Books(전자책 뷰어) | 접근성 API로 렌더 텍스트 추출 시도 → 실패 시 OCR |
 | 데스크톱 | 스캔 소설 | OCR |
 | 브라우저 | 유튜브 | URL 기반 원어 자막 추출 |
 | 브라우저 | 넷플릭스 | 확장 프로그램으로 현재 에피소드 원어 자막 추출 |
-| 브라우저 | 웹소설·웹툰·일반 웹페이지 | 확장으로 DOM 텍스트 추출 → 부족하면 OCR |
+| 브라우저 | 웹소설·웹툰·일반 웹페이지·PDF | 확장으로 DOM/텍스트 레이어 직접 추출 → 부족하면 OCR(PDF도 동일 경로로 2026-07-30 추가) |
 
 ## 4. 사용 흐름
 
@@ -128,7 +129,7 @@
 **설정 화면** (섹션 순서):
 1. **LLM 선택** — GPT / Gemini / Claude 카드형 단일 선택(선택 시 체크 표시).
 2. **API 키 관리** — 선택한 LLM의 키 입력, 보기(눈 아이콘)·수정·삭제. "안전하게 암호화 저장, 외부 미전송" 안내. 키 입력/수정·provider 선택 시 **무과금 GET으로 유효성 검사 + 사용 가능 모델 목록**을 받아, 유효/무효 상태와 **사용 모델 드롭다운**을 함께 표시(미선택 시 기존 기본 모델 사용). 잔액/크레딧은 공개 API 부재로 표시하지 않고, 크레딧 부족은 질문 시 에러로 안내.
-3. **단축키 설정** — 모드 전환(일반 ↔ 선택) 키 지정. 기본 예: `Alt+Q`, 연필(변경)/휴지통(해제) 아이콘 버튼. 표시는 OS에 맞춰 macOS는 `Cmd/Ctrl`·`Opt`, 그 외는 `Ctrl`·`Alt`로 보여주며, macOS에서는 실제로 Cmd/Ctrl 두 키 모두로 동작한다.
+3. **단축키 설정** — 모드 전환(일반 ↔ 선택) 키 지정. 기본 예: `` Alt+` ``, 연필(변경)/휴지통(해제) 아이콘 버튼. 표시는 OS에 맞춰 macOS는 `Cmd/Ctrl`·`Opt`, 그 외는 `Ctrl`·`Alt`로 보여주며, macOS에서는 실제로 Cmd/Ctrl 두 키 모두로 동작한다.
 4. **문맥 범위(Byte)** — 프롬프트 제출 시 함께 넘길 앞뒤 텍스트 범위를 Byte 단위로 지정(자유 지정: 연속 슬라이더 + 숫자 입력, 상한은 고정값이 아니라 설정 화면 미리보기 텍스트 길이 기반으로 동적 계산됨 — `SettingsScreen.tsx` `BYTE_MAX`). 앞/뒤 예산을 분리해 각각 지정하거나 잠금(linked)으로 동일 값 사용. 실제로는 순수 바이트 경계에서 문장이 잘리지 않도록 문장 경계까지 확장된다. 미리보기에 "포함 제외 / 사용자 선택 영역 / 포함될 주변 범위"를 색으로 시각화.
 5. **언어 선택** — 자동 언어 감지 / 직접 선택(영어·일본어·중국어). OCR 언어 설정. 중국어는 간체/번체를 따로 고르지 않고 Tesseract 언어팩을 `chi_sim+chi_tra`로 함께 로드해 자동 판별한다.
 
@@ -169,9 +170,11 @@
 ```
 
 **OCR 사용 여부 판정 로직** — 원칙: "직접 추출을 먼저 시도하고, 확보 텍스트가 부족할 때만 OCR로 fallback".
-- 유튜브·넷플릭스·txt 뷰어 → 직접 추출.
-- Kindle·Apple Books 등 전자책 뷰어 → **접근성 API(macOS AX / Windows UIA)로 렌더된 텍스트 추출을 먼저 시도** → epub 임포트 등으로 원본 텍스트가 노출되면 직접 추출, DRM·이미지 렌더로 추출 불가하면 OCR. (Apple Books는 AX로 잘 노출, Kindle은 편차 있어 fallback 필수.)
-- PDF 뷰어·기타 웹사이트 → 텍스트 추출 시도 후, 노출 텍스트 양이 많으면 직접 추출 / 통짜 이미지면 OCR.
+- 유튜브·넷플릭스 → 확장으로 원어 자막 직접 추출.
+- txt·epub → **(2026-07-30 계획 변경) Nuance 자체 내장 뷰어**로 열어 원본 파일에서 직접 추출. 외부 뷰어(Kindle 등)의 접근성 API에 기대지 않는다 — 실측 조사 결과 Kindle for Mac은 `AXStringForRange`로 텍스트는 정확히 주지만 `AXBoundsForRange`/`AXRangeForLine`(좌표)이 항상 자리표시자 값만 반환해 사실상 고장나 있음이 확인돼(TODO.md 참고), 좌표까지 확실히 얻으려면 렌더링 자체를 우리가 통제하는 자체 뷰어가 필요하다고 판단.
+- 브라우저(웹페이지·PDF 포함) → 확장으로 DOM/텍스트 레이어 직접 추출 → 부족하면 OCR.
+- macOS 프리뷰(Preview.app)로 연 PDF, 텍스트 레이어가 있는 경우 → **(2026-07-30 계획 변경) 접근성 API(AX)로 텍스트+좌표를 직접 획득**해 OCR 없이 바로 오버레이 호버박스로 연결. 실측 조사 결과 이 경우 AX의 `AXStaticText`/`AXBoundsForRangeParameterizedAttribute`가 문자 단위까지 정확한 텍스트+CGRect를 모두 제공함을 확인(TODO.md 참고). 스캔본(텍스트 레이어 없는 PDF, `AXImage` 리프 노드만 노출)이면 OCR로 폴백.
+- Kindle·Apple Books 등 그 외 전자책 뷰어 → **접근성 API(macOS AX / Windows UIA)로 렌더된 텍스트 추출을 먼저 시도** → DRM·이미지 렌더 등으로 추출 불가하면 OCR. (Apple Books는 AX로 잘 노출, Kindle은 텍스트는 되지만 좌표가 안 돼 편차 있어 fallback 필수 — 위 txt/epub 자체 뷰어 결정의 근거이기도 함.)
 - 스캔 소설 → OCR.
 
 **판정 시점**
@@ -275,7 +278,7 @@ flowchart TB
 ## 8. 까다로운 부분 & 해결 전략
 
 
-- **OCR 노이즈 제거**: 소설 제목·페이지 번호 등 불필요 텍스트를 **좌표 기반 규칙**(위치·반복성·정렬)으로 필터링 후 저장. 페이지 경계에 걸린 문장은 앞뒤 조각을 자연스럽게 이어붙임.
+- **OCR 노이즈 제거**: 소설 제목·페이지 번호 등 불필요 텍스트를 DocLayout-YOLO 레이아웃 분류(`layoutDetect.ts`)로 걸러낸다 — header/footer/footnote/aside_text/number/reference 등 본문이 아닌 라벨의 블록을 제외하고 본문(body) 라벨만 채택(`regionSelection.ts`의 `BODY_LABELS` 필터). 페이지 경계에 걸린 문장은 앞뒤 조각을 자연스럽게 이어붙임.
 - **HTML 문단 잇기**: 태그는 제외하고 내부 텍스트만 이어 자연스러운 문단 구성.
 - **직접 추출 vs OCR 구분**: PDF/HTML에서 추출 시도 → 텍스트 양으로 분기(위 4.1 로직).
 - **판정 시점 캐싱**: URL을 키로 판정 결과를 유지, URL 변화 시에만 재판정.
@@ -403,11 +406,11 @@ JoJo/
 │   │   ├── devSeed.ts           #   [dev] .env(MAIN_VITE_*) API 키 seed
 │   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
-│   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Alt+Q, macOS Cmd/Ctrl 이중 등록)
+│   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Alt+`, macOS Cmd/Ctrl 이중 등록)
 │   │   │   ├── capture.ts       #   창 목록/캡처 — win32는 네이티브 우선(desktopCapturer 폴백), macOS는 목록에 desktopCapturer·캡처는 screencapture -l + 선택 창 id 보관
 │   │   │   ├── win32Capture.ts  #   Windows 네이티브 창 열거·캡처(koffi FFI, 가려짐/최소화 대응)
 │   │   │   ├── macWindow.ts     #   macOS CoreGraphics/AppKit 바인딩(koffi) — bounds 조회·창 raise
-│   │   │   ├── decideOcr.ts     #   OCR 사용 여부 판정(현재 파이프라인에선 미사용, 아래 참고)
+│   │   │   ├── decideOcr.ts     #   추출 방식 판정(direct/ocr/subtitle/web 4갈래) — `shortcut.ts`(진입 시)·`extension/reevaluate.ts`(탭/URL 변화 재판정)가 호출하는 핵심 디스패처
 │   │   │   ├── extractDirect.ts #   소스별 직접 추출 — txt(win32 전용) 구현, epub/pdf/web 미구현
 │   │   │   ├── webSource.ts     #   일반 웹페이지 DOM 텍스트 direct 추출(범용 본문 탐지, 2026-07-30 구현 완료)
 │   │   │   ├── subtitleSource.ts #  유튜브/넷플릭스 자막 direct 추출 + anchor 매칭
@@ -429,6 +432,10 @@ JoJo/
 │   │   │   ├── engines/         #   엔진별 구현 — ja: lindera.ts(WASM, IPADIC) / sudachi.ts(python 상주 서버, UniDic) · zh: jieba.ts(@node-rs/jieba, zh-Hans 고정) / intl-zh.ts(Intl.Segmenter) / chineseTokenizer.ts(CC-CEDICT 그리디)
 │   │   │   ├── chinese.ts       #   중국어 엔진 디스패처 — zh-Hans는 jieba 고정, zh-Hant는 ZH_HANT_ENGINE 상수로 전환
 │   │   │   └── chinese-tokenizer.d.ts # chinese-tokenizer 최소 타입 선언(공식 타입 없음)
+│   │   ├── extension/           # 🅱️ 크롬 확장 브릿지(Electron main 쪽)
+│   │   │   ├── bridge.ts        #   로컬 WebSocket 서버 — 확장 background 접속·자막/DOM 텍스트 수신
+│   │   │   ├── activeTab.ts     #   확장이 보고하는 활성 탭(URL/미디어 여부) 추적
+│   │   │   └── reevaluate.ts    #   선택 모드 중 탭/URL 변화 시 `decideOcr.ts` 재호출
 │   │   └── question/           # 🅱️ 질문/AI (담당 B)
 │   │       ├── index.ts         #   질문 라우터(발음/사전/통합질문)
 │   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음) — 구현 완료

@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { clipboard, ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
   AnyLanguage,
@@ -76,6 +76,10 @@ export function registerIpc(): void {
     setMainWindowRoute(route)
   })
 
+  ipcMain.handle(IPC.WINDOW_HIDE, async (): Promise<void> => {
+    getMainWindow()?.hide()
+  })
+
   ipcMain.handle(IPC.SELECT_WINDOW, async (_e, source: CaptureSource) => {
     setSelectedWindowId(source.id)
     setSelectedWindowName(source.name)
@@ -114,9 +118,12 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.GET_MODE, async () => getOverlayMode())
 
-  ipcMain.handle(IPC.OVERLAY_SET_INTERACTIVE, async (_e, interactive: boolean) => {
-    setOverlayInteractive(interactive)
-  })
+  ipcMain.handle(
+    IPC.OVERLAY_SET_INTERACTIVE,
+    async (_e, interactive: boolean, cursor: 'pointer' | 'crosshair' | null = null) => {
+      setOverlayInteractive(interactive, cursor)
+    },
+  )
 
   // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → 팝업(담당 B) 오픈 + 전달
   // (자막 경로는 이 핸들러를 타지 않는다 — 확장이 페이지 안에서 직접 클릭을 처리해
@@ -273,6 +280,12 @@ export function registerIpc(): void {
   // 완성된 URL을 그대로 넘기므로(위 둘처럼 여기서 URL을 조립하지 않음) payload는 문자열 하나.
   ipcMain.handle(IPC.OPEN_EXTERNAL_LINK, async (_e, url: string) => {
     await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
+  })
+
+  // 담당 B: 선택 표현 자동 복사 — navigator.clipboard 는 문서 포커스가 필요해 팝업이
+  // 숨겨진 채 뜨는 초기 시점엔 실패했다(채널 주석 참고). Electron clipboard 는 포커스 무관.
+  ipcMain.handle(IPC.CLIPBOARD_COPY, async (_e, text: string) => {
+    clipboard.writeText(text)
   })
 
   // 담당 B: 팝업 원문 문맥의 가나 조각 병합용 일본어 형태소 분석 (nlp/japanese.ts).

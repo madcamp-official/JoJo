@@ -753,25 +753,25 @@ export function SettingsScreen() {
 
       {/* 문맥 범위(Byte) */}
       <section className="settings-section">
-        <div className="section-header">
-          <h2>문맥 범위 (Byte)</h2>
-          <button className="reset-btn" disabled={!defaultSettings} onClick={resetContextRange}>
-            기본값으로 초기화
-          </button>
-        </div>
+        <h2>문맥 범위 (Byte)</h2>
         <p className="desc">
           선택한 표현을 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
           전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
         </p>
 
-        <label className="byte-link-toggle">
-          <input
-            type="checkbox"
-            checked={settings.contextBytesLinked}
-            onChange={toggleLinked}
-          />
-          앞·뒤를 동일한 값으로 설정
-        </label>
+        <div className="section-header">
+          <label className="byte-link-toggle">
+            <input
+              type="checkbox"
+              checked={settings.contextBytesLinked}
+              onChange={toggleLinked}
+            />
+            앞·뒤를 동일한 값으로 설정
+          </label>
+          <button className="reset-btn" disabled={!defaultSettings} onClick={resetContextRange}>
+            기본값으로 초기화
+          </button>
+        </div>
 
         {settings.contextBytesLinked ? (
           <ByteControl
@@ -846,11 +846,10 @@ export function SettingsScreen() {
       <section className="settings-section">
         <h2>언어 선택</h2>
         <p className="desc">
-          자동: 자막/화면 텍스트로 언어를 매번 자동 판별합니다. 대부분의 경우 정확하지만,
-          라틴·키릴·아랍·데바나가리 문자를 공유하는 언어(예: 프랑스어/독일어/스페인어 등)가
-          섞인 콘텐츠에서는 판별이 흔들릴 수 있습니다. 특정 언어를 선택하면 이 판별 자체를
-          건너뛰고 항상 해당 언어로 확정합니다 — 자동 판별이 계속 틀리는 콘텐츠를 볼 때
-          유용합니다.
+          자동: 자막/화면 텍스트로 언어를 매번 자동 판별합니다. 자막·웹 텍스트는 정확도가
+          높지만, 화면 캡처(OCR) 판별은 폰트나 레이아웃에 따라 틀리는 경우가 있어 상대적으로
+          정확도가 낮습니다. 자동 판별이 계속 틀리는 콘텐츠를 볼 때는 특정 언어를 선택해
+          판별 자체를 건너뛰고 고정하세요.
         </p>
         <p className="desc">
           지원 범위는 3단계입니다 — <strong>1단계</strong>(영어·일본어·중국어): 언어 특화

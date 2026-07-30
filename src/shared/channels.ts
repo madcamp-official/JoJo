@@ -7,9 +7,19 @@ export const IPC = {
   SELECT_WINDOW: 'window:select',
   WINDOW_SELECTED: 'window:selected',
   GET_SELECTED_WINDOW_ID: 'window:getSelectedId',
+  // 창 선택 화면에서 Esc — 이미 선택된 창이 있으면 메인 화면으로 안 돌아가고 그냥 숨는다
+  // (2026-07-30 사용자 요청: "창 선택이 돼 있는 상태라면 메인 화면이 뜨지 않도록").
+  WINDOW_HIDE: 'window:hide',
   GET_MODE: 'mode:get',
   MODE_CHANGED: 'mode:changed',
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
+  // macOS 전용 커서 위치 통지(2026-07-30) — 클릭스루 상태(setIgnoreMouseEvents(true))의
+  // 오버레이는 win32에선 forward:true 로 mousemove 가 렌더러까지 전달되지만, mac에선
+  // 이 forwarding 이 실제로 동작하지 않아 hover 판정이 아예 안 돌았다(실사용 확인 —
+  // 호버 박스가 커서를 안 따라오고, interactive 전환이 안 돼 커서 모양도 안 바뀜).
+  // 메인이 커서 위치를 폴링(windows.ts)해 오버레이-로컬 좌표로 보내주면 렌더러
+  // (Overlay.tsx)가 mousemove 와 동일하게 hover 판정에 쓴다.
+  OVERLAY_CURSOR: 'overlay:cursor',
   // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록을 오버레이로 통지 (extractionCache.ts)
   EXTRACTION_WORDS: 'selection:words',
   // 추출 진행 알림 1단계("언어 감지 & 텍스트 영역 탐지") — 선택 모드 진입, 리사이즈,
@@ -44,6 +54,10 @@ export const IPC = {
   // 메인/피커/설정 화면 전환 (공동) — 세 화면은 한 창을 재사용한다(동시 표시 불필요).
   // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.
   WINDOW_SET_ROUTE: 'window:setRoute',
+  // 렌더러가 NAVIGATE 를 받아 실제로 해당 라우트로 전환·렌더를 마쳤을 때 응답(windows.ts:
+  // showMainWindowAtRoute 가 이 신호를 받은 뒤에야 숨겨진 창을 show() 해 화면 전환
+  // 깜빡임을 없앤다).
+  NAVIGATE_READY: 'window:navigateReady',
   NAVIGATE: 'window:navigate',
   // "설정 화면 열기" 단축키(기본 Cmd/Ctrl+,, 2026-07-29) — 예전엔 globalShortcut(OS
   // 전역 후킹)으로 구현했으나, Cmd+,는 VSCode/Claude Desktop 등 다른 앱도 흔히 쓰는
@@ -78,6 +92,10 @@ export const IPC = {
   // 채팅창 마크다운 안의 링크(사전 출처 등)를 구글/네이버 버튼과 동일한 방식(기본
   // 브라우저의 새 창, 팝업과 같은 위치·크기)으로 연다 — 이미 완성된 URL을 그대로 받는다.
   OPEN_EXTERNAL_LINK: 'popup:openExternalLink',
+  // 선택 표현 자동 복사(2026-07-30) — navigator.clipboard 는 문서가 포커스돼 있어야
+  // 동작해서, 숨겨진 채로 만들어지는 팝업의 "뜬 직후" 초기 복사가 조용히 실패했다.
+  // 포커스와 무관한 메인 프로세스 Electron clipboard 로 대신 쓴다.
+  CLIPBOARD_COPY: 'popup:clipboardCopy',
   // 팝업 원문 문맥의 가나 atom 병합용 — 일본어 형태소 분석(main/nlp/japanese.ts)
   TOKENIZE_JA: 'popup:tokenizeJa',
   // 팝업 원문 문맥의 중국어 단어 atom 구성용 — 형태소 분석(main/nlp/chinese.ts, zh-Hans/zh-Hant 별 엔진)

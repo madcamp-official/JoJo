@@ -352,6 +352,61 @@ export function raiseAndGetBounds(windowId: number): MacWindowRect | null {
   return info.bounds
 }
 
+// ---- objc: NSCursor 로 시스템 커서 모양 설정 ----------------------------------
+// mac은 "활성 앱"이 시스템 커서를 소유해서, 비활성(백그라운드) 앱의 창 위에서는 CSS
+// cursor 가 반영되지 않는다 — 오버레이는 focusable:false 라 항상 비활성이어서, hover
+// (pointer)·영역 드래그(crosshair) 커서를 CSS 로는 못 바꾼다(2026-07-30 실사용 확인,
+// win32는 "커서 아래 창"이 커서를 정하는 구조라 이 문제가 없음). NSCursor 의 클래스
+// 프로퍼티(pointingHandCursor 등)로 커서 객체를 얻어 -set 을 직접 호출한다. 활성 앱이
+// 마우스 이동 때마다 자기 커서로 덮어쓸 수 있어서, 호출부(windows.ts 커서 폴링)가
+// 상태가 유지되는 동안 매 틱 재설정한다.
+
+export type MacCursorKind = 'pointer' | 'crosshair' | 'arrow'
+
+let cursorReady = false
+let cursorOk = false
+let msgSendGetCursor: KFn | null = null // [NSCursor pointingHandCursor] 등 (cls, sel) -> NSCursor*
+let msgSendCursorSet: KFn | null = null // [cursor set]
+let clsNSCursor: unknown = null
+let selCursorSet: unknown = null
+const cursorSelectors: Partial<Record<MacCursorKind, unknown>> = {}
+
+function ensureCursor(): boolean {
+  if (cursorReady) return cursorOk
+  cursorReady = true
+  try {
+    const objc = koffi.load('/usr/lib/libobjc.A.dylib')
+    koffi.load('/System/Library/Frameworks/AppKit.framework/AppKit')
+    const objc_getClass = objc.func('void* objc_getClass(const char* name)')
+    const sel_registerName = objc.func('void* sel_registerName(const char* name)')
+    msgSendGetCursor = objc.func('objc_msgSend', 'void*', ['void*', 'void*'])
+    msgSendCursorSet = objc.func('objc_msgSend', 'void', ['void*', 'void*'])
+    clsNSCursor = objc_getClass('NSCursor')
+    selCursorSet = sel_registerName('set')
+    cursorSelectors.pointer = sel_registerName('pointingHandCursor')
+    cursorSelectors.crosshair = sel_registerName('crosshairCursor')
+    cursorSelectors.arrow = sel_registerName('arrowCursor')
+    cursorOk = !!clsNSCursor
+  } catch {
+    cursorOk = false
+  }
+  return cursorOk
+}
+
+/** 시스템 커서를 지정 모양으로 설정한다. 실패해도 예외 없이 false 만 반환(커서가 안
+ *  바뀔 뿐 기능엔 지장 없음 — 호출부가 폴백을 마련할 필요도 없다). */
+export function setMacCursor(kind: MacCursorKind): boolean {
+  if (!ensureCursor()) return false
+  try {
+    const cursor = msgSendGetCursor!(clsNSCursor, cursorSelectors[kind])
+    if (!cursor) return false
+    msgSendCursorSet!(cursor, selCursorSet)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** desktopCapturer 소스 id("window:12345:0")에서 CGWindowID 숫자를 파싱한다. */
 export function parseMacWindowId(sourceId: string): number | null {
   const m = /^window:(\d+)/.exec(sourceId)

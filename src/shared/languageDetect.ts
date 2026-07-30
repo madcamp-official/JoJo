@@ -77,6 +77,23 @@ export function detectCjkVariant(text: string): 'ja' | 'zh-Hans' | 'zh-Hant' | n
   return raw === 'ja' || raw === 'zh-Hans' || raw === 'zh-Hant' ? raw : null
 }
 
+const KANA_RE = /[぀-ヿ]/
+
+/** detectCjkVariant의 관대한 버전 — eld는 아주 짧거나 순수 CJK뿐인 표본(자막 한 줄,
+ *  기사 문단 일부)에서 종종 판별에 실패한다(순수 중국어 문단인데도 raw language가 안
+ *  잡히는 사례 실측 확인, 2026-07-30). eld가 놓치면 문자 종류 자체로 한 번 더 본다 —
+ *  가나가 있으면 ja, 한자만 있으면 detectHanziVariant. hover 세그멘테이션 요청 라우팅
+ *  (자막 highlight.ts 경로/웹 articleHighlight.ts 경로가 공유하는 bridge.ts
+ *  requestWordSegments)에서만 쓴다 — 여기서 언어가 안 잡히면 그 줄/문단은 영원히 글자
+ *  단위 hover 로 남기 때문에, 일반 언어 판별보다 더 관대하게 잡아야 한다. */
+export function resolveCjkLanguage(text: string): 'ja' | 'zh-Hans' | 'zh-Hant' | null {
+  const detected = detectCjkVariant(text)
+  if (detected) return detected
+  if (KANA_RE.test(text)) return 'ja'
+  if (HAN_CHAR_RE.test(text)) return detectHanziVariant(text)
+  return null
+}
+
 /** tier1 4개로만 좁힌 판별 — LLM 사전처럼 tier1 전용 기능 게이팅에 쓴다(tier2/3는 전부
  *  null). `detectSupportedLanguage`가 tier2까지 반환하는 것과 용도가 다르니 혼동 주의. */
 export function detectFullLanguage(text: string): Language | null {

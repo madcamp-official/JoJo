@@ -44,13 +44,15 @@ export function Overlay() {
   // 배열로 남는다(onDebugBlocks 자체는 등록해도 무해 — 그냥 아무 이벤트도 안 옴).
   const [debugBlocks, setDebugBlocks] = useState<Rect[]>([])
   const [resolving, setResolving] = useState(false)
-  // 선택 모드 진입 시 메인이 백그라운드로 캡처+OCR 을 시작한다(extractionCache.ts:
-  // refreshExtractionCache, shortcut.ts 가 모드 전환 즉시 호출) — 그 사이(1~3초) 동안
-  // 아무 표시도 없으면 멈춘 것처럼 보여서, 모드 진입 즉시 켜고 onExtractionWords 로
-  // 결과(성공/실패 모두 빈 배열이라도)가 오면 끈다.
+  // 메인이 OCR 경로가 실제로 확정된 뒤(shortcut.ts: startOcrFallback, changeWatcher.ts
+  // 재추출 등)에만 onExtractionStarted 를 보내 이 배너를 켠다 — 모드 진입 즉시(판정 전)
+  // 켜지 않는다(2026-07-30, 사용자 제보 — 크롬 창을 선택하면 decideExtraction() 의 활성
+  // 탭 대기(최대 1.2초) 동안, 최종적으론 subtitle/web 으로 판정될 페이지에서도 이 OCR
+  // 전용 문구가 먼저 잠깐 떴었다). onExtractionWords 로 결과(성공/실패 모두 빈 배열이라도)
+  // 가 오면 끈다.
   const [extracting, setExtracting] = useState(false)
   // 추출 중 배너를 2단계로 나눠 보여준다(사용자 요청, 2026-07-29) — extracting 이 켜지는
-  // 시점(모드 진입/화면 변화 감지)엔 아직 "언어 감지 & 텍스트 영역 탐지" 단계이고,
+  // 시점(OCR 확정 직후/화면 변화 감지)엔 아직 "언어 감지 & 텍스트 영역 탐지" 단계이고,
   // extractionCache.ts 가 언어 감지를 끝내고 실제 OCR 을 시작하면(onExtractionOcrStarted)
   // "텍스트 추출" 단계로 넘어간다.
   const [extractionPhase, setExtractionPhase] = useState<'detect' | 'ocr'>('detect')
@@ -63,7 +65,7 @@ export function Overlay() {
   // 애매해서 ref 로 동기적으로 체크). onOverlayClick 맨 앞에서 한 번만 소비한다.
   const justSubmittedRegionRef = useRef(false)
   // changeWatcher.ts(메인 프로세스)의 배경 재추출 콜백은 화면 변화 감지 후 800ms 대기 +
-  // 비동기 영역 재감지를 거치는데, 그 사이에 사용자가 선택 모드를 나가도(Alt+Q)
+  // 비동기 영역 재감지를 거치는데, 그 사이에 사용자가 선택 모드를 나가도(Alt+`)
   // stopChangeWatcher 는 "아직 안 fire 한" 타이머만 취소할 뿐 이미 실행 중인 콜백은
   // 못 막는다 — 그 콜백이 뒤늦게 sendExtractionStarted 를 보내면 일반 모드에서도
   // "텍스트 추출 중…" 배너가 뜨는 레이스가 실측 확인됐다. 이벤트 자체를 막을 수 없으니
@@ -152,12 +154,10 @@ export function Overlay() {
     return () => clearTimeout(timer)
   }, [notice])
 
-  // 모드를 나가면 이전 단어 목록/hover/영역 선택 상태를 비운다.
+  // 모드를 나가면 이전 단어 목록/hover/영역 선택 상태를 비운다. select 진입 시엔 아무것도
+  // 미리 켜지 않는다 — 배너는 onExtractionStarted(OCR 확정 시 메인이 보냄)가 담당한다.
   useEffect(() => {
-    if (mode === 'select') {
-      setExtracting(true) // onRegionSelectionNeeded 가 뒤이어 오면 바로 false 로 정정됨
-      setExtractionPhase('detect')
-    } else {
+    if (mode !== 'select') {
       setWords([])
       setHoveredLine([])
       setDebugBlocks([])
@@ -169,22 +169,49 @@ export function Overlay() {
   }, [mode])
 
   // 선택 모드일 때만 단어 위치를 추적한다 — 일반 모드는 PLAN.md 상 "클릭에 개입하지
-  // 않음"이 원칙이라 hover 감지도 꺼둔다. setIgnoreMouseEvents(true, {forward:true})
-  // (windows.ts) 덕분에 클릭스루 상태에서도 mousemove 는 렌더러까지 전달된다.
+  // 않음"이 원칙이라 hover 감지도 꺼둔다. win32는 setIgnoreMouseEvents(true,
+  // {forward:true})(windows.ts) 덕분에 클릭스루 상태에서도 mousemove 가 렌더러까지
+  // 전달되지만, **mac은 이 forwarding 이 동작하지 않아**(2026-07-30 실사용 확인 —
+  // 클릭스루 동안 mousemove 가 아예 안 와서 hover 판정이 안 돌고, 그래서 interactive
+  // 전환도 커서 변경도 안 됐음) 메인이 커서 위치를 폴링해 보내주는 OVERLAY_CURSOR
+  // 수신(onOverlayCursor)을 같은 판정에 연결한다 — 두 경로가 같은 setHoveredLine 을
+  // 부르므로 어느 쪽이 먼저 오든 동작은 동일하다.
   useEffect(() => {
     if (mode !== 'select' || needsRegion) return
+    function judge(point: { x: number; y: number }) {
+      setHoveredLine(findLineWordsAtPoint(words, point))
+    }
     function onMouseMove(e: MouseEvent) {
-      setHoveredLine(findLineWordsAtPoint(words, { x: e.clientX, y: e.clientY }))
+      judge({ x: e.clientX, y: e.clientY })
     }
     window.addEventListener('mousemove', onMouseMove)
-    return () => window.removeEventListener('mousemove', onMouseMove)
+    const offCursor = window.nuance.onOverlayCursor(judge)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      offCursor()
+    }
   }, [mode, words, needsRegion])
 
   // 실제 줄 bbox 위에 있는 동안만, 또는 영역을 드래그로 그리는 동안은 통째로
   // 클릭스루를 꺼서(windows.ts: setOverlayInteractive) 오버레이가 입력을 받게 한다.
+  // interactive 의 참/거짓 값이 실제로 바뀔 때만 호출한다(2026-07-30, mac 실사용
+  // 버그 수정) — hoveredLine 은 findLineWordsAtPoint 가 매 mousemove 마다 새 배열을
+  // 반환해서, 같은 단어 위에 커서가 계속 머물러도 이 값의 참조가 매번 바뀌어 이
+  // effect 가 매 mousemove 마다(초당 수십 번) 다시 실행됐다 — bool 값 자체는 안
+  // 바뀌었는데도 네이티브 setIgnoreMouseEvents 를 반복 호출한 셈이라, mac에서 커서
+  // 모양이 안 바뀌고 클릭이 가끔 밑 창으로 새는 증상으로 이어졌다(사용자 제보).
+  // cursor 인자는 mac 전용(비활성 앱 창은 CSS cursor 가 안 먹혀 메인이 NSCursor 를 직접
+  // 설정, preload 주석 참고) — 영역 드래그 중엔 십자, 단어 hover 중엔 클릭(pointer) 모양.
+  // win32는 이 인자를 무시하고 아래 className 의 CSS(cursor: crosshair/pointer)가 담당한다.
+  const interactive = needsRegion || hoveredLine.length > 0
+  const interactiveCursor = needsRegion ? ('crosshair' as const) : ('pointer' as const)
+  const lastInteractiveRef = useRef<string | null>(null)
   useEffect(() => {
-    window.nuance.setOverlayInteractive(needsRegion || hoveredLine.length > 0)
-  }, [needsRegion, hoveredLine])
+    const key = interactive ? interactiveCursor : 'off'
+    if (lastInteractiveRef.current === key) return
+    lastInteractiveRef.current = key
+    window.nuance.setOverlayInteractive(interactive, interactive ? interactiveCursor : null)
+  }, [interactive, interactiveCursor])
 
   async function onOverlayClick(e: React.MouseEvent) {
     if (justSubmittedRegionRef.current) {
@@ -235,18 +262,24 @@ export function Overlay() {
       onMouseMove={onRootMouseMove}
       onMouseUp={onRootMouseUp}
     >
-      {debugBlocks.map((block, i) => (
-        <div
-          key={i}
-          className="debug-block"
-          style={{
-            left: block.x,
-            top: block.y,
-            width: block.width,
-            height: block.height,
-          }}
-        />
-      ))}
+      {/* 자동 탐지 영역 시각화(2026-07-30 디자인 변경, 사용자 요청) — 예전엔 블록마다
+          노란 점선 사각형을 그렸는데, 이제 반대로 "탐지된 영역만 투명하게 뚫린 반투명
+          회색 덮개"로 보여준다(테두리 없음) — 영역 수동 드래그 UI(.region-dim)와 동일한
+          시각 언어. 블록이 여러 개(다단 등)라 box-shadow 트릭으론 구멍을 여러 개 못
+          뚫어서 SVG mask(흰 바탕=칠함, 검정 사각형=구멍)로 처리한다. */}
+      {debugBlocks.length > 0 && (
+        <svg className="region-mask" width="100%" height="100%">
+          <defs>
+            <mask id="region-holes">
+              <rect width="100%" height="100%" fill="white" />
+              {debugBlocks.map((block, i) => (
+                <rect key={i} x={block.x} y={block.y} width={block.width} height={block.height} fill="black" />
+              ))}
+            </mask>
+          </defs>
+          <rect width="100%" height="100%" fill="rgba(220, 38, 38, 0.5)" mask="url(#region-holes)" />
+        </svg>
+      )}
       {hoveredBox && (
         <div
           className="word-box"

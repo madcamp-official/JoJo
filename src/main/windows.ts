@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
 import type { AppMode, ExtractedSelection, Rect, Word } from '@shared/types'
@@ -132,10 +132,51 @@ export function navigateMainWindow(route: MainRoute): void {
   win.webContents.send(IPC.NAVIGATE, route)
 }
 
+// main/picker/settings 는 창 하나를 재사용하는 SPA라, 숨겨져 있던 창을 다시 show() 할 때
+// 렌더러엔 여전히 "숨기기 전 마지막 화면"이 그려진 채 남아 있다 — show() 는 그 프레임을
+// 그대로 화면에 노출한 뒤에야 NAVIGATE IPC 가 렌더러에 도착해 해시가 바뀌므로, 그 사이
+// (IPC 왕복 + React 리렌더) 짧게 "이전 화면 → 목표 화면"으로 바뀌는 게 보인다(2026-07-30
+// 사용자 제보). 렌더러가 실제로 목표 라우트로 전환·렌더를 마쳤다는 걸 확인(NAVIGATE_READY)
+// 한 뒤에야 show() 하도록 순서를 뒤집는다 — 팝업 창의 POPUP_CONTENT_READY 와 같은 패턴.
+let pendingShowRoute: MainRoute | null = null
+let pendingShowTimer: NodeJS.Timeout | null = null
+
+ipcMain.on(IPC.NAVIGATE_READY, (_e, route: MainRoute) => {
+  if (pendingShowRoute !== route) return
+  pendingShowRoute = null
+  if (pendingShowTimer) {
+    clearTimeout(pendingShowTimer)
+    pendingShowTimer = null
+  }
+  mainWindow?.show()
+})
+
+/** 숨겨진 메인 창을 특정 라우트로 띄운다 — 렌더러가 그 라우트로 전환을 끝냈다는 응답을
+ *  받은 뒤에 show() 해 이전 화면이 잠깐 보이는 깜빡임을 없앤다(위 주석 참고). 창이 이미
+ *  보이는 상태라면 깜빡일 여지가 없으니 바로 전환한다. */
+export function showMainWindowAtRoute(route: MainRoute): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  if (win.isVisible()) {
+    navigateMainWindow(route)
+    return
+  }
+  resizeMainWindowForRoute(route)
+  win.webContents.send(IPC.NAVIGATE, route)
+  pendingShowRoute = route
+  if (pendingShowTimer) clearTimeout(pendingShowTimer)
+  // 렌더러가 아직 로드 전이거나(첫 실행 직후) 응답을 놓친 경우를 대비한 안전망.
+  pendingShowTimer = setTimeout(() => {
+    if (pendingShowRoute === route) {
+      pendingShowRoute = null
+      win.show()
+    }
+  }, 500)
+}
+
 /** 트레이 메뉴·전역 단축키(shortcut.ts) 등 "어디서든 설정 화면 열기"가 공유하는 진입점. */
 export function openSettingsWindow(): void {
-  mainWindow?.show()
-  navigateMainWindow('settings')
+  showMainWindowAtRoute('settings')
 }
 
 let overlayWindow: BrowserWindow | null = null
@@ -304,6 +345,7 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   }
   win.on('closed', () => {
     if (overlayWindow === win) overlayWindow = null
+    syncMacCursorPolling() // 창이 사라졌으니 mac 커서 폴링도 정지(darwin 외에선 no-op)
   })
   // Windows 에서 transparent+frameless 창은 생성 시 지정한 크기로 처음 보일 때 렌더링이
   // 정확히 맞물리지 않는 경우가 있다(최초 1회만) — 실제로 화면에 보인 직후 같은 bounds 를
@@ -312,6 +354,7 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     win.setBounds(initialBounds)
   })
   overlayWindow = win
+  syncMacCursorPolling() // 이미 선택 모드 상태에서 창이 늦게 만들어진 경우 폴링 시작(darwin 전용)
   loadRoute(win, 'overlay')
   return win
 }
@@ -594,18 +637,59 @@ export async function showMacSelectionOverlay(windowId: number): Promise<void> {
  * (`interactive=true`) 커서 모양이 실제로 바뀌게 하고, 벗어나면 다시 켠다.
  * 렌더러(Overlay.tsx)가 자체 `mousemove` 기반 hover 판정 결과에 따라 호출한다.
  */
-export function setOverlayInteractive(interactive: boolean): void {
+export function setOverlayInteractive(interactive: boolean, cursor: 'pointer' | 'crosshair' | null = null): void {
   overlayWindow?.setIgnoreMouseEvents(!interactive, { forward: true })
+  // mac 전용 — CSS cursor 가 안 먹히는 비활성 앱 창이라(macWindow.ts setMacCursor 주석)
+  // 렌더러가 원하는 커서 모양을 같이 받아 네이티브로 설정한다. 유지는 커서 폴링이 담당.
+  macDesiredCursor = interactive ? cursor : null
 }
 
 export function getOverlayMode(): AppMode {
   return overlayMode
 }
 
+// macOS 전용 커서 폴링(2026-07-30) — 채널 정의(shared/channels.ts OVERLAY_CURSOR) 주석
+// 참고: mac은 클릭스루 오버레이로 mousemove 가 전달되지 않아, 선택 모드 동안 메인이
+// 커서 위치를 직접 폴링해 렌더러에 통지한다. 33ms(약 30fps)면 hover 박스 추적에 충분
+// 하고, screen.getCursorScreenPoint() 호출 하나뿐이라 부하도 무시할 수준. 겸사겸사
+// 커서 모양도 여기서 매 틱 재설정한다(macDesiredCursor — macWindow.ts setMacCursor
+// 주석 참고: 비활성 앱은 CSS cursor 가 안 먹혀 NSCursor 를 직접 설정해야 하고, 활성
+// 앱이 계속 덮어쓸 수 있어 1회 설정으론 부족). **중요**: 원하는 커서가 없을 때도
+// 'arrow'로 매 틱 명시적으로 재설정해야 한다 — AppKit은 NSCursor.set() 을 다시
+// 안 부르면 마지막으로 설정한 커서(십자 등)를 자동으로 안 되돌린다(2026-07-30 실사용
+// 확인 — 영역 드래그를 Esc 로 취소해도 십자 커서가 그대로 고정되던 버그의 원인).
+const MAC_CURSOR_POLL_MS = 33
+let macCursorTimer: NodeJS.Timeout | null = null
+let macDesiredCursor: 'pointer' | 'crosshair' | null = null
+let macWindowModule: typeof import('./selection/macWindow') | null = null
+
+function syncMacCursorPolling(): void {
+  if (process.platform !== 'darwin') return
+  const shouldRun = overlayMode === 'select' && overlayWindow !== null
+  if (shouldRun && !macCursorTimer) {
+    void import('./selection/macWindow').then((m) => {
+      macWindowModule = m
+    })
+    macCursorTimer = setInterval(() => {
+      if (!overlayWindow || overlayWindow.isDestroyed() || !overlayVisible) return
+      const p = screen.getCursorScreenPoint()
+      const b = overlayWindow.getBounds()
+      overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
+      macWindowModule?.setMacCursor(macDesiredCursor ?? 'arrow')
+    }, MAC_CURSOR_POLL_MS)
+  } else if (!shouldRun && macCursorTimer) {
+    clearInterval(macCursorTimer)
+    macCursorTimer = null
+    macDesiredCursor = null
+    macWindowModule?.setMacCursor('arrow') // 폴링을 멈추기 전에 마지막으로 한 번 복원
+  }
+}
+
 /** 전역 단축키로 모드가 토글될 때 호출 — 오버레이 렌더러에 새 색을 통지한다. */
 export function setOverlayMode(mode: AppMode): void {
   overlayMode = mode
   overlayWindow?.webContents.send(IPC.MODE_CHANGED, mode)
+  syncMacCursorPolling()
 }
 
 /** extractionCache.ts 가 캐시를 채우거나 무효화할 때 호출 — 오버레이가 실제 단어 bbox 로 hover/클릭 판정을 하게 한다. */
@@ -613,27 +697,13 @@ export function sendOverlayWords(words: Word[]): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_WORDS, words)
 }
 
-// 지금 오버레이에 자동 탐지 블록이 떠 있는지 — shortcut.ts: toggleMode 가 모드 전환
-// 단축키를 "블록이 떠 있으면 첫 번째 누름은 블록만 지우고, 그다음 누름부터 실제로
-// 모드를 바꾼다"로 처리하는 데 쓴다(사용자 요청, 2026-07-29 — 블록이 보이는 상태에서
-// 무심코 단축키를 눌렀다가 바로 모드까지 바뀌어버리는 게 불편하다는 피드백).
-let debugBlocksVisible = false
-
-/** OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 반투명 사각형으로 보여준다 —
- * 텍스트 영역 자동 탐지(autoDetectRegion) 결과 시각화(extractionCache.ts 가 조건 판단). */
+/** OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 시각화한다(회색 덮개+투명 구멍)
+ * — 텍스트 영역 자동 탐지(autoDetectRegion) 결과 시각화(extractionCache.ts 가 조건 판단).
+ * 예전엔 "블록이 떠 있으면 모드 전환 첫 누름은 블록만 지운다" 규칙용 상태 추적
+ * (debugBlocksVisible/consumeDebugBlocksVisible)이 같이 있었는데 규칙 제거(2026-07-30,
+ * shortcut.ts: toggleMode 주석 참고)와 함께 정리됨. */
 export function sendDebugBlocks(blocks: Rect[]): void {
-  debugBlocksVisible = blocks.length > 0
   overlayWindow?.webContents.send(IPC.DEBUG_BLOCKS, blocks)
-}
-
-/**
- * 블록이 떠 있으면 지우고 true 를 반환한다(호출부가 "이번 누름은 여기서 소비했다"고
- * 판단해 그 외 동작을 건너뛰게) — 블록이 없으면 아무 것도 안 하고 false.
- */
-export function consumeDebugBlocksVisible(): boolean {
-  if (!debugBlocksVisible) return false
-  sendDebugBlocks([])
-  return true
 }
 
 /** 선택 모드 진입/리사이즈/화면 변화 감지로 재추출이 시작될 때 호출 — 오버레이에

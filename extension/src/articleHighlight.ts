@@ -7,9 +7,9 @@
 // 마다 수백 번의 Range.getClientRects() 호출이 발생해 너무 느리다 — 그래서
 // document.elementFromPoint()로 먼저 "어느 문단이냐"만 싸게 알아낸 뒤, 그 문단 하나에
 // 대해서만 wordsInParagraph()를 지연 계산 + 캐시한다(다른 문단으로 옮길 때만 재계산).
-import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 import type { RectPx, SubWord } from '@shared/extension'
-import { unionRects } from '@shared/wordMapping'
+import { groupRectsByLine } from '@shared/wordMapping'
+import { hideHoverBox, showHoverBoxesAt } from './hoverBox'
 import type { ArticleExtraction, ArticleParagraph } from './webArticle'
 import { extractArticleText, wordsInParagraph } from './webArticle'
 import { getWordSegments } from './wordSegments'
@@ -21,71 +21,9 @@ export interface ArticleWordHit {
   anchorEnd: number
 }
 
-let box: HTMLDivElement | null = null
-
-// 전체화면 API는 전체화면 엘리먼트와 그 자손만 top layer에 그린다(highlight.ts와 동일 이유).
-function boxParent(): HTMLElement {
-  return (document.fullscreenElement as HTMLElement | null) ?? document.documentElement
-}
-
-function ensureBox(): HTMLDivElement {
-  if (box) return box
-  const el = document.createElement('div')
-  el.id = 'nuance-article-word-highlight'
-  Object.assign(el.style, {
-    position: 'fixed',
-    boxSizing: 'border-box',
-    border: `${WORD_BOX_STYLE.borderWidth}px solid ${WORD_BOX_STYLE.borderColor}`,
-    background: WORD_BOX_STYLE.background,
-    borderRadius: `${WORD_BOX_STYLE.borderRadius}px`,
-    pointerEvents: 'none',
-    zIndex: '2147483647',
-    display: 'none',
-  })
-  boxParent().appendChild(el)
-  box = el
-  return el
-}
-
-function onFullscreenChange(): void {
-  if (box) boxParent().appendChild(box)
-}
-
-// 박스 자신은 pointerEvents:none 이라 실제 마우스는 밑에 깔린 페이지 요소가 받는다 —
-// highlight.ts와 동일한 이유로 `*` 전체 선택자에 !important 를 건 스타일시트를 주입해야
-// 조상 인라인 스타일이 있어도 자손까지 커서가 강제 적용된다.
-let cursorOverridden = false
-let cursorStyleEl: HTMLStyleElement | null = null
-function ensureCursorStyle(): HTMLStyleElement {
-  if (cursorStyleEl) return cursorStyleEl
-  const el = document.createElement('style')
-  el.textContent = 'html.nuance-hover-pointer, html.nuance-hover-pointer * { cursor: pointer !important; }'
-  document.documentElement.appendChild(el)
-  cursorStyleEl = el
-  return el
-}
-function setHoveringCursor(hovering: boolean): void {
-  if (hovering === cursorOverridden) return
-  cursorOverridden = hovering
-  ensureCursorStyle()
-  document.documentElement.classList.toggle('nuance-hover-pointer', hovering)
-}
-
-function hideBox(): void {
-  if (box) box.style.display = 'none'
-  setHoveringCursor(false)
-}
-
-function showBoxAt(rect: RectPx): void {
-  const el = ensureBox()
-  const p = WORD_BOX_STYLE.padding
-  el.style.left = `${rect.x - p}px`
-  el.style.top = `${rect.y - p}px`
-  el.style.width = `${rect.width + p * 2}px`
-  el.style.height = `${rect.height + p * 2}px`
-  el.style.display = 'block'
-  setHoveringCursor(true)
-}
+// hover 박스 렌더링(줄바꿈에 걸치면 줄마다 따로 그리는 박스 풀)/커서 오버라이드/전체화면
+// 재부착은 자막(highlight.ts)과 공유하는 hoverBox.ts 로 옮겼다(2026-07-30, 자막/웹 각자
+// 복제해 갖고 있던 드리프트 정리).
 
 // 문단별 단어 rect 캐시(hover 박스 표시 전용, 성능 목적) — 같은 문단에 마우스가 머무는
 // 동안은 재계산하지 않는다. 클릭 결과 전송에는 안 쓴다(resolveClick이 매번 새로 계산).
@@ -97,72 +35,55 @@ function invalidateCache(): void {
   cachedWords = []
 }
 
-// 문단 텍스트 안에서 각 단어의 문자 오프셋을 순서대로 찾는다(같은 단어가 반복돼도
-// searchFrom 덕에 이전 단어와 안 섞인다) — highlight.ts의 동일 로직과 같은 이유.
-function paragraphOffsets(paragraphText: string, words: SubWord[]): number[] {
-  let searchFrom = 0
-  const offsets: number[] = []
-  for (const w of words) {
-    const found = paragraphText.indexOf(w.text, searchFrom)
-    // TEMP DEBUG(2026-07-30) — 호버박스 vs 팝업 선택 불일치 원인 진단용. indexOf 가 못
-    // 찾으면(-1) words 배열에 paragraphText 에는 없는 단어가 섞여 있다는 뜻 — 그 뒤
-    // 모든 단어의 오프셋이 통째로 밀린다(가설: wordsInElement 가 visibility:hidden 텍스트도
-    // 포함하는데 paragraphText 조립은 그걸 제외해서 어긋남). 원인 확인되면 이 로그 제거.
-    if (found < 0) {
-      console.warn(
-        '[hover-debug] paragraphOffsets: word not found in paragraphText, offset 밀림 가능',
-        JSON.stringify(w.text),
-        'searchFrom=',
-        searchFrom,
-        'paragraphText 근처=',
-        JSON.stringify(paragraphText.slice(Math.max(0, searchFrom - 20), searchFrom + 20)),
-      )
-    }
-    const off = found >= 0 ? found : searchFrom
-    offsets.push(off)
-    searchFrom = off + w.text.length
-  }
-  return offsets
-}
-
 // CJK(중국어/일본어) 문단은 domWords.ts(wordsInParagraph)가 공백 없이 글자 단위로 쪼갠다
 // — 브라우저는 스스로 단어 경계를 알 방법이 없어서다(자막과 동일한 이유, highlight.ts
 // 참고). 형태소 분석 결과를 요청할지 판단하는 데만 쓰는 가벼운 문자 판정.
 const CJK_CHAR_RE = /[぀-ヿ㐀-鿿豈-﫿]/
 
-// 형태소 분석을 이미 요청한 문단 텍스트 — 같은 문단을 여러 번 재진입해도 중복 요청하지
-// 않는다(응답 전 다시 hover해도 재요청 안 함). 앱 쪽(bridge.ts segmentedLines)도 dedup
-// 하지만, 그건 응답이 온 뒤에나 걸러지므로 왕복 전에 여기서 먼저 거른다.
-const requestedSegments = new Set<string>()
+// 형태소 분석을 이미 요청한 문단 텍스트와 그 요청 시각 — 같은 문단을 짧은 시간 안에 여러
+// 번 재진입해도 중복 요청하지 않는다(응답 전 다시 hover해도 재요청 안 함). 시각을 남겨
+// SEGMENT_RETRY_MS 가 지나면 재시도한다 — 예전엔 영구 Set(한 번 요청하면 끝까지 스킵)이라,
+// 요청이 앱(bridge.ts)까지는 갔지만 응답이 확장 쪽에 전달되지 못하면(탭 전환 중 릴레이
+// 실패 등) 그 문단이 영원히 글자 단위 hover 로 고정되는 문제가 있었다(2026-07-30).
+const SEGMENT_RETRY_MS = 4000
+const requestedSegmentsAt = new Map<string, number>()
 let requestSegmentsFn: ((text: string) => void) | null = null
 
 function ensureSegmentsRequested(paragraphText: string): void {
   if (!CJK_CHAR_RE.test(paragraphText)) return
-  if (getWordSegments(paragraphText) || requestedSegments.has(paragraphText)) return
-  requestedSegments.add(paragraphText)
+  if (getWordSegments(paragraphText)) return
+  const requestedAt = requestedSegmentsAt.get(paragraphText)
+  if (requestedAt !== undefined && Date.now() - requestedAt < SEGMENT_RETRY_MS) return
+  requestedSegmentsAt.set(paragraphText, Date.now())
   requestSegmentsFn?.(paragraphText)
 }
 
 // idx 번째 단어가 형태소 분석 결과(세그먼트)에 속하면 같은 세그먼트의 글자들을 하나로
 // 묶어 반환한다(rect는 union, text/오프셋은 세그먼트 경계 기준) — highlight.ts의 동일
 // 그룹핑 로직과 같은 이유. 세그먼트가 없으면(분석 전/비CJK) 단어 그대로 반환.
+//
+// words[].start/end 는 domWords.ts extractWordsAndText 가 추출 시점에 이미 계산해 실어
+// 보낸 절대 오프셋이다(2026-07-30 수정 — 예전엔 여기서 paragraphText.indexOf 로 매번
+// 역산했는데, 그 단어 하나의 rect 측정이 실패해 words 배열에서 빠지면 이후 모든 역산
+// 오프셋이 앞쪽 중복 글자로 미끄러져, 문단 뒷부분 단어들이 전부 엉뚱하게 낮은 오프셋으로
+// 계산되고 그 결과 이 아래 그룹핑이 문단 전체를 하나로 묶어버리는 문제가 있었다).
 function groupWordAt(
   paragraphText: string,
   words: SubWord[],
-  offsets: number[],
   idx: number,
-): { rect: RectPx; text: string; start: number; end: number } {
+): { rects: RectPx[]; text: string; start: number; end: number } {
   const w = words[idx]!
-  const off = offsets[idx]!
   const segments = getWordSegments(paragraphText)
-  const seg = segments?.find((s) => off >= s.start && off < s.end)
-  if (!seg) return { rect: w.rect, text: w.text, start: off, end: off + w.text.length }
+  const seg = segments?.find((s) => w.start >= s.start && w.start < s.end)
+  if (!seg) return { rects: [w.rect], text: w.text, start: w.start, end: w.end }
   const groupRects: RectPx[] = []
-  for (let j = 0; j < words.length; j++) {
-    if (offsets[j]! >= seg.start && offsets[j]! < seg.end) groupRects.push(words[j]!.rect)
+  for (const other of words) {
+    if (other.start >= seg.start && other.start < seg.end) groupRects.push(other.rect)
   }
-  // groupRects 는 항상 최소 1개(idx 자신)를 포함해 non-null.
-  return { rect: unionRects(groupRects)!, text: paragraphText.slice(seg.start, seg.end), start: seg.start, end: seg.end }
+  // 세그먼트가 화면 줄바꿈에 걸치면(예: "当地政府") 줄마다 따로 묶어야 두 줄 전체를
+  // 덮는 박스가 안 생긴다(groupRectsByLine 주석 참고) — groupRects 는 항상 최소 1개
+  // (idx 자신)를 포함해 결과 배열도 항상 비지 않는다.
+  return { rects: groupRectsByLine(groupRects), text: paragraphText.slice(seg.start, seg.end), start: seg.start, end: seg.end }
 }
 
 // hover 박스가 어떤 문단을 대상으로 할지 판정하는 데만 쓴다(캡처 시작 시점 스냅샷 —
@@ -180,12 +101,8 @@ function findWordIndexAt(words: SubWord[], x: number, y: number): number {
   return -1
 }
 
-// TEMP DEBUG(2026-07-30) — 방금 hover 박스가 보여준 단어/좌표를 기억해뒀다가, 클릭 시점의
-// resolveClick 결과와 비교해 어디서 어긋나는지 콘솔에 찍는다. 원인 확인되면 제거.
-let lastHoverDebug: { text: string; rect: RectPx; x: number; y: number } | null = null
-
 // hover 박스 표시 전용 — 캐시(성능 목적)를 쓴다. 클릭 결과 전송에는 안 쓴다(resolveClick 참고).
-function hoverHitAt(x: number, y: number): RectPx | null {
+function hoverHitAt(x: number, y: number): RectPx[] | null {
   const target = document.elementFromPoint(x, y)
   const p = target?.closest<HTMLParagraphElement>('p') ?? null
   const info = p ? paragraphByEl.get(p) : undefined
@@ -201,10 +118,7 @@ function hoverHitAt(x: number, y: number): RectPx | null {
   const idx = findWordIndexAt(cachedWords, x, y)
   if (idx < 0) return null
   const paragraphText = fullTextRef.slice(info.start, info.end)
-  const offsets = paragraphOffsets(paragraphText, cachedWords)
-  const grouped = groupWordAt(paragraphText, cachedWords, offsets, idx)
-  lastHoverDebug = { text: grouped.text, rect: grouped.rect, x, y }
-  return grouped.rect
+  return groupWordAt(paragraphText, cachedWords, idx).rects
 }
 
 // 클릭 지점의 앵커(본문 전체 텍스트 + 절대 오프셋)를 계산한다. 캡처 시작 시점에 만든
@@ -219,38 +133,17 @@ function resolveClick(x: number, y: number): ArticleWordHit | null {
   if (!containerRef) return null
   const target = document.elementFromPoint(x, y)
   const p = target?.closest<HTMLParagraphElement>('p') ?? null
-  if (!p) {
-    console.warn('[hover-debug] resolveClick: 클릭 지점에 문단(p) 없음', { x, y, lastHoverDebug })
-    return null
-  }
+  if (!p) return null
   const fresh = extractArticleText(containerRef)
   const info = fresh.paragraphs.find((fp) => fp.el === p)
-  if (!info) {
-    console.warn('[hover-debug] resolveClick: 클릭한 문단이 fresh 추출 결과에 없음', { p, lastHoverDebug })
-    return null
-  }
+  if (!info) return null
   const words = wordsInParagraph(p)
   const idx = findWordIndexAt(words, x, y)
-  if (idx < 0) {
-    console.warn('[hover-debug] resolveClick: 클릭 좌표에서 fresh words 매칭 실패', { x, y, lastHoverDebug })
-    return null
-  }
+  if (idx < 0) return null
   const paragraphText = fresh.fullText.slice(info.start, info.end)
-  const offsets = paragraphOffsets(paragraphText, words)
   // 세그먼트가 아직 응답 전이면(드묾 — hover 때 이미 요청해뒀을 확률이 높음) 글자 단위로
   // 폴백한다(highlight.ts와 동일 특성).
-  const grouped = groupWordAt(paragraphText, words, offsets, idx)
-  // TEMP DEBUG(2026-07-30) — 호버박스 vs 팝업 선택 불일치 원인 진단용. 원인 확인되면 제거.
-  const mismatch = lastHoverDebug ? lastHoverDebug.text !== grouped.text : null
-  console.log('[hover-debug] resolveClick 결과', {
-    clickXY: { x, y },
-    hoverText: lastHoverDebug?.text,
-    hoverRect: lastHoverDebug?.rect,
-    hoverXY: lastHoverDebug ? { x: lastHoverDebug.x, y: lastHoverDebug.y } : null,
-    clickText: grouped.text,
-    clickRect: grouped.rect,
-    textMismatch: mismatch,
-  })
+  const grouped = groupWordAt(paragraphText, words, idx)
   return {
     text: grouped.text,
     fullText: fresh.fullText,
@@ -260,9 +153,9 @@ function resolveClick(x: number, y: number): ArticleWordHit | null {
 }
 
 function onMouseMove(e: MouseEvent): void {
-  const rect = hoverHitAt(e.clientX, e.clientY)
-  if (rect) showBoxAt(rect)
-  else hideBox()
+  const rects = hoverHitAt(e.clientX, e.clientY)
+  if (rects) showHoverBoxesAt(rects)
+  else hideHoverBox()
 }
 
 let onWordClick: ((hit: ArticleWordHit) => void) | null = null
@@ -274,7 +167,7 @@ function onClick(e: MouseEvent): void {
   e.preventDefault()
   e.stopImmediatePropagation()
   e.stopPropagation()
-  hideBox()
+  hideHoverBox()
   onWordClick?.(hit)
 }
 
@@ -286,7 +179,7 @@ function onClick(e: MouseEvent): void {
 // 다시 보여준다.
 function onViewportChange(): void {
   invalidateCache()
-  hideBox()
+  hideHoverBox()
 }
 
 export function startArticleHighlight(
@@ -304,20 +197,18 @@ export function startArticleHighlight(
   window.addEventListener('click', onClick, true)
   window.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
   window.addEventListener('resize', onViewportChange, { passive: true })
-  document.addEventListener('fullscreenchange', onFullscreenChange)
   return () => {
     window.removeEventListener('mousemove', onMouseMove, true)
     window.removeEventListener('click', onClick, true)
     window.removeEventListener('scroll', onViewportChange, { capture: true } as EventListenerOptions)
     window.removeEventListener('resize', onViewportChange)
-    document.removeEventListener('fullscreenchange', onFullscreenChange)
-    hideBox()
+    hideHoverBox()
     invalidateCache()
     paragraphByEl = new Map()
     fullTextRef = ''
     containerRef = null
     onWordClick = null
     requestSegmentsFn = null
-    requestedSegments.clear()
+    requestedSegmentsAt.clear()
   }
 }

@@ -3,7 +3,7 @@
 // (Mozilla Readability.js와 같은 발상의 경량 버전). 실측(웹소설 4곳·뉴스 3곳, 2026-07-29)으로
 // 이 방식이 통할 공통 구조("본문 하나에 <p> 밀집 + 주변 UI 대비 압도적 텍스트 밀도")를 확인했다.
 import type { SubWord } from '@shared/extension'
-import { wordsInElement } from './domWords'
+import { extractWordsAndText, isHidden } from './domWords'
 
 // 본문 후보에서 제외할 컨테이너 — nav/footer/광고/댓글 등 흔한 보일러플레이트 패턴.
 // 사이트별 등록이 아니라 범용 키워드라 특정 사이트에 종속되지 않는다.
@@ -12,11 +12,6 @@ const BOILERPLATE_PATTERN =
 
 const CANDIDATE_SELECTOR = 'article, main, [role="main"], div, section'
 const MIN_PARAGRAPHS_FOR_CANDIDATE = 3
-
-function isHidden(el: Element): boolean {
-  const style = getComputedStyle(el)
-  return style.display === 'none' || style.visibility === 'hidden'
-}
 
 // 조상 중 하나라도 숨겨져 있으면 진짜로 안 보인다(getComputedStyle 은 상속을 반영하지
 // 않는다 — display:none 인 조상 아래 자손은 스스로는 display:block 이어도 화면엔 안 그려짐).
@@ -35,53 +30,14 @@ function isBoilerplate(el: Element): boolean {
   return BOILERPLATE_PATTERN.test(id) || BOILERPLATE_PATTERN.test(cls)
 }
 
-// 후리가나(<rt>/<rp>) — domWords.ts 와 같은 이유로 실제 본문이 아니라 읽는 법 표기라 제외.
-function isFuriganaText(node: Text): boolean {
-  return node.parentElement?.closest('rt, rp') != null
-}
-
-// root(문단) 안에서 node 까지 올라가며 display:none/visibility:hidden 조상이 있는지 확인한다
-// — RoyalRoad 실측(2026-07-29)에서 확인된 anti-scraping 함정: 문단 중간에 display:none
-// <span>으로 저작권 경고 문구를 심어둔다. isVisible(문단)만으로는 이 함정을 못 거른다 —
-// 문단 자신은 보이고, 그 안의 자손 하나만 숨겨져 있기 때문이다. root 까지만 올라가면 되는
-// 이유는 root(문단) 자체의 가시성은 visibleParagraphs()가 이미 확인했기 때문(중복 방지).
-function isHiddenWithinRoot(node: Text, root: Element): boolean {
-  let el = node.parentElement
-  while (el && el !== root.parentElement) {
-    if (isHidden(el)) return true
-    el = el.parentElement
-  }
-  return false
-}
-
-// 문단 하나의 "진짜 본문" 텍스트 — 숨김 함정 + 후리가나를 모두 제외하고 이어붙인다.
-// domWords.ts의 elementTextExcludingFurigana 는 자막 세그먼트 전용(항상 전체가 보임을
-// 전제)이라 가시성 체크가 없다 — 본문 문단은 내부에 숨김 함정이 섞일 수 있어 별도로 둔다.
-// <br>은 텍스트 노드가 아니라 SHOW_TEXT 워커에는 아예 안 잡힌다 — 그대로 두면 <br>로
-// 나뉜 두 텍스트가 구분자 없이 그대로 붙어버린다(실측: RoyalRoad 챕터 제목이
-// "Chapter 033<br></strong><strong>Gateways" 구조라 "Chapter 033Gateways"로 붙어 나오는
-// 문제, 2026-07-30 사용자 제보). SHOW_ELEMENT도 함께 받아 <br>을 만나면 '\n'을 끼워 넣는다.
+// 문단 하나의 "진짜 본문" 텍스트 — 숨김 함정(RoyalRoad 식 anti-scraping) + 후리가나 +
+// <script>/<style> 코드 원문을 모두 제외하고 <br>은 '\n'으로 이어붙인다. 실제 순회는
+// domWords.ts의 extractWordsAndText 가 담당한다 — wordsInParagraph(아래)도 같은 함수를
+// 쓰므로 문단 텍스트와 그 안의 단어 오프셋이 항상 같은 좌표계를 갖는다(2026-07-30 수정 —
+// 예전엔 이 함수와 wordsInElement 가 서로 다른 순회로 "같은 텍스트일 것"이라 가정했는데,
+// 그 가정이 깨지면 호출부(articleHighlight.ts)의 오프셋 역산이 어긋났다).
 function visibleParagraphText(p: HTMLParagraphElement): string {
-  const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
-    acceptNode: (n) => {
-      if (n.nodeType === Node.ELEMENT_NODE) return NodeFilter.FILTER_ACCEPT
-      const t = n as Text
-      if (isFuriganaText(t)) return NodeFilter.FILTER_REJECT
-      if (isHiddenWithinRoot(t, p)) return NodeFilter.FILTER_REJECT
-      return NodeFilter.FILTER_ACCEPT
-    },
-  })
-  let text = ''
-  let node = walker.nextNode()
-  while (node) {
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      if ((node as Element).tagName === 'BR') text += '\n'
-    } else {
-      text += (node as Text).textContent ?? ''
-    }
-    node = walker.nextNode()
-  }
-  return text
+  return extractWordsAndText(p).text
 }
 
 function visibleParagraphs(container: Element): HTMLParagraphElement[] {
@@ -152,8 +108,9 @@ export function extractArticleText(container: Element): ArticleExtraction {
   return { fullText, paragraphs }
 }
 
-// 문단 하나의 단어별 뷰포트 사각형 — hover 히트테스트용(articleHighlight.ts 가 지연 호출).
-// wordsInElement 자체는 이미 범용(자막 세그먼트 전용이 아님)이라 그대로 재사용한다.
+// 문단 하나의 단어별 뷰포트 사각형(문단 시작 기준 절대 오프셋 포함) — hover 히트테스트용
+// (articleHighlight.ts 가 지연 호출). extractWordsAndText 는 이미 범용(자막 세그먼트
+// 전용이 아님)이라 그대로 재사용한다.
 export function wordsInParagraph(p: HTMLParagraphElement): SubWord[] {
-  return wordsInElement(p)
+  return extractWordsAndText(p).words
 }

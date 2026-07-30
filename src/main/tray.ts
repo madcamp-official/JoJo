@@ -16,7 +16,7 @@ import { isWebModeActive } from './selection/webSource'
 import {
   getMainWindow,
   hideSelectionOverlay,
-  navigateMainWindow,
+  showMainWindowAtRoute,
   onTargetWindowGone,
   openSettingsWindow,
   resolveIconPath,
@@ -47,15 +47,12 @@ export function deselectWindow(): void {
   clearExtractionHistory() // 선택 해제도 "전환"과 동일하게 직전 회차 문맥을 비운다
   clearRegion()
   hideSelectionOverlay()
-  const main = getMainWindow()
-  main?.webContents.send(IPC.WINDOW_SELECTED, null)
-  main?.show()
-  navigateMainWindow('main')
+  getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, null)
+  showMainWindowAtRoute('main')
 }
 
 export function openWindowPicker(): void {
-  getMainWindow()?.show()
-  navigateMainWindow('picker')
+  showMainWindowAtRoute('picker')
 }
 
 // 단축키가 해제(빈 문자열)돼 있으면 Electron MenuItem 에 accelerator 를 아예 안 준다 —
@@ -77,7 +74,7 @@ function buildTrayMenu(): Menu {
     ...(hasSelection
       ? [
           // 모드 전환(일반 ↔ 선택, 2026-07-29 트레이 노출 요청) — 대상 창이 있어야 뜻이
-          // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+Q)을 그대로 표시.
+          // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+`)을 그대로 표시.
           {
             label: '모드 전환',
             accelerator: accel(settings.modeShortcut),

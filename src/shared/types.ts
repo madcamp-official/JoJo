@@ -609,7 +609,7 @@ export type ApiKeyId = LlmProvider | 'mw'
 export interface AppSettings {
   llm: LlmProvider | null // 사용자가 아직 고르지 않았으면 null (기본 provider 를 임의로 정하지 않는다)
   language: AnyLanguage | 'auto'
-  modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+Q' (macOS 는 Option+Q 로 자동 매핑). 빈 문자열 = 단축키 해제
+  modeShortcut: string // Electron accelerator 문자열. 기본값: 'Alt+`' (macOS 는 Option+` 로 자동 매핑). 빈 문자열 = 단축키 해제
   settingsShortcut: string // 어디서나 설정 화면을 여는 전역 단축키. 기본값: macOS 'Command+,' / 그 외 'Control+,'(settingsStore.ts). 빈 문자열 = 단축키 해제
   // 트레이 메뉴 "창 선택"/"창 선택 전환"(선택 여부와 무관하게 같은 동작: 창 선택 화면 열기) 공용 단축키.
   // 기본값: 'Alt+1' (macOS 는 Option+1). 빈 문자열 = 단축키 해제.

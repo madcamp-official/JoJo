@@ -32,12 +32,21 @@ const api = {
   setWindowRoute: (route: 'main' | 'picker' | 'settings'): Promise<void> =>
     ipcRenderer.invoke(IPC.WINDOW_SET_ROUTE, route),
 
+  // 창 선택 화면에서 Esc — 이미 선택된 창이 있으면 메인 화면 대신 그냥 창을 숨긴다
+  hideMainWindow: (): Promise<void> => ipcRenderer.invoke(IPC.WINDOW_HIDE),
+
   // 메인 프로세스(트레이 등)가 화면 전환을 지시할 때 수신 — App.tsx 가 구독해 해시를 바꾼다.
   onNavigate: (cb: (route: 'main' | 'picker' | 'settings') => void): (() => void) => {
     const listener = (_e: unknown, route: 'main' | 'picker' | 'settings') => cb(route)
     ipcRenderer.on(IPC.NAVIGATE, listener)
     return () => ipcRenderer.removeListener(IPC.NAVIGATE, listener)
   },
+
+  // 해당 라우트로 실제 전환·렌더가 끝났다고 메인에 알림(windows.ts: showMainWindowAtRoute
+  // 가 숨겨진 창을 이 응답을 받은 뒤에야 show() — 전환 중 이전 화면이 잠깐 보이는
+  // 깜빡임 방지).
+  notifyNavigateReady: (route: 'main' | 'picker' | 'settings'): void =>
+    ipcRenderer.send(IPC.NAVIGATE_READY, route),
 
   selectWindow: (source: CaptureSource): Promise<void> =>
     ipcRenderer.invoke(IPC.SELECT_WINDOW, source),
@@ -48,8 +57,18 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.WINDOW_SELECTED, listener)
   },
 
-  setOverlayInteractive: (interactive: boolean): Promise<void> =>
-    ipcRenderer.invoke(IPC.OVERLAY_SET_INTERACTIVE, interactive),
+  // cursor: mac 전용 커서 모양(비활성 앱 창은 CSS cursor 가 안 먹혀 메인이 NSCursor 를
+  // 직접 설정한다 — macWindow.ts setMacCursor) — win32에선 무시되고 CSS 가 담당.
+  setOverlayInteractive: (interactive: boolean, cursor: 'pointer' | 'crosshair' | null = null): Promise<void> =>
+    ipcRenderer.invoke(IPC.OVERLAY_SET_INTERACTIVE, interactive, cursor),
+
+  // macOS 전용 — 클릭스루 오버레이로는 mousemove 가 안 와서(shared/channels.ts
+  // OVERLAY_CURSOR 주석), 메인이 폴링한 커서 위치(오버레이-로컬 좌표)를 수신한다.
+  onOverlayCursor: (cb: (point: { x: number; y: number }) => void): (() => void) => {
+    const listener = (_e: unknown, point: { x: number; y: number }) => cb(point)
+    ipcRenderer.on(IPC.OVERLAY_CURSOR, listener)
+    return () => ipcRenderer.removeListener(IPC.OVERLAY_CURSOR, listener)
+  },
 
   // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열
   // 완료 여부(MainScreen 이 창 선택 버튼을 막을지 판단).
@@ -188,6 +207,9 @@ const api = {
 
   // 채팅창 마크다운 링크(사전 출처 등) 클릭 시 구글/네이버와 동일한 방식으로 열기
   openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_EXTERNAL_LINK, url),
+
+  // 선택 표현 자동 복사 — navigator.clipboard 와 달리 문서 포커스가 필요 없다(채널 주석 참고).
+  copyToClipboard: (text: string): Promise<void> => ipcRenderer.invoke(IPC.CLIPBOARD_COPY, text),
 
   // 팝업 원문 문맥의 가나 atom 병합용 일본어 형태소 분석 요청(엔진은 JA_ENGINE 설정값)
   tokenizeJapanese: (text: string): Promise<JaTokenizeResult> =>

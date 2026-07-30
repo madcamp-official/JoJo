@@ -34,6 +34,16 @@ export interface RectPx {
 export interface SubWord {
   text: string
   rect: RectPx // 뷰포트 기준 단어 사각형
+  // 이 단어가 속한 줄/문단 전체 텍스트(SubLine.text 또는 문단 원문) 안에서의 [start,end)
+  // 문자 오프셋 — 추출 시점(domWords.ts)에 이미 알고 있는 값을 그대로 실어 보낸다.
+  // 예전엔 호출부(articleHighlight.ts/highlight.ts)가 text.indexOf(word.text, searchFrom)
+  // 로 매번 오프셋을 역산했는데, 이 텍스트 안에 같은 글자/단어가 여러 번 나오는 중국어
+  // 문장에서 단어 하나의 rect 측정이 실패해 words 배열에서 통째로 빠지면 그 뒤로 모든
+  // 역산 오프셋이 앞쪽 중복 글자로 잘못 미끄러지는 문제가 있었다(2026-07-30 사용자 제보 —
+  // 뉴스 기사 hover 박스가 문단 두 줄을 통째로 덮음). 오프셋을 추출 시점에 직접 실어
+  // 보내면 이런 역산 자체가 필요 없어 이 문제 유형이 구조적으로 사라진다.
+  start: number
+  end: number
 }
 
 export interface SubLine {
