@@ -148,7 +148,7 @@ ipcMain.on(IPC.NAVIGATE_READY, (_e, route: MainRoute) => {
     clearTimeout(pendingShowTimer)
     pendingShowTimer = null
   }
-  mainWindow?.show()
+  if (mainWindow && !mainWindow.isDestroyed()) forceWindowToFront(mainWindow)
 })
 
 /** 숨겨진 메인 창을 특정 라우트로 띄운다 — 렌더러가 그 라우트로 전환을 끝냈다는 응답을
@@ -158,7 +158,12 @@ export function showMainWindowAtRoute(route: MainRoute): void {
   const win = mainWindow
   if (!win || win.isDestroyed()) return
   if (win.isVisible()) {
+    // 창은 이미 떠 있지만 다른 창에 가려졌거나(맨 앞이 아님) 다른 앱이 활성 상태일 수
+    // 있다 — 트레이 메뉴로 불렀다는 건 사용자가 이 창을 보려는 의도이므로 맨 앞으로
+    // 올리고 포커스도 가져온다(2026-07-30 사용자 제보 — "메인 화면이 떠 있는 상태에서
+    // 트레이의 창 선택/설정을 눌러도 앞으로 안 나옴").
     navigateMainWindow(route)
+    forceWindowToFront(win)
     return
   }
   resizeMainWindowForRoute(route)
@@ -169,7 +174,7 @@ export function showMainWindowAtRoute(route: MainRoute): void {
   pendingShowTimer = setTimeout(() => {
     if (pendingShowRoute === route) {
       pendingShowRoute = null
-      win.show()
+      forceWindowToFront(win)
     }
   }, 500)
 }
