@@ -2,6 +2,7 @@ import { nativeImage } from 'electron'
 import { createWorker, type Worker } from 'tesseract.js'
 import type { AnyLanguage, Rect, Word } from '@shared/types'
 import { getOcrLangCode } from '@shared/languages'
+import { HOVER_WORD_ATOM_PATTERN } from '@shared/wordTokenize'
 import type { Extracted } from './extractDirect'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
@@ -385,11 +386,18 @@ async function recognizeRegion(
     if (clippedLines.has(line)) continue
 
     let lineWords: Word[]
-    // 단어 단위가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28)은 세로쓰기 일본어
-    // (NDLOCR-Lite, ocrNdlocr.ts)에만 남기고 되돌렸다(2026-07-29 재요청) — 가로쓰기
-    // 영어/중국어는 Tesseract 단어 bbox 가 이미 충분히 정확해서 줄 단위로 묶을 이유가
-    // 없고, 오히려 문장부호까지 뭉뚱그려 보이는 부작용만 있었다. lineId 를 안 붙이면
-    // wordMapping.ts findLineWordsAtPoint 가 알아서 단어 단위(그 단어 하나만)로 폴백한다.
+    // 단어 단위가 아니라 줄 단위로 hover/선택하기로 한 결정(2026-07-28)은 가로쓰기
+    // 영어(아래 else 분기)에는 되돌렸다(2026-07-29 재요청) — Tesseract 단어 bbox 가 이미
+    // 충분히 정확해서 줄 단위로 묶을 이유가 없고, 오히려 문장부호까지 뭉뚱그려 보이는
+    // 부작용만 있었다. lineId 를 안 붙이면 wordMapping.ts findLineWordsAtPoint 가 알아서
+    // 단어 단위(그 단어 하나만)로 폴백한다.
+    // ja/zh 는 반대로 줄 단위를 유지한다 — buildCjkLineWords(아래)가 이 파일과 별개로
+    // ocrPaddle.ts(PaddleOCR, 실제 기본 경로)의 groupCjkCharsGrid 처럼 줄마다 lineId 를
+    // 붙인다. 예전엔 여기(Tesseract 폴백)만 lineId 를 안 붙여서, PaddleOCR/NDLOCR 가
+    // 실패했을 때만(Python 환경 없음 등) hover 가 줄 단위 → 단어 단위로 조용히 바뀌는
+    // 불일치가 있었다(2026-07-30, 사용자 지적 — "어느 엔진이 실제로 인식했는지에 따라
+    // hover 단위가 갈리면 안 된다") — 이제 어느 경로로 인식되든 ja/zh hover 단위가 항상
+    // 같다.
     if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
       // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
       // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: segmentit)로 다시 분리한다.
@@ -482,6 +490,16 @@ async function recognizeRegion(
  * 의미 단위 단어 경계를 다시 잡아 Word[] 를 만든다. 잘린 단어(isWordClippedByRegion/
  * looksTruncated)는 기존과 동일하게 제외하되, 제외된 자리는 분석기가 단어를 이어붙이지
  * 못하게 끊어준다(연속 구간=run 단위로 분석기를 돌린다).
+ *
+ * 이 경로는 PaddleOCR/NDLOCR 이 실패했을 때만 타는 Tesseract 폴백이다(runOcr 참고) —
+ * 단어 경계 자체는 원래도 이 파일과 ocrPaddle.ts(groupCjkCharsGrid)가 똑같이
+ * segmentJapaneseWords/segmentChineseWords 하나만 호출해 이미 단일 소스였지만, hover
+ * 단위를 줄로 묶을지(lineId)는 ocrPaddle.ts 만 하고 있어서 어느 엔진이 실제로 인식했는지에
+ * 따라 CJK hover 가 줄 단위(PaddleOCR 성공) ↔ 단어 단위(Tesseract 폴백)로 갈리는 불일치가
+ * 있었다(2026-07-30, 사용자 지적) — PaddleOCR 경로와 동일하게 이 줄의 모든 단어에 같은
+ * lineId 를 붙여 hover granularity 도 엔진과 무관하게 통일한다(ocrPaddle.ts:
+ * recognizeOrderedLines 주석 참고 — "잉크 튜닝이 끝나면 lineId 부여만 빼면 단어 단위로
+ * 복귀 가능"이므로, 그 결정이 바뀌면 여기도 같이 바꿔야 한다).
  */
 async function buildCjkLineWords(
   line: { words: { text: string; bbox: OcrBbox; symbols?: OcrSymbol[]; confidence: number }[]; bbox: OcrBbox },
@@ -523,7 +541,8 @@ async function buildCjkLineWords(
       })
     }
   }
-  return words
+  const lineId = Math.random().toString(36).slice(2)
+  return words.map((w) => ({ ...w, lineId }))
 }
 
 // 맨 위/아래 줄의 높이가 다른 줄들의 중앙값보다 이 비율 미만이면 "세로로 잘린 줄"로 본다.
@@ -601,12 +620,22 @@ const MIN_WORD_CONFIDENCE = 60
 // 반쯤 잘림) 그 한 글자 때문에 단어 전체가 부정확해지므로 별도로 확인한다.
 const MIN_SYMBOL_CONFIDENCE = 75
 
-// 끝에 붙는 문장부호(마침표·쉼표·닫는 인용부호/괄호 등, 한/영/일 공통) — 박스 계산에서
-// 만 제외하고 심볼 자체는 버린다(뒤에 더 없는 "끝"에서만 적용, 단어 중간엔 안 건드림).
-const TRAILING_PUNCT_RE = /^[.,!?;:'")\]}»›」』、。！？；：]$/
-// em dash(—)/en dash(–) — 이걸로 이어진 표현은 두 단어로 취급해 박스를 나눈다.
-// (일반 하이픈(-)은 well-to-do 처럼 한 단어 취급이 맞는 경우가 많아 건드리지 않는다.)
+// 끝에 붙는 문장부호(마침표·쉼표·닫는 인용부호/괄호 등, 한/영/일 공통) — looksTruncated
+// 의 신뢰도 검사에서 제외할 심볼을 가릴 때만 쓴다(이런 획이 가는 글자는 멀쩡해도 원래
+// confidence 가 낮게 나오는 경향이 있어서, 잘림 신호로 오인하면 안 된다). 티어2 언어
+// 전용 문장부호(스페인어 ¡/¿, 아랍어 ،/؛/؟, 힌디어 계열 단다 ।/॥, 아르메니아어
+// ։/՜/՛/՞/՟)도 같은 이유로 추가한다(2026-07-30, 사용자 지적 — 예전엔 영어/한중일만
+// 있어서 이 언어들 단어가 끝 문장부호 때문에 통째로 잘림 오판될 위험이 있었다).
+const TRAILING_PUNCT_RE =
+  /^[.,!?;:'")\]}»›」』、。！？；：¡¿،؛؟।॥։՜՛՞՟]$/
+// em dash(—)/en dash(–) — 마찬가지로 looksTruncated 의 신뢰도 검사 제외 대상 판정용.
 const DASH_CHARS = new Set(['—', '–'])
+// 영어/라틴 등 비-CJK hover 박스 단어 경계 — 확장 프로그램(extension/src/domWords.ts:
+// WORD_ATOM_RE)과 같은 소스(@shared/wordTokenize)를 써서, 문장부호를 제외하고 하이픈으로
+// 이어진 구간은 한 단어로 묶는 기준을 통일한다(2026-07-30, "OCR 호버박스에 문장부호도
+// 잡힌다" 사용자 지적 — 자체 정규식(TRAILING_PUNCT_RE/DASH_CHARS) 로 끝쪽만 잘라내던
+// 방식이라 "순수 문장부호로만 된 단어"가 통째로 hover 대상에 남는 예외가 있었다).
+const HOVER_WORD_ATOM_RE = new RegExp(HOVER_WORD_ATOM_PATTERN, 'gu')
 
 /**
  * 위치(isWordClippedByRegion)가 아니라 "제대로 안 보이는 글자"를 인식 신뢰도로 판정한다.
@@ -631,23 +660,19 @@ function looksTruncated(word: { confidence: number; symbols?: OcrSymbol[] }): bo
 }
 
 /**
- * Tesseract 단어 1개를 글자(symbol) 단위로 훑어서, em/en dash 를 경계로 여러 단어로
- * 쪼개고 각 조각 끝의 문장부호는 텍스트에서 제외한다. `symbols` 가 없으면(드묾) 기존
- * 단어 bbox 그대로 반환.
+ * Tesseract 단어 1개를 글자(symbol) 단위로 훑어, 확장 프로그램의 hover 박스 단어 판정
+ * (HOVER_WORD_ATOM_RE, @shared/wordTokenize)과 동일한 기준으로 실제 "단어" 구간만 골라
+ * 각각 별도 박스를 만든다 — 그 사이(앞/뒤 문장부호, em/en dash 등 경계 문자)는 bbox 없는
+ * Word 로 남겨 텍스트는 보존하되 hover/클릭 대상에서는 뺀다. 이전에는 끝쪽 문장부호만
+ * 잘라내는 자체 정규식(TRAILING_PUNCT_RE)과 em/en dash 전용 분리(DASH_CHARS)를 따로
+ * 구현해서, "순수 문장부호로만 된 단어"가 걸러지지 않고 그대로 hover 대상에 남는 예외가
+ * 있었다(2026-07-30, 사용자 지적) — 이제 확장 프로그램과 같은 패턴을 쓰므로 그런 예외가
+ * 없고, 하이픈으로 이어진 단어(well-known)를 한 덩어리로 묶는 것도 동일하게 적용된다.
  *
- * 대시가 없는 단어는 박스를 원본 단어 bbox 그대로 유지한다(끝 문장부호는 텍스트
- * 문자열에서만 제거) — 어차피 나눌 필요가 없어서 심볼 bbox 를 볼 이유도 없다.
- *
- * 대시가 있는 단어는 조각마다 별도 박스가 꼭 필요한데, 예전엔 "글자 개수 비율"로
- * 원본 폭을 나눴었다 — 그런데 실측해보니(예: "officials—will") 글자 폭이 균일하지
- * 않아서(좁은 i/l 과 넓은 o/w 가 섞여있음) 개수 비율로는 실제 잉크 경계와 최대 15px
- * 이상 어긋났고, 그 결과 박스가 대시 한가운데서 끝나거나 대시를 통째로 삼키는
- * 문제가 있었다("단어 박스가 대시 중간에서 잘리거나 대시 전체가 박스 안에 포함됨"으로
- * 재현). 그래서 대시로 나뉜 각 글자 그룹은 그 그룹에 속한 실제 글자(알파벳/숫자 등,
- * 문장부호 제외) 심볼들의 bbox 를 합쳐서(min x0 ~ max x1) 박스를 만든다 — 대시 자신의
- * bbox 나 문장부호 bbox 는 여전히 안 믿지만(그 둘은 작고 옆 글자 쪽으로 부풀려지는
- * 경우가 있어서), 일반 글자 심볼들의 bbox 는 confidence 도 높고(실측 98~99%) 서로
- * 뚜렷이 구분돼 있어서 이걸 합친 값은 신뢰할 수 있다.
+ * 각 단어 atom 의 박스는 그 atom 을 이루는 심볼들의 bbox 를 합쳐서(min x0 ~ max x1)
+ * 만든다 — "글자 개수 비율"로 원본 단어 폭을 나누면 글자 폭이 균일하지 않아(좁은 i/l 과
+ * 넓은 o/w 가 섞여있음) 실제 잉크 경계와 최대 15px 이상 어긋났던 문제(officials—will 류,
+ * 실측 확인)가 있어 심볼 bbox 를 직접 합치는 방식을 그대로 유지한다.
  */
 function splitWordBySymbols(
   word: { text: string; bbox: OcrBbox; symbols?: OcrSymbol[] },
@@ -661,68 +686,19 @@ function splitWordBySymbols(
   const symbols = word.symbols
   if (!symbols || symbols.length === 0) return [mk(word.text, word.bbox.x0, word.bbox.x1)]
 
-  const hasDash = symbols.some((s) => DASH_CHARS.has(s.text))
-
-  // 담당 A — 트리밍/제외된 글자를 텍스트에서도 통째로 잃어버리던 문제 수정(2026-07-30,
-  // 사용자 재확인 — "문장부호가 팝업 본문에서 모두 사라짐"). 끝 문장부호(TRAILING_PUNCT_RE)
-  // 나 대시(DASH_CHARS) 는 "클릭 가능한 단어" 경계에선 계속 빼야 맞지만(그래야 "Drive,"를
-  // 클릭해도 "Drive"만 선택됨), 예전엔 Tesseract 원문(data.text)이 따로 있어서 이 트리밍이
-  // 클릭 단위에만 영향을 줬다 — 이제 text 를 words 에서 직접 뽑아 쓰므로(recognizeRegion
-  // 참고) 여기서 버리면 팝업 본문에서도 그대로 사라진다. bbox 없는 Word(hover/클릭 대상
-  // 아님)로 같이 남겨서 텍스트는 보존하고 클릭 단위만 그대로 유지한다.
-
-  if (!hasDash) {
-    let end = symbols.length
-    while (end > 0 && TRAILING_PUNCT_RE.test(symbols[end - 1]!.text)) end--
-    if (end === 0) return [mk(word.text, word.bbox.x0, word.bbox.x1)] // 전부 문장부호면(드묾) 원본 유지
-    const text = symbols.slice(0, end).map((s) => s.text).join('')
-    const trailingText = symbols.slice(end).map((s) => s.text).join('')
-    const out: Word[] = [mk(text, word.bbox.x0, word.bbox.x1)]
-    if (trailingText) out.push({ text: trailingText })
-    return out
-  }
-
-  // 대시를 경계로 글자 그룹을 나눈다(대시 자신은 어느 그룹에도 안 넣지만, 그룹 사이에
-  // bbox 없는 텍스트로 남긴다 — dashAfter[i] 는 groups[i] 바로 뒤에 있던 대시).
-  const groups: OcrSymbol[][] = []
-  const dashAfter: string[] = []
-  let current: OcrSymbol[] = []
-  for (const sym of symbols) {
-    if (DASH_CHARS.has(sym.text)) {
-      if (current.length > 0) {
-        groups.push(current)
-        dashAfter.push(sym.text)
-        current = []
-      }
-      // current 가 비어있는 채로 대시를 만나면(대시가 맨 앞 등, 드묾) 그냥 건너뜀(기존 동작 유지).
-    } else {
-      current.push(sym)
-    }
-  }
-  if (current.length > 0) groups.push(current)
-
+  const text = symbols.map((s) => s.text).join('')
   const results: Word[] = []
-  for (let i = 0; i < groups.length; i++) {
-    const group = groups[i]!
-    const isLast = i === groups.length - 1
-    let end = group.length
-    if (isLast) {
-      while (end > 0 && TRAILING_PUNCT_RE.test(group[end - 1]!.text)) end--
-    }
-    if (end > 0) {
-      const kept = group.slice(0, end)
-      const x0 = Math.min(...kept.map((s) => s.bbox.x0))
-      const x1 = Math.max(...kept.map((s) => s.bbox.x1))
-      const text = kept.map((s) => s.text).join('')
-      results.push(mk(text, x0, x1))
-    } else {
-      // 그룹 전체가 문장부호면(드묾) bbox 없이 텍스트만 남긴다.
-      results.push({ text: group.map((s) => s.text).join('') })
-    }
-    if (isLast && end < group.length) {
-      results.push({ text: group.slice(end).map((s) => s.text).join('') })
-    }
-    if (dashAfter[i]) results.push({ text: dashAfter[i]! })
+  let pos = 0
+  HOVER_WORD_ATOM_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = HOVER_WORD_ATOM_RE.exec(text))) {
+    if (m.index > pos) results.push({ text: text.slice(pos, m.index) })
+    const atomSymbols = symbols.slice(m.index, m.index + m[0].length)
+    const x0 = Math.min(...atomSymbols.map((s) => s.bbox.x0))
+    const x1 = Math.max(...atomSymbols.map((s) => s.bbox.x1))
+    results.push(mk(m[0], x0, x1))
+    pos = m.index + m[0].length
   }
+  if (pos < text.length) results.push({ text: text.slice(pos) })
   return results
 }
