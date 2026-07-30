@@ -203,7 +203,9 @@ export function ViewerSettings({
         </div>
       )}
 
-      {(showTextStyle || showTransition) && <div className="style-divider" />}
+      {/* 구분선은 뒤에 실제로 나올 내용(글자 설정)이 있을 때만 — PDF 는 글자 설정이
+          없어서 선만 덩그러니 남았다(사용자 지적). */}
+      {showTextStyle && <div className="style-divider" />}
 
       {showTextStyle &&
         rows.map((row) => {
