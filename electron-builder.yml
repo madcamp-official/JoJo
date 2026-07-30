@@ -10,12 +10,17 @@ directories:
   output: dist # 패키지 산출물(dmg/exe 등)
   buildResources: build # 아이콘 등 소스 에셋(build/icon.png)
 
-# 패키지에 포함할 파일 — electron-vite 산출물(out/**)과 package.json
+# 패키지에 포함할 파일 — electron-vite 산출물(out/**), package.json, 로컬 사전 번들(resources/**,
+# scripts/ensure-resources.sh 로 생성됨). resources/** 가 빠지면 asarUnpack 대상 자체가 없어서
+# JMdict/OEWN/CC-CEDICT 사전 조회가 배포판에서 전부 실패한다(2026-07-30 실측으로 확인된 버그).
 files:
   - out/**/*
   - package.json
+  - resources/**
 
-# 개발/테스트용 에셋은 패키지에서 제외
+# 사전 데이터는 용량이 크고(94MB) 텍스트/JSON 이라 asar 압축 이점이 없어 압축 해제 상태로 둔다
+# (코드가 __dirname 기준 상대경로로 읽는데, asar 안에 있으면 fs 가 asar 를 투명하게 가로채 동일한
+# 상대경로로 자동 리다이렉트해주므로 코드 변경 없이 그대로 동작한다).
 asarUnpack:
   - resources/**
 
