@@ -193,6 +193,13 @@ async function refresh(myEpoch: number, windowId: number): Promise<boolean> {
  * onInsufficientText 와 같은 역할.
  */
 export function startPdfAxMode(onUnavailable: () => void): void {
+  // 이전 세션의 폴링 타이머가 남아있으면(모드를 껐다 바로 다시 켠 경우 등) 먼저 정리한다
+  // — stopPdfAxMode() 는 호출 시점에 active 였을 때만 clearInterval 하므로, 그 전에
+  // 놓친 타이머가 있으면 `active` 가드로 조용히 no-op 만 반복하며 영원히 살아있었다.
+  if (polling) {
+    clearInterval(polling)
+    polling = null
+  }
   const myEpoch = ++epoch
   const windowId = selectedWindowId()
   if (!isAxAvailable() || windowId === null) {
@@ -201,11 +208,19 @@ export function startPdfAxMode(onUnavailable: () => void): void {
   }
   active = true
   lastSignature = readScrollSignature(windowId)
+  // 첫 추출 실패든, 세션 도중 스크롤로 스캔본 페이지에 들어가 텍스트를 잃는 경우든 같은
+  // 처리를 한다 — 둘 다 "지금 보이는 화면에서 direct 로 쓸만한 텍스트가 없다"는 같은
+  // 사실이라 OCR 로 넘기는 게 맞다(사용자 확인, 2026-07-30). 이 헬퍼가 없으면 폴링 쪽은
+  // refresh() 실패를 무시해서, 텍스트 PDF 를 보다가 스캔본 페이지로 스크롤해도 오버레이에
+  // 직전 페이지의 낡은 호버박스만 남고 OCR 로 전환되지 않는 문제가 있었다.
+  const onExtractFailure = (): void => {
+    stopPdfAxMode()
+    onUnavailable()
+  }
   void refresh(myEpoch, windowId).then((ok) => {
     if (myEpoch !== epoch) return
     if (!ok) {
-      stopPdfAxMode()
-      onUnavailable()
+      onExtractFailure()
       return
     }
     // 스크롤/확대/창 이동으로 좌표가 무효가 되면 다시 읽는다. 변화가 없으면 AX 호출
@@ -215,7 +230,10 @@ export function startPdfAxMode(onUnavailable: () => void): void {
       const signature = readScrollSignature(windowId)
       if (signature === null || signature === lastSignature) return
       lastSignature = signature
-      void refresh(epoch, windowId)
+      void refresh(myEpoch, windowId).then((stillOk) => {
+        if (myEpoch !== epoch || !active) return
+        if (!stillOk) onExtractFailure()
+      })
     }, SCROLL_POLL_MS)
   })
 }
