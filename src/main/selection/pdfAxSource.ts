@@ -1,11 +1,10 @@
-import type { AnyLanguage, Word } from '@shared/types'
+import type { AnyLanguage, Rect, Word } from '@shared/types'
 import { detectSupportedLanguage, resolveCjkLanguage } from '@shared/languageDetect'
-import { unionRects } from '@shared/wordMapping'
 import { segmentCjkText } from '../nlp/segmentCjk'
 import { getLanguageOverride } from '../settingsStore'
 import { getSelectedWindowId, getSelectedWindowName } from './capture'
 import { commitDirectExtraction } from './extractionCache'
-import { type AxLine, readScrollSignature, readVisiblePages, isAxAvailable } from './macAx'
+import { type AxParagraph, readScrollSignature, readVisiblePages, isAxAvailable } from './macAx'
 import { parseMacWindowId } from './macWindow'
 
 // 담당 milleion — macOS 미리보기(Preview.app)로 연 PDF 를 OCR 없이 접근성(AX) API 로 직접
@@ -15,9 +14,9 @@ import { parseMacWindowId } from './macWindow'
 //
 // 단어를 어디서 끊을지(=hover 박스 하나의 단위)는 확장(브라우저) 경로와 같은 기준을 쓴다
 // (사용자 요청, 2026-07-30): 라틴 문자는 공백 기준, CJK 는 형태소 분석 결과 기준. 확장은
-// bridge.ts 가 같은 분석기(segmentJapaneseWords/segmentChineseWords)를 호출해 그 경계를
-// 넘겨주는데, 이 경로는 앱 안이라 중간 전달 없이 직접 부른다 — 분석기가 같으므로 경계도
-// 같고, 팝업의 atom 경계와도 일치한다(bridge.ts segmentAndSend 주석 참고).
+// bridge.ts 가 그 경계를 계산해 넘겨주고, 이 경로는 앱 안이라 중간 전달 없이 직접 부른다 —
+// 분할기 자체는 `nlp/segmentCjk.ts` 하나를 확장 bridge·자체 뷰어와 함께 쓰므로 경계가
+// 갈릴 일이 없고, 팝업의 atom 경계와도 일치한다(segmentCjk.ts 주석 참고).
 
 /** 이 미만이면 "쓸만한 텍스트를 못 얻었다"고 보고 OCR 로 폴백한다(스캔본 PDF 등 —
  *  텍스트 레이어가 없으면 AX 트리에 AXImage 만 나와 텍스트가 거의 안 잡힌다). */
@@ -123,19 +122,52 @@ async function tokenizeLine(line: string): Promise<Token[]> {
   }
 }
 
-/** 줄 하나를 Word[] 로 바꾼다 — 각 단어의 bbox 는 그 단어의 문자 범위만 AX 에 다시 물어서
- *  얻는다(줄 bbox 를 글자 수로 나누는 근사가 아니라 실제 렌더 좌표). */
-async function wordsOfLine(line: AxLine): Promise<Word[]> {
+/** 두 사각형이 화면상 같은 줄(가로 방향 시각적 행)에 있는지 — Y 범위가 겹치면 같은 줄로
+ *  본다(shared/wordMapping.ts: groupRectsByLine 과 동일한 기준). */
+function sameLine(a: Rect, b: Rect): boolean {
+  return a.y < b.y + b.height && a.y + a.height > b.y
+}
+
+/**
+ * 문단 하나를 Word[] 로 바꾼다. **`AXRangeForLine`이 주는 "줄" 개념은 아예 안 쓴다**
+ * (macAx.ts: AxParagraph 주석 참고 — 이 PDF에서 신뢰할 수 없다고 실측 확인됨). 대신
+ * 문단 전체 텍스트를 한 번에 토큰화하고(줄 경계 때문에 단어가 쪼개지는 문제 자체가
+ * 원천적으로 없어짐), 각 단어의 bbox 는 그 단어의 문자 범위만 AX 에 물어서 얻는다.
+ * 화면상 줄바꿈이 필요한 지점(팝업 문맥 계산용 `\n`)은 AX 에 묻지 않고, 인접한 두
+ * 단어의 실제 렌더 좌표를 비교해(Y 겹침 여부) 우리가 직접 판정한다 — 그 사이의 공백
+ * 토큰을 줄바꿈이면 '\n'으로, 아니면 원래 공백 그대로 남긴다.
+ */
+async function wordsOfParagraph(paragraph: AxParagraph): Promise<Word[]> {
+  const tokens = await tokenizeLine(paragraph.text)
+  const withBounds = tokens.map((t) => ({
+    ...t,
+    bbox: t.text.trim() ? (paragraph.boundsOf(t.start, t.text.length) ?? undefined) : undefined,
+  }))
+
   const words: Word[] = []
-  for (const token of await tokenizeLine(line.text)) {
-    if (!token.text.trim()) {
-      // 공백 토큰은 텍스트에만 남기고 좌표는 주지 않는다 — 빈 곳에 hover 박스가 뜨지
-      // 않게(OCR 경로가 줄 사이에 넣는 공백/줄바꿈 Word 와 같은 취급).
-      words.push({ text: token.text })
+  for (let i = 0; i < withBounds.length; i++) {
+    const cur = withBounds[i]!
+    if (cur.text.trim()) {
+      words.push({ text: cur.text, bbox: cur.bbox })
       continue
     }
-    const bbox = line.boundsOf(token.start, token.text.length) ?? undefined
-    words.push({ text: token.text, bbox })
+    // 공백(또는 좌표 없는) 토큰 — 앞뒤로 가장 가까운, 좌표를 가진 실제 단어를 찾아 줄이
+    // 바뀌는 지점인지 판정한다.
+    let prevBbox: Rect | undefined
+    for (let j = i - 1; j >= 0; j--) {
+      if (withBounds[j]!.bbox) {
+        prevBbox = withBounds[j]!.bbox
+        break
+      }
+    }
+    let nextBbox: Rect | undefined
+    for (let j = i + 1; j < withBounds.length; j++) {
+      if (withBounds[j]!.bbox) {
+        nextBbox = withBounds[j]!.bbox
+        break
+      }
+    }
+    words.push({ text: prevBbox && nextBbox && !sameLine(prevBbox, nextBbox) ? '\n' : cur.text })
   }
   return words
 }
@@ -157,59 +189,26 @@ interface AxExtraction {
 async function extractOnce(windowId: number): Promise<AxExtraction | null> {
   const result = readVisiblePages(windowId)
   if (!result || result.pages.length === 0) return null
-  // result.pages 안 AxLine.boundsOf 클로저가 참조하는 AX 노드는 retain 돼 있다(macAx.ts
-  // 주석 참고 — CJK 형태소 분석(아래 await)이 끝날 때까지 부모 배열 해제와 무관하게
-  // 유효해야 하므로). 다 쓰고 나면 반드시 release 해서 짝을 맞춘다 — 안 하면 그 AX 객체가
-  // 프로세스 종료까지 해제되지 않는다(누수).
+  // result.pages 안 AxParagraph.boundsOf 클로저가 참조하는 AX 노드는 retain 돼 있다
+  // (macAx.ts 주석 참고 — CJK 형태소 분석(아래 await)이 끝날 때까지 부모 배열 해제와
+  // 무관하게 유효해야 하므로). 다 쓰고 나면 반드시 release 해서 짝을 맞춘다 — 안 하면
+  // 그 AX 객체가 프로세스 종료까지 해제되지 않는다(누수).
   try {
     const words: Word[] = []
     for (const [pageIdx, page] of result.pages.entries()) {
       if (pageIdx > 0) words.push({ text: '\n' }) // 페이지 경계
       for (const paragraph of page.paragraphs) {
-        for (const [li, line] of paragraph.entries()) {
-          const lineWords = await wordsOfLine(line)
-          if (lineWords.length === 0) continue
-          // 이 줄이 직전 줄과 공백 없이 바로 이어지면(=AX 가 보고한 줄 경계가 단어 중간에서
-          // 끊긴 것 — 실사용 확인, 2026-07-30: "pantries"가 "pantrie"/"s"로, "another"가
-          // "a"/"nother"로 서로 다른 호버박스 단어로 쪼개짐) 줄 단위로 각각 토큰화하면
-          // 그 단어가 두 개의 별개 단어로 갈라진다. 직전 줄의 마지막 실제 글자와 이 줄의
-          // 첫 글자가 둘 다 공백이 아니면 같은 단어가 쪼개진 것으로 보고, 개행을 넣는 대신
-          // 직전에 쌓아둔 마지막 토큰과 이 줄의 첫 토큰을 하나로 합친다(좌표는 두 줄에
-          // 걸치므로 합집합 — 흔치 않은 경우라 완벽한 두 줄 박스보다 이 근사로 충분하다).
-          // **판정 순서가 중요하다**: 개행을 "이번 줄 끝에" 넣으면 다음 줄이 이어지는지
-          // 알기 전에 이미 넣어버려 병합 조건(prevWord가 실제 단어)이 항상 거짓이 된다 —
-          // 그래서 개행은 "이번 줄 시작 전에, 직전 줄과의 관계를 보고" 넣는 방식으로 바꿨다.
-          const prevLine = li > 0 ? paragraph[li - 1] : null
-          const isWordSplit =
-            prevLine !== null &&
-            prevLine.text.length > 0 &&
-            line.text.length > 0 &&
-            !/\s/.test(prevLine.text.slice(-1)) &&
-            !/\s/.test(line.text[0]!)
-          const prevWord = words[words.length - 1]
-          if (isWordSplit && prevWord && prevWord.text.trim() && lineWords[0]!.text.trim()) {
-            words.pop()
-            const first = lineWords[0]!
-            words.push({
-              text: prevWord.text + first.text,
-              bbox:
-                prevWord.bbox && first.bbox
-                  ? (unionRects([prevWord.bbox, first.bbox]) ?? undefined)
-                  : (prevWord.bbox ?? first.bbox),
-            })
-            words.push(...lineWords.slice(1))
-          } else {
-            // 병합 대상이 아니면(진짜 줄 경계) 직전 내용과 이 줄 사이에 개행을 넣는다 —
-            // 문서/페이지 맨 처음이거나 이미 개행으로 끝난 경우(페이지 경계 등)는 중복
-            // 삽입을 막는다.
-            if (prevWord && prevWord.text !== '\n') words.push({ text: '\n' })
-            words.push(...lineWords)
-          }
-        }
+        // 문단 경계에는 항상 개행 — 문서/페이지 맨 처음이거나 이미 개행으로 끝난 경우
+        // (페이지 경계 직후 등)는 중복 삽입을 막는다. 문단 "안"의 줄바꿈은
+        // wordsOfParagraph 가 실제 렌더 좌표로 직접 판정해서 이미 넣어준다 — 여기서는
+        // AX 가 보고하는 줄 개념을 아예 신경 쓸 필요가 없다(macAx.ts: AxParagraph 주석).
+        const prevWord = words[words.length - 1]
+        if (prevWord && prevWord.text !== '\n') words.push({ text: '\n' })
+        words.push(...(await wordsOfParagraph(paragraph)))
       }
     }
     // 문서 끝에도 개행을 남겨둔다(다음 페이지가 이어질 수도, 여기서 끝일 수도 있지만
-    // 어느 쪽이든 무해) — 기존에 매 줄 끝마다 개행을 넣던 동작과 맞춘다.
+    // 어느 쪽이든 무해).
     if (words.length > 0 && words[words.length - 1]!.text !== '\n') words.push({ text: '\n' })
 
     const text = words.map((w) => w.text).join('')
@@ -229,9 +228,7 @@ async function extractOnce(windowId: number): Promise<AxExtraction | null> {
           {
             pages: result.pages.map((page) => ({
               bbox: page.bbox,
-              paragraphs: page.paragraphs.map((paragraph) =>
-                paragraph.map((line) => ({ text: line.text, location: line.location, bbox: line.bbox })),
-              ),
+              paragraphs: page.paragraphs.map((paragraph) => paragraph.text),
             })),
             words: words.map((w) => ({ text: w.text, bbox: w.bbox ?? null })),
             text,
