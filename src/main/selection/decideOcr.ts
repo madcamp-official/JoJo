@@ -1,6 +1,7 @@
 import type { AnyLanguage, SelectionSource } from '@shared/types'
 import { getSelectedWindowName } from './capture'
 import { detectLanguage } from './langDetect'
+import { isPreviewWindowSelected } from './pdfAxSource'
 import { activeTabTracker, getBrowserSource, type BrowserSource } from '../extension/activeTab'
 import { extensionBridge } from '../extension/bridge'
 
@@ -25,7 +26,8 @@ export interface ExtractionDecision {
   // web = 확장으로 일반 웹페이지 본문 DOM 텍스트 추출(비미디어 브라우저 페이지) — 낙관적
   // 판정이라 실제 텍스트 충분 여부는 webSource.ts: startWebMode()가 확인 후 부족하면
   // 스스로 OCR 경로로 넘어간다(§5.1 "텍스트 양으로 분기" 원칙).
-  mode: 'ocr' | 'subtitle' | 'web'
+  // direct = macOS 미리보기(Preview.app) PDF를 접근성(AX) API로 직접 추출(pdfAxSource.ts)
+  mode: 'direct' | 'ocr' | 'subtitle' | 'web'
   source: SelectionSource
   language: AnyLanguage
 }
@@ -81,6 +83,18 @@ export async function decideExtraction(): Promise<ExtractionDecision> {
     // 실제 텍스트가 부족하면 webSource.ts가 스스로 OCR 경로로 넘어간다(shortcut.ts 참고).
     return { mode: 'web', source: browser.source, language }
   }
+
+  // macOS 미리보기(Preview.app)로 연 PDF — 접근성(AX) API 로 텍스트와 좌표를 둘 다 직접
+  // 얻을 수 있어 OCR 이 필요 없다(pdfAxSource.ts). 여기서는 창 이름만 보고 낙관적으로
+  // 판정하고, 실제로 텍스트가 나오는지(스캔본이면 안 나온다)는 startPdfAxMode 가 확인해
+  // 부족하면 스스로 OCR 로 넘어간다 — web 경로(위)와 같은 방식이다.
+  if (isPreviewWindowSelected()) {
+    return { mode: 'direct', source: { kind: 'pdf' }, language }
+  }
+
+  // 표준 텍스트 컨트롤(메모장의 WM_GETTEXT 등) 직접 읽기 경로는 실제로 쓰는 분기가 없어
+  // 제거됐다(dev, 7f79b0f — extractionCache.ts 주석 참고: 좌표가 없어 direct 판정 자체가
+  // 의미 없었다). PDF(위)는 AX 로 좌표까지 얻으므로 이 문제가 없어 별개로 유지한다.
 
   // TODO(담당 A):
   //  1) 활성 대상 식별 (브라우저=확장)로 source·url 파악, youtube·netflix 등 분기
