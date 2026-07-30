@@ -34,6 +34,52 @@ export function toAccelerator(e: KeyboardEvent): string | null {
   return [...mods, key].join('+')
 }
 
+/** Electron 은 등록 자체는 뭐든 받아준다(실측 확인, 2026-07-30) — OS 차원의 방어가 없어
+ *  전적으로 이 녹화 로직이 걸러줘야 한다. `toAccelerator`가 만든 후보 중 "등록되면 안 되는"
+ *  조합의 이유를 돌려준다(null = 문제 없음). */
+export type UnsafeAcceleratorReason = 'shift-typing' | 'reserved'
+
+// Shift 만 걸고 실제로 문자를 입력하는 키(letter/digit/symbol/space)를 누르면, 그 문자를
+// 입력하는 물리 키 조합 자체를 전역으로 가로채 어디서든 타이핑이 깨진다 — 예외 없이 항상
+// 나쁜 조합이라 별도 목록 없이 구조로 판정한다(mods 가 Shift 하나뿐 + key 가 한 글자).
+
+// OS/다른 앱이 이미 쓰는 필수 단축키 — 등록되면 Nuance가 켜져 있는 동안 시스템 전체에서
+// 그 기능이 먹통이 된다(실측 확인: Electron 이 이런 조합도 register() 를 그냥 성공시킴).
+// mac 전용(Command 계열)·Windows 전용(대응 물리 키 없음) 항목이 섞여 있어도 상관없다 —
+// 해당 OS에 없는 키는 애초에 눌리지 않으므로 다른 쪽 항목은 자연히 무해하다.
+const RESERVED_ACCELERATORS = new Set([
+  'Command+Space', // Spotlight
+  'Command+Tab', // 앱 전환
+  'Command+Q', // 앱 종료
+  'Command+W', // 창 닫기
+  'Command+Alt+Escape', // 강제 종료
+  'Command+C',
+  'Command+V',
+  'Command+X',
+  'Command+Z',
+  'Command+A',
+  'Command+S',
+  'Control+C',
+  'Control+V',
+  'Control+X',
+  'Control+Z',
+  'Control+A',
+  'Control+S',
+  'Alt+Tab', // 앱 전환(Windows)
+  'Alt+F4', // 창 닫기(Windows)
+  'Control+Shift+Escape', // 작업 관리자(Windows)
+  'Control+Alt+Delete',
+])
+
+export function unsafeAcceleratorReason(accelerator: string): UnsafeAcceleratorReason | null {
+  const parts = accelerator.split('+')
+  const mods = parts.slice(0, -1)
+  const key = parts[parts.length - 1]!
+  if (mods.length === 1 && mods[0] === 'Shift' && key.length === 1) return 'shift-typing'
+  if (RESERVED_ACCELERATORS.has(accelerator)) return 'reserved'
+  return null
+}
+
 /**
  * keydown 이벤트가 저장된 accelerator 문자열(설정에 저장된 값)과 일치하는지 판정한다.
  * 'CommandOrControl'(과거 기본값 호환용 토큰)은 이 OS에서 실제로 눌리는 키(mac=Command,

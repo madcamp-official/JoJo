@@ -263,14 +263,55 @@ async function fillInterLineGaps(
 // 를 비교해볼 수 있는 임시 토글이라 정식 기능은 아니다 — 필요 없어지면 지워도 됨.
 const DISABLE_BASELINE_SNAP = !!process.env.NDLOCR_DISABLE_BASELINE_SNAP
 
+// computeBaseline(ocrPaddle.ts)의 "열 시작 y좌표 최빈값" 계산을 그대로 뒤집어
+// "열 끝(bottom) y좌표 최빈값"에 적용한 것 — 본문 열 대부분이 페이지 하단 여백까지
+// 꽉 채워서 끝나므로, 그 공통 하단(commonBottom)이 곧 "이 페이지에서 열이 끝까지
+// 다 채워졌을 때의 bottom"이 된다.
+function computeCommonBottom(bodyLines: LineCandidate[]): number | null {
+  if (bodyLines.length < 2) return null
+  const rounded = bodyLines.map((l) => Math.round((l.y + l.height) / 5) * 5)
+  const counts = new Map<number, number>()
+  for (const y of rounded) counts.set(y, (counts.get(y) ?? 0) + 1)
+  let commonBottom = rounded[0]!
+  let bestCount = 0
+  for (const [y, c] of counts) {
+    // 동점이면 더 큰 y(=더 많이 채워진 쪽)를 우선한다 — computeBaseline이 동점일 때
+    // 더 작은 y를 우선하는 것과 대칭.
+    if (c > bestCount || (c === bestCount && y > commonBottom)) {
+      bestCount = c
+      commonBottom = y
+    }
+  }
+  return commonBottom
+}
+
+// 이 비율(기준 칸 크기 대비) 이상 공통 하단에 못 미치고 짧게 끝난 열이 있으면, 그
+// 열에서 문단이 중간에 끝났다고 본다 — 들여쓰기나 대시 같은 조판 관례와 무관하게
+// 거의 항상 성립하는 구조적 신호다(사용자 제안, 2026-07-30). 단, 이 신호 하나만
+// 단독으로는 완전히 믿지 않는다(사용자 지적 — 문단이 우연히 열 끝까지 딱 맞아떨어져
+// 끝나는 경우 이 신호가 아예 안 뜨는 false negative는 원리적으로 못 잡는, 이미 알고
+// 있는 한계). 그래서 다음 열 쪽에서도 "이 열이 이전 열의 이어짐이 아니라 새로
+// 시작하는 것처럼 보이는지"(= 이번 열 자신의 y좌표가 기준선보다 뚜렷이 위로
+// 어긋나 있지 않은지, 즉 원래 있던 rawRatio 판정과 모순되지 않는지)까지 함께 보고
+// 최종 판단한다 — rawRatio가 기준선보다 확연히 아래(음수 방향으로 큰 값)라 다른
+// 열과 겹쳐 보이는 등 정렬 자체가 의심스러운 경우는 이 신호를 적용하지 않는다.
+// 실측(사용자 제보, i=7 케이스) 확인 결과: 진짜 "이어지는" 열들의 bottom은 공통
+// 하단 대비 보통 0~3px(0.17칸)만 흔들리는데, 문단이 우연히 열 끝까지 거의(9px,
+// 0.5칸) 채워 끝난 경우는 그보다 뚜렷이 크지만 예전 문턱(1칸=17.6px)에는 못
+// 미쳤다 — 그래서 문턱을 0.3칸으로 낮춘다.
+const SHORT_COLUMN_GAP_RATIO = 0.3
+const SHORT_COLUMN_SANITY_MIN_RATIO = -1.5
+
 function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | null): AlignedLine[] {
   if (!typicalCellSize) {
     return lines.map((line) => ({ ...line, suspicious: hasGapMarker(line.text) }))
   }
-  const baseline = computeBaseline(lines.filter((l) => l.height >= MIN_BODY_LINE_HEIGHT))
+  const bodyLines = lines.filter((l) => l.height >= MIN_BODY_LINE_HEIGHT)
+  const baseline = computeBaseline(bodyLines)
   if (baseline === null) {
     return lines.map((line) => ({ ...line, suspicious: hasGapMarker(line.text) }))
   }
+  const commonBottom = computeCommonBottom(bodyLines)
 
   return lines.map((line, i): AlignedLine => {
     const originalBottom = line.y + line.height
@@ -312,6 +353,17 @@ function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | nul
         if (!DISABLE_BASELINE_SNAP) newY = baseline + DETECTION_PADDING_BIAS * typicalCellSize
         text = UNKNOWN_GAP_PLACEHOLDER.repeat(count) + text
       }
+    } else if (process.env.DEBUG_OCR_DUMP) {
+      // 담당 A — 문단 판정 실패 진단용(2026-07-30, 사용자 제보 — "들여쓰기가 되는 부분과
+      // 안 되는 부분이 있음"). residual 이 허용 오차(SNAP_RESIDUAL_RATIO)를 넘으면 이
+      // if 블록 전체(Y스냅 + 문단 판정 + 미검출 자리표자)가 통째로 건너뛰어진다 — 진짜
+      // 들여쓰기인데도 typicalCellSize 추정 오차 등으로 이 문턱을 못 넘기면 문단 판정
+      // 자체가 조용히 실패한다. 어느 줄이 여기서 걸렸는지 남긴다.
+      console.log(
+        `[ocrNdlocr] 문단 판정 스냅 실패(허용오차 초과): text="${line.text.slice(0, 10)}" ` +
+          `rawRatio=${rawRatio.toFixed(3)} nearestMultiple=${nearestMultiple} residual=${residual.toFixed(2)} ` +
+          `(허용=±${(typicalCellSize * SNAP_RESIDUAL_RATIO).toFixed(2)}) typicalCellSize=${typicalCellSize.toFixed(2)} baseline=${baseline}`,
+      )
     }
 
     // 줄 끝 미검출 구간 — "여기까지 인식됐다면 몇 번째 칸에서 끝나야 하는지"
@@ -341,6 +393,48 @@ function alignColumnStarts(lines: LineCandidate[], typicalCellSize: number | nul
     const sizeMismatchSuspicious =
       perLineCellSize !== null && perLineCellSize / typicalCellSize >= PER_LINE_RATIO_THRESHOLD
 
+    // 담당 A — 대사/독백 줄 시작 기호로 문단 판정 보강(2026-07-30, 사용자 제보 — "―あなたは、
+    // いつまで..." 같은 줄이 새 문단이어야 하는데 안 됨). 실측(DEBUG_OCR_DUMP) 확인 결과
+    // 이 소설은 그런 줄을 들여쓰기가 아니라 **줄 맨 앞 대시(―)만으로** 새 문단임을 표시하는
+    // 조판 관례를 쓰고 있었다(rawRatio=0.000, 들여쓰기 전혀 없음 — 기하학적 판정으로는
+    // 원리적으로 못 잡음). 「/『(대사 인용부호 여는 괄호)로 시작하는 줄도 같은 이유로 놓친
+    // 사례가 실측에서 확인됨. 위 들여쓰기 판정과 무관하게(그 판정이 성공했든 잔여값 초과로
+    // 실패했든) 독립적인 신호로 얹는다 — 세로쓰기 일본어 소설에서 이 기호로 시작하는 줄이
+    // 새 문단이 아닐 확률은 낮다고 보고 안전하다고 판단.
+    const PARAGRAPH_LEADING_MARK_RE = /^[「『―—]/
+    if (i > 0 && !paragraphStart && PARAGRAPH_LEADING_MARK_RE.test(line.text)) paragraphStart = true
+
+    // 담당 A — "이전 열이 공통 하단까지 못 채우고 짧게 끝남" 신호(사용자 제안,
+    // 2026-07-30). i>0이고 commonBottom을 구할 수 있을 때만 적용한다. 단, 이 신호
+    // 하나만으로는 완전히 믿지 않는다(사용자 지적, i=7 실측 사례 — 문단이 우연히
+    // 열 끝까지 거의 다 채워 끝나면 shortfall이 작게 나와 낮은 문턱에서만 걸리는데,
+    // 그 낮은 문턱은 진짜 "이어지는" 열의 자연스러운 측정 오차와도 겹칠 수 있다).
+    // 그래서 이번 열(=다음 열) 자신이 "이어지는 열처럼" 기준선보다 뒤로 어긋나
+    // 있으면(nearestMultiple < 0, 실측 확인 결과 이 페이지에서 이어지는 열은 전부
+    // -1, 새 문단인 열은 전부 0이었다) 이 신호를 적용하지 않는다 — shortfall
+    // 하나가 아니라 "이전 열이 짧다" + "이번 열이 이어짐 신호를 안 보인다" 둘 다
+    // 맞아야 최종적으로 새 문단으로 판정한다.
+    let prevColumnEndedShort = false
+    if (
+      i > 0 &&
+      commonBottom !== null &&
+      rawRatio >= SHORT_COLUMN_SANITY_MIN_RATIO &&
+      nearestMultiple >= 0
+    ) {
+      const prev = lines[i - 1]!
+      const prevBottom = prev.y + prev.height
+      const shortfall = commonBottom - prevBottom
+      if (shortfall > typicalCellSize * SHORT_COLUMN_GAP_RATIO) prevColumnEndedShort = true
+    }
+    if (!paragraphStart && prevColumnEndedShort) paragraphStart = true
+
+    if (process.env.DEBUG_OCR_DUMP) {
+      console.log(
+        `[ocrNdlocr] alignColumnStarts: i=${i} text="${line.text.slice(0, 10)}" rawRatio=${rawRatio.toFixed(3)} ` +
+          `nearestMultiple=${nearestMultiple} residual=${residual.toFixed(2)} prevColumnEndedShort=${prevColumnEndedShort} ` +
+          `commonBottom=${commonBottom} paragraphStart=${paragraphStart}`,
+      )
+    }
     if (paragraphStart) text = '\n' + text
     return {
       ...line,

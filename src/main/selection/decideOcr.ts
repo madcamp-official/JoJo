@@ -1,6 +1,5 @@
 import type { AnyLanguage, SelectionSource } from '@shared/types'
-import { readWindowText } from './accessibility'
-import { getSelectedWindowId, getSelectedWindowName } from './capture'
+import { getSelectedWindowName } from './capture'
 import { detectLanguage } from './langDetect'
 import { isPreviewWindowSelected } from './pdfAxSource'
 import { activeTabTracker, getBrowserSource, type BrowserSource } from '../extension/activeTab'
@@ -27,16 +26,13 @@ export interface ExtractionDecision {
   // web = 확장으로 일반 웹페이지 본문 DOM 텍스트 추출(비미디어 브라우저 페이지) — 낙관적
   // 판정이라 실제 텍스트 충분 여부는 webSource.ts: startWebMode()가 확인 후 부족하면
   // 스스로 OCR 경로로 넘어간다(§5.1 "텍스트 양으로 분기" 원칙).
+  // direct = macOS 미리보기(Preview.app) PDF를 접근성(AX) API로 직접 추출(pdfAxSource.ts)
   mode: 'direct' | 'ocr' | 'subtitle' | 'web'
   source: SelectionSource
   language: AnyLanguage
 }
 
 const cache = new Map<string, ExtractionDecision>() // key: url ?? appName
-
-// 이 미만이면 "의미 있는 텍스트"로 안 보고 OCR 로 폴백한다(빈 EDIT 컨트롤이나
-// 검색창 placeholder 같은 잡음성 텍스트를 direct 로 잘못 채택하는 걸 막기 위함).
-const MIN_DIRECT_TEXT_LENGTH = 20
 
 // 크롬 창을 선택한 직후엔 확장의 첫 activeTab 보고(WS 핸드셰이크)가 아직 도착하기 전일 수
 // 있다 — 이 짧은 순간에 판정하면 getBrowserSource() 가 null 이라 "브라우저 아님"으로 오판해
@@ -96,17 +92,9 @@ export async function decideExtraction(): Promise<ExtractionDecision> {
     return { mode: 'direct', source: { kind: 'pdf' }, language }
   }
 
-  // 표준 텍스트 컨트롤(메모장 등)이면 OCR 없이 바로 정확한 텍스트를 얻을 수 있다 —
-  // 브라우저·PDF 뷰어처럼 캔버스에 그리는 앱은 여기서 안 잡히고 OCR 로 자연스럽게 폴백.
-  // readWindowText 는 Windows 전용(WM_GETTEXT)이고, 창 id 도 Windows 에서만 숫자 hwnd 다.
-  // macOS 의 desktopCapturer id 는 "window:7805:0" 형태라 BigInt 변환이 불가 → win32 에서만 시도.
-  const id = getSelectedWindowId()
-  if (id && process.platform === 'win32') {
-    const text = await readWindowText(BigInt(id))
-    if (text && text.trim().length >= MIN_DIRECT_TEXT_LENGTH) {
-      return { mode: 'direct', source: { kind: 'txt' }, language }
-    }
-  }
+  // 표준 텍스트 컨트롤(메모장의 WM_GETTEXT 등) 직접 읽기 경로는 실제로 쓰는 분기가 없어
+  // 제거됐다(dev, 7f79b0f — extractionCache.ts 주석 참고: 좌표가 없어 direct 판정 자체가
+  // 의미 없었다). PDF(위)는 AX 로 좌표까지 얻으므로 이 문제가 없어 별개로 유지한다.
 
   // TODO(담당 A):
   //  1) 활성 대상 식별 (브라우저=확장)로 source·url 파악, youtube·netflix 등 분기

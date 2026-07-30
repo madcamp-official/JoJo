@@ -62,46 +62,15 @@ export function openWindowPicker(): void {
   showMainWindowAtRoute('picker')
 }
 
-// Windows 트레이 컨텍스트 메뉴는 accelerator 프로퍼티를 주면 OS가 현재 로케일로 키 이름을
-// 자체 렌더링한다 — 한국어 Windows 에서 ',' 키가 "콤마"로 표시되는 식(2026-07-30 사용자
-// 제보: 설정 화면(SettingsScreen.tsx formatAccelerator) 표시와 달라 혼란). mac 은 지금
-// accelerator 로 그려지는 ⌘/⌥ 기호 표시가 이미 만족스럽다는 확인을 받아 그대로 두고,
-// Windows/Linux 만 accelerator prop 대신 설정 화면과 같은 포맷의 텍스트를 라벨에 직접
-// 붙인다 — 이 accelerator 는 실제 키 입력 처리(globalShortcut 등)와는 무관한 순수 표시용
-// 이라 지워도 기능엔 지장 없다.
-const WIN_MODIFIER_LABELS: Record<string, string> = {
-  Command: 'Ctrl',
-  Control: 'Ctrl',
-  CommandOrControl: 'Ctrl',
-  Alt: 'Alt',
-  Shift: 'Shift',
-}
-const WIN_KEY_LABELS: Record<string, string> = {
-  ArrowUp: '↑',
-  ArrowDown: '↓',
-  ArrowLeft: '←',
-  ArrowRight: '→',
-  Escape: 'Esc',
-  Delete: 'Del',
-  Backspace: '⌫',
-  Enter: '↵',
-  ' ': 'Space',
-  PageUp: 'PgUp',
-  PageDown: 'PgDn',
-}
-
-function formatAcceleratorForLabel(a: string): string {
-  return a
-    .split('+')
-    .map((token) => WIN_MODIFIER_LABELS[token] ?? WIN_KEY_LABELS[token] ?? token)
-    .join(' + ')
-}
-
-/** 라벨 + 단축키 표시를 함께 만든다 — mac 은 native accelerator, 그 외는 라벨에 텍스트로. */
+// Windows 에서 accelerator 프로퍼티를 주면 OS가 현재 로케일로 키 이름을 자체 렌더링해
+// (예: ',' 가 "콤마"로 표시) 설정 화면 표시와 다르게 보인다 — 한때 Windows/Linux 만
+// accelerator 대신 라벨에 직접 텍스트를 붙이는 방식으로 바꿨었지만(2026-07-30),
+// 그러면 트레이 메뉴가 열려 있는 동안 그 키를 눌러 항목을 바로 선택하는 네이티브 동작이
+// 같이 없어진다(accelerator 프로퍼티가 "표시"와 "메뉴 열려있을 때 키로 선택" 두 기능을
+// 겸하고 있어 분리가 안 됨, 실사용 확인). 후자 기능을 지키기로 하고 원래대로 되돌림
+// (2026-07-30 사용자 결정 — "콤마" 표시는 감수).
 function menuEntry(label: string, shortcut: string): { label: string; accelerator?: string } {
-  if (!shortcut) return { label }
-  if (process.platform === 'darwin') return { label, accelerator: shortcut }
-  return { label: `${label}  (${formatAcceleratorForLabel(shortcut)})` }
+  return { label, accelerator: shortcut || undefined }
 }
 
 function buildTrayMenu(): Menu {

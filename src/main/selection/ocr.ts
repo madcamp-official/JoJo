@@ -3,7 +3,6 @@ import { createWorker, type Worker } from 'tesseract.js'
 import type { AnyLanguage, Rect, Word } from '@shared/types'
 import { getOcrLangCode } from '@shared/languages'
 import { HOVER_WORD_ATOM_PATTERN } from '@shared/wordTokenize'
-import type { Extracted } from './extractDirect'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
 import { detectLayoutBlocks, filterBlocksByRegion, type LayoutBlock, mergeIntoColumns, padRect } from './layoutDetect'
@@ -23,7 +22,14 @@ import { TESSDATA_CACHE_PATH } from './tessdataCache'
 // 실측 결과 가로는 줄 끝 단어가 통째로 깨지지 않으려면 50px은 필요했고(10~30px 는
 // 부족), 세로는 크게 주면 메뉴바/툴바 문구가 딸려 들어와서 작게 유지한다.
 const BLOCK_PADDING_X = 50
-const BLOCK_PADDING_Y = 12
+// 담당 A — 12→20 로 상향(2026-07-30, 사용자 제보 — 다단 영역에서 열의 첫 줄이 "잘린
+// 단어"(isWordClippedByRegion)로 오판돼 클릭 박스가 안 뜨는데 팝업 본문엔 텍스트가
+// 있음, tesswords 덤프로 해당 단어의 bbox 자체가 null 로 제외됨을 확인). DocLayout이
+// 잡은 열 bbox 상단이 실제 첫 줄보다 살짝 타이트하게 잡히는 경우가 있어 12px 여유로는
+// 부족했던 것으로 보임 — 다만 이 값을 예전에 작게 유지했던 이유(메뉴바/툴바 문구가
+// 딸려 들어옴)도 여전히 유효하므로 과하게 늘리지 않고 절반 정도만 올림. 재발하면(메뉴바
+// 등 비본문 텍스트가 다시 섞이면) 값을 조정하거나 다른 접근(열별 재측정 등) 검토할 것.
+const BLOCK_PADDING_Y = 20
 
 // 담당 A — OCR 엔진 래퍼 (PLAN.md §5.1 / §8 / §10)
 // 범용 엔진: Tesseract.js 채택 확정(오프라인, 언어팩 교체로 다국어 대응). 언어별 특화
@@ -115,6 +121,13 @@ async function resolveLayout(image: Buffer, region: Rect | undefined): Promise<L
  * 단일 패스로 처리한다. 열이 1개 이하거나 레이아웃 검출 자체가 실패하면(Python 환경
  * 미설치 등) 기존 단일 패스로 폴백한다.
  */
+export interface Extracted {
+  /** 추출된 전체 텍스트 — ExtractedSelection.text/anchor 계산의 기준 문자열 */
+  text: string
+  language: AnyLanguage
+  words: Word[]
+}
+
 export async function runOcr(image: Buffer, language: AnyLanguage, region?: Rect): Promise<Extracted> {
   const { blocks: rawBlocks, vertical: shapeVertical, fallbackLines } = await resolveLayout(image, region)
   // regionSelection.ts(autoDetectRegion)는 본문 영역 경계를 계산할 때 본문 라벨
@@ -203,10 +216,37 @@ export async function runOcr(image: Buffer, language: AnyLanguage, region?: Rect
     const clampBounds = region ?? fullImageRect(image)
     const texts: string[] = []
     const words: Word[] = []
-    for (const column of columns) {
-      const paddedBbox = padRect(column.bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
+    for (let i = 0; i < columns.length; i++) {
+      const column = columns[i]!
+      // 담당 A — 열 사이 패딩이 옆 열을 침범하지 않게 제한(2026-07-30, 사용자 제보 —
+      // 영어 2단에서 각 줄 끝에 옆 열의 글자 일부/노이즈가 섞여 나옴, "두 단 사이 간격이
+      // 약간 좁은 편"). `padRect`는 선택 영역 전체(clampBounds) 안에서만 잘라낼 뿐 옆
+      // 열까지는 모르므로, `BLOCK_PADDING_X=50px`가 열 사이 간격보다 넓으면(흔함 — 50px
+      // 는 폭이 좁은 다단 레이아웃에서 실제 거터보다 클 수 있음) 그 패딩이 옆 열 영역까지
+      // 그대로 뻗어 들어가 Tesseract 크롭에 옆 열 글자가 섞였다. 각 열의 크롭 경계를
+      // 이웃 열과의 중간 지점까지로 제한해, 패딩이 절대 옆 열 쪽 중간선을 넘지 않게 한다
+      // (거터가 아주 좁으면 그만큼 패딩 자체가 줄어들 뿐 — padRect 가 이미 폭 0 미만은
+      // 방지함).
+      const prevRight = i > 0 ? columns[i - 1]!.bbox.x + columns[i - 1]!.bbox.width : null
+      const nextLeft = i < columns.length - 1 ? columns[i + 1]!.bbox.x : null
+      const clampRight = clampBounds.x + clampBounds.width
+      const leftBound = prevRight !== null ? Math.max(clampBounds.x, (prevRight + column.bbox.x) / 2) : clampBounds.x
+      const rightBound = nextLeft !== null ? Math.min(clampRight, (column.bbox.x + column.bbox.width + nextLeft) / 2) : clampRight
+      const columnBounds: Rect = { x: leftBound, y: clampBounds.y, width: rightBound - leftBound, height: clampBounds.height }
+      const paddedBbox = padRect(column.bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, columnBounds)
       const result = await recognizeRegion(w, image, language, paddedBbox)
-      if (result.text) texts.push(result.text)
+      // 담당 A — text/words 불변조건 위반 수정(2026-07-30, 사용자 제보 — "어느 지점부터
+      // 클릭 박스와 팝업 본문이 안 맞음", 2단 기준 첫 열 경계부터 정확히 재현). 아래
+      // text 는 열 사이에 '\n\n' 을 끼워 넣는데(texts.join('\n\n')), words 배열엔 그
+      // 구분자에 해당하는 항목이 없어서 `text = words.map(w=>w.text).join('')` 불변조건
+      // (선택 오프셋 계산이 이 등가성에 의존, 이번 세션 내내 지켜온 규칙)이 열 경계마다
+      // 깨졌다 — 열 하나 끝날 때마다 text 가 words 보다 2글자씩 밀림. texts.join('\n\n')
+      // 과 정확히 같은 지점에만(텍스트가 실제로 있던 열들 "사이"에만) 구분자를 넣어야
+      // 하므로, 텍스트가 빈 열은 건너뛰고 "이미 텍스트가 있던 열 뒤"에만 끼워 넣는다.
+      if (result.text) {
+        if (texts.length > 0) words.push({ text: '\n\n' })
+        texts.push(result.text)
+      }
       words.push(...result.words)
     }
     return { text: texts.join('\n\n'), language, words }
@@ -301,7 +341,17 @@ async function runNonTesseractOcr(
   // 안전하다(위 주석 참고).
   const perColumn = await Promise.all(
     targets.map(async (bbox, i) => {
-      const padded = padRect(bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, clampBounds)
+      // 담당 A — 열 사이 패딩이 옆 열을 침범하지 않게 제한(2026-07-30, English 다단
+      // 경로에서 발견한 것과 동일한 문제 — ocr.ts 위쪽 columns.length > 1 분기 주석
+      // 참고). targets 가 여러 개(다단 DocLayout 블록)일 때만 이웃이 존재하므로 그때만
+      // 계산하고, 폴백(통짜 영역 1개)일 땐 clampBounds 그대로 쓴다.
+      const clampRight = clampBounds.x + clampBounds.width
+      const prevRight = i > 0 ? targets[i - 1]!.x + targets[i - 1]!.width : null
+      const nextLeft = i < targets.length - 1 ? targets[i + 1]!.x : null
+      const leftBound = prevRight !== null ? Math.max(clampBounds.x, (prevRight + bbox.x) / 2) : clampBounds.x
+      const rightBound = nextLeft !== null ? Math.min(clampRight, (bbox.x + bbox.width + nextLeft) / 2) : clampRight
+      const columnBounds: Rect = { x: leftBound, y: clampBounds.y, width: rightBound - leftBound, height: clampBounds.height }
+      const padded = padRect(bbox, BLOCK_PADDING_X, BLOCK_PADDING_Y, columnBounds)
       const start = Date.now()
       let lines = targets.length === 1 ? precomputedLines : undefined
       // 담당 A — 가로쓰기 후리가나 노이즈 대응(2026-07-29, ocrYomitoku.ts 상단 주석
@@ -351,12 +401,72 @@ async function recognizeRegion(
   region?: Rect,
 ): Promise<{ text: string; words: Word[] }> {
   // blocks 출력은 기본 꺼져 있음 — 단어별 bbox 를 얻으려면 명시적으로 켜야 한다.
-  // region 을 주면 Tesseract 가 그 사각형 안쪽만 인식한다(SetRectangle) — 반환되는
-  // bbox 는 여전히 원본 이미지 전체 기준 절대좌표라 이후 정렬 로직은 안 바꿔도 된다.
-  const recognizeOptions = region
-    ? { rectangle: { left: region.x, top: region.y, width: region.width, height: region.height } }
-    : {}
-  const { data } = await w.recognize(image, recognizeOptions, { blocks: true })
+  // 담당 A — 크롭 후 업스케일(2026-07-30, 사용자 제보 — 축소된 화면에서 멀쩡한 단어들도
+  // Tesseract confidence 가 44~59로 낮게 나와 MIN_WORD_CONFIDENCE(60) 문턱을 못 넘고
+  // "잘린 단어"로 오판돼 클릭 박스가 사라짐, tesswords 덤프로 `clippedByRegion=false,
+  // truncated=true`임을 확인 — 경계 문제가 아니라 순수 신뢰도 문제였음). 예전엔
+  // SetRectangle 로 원본 전체 이미지에 사각형만 지정해서 해상도 자체는 원본 그대로였는데,
+  // Tesseract는 해상도가 낮을수록 confidence 도 체계적으로 낮게 나오는 경향이 있어(잘
+  // 알려진 특성) — region 을 실제로 잘라내 확대한 뒤 그 위에서 인식하면 confidence 가
+  // 올라갈 것으로 기대. 반환된 bbox 는 확대된 크롭 좌표계라 원본 이미지 절대좌표로
+  // 즉시 되돌린다(rescaleTesseractBlocks) — 그 이후 하류 로직(잘린 단어 판정 등)은
+  // 원래 계약(원본 절대좌표) 그대로라 안 건드려도 된다. region 이 없는 경로(단일 열
+  // 전체 인식)는 크기가 임의로 클 수 있어 우선 그대로 둔다(관찰된 문제가 다단 경로에서만
+  // 나왔음).
+  const UPSCALE_FACTOR = 2
+  let recognizeTarget = image
+  let scale = 1
+  let offsetX = 0
+  let offsetY = 0
+  if (region) {
+    offsetX = Math.max(0, Math.round(region.x))
+    offsetY = Math.max(0, Math.round(region.y))
+    const cropWidth = Math.max(1, Math.round(region.width))
+    const cropHeight = Math.max(1, Math.round(region.height))
+    const cropped = nativeImage
+      .createFromBuffer(image)
+      .crop({ x: offsetX, y: offsetY, width: cropWidth, height: cropHeight })
+    const size = cropped.getSize()
+    // 담당 A — quality:'good' 명시(2026-07-30, 사용자 제보 — 다른 영어 가로쓰기 파일에서
+    // em-dash("—")가 거의 인식이 안 됨). Electron `resize()` 기본값이 이미 'best'(가장
+    // 매끄러운 보간)인데, em-dash 처럼 아주 얇은 가로 획은 부드러운 보간으로 확대하면
+    // 대비가 흐려져(주변 배경색과 섞임) Tesseract가 아예 못 보게 될 수 있다 — 굵은
+    // 글자 획엔 도움이 되는 보간이 얇은 단일 획엔 역효과일 수 있다는 가설. 'good'(가장
+    // 거친/덜 매끄러운 보간)으로 낮춰 얇은 획의 대비가 덜 흐려지는지 시도.
+    recognizeTarget = cropped
+      .resize({
+        width: Math.round(size.width * UPSCALE_FACTOR),
+        height: Math.round(size.height * UPSCALE_FACTOR),
+        quality: 'good',
+      })
+      .toPNG()
+    scale = UPSCALE_FACTOR
+  }
+  const { data } = await w.recognize(recognizeTarget, {}, { blocks: true })
+  if (region && scale !== 1) {
+    // 확대된 크롭 좌표계 → 원본 이미지 절대좌표로 되돌린다(block/paragraph/line/word/
+    // symbol 전 계층의 bbox 를 제자리에서 변환) — 이후 코드는 전부 이 좌표계를 가정한다.
+    const fix = (bbox: { x0: number; y0: number; x1: number; y1: number } | null | undefined) => {
+      if (!bbox) return
+      bbox.x0 = offsetX + bbox.x0 / scale
+      bbox.y0 = offsetY + bbox.y0 / scale
+      bbox.x1 = offsetX + bbox.x1 / scale
+      bbox.y1 = offsetY + bbox.y1 / scale
+    }
+    for (const block of data.blocks ?? []) {
+      fix(block.bbox)
+      for (const paragraph of block.paragraphs) {
+        fix(paragraph.bbox)
+        for (const line of paragraph.lines) {
+          fix(line.bbox)
+          for (const word of line.words) {
+            fix(word.bbox)
+            for (const symbol of word.symbols ?? []) fix(symbol.bbox)
+          }
+        }
+      }
+    }
+  }
 
   // 담당 A — text/words 불일치 버그 수정(2026-07-30, 사용자 제보 — "팝업 본문에서
   // 단어 반만 선택됨" + "영역 가장자리 단어는 팝업 본문엔 나오는데 텍스트 박스가 없음").
@@ -400,7 +510,7 @@ async function recognizeRegion(
     // 같다.
     if (language === 'ja' || language === 'zh-Hans' || language === 'zh-Hant') {
       // 일/중은 공백으로 단어가 안 나뉘어 Tesseract 자체 단어 경계가 의미 단위와 잘 안
-      // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: segmentit)로 다시 분리한다.
+      // 맞는다 — 줄 전체를 형태소 분석기(일: JA_ENGINE 설정값, 중: ZH_HANT_ENGINE 설정값/jieba)로 다시 분리한다.
       lineWords = await buildCjkLineWords(line, language, region)
     } else if (language === 'th' || language === 'lo') {
       // 태국어/라오어는 형태소 분석기가 없어(2026-07-30 결정, tier2는 OCR만 지원) Tesseract
@@ -440,6 +550,12 @@ async function recognizeRegion(
         // 담당 A — 텍스트는 그대로 유지, bbox 만 뺀다(2026-07-30 재수정) — 통째로 빼면
         // (이전 시도) 그 자리 글자가 팝업 본문에서도 사라져버렸다(사용자 재확인).
         if (region && (isWordClippedByRegion(word.bbox, region) || looksTruncated(word))) {
+          if (process.env.DEBUG_OCR_DUMP) {
+            console.log(
+              `[ocr] 잘린 단어로 bbox 제외: "${word.text}" clippedByRegion=${isWordClippedByRegion(word.bbox, region)}` +
+                ` truncated=${looksTruncated(word)} confidence=${word.confidence} bbox=${JSON.stringify(word.bbox)} region=${JSON.stringify(region)}`,
+            )
+          }
           lineWords.push({ text: word.text })
           continue
         }

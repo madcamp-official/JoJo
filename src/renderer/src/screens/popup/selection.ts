@@ -28,6 +28,9 @@ import { WORD_ATOM_PATTERN } from '@shared/wordTokenize'
 export interface Atom {
   start: number
   end: number
+  /** ja 활용형의 사전 기본형(atomsFromMergedTokens 가 병합된 토큰의 baseForm 을 그대로
+   *  옮겨둠) — wordsFromAtoms 가 이 값을 Word.baseForm 으로 실어 dictionary.ts 로 넘긴다. */
+  baseForm?: string
 }
 
 export interface PopupSelectionModel {
@@ -305,7 +308,7 @@ function atomsFromMergedTokens(jaResult: JaTokenizeResult): Atom[] {
   const atoms: Atom[] = []
   for (const t of mergeJaTokensForEngine(jaResult)) {
     if (!SELECTABLE_CONTENT_RE.test(t.surface)) continue
-    atoms.push({ start: t.start, end: t.start + t.surface.length })
+    atoms.push({ start: t.start, end: t.start + t.surface.length, baseForm: t.baseForm })
   }
   return atoms
 }
@@ -473,7 +476,7 @@ export function buildDisplayText(
 /**
  * ExtractedSelection 으로부터 표시 문자열·atom·초기 선택 범위를 계산한다. jaResult 를 주면
  * 일본어 가나 조각을 활성 엔진(jaResult.engine) 품사 기반으로 병합하고(없으면 즉석 대체
- * 규칙으로 근사), zhWords 를 주면 중국어 한자를 segmentit 단어 경계 기준으로 묶는다(없으면
+ * 규칙으로 근사), zhWords 를 주면 중국어 한자를 segmentChineseWords 단어 경계 기준으로 묶는다(없으면
  * 글자 단위). charLevel=true 면 ja/zh 둘 다 병합/단어 묶기를 건너뛰고 한자를 한 글자씩
  * 개별 atom 으로 만든다(팝업 툴바 "글자 단위" 토글, 2026-07-28).
  */
@@ -514,7 +517,7 @@ export function buildSelectionModel(
  *  재사용하기만 하면 된다.
  */
 function wordsFromAtoms(displayText: string, atoms: Atom[]): Word[] {
-  return atoms.map((a) => ({ text: displayText.slice(a.start, a.end) }))
+  return atoms.map((a) => ({ text: displayText.slice(a.start, a.end), baseForm: a.baseForm }))
 }
 
 /**

@@ -307,22 +307,34 @@ export interface AxPage {
 }
 
 const MAX_TREE_DEPTH = 16
+// 노드 하나마다 AX 호출은 프로세스 간 통신(XPC)이라 개당 비용이 있다. 실측(2026-07-30,
+// ax-attrs.cjs 진단)으로 확인된 실제 PDF 렌더 트리는 한 깊이에 300개가 넘는 장식용
+// AXGroup/AXImage 가 나오고 그 아래로도 계속 자식이 있어서, 방문 개수 상한 없이 깊이
+// 제한만으로는 한 페이지 서브트리 전체 순회가 수천~수만 회 호출로 폭발할 수 있다(진단
+// 스크립트가 몇 초 안에 끝난 건 "3개 찾으면 중단"하는 조기 종료 때문이었다 — 이 함수들은
+// 콜백이 조기 종료를 안 하므로 그 이점이 없다). 총 방문 노드 수에 상한을 둬 최악의 경우
+// 에도 응답이 멈추지 않게 한다 — 넘치면 그 지점까지 찾은 결과만 쓰고 텍스트 일부가
+// 빠질 수 있지만, 몇 초씩 멈추는 것보다 낫다.
+const MAX_NODES_VISITED = 6000
 
-/** el 아래에서 AXPage 노드를 찾아 콜백한다(페이지 자체는 더 내려가지 않는다). */
-function forEachPage(el: unknown, depth: number, fn: (page: unknown) => void): void {
-  if (depth > MAX_TREE_DEPTH) return
+function forEachPage(el: unknown, depth: number, budget: { left: number }, fn: (page: unknown) => void): void {
+  if (depth > MAX_TREE_DEPTH || budget.left <= 0) return
   forEachChild(el, (child) => {
+    if (budget.left <= 0) return
+    budget.left--
     if (attributeString(child, 'AXRole') === 'AXPage') fn(child)
-    else forEachPage(child, depth + 1, fn)
+    else forEachPage(child, depth + 1, budget, fn)
   })
 }
 
 /** page 아래의 텍스트 노드(AXStaticText)를 찾아 콜백한다. */
-function forEachTextNode(el: unknown, depth: number, fn: (node: unknown) => void): void {
-  if (depth > MAX_TREE_DEPTH) return
+function forEachTextNode(el: unknown, depth: number, budget: { left: number }, fn: (node: unknown) => void): void {
+  if (depth > MAX_TREE_DEPTH || budget.left <= 0) return
   forEachChild(el, (child) => {
+    if (budget.left <= 0) return
+    budget.left--
     if (attributeString(child, 'AXRole') === 'AXStaticText') fn(child)
-    else forEachTextNode(child, depth + 1, fn)
+    else forEachTextNode(child, depth + 1, budget, fn)
   })
 }
 
@@ -382,7 +394,10 @@ export function readVisiblePages(windowId: number): AxPage[] | null {
       const origin = { x: bounds.x, y: bounds.y }
       const windowRect: Rect = { x: 0, y: 0, width: bounds.width, height: bounds.height }
       const pages: AxPage[] = []
-      forEachPage(win, 0, (page) => {
+      // 페이지 찾기 자체는 얕다(문서 컨테이너 바로 아래 전 페이지가 형제로 나열됨,
+      // 실측: 286페이지 문서에서 한 자리 숫자 깊이) — 전체 문서 기준 예산 하나면 충분.
+      const pageSearchBudget = { left: MAX_NODES_VISITED }
+      forEachPage(win, 0, pageSearchBudget, (page) => {
         const pos = attributePoint(page, 'AXPosition')
         const size = attributeSize(page, 'AXSize')
         if (!pos || !size) return
@@ -396,7 +411,10 @@ export function readVisiblePages(windowId: number): AxPage[] | null {
         // 텍스트 노드 순회 비용이 있어서, 안 보이는 285 페이지까지 읽으면 감당이 안 된다.
         if (!intersects(bbox, windowRect)) return
         const paragraphs: AxLine[][] = []
-        forEachTextNode(page, 0, (node) => {
+        // 페이지 하나의 서브트리는 (이미지 조각별 장식용 그룹 등으로) 노드 수가 페이지
+        // 찾기보다 훨씬 클 수 있어(실측: 한 깊이에 300개 이상) 페이지마다 별도 예산을 준다
+        // — 한 페이지가 예산을 다 써도 다른 보이는 페이지의 텍스트 탐색에 영향이 없게.
+        forEachTextNode(page, 0, { left: MAX_NODES_VISITED }, (node) => {
           const lines = linesOfTextNode(node, origin)
           if (lines.length > 0) paragraphs.push(lines)
         })
@@ -422,7 +440,7 @@ export function readScrollSignature(windowId: number): string | null {
     return withWindowElement(windowId, (win, bounds) => {
       const windowRect: Rect = { x: 0, y: 0, width: bounds.width, height: bounds.height }
       const parts: string[] = [`${Math.round(bounds.width)}x${Math.round(bounds.height)}`]
-      forEachPage(win, 0, (page) => {
+      forEachPage(win, 0, { left: MAX_NODES_VISITED }, (page) => {
         const pos = attributePoint(page, 'AXPosition')
         const size = attributeSize(page, 'AXSize')
         if (!pos || !size) return
