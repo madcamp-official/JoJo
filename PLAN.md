@@ -275,7 +275,7 @@ flowchart TB
 ## 8. 까다로운 부분 & 해결 전략
 
 
-- **OCR 노이즈 제거**: 소설 제목·페이지 번호 등 불필요 텍스트를 **좌표 기반 규칙**(위치·반복성·정렬)으로 필터링 후 저장. 페이지 경계에 걸린 문장은 앞뒤 조각을 자연스럽게 이어붙임.
+- **OCR 노이즈 제거**: 소설 제목·페이지 번호 등 불필요 텍스트를 DocLayout-YOLO 레이아웃 분류(`layoutDetect.ts`)로 걸러낸다 — header/footer/footnote/aside_text/number/reference 등 본문이 아닌 라벨의 블록을 제외하고 본문(body) 라벨만 채택(`regionSelection.ts`의 `BODY_LABELS` 필터). 페이지 경계에 걸린 문장은 앞뒤 조각을 자연스럽게 이어붙임.
 - **HTML 문단 잇기**: 태그는 제외하고 내부 텍스트만 이어 자연스러운 문단 구성.
 - **직접 추출 vs OCR 구분**: PDF/HTML에서 추출 시도 → 텍스트 양으로 분기(위 4.1 로직).
 - **판정 시점 캐싱**: URL을 키로 판정 결과를 유지, URL 변화 시에만 재판정.
@@ -407,7 +407,7 @@ JoJo/
 │   │   │   ├── capture.ts       #   창 목록/캡처 — win32는 네이티브 우선(desktopCapturer 폴백), macOS는 목록에 desktopCapturer·캡처는 screencapture -l + 선택 창 id 보관
 │   │   │   ├── win32Capture.ts  #   Windows 네이티브 창 열거·캡처(koffi FFI, 가려짐/최소화 대응)
 │   │   │   ├── macWindow.ts     #   macOS CoreGraphics/AppKit 바인딩(koffi) — bounds 조회·창 raise
-│   │   │   ├── decideOcr.ts     #   OCR 사용 여부 판정(현재 파이프라인에선 미사용, 아래 참고)
+│   │   │   ├── decideOcr.ts     #   추출 방식 판정(direct/ocr/subtitle/web 4갈래) — `shortcut.ts`(진입 시)·`extension/reevaluate.ts`(탭/URL 변화 재판정)가 호출하는 핵심 디스패처
 │   │   │   ├── extractDirect.ts #   소스별 직접 추출 — txt(win32 전용) 구현, epub/pdf/web 미구현
 │   │   │   ├── webSource.ts     #   일반 웹페이지 DOM 텍스트 direct 추출(범용 본문 탐지, 2026-07-30 구현 완료)
 │   │   │   ├── subtitleSource.ts #  유튜브/넷플릭스 자막 direct 추출 + anchor 매칭
@@ -429,6 +429,10 @@ JoJo/
 │   │   │   ├── engines/         #   엔진별 구현 — ja: lindera.ts(WASM, IPADIC) / sudachi.ts(python 상주 서버, UniDic) · zh: jieba.ts(@node-rs/jieba, zh-Hans 고정) / intl-zh.ts(Intl.Segmenter) / chineseTokenizer.ts(CC-CEDICT 그리디)
 │   │   │   ├── chinese.ts       #   중국어 엔진 디스패처 — zh-Hans는 jieba 고정, zh-Hant는 ZH_HANT_ENGINE 상수로 전환
 │   │   │   └── chinese-tokenizer.d.ts # chinese-tokenizer 최소 타입 선언(공식 타입 없음)
+│   │   ├── extension/           # 🅱️ 크롬 확장 브릿지(Electron main 쪽)
+│   │   │   ├── bridge.ts        #   로컬 WebSocket 서버 — 확장 background 접속·자막/DOM 텍스트 수신
+│   │   │   ├── activeTab.ts     #   확장이 보고하는 활성 탭(URL/미디어 여부) 추적
+│   │   │   └── reevaluate.ts    #   선택 모드 중 탭/URL 변화 시 `decideOcr.ts` 재호출
 │   │   └── question/           # 🅱️ 질문/AI (담당 B)
 │   │       ├── index.ts         #   질문 라우터(발음/사전/통합질문)
 │   │       ├── pronunciation.ts #   맥락 발음(IPA/히라가나/병음) — 구현 완료
