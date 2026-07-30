@@ -259,7 +259,7 @@ export function ViewerScreen() {
 
       <div className="viewer-body" ref={containerRef}>
         {error && <p className="hint">{error}</p>}
-        {!file && !error && <p className="hint">불러오는 중…</p>}
+        {!file && !error && <p className="hint">불러오는 중...</p>}
         <div ref={animRef} className="viewer-anim">
         {file?.kind === 'txt' && (
           <TxtView file={file} style={style} mode={mode} pagerRef={pagerRef} onPageState={setPageState} />

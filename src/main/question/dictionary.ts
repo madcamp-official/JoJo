@@ -399,7 +399,7 @@ async function lookupChainWithJudge(
   for (const [i, source] of chain.entries()) {
     const label = SOURCE_LABELS[source]
     const nextNote = i === chain.length - 1 ? ' (더 시도할 사전 없음)' : ' → 다음 사전으로'
-    progress(`${tag}${label}에서 "${word}" 검색 중…`)
+    progress(`${tag}${label}에서 "${word}" 검색 중...`)
 
     const collectedEntries: DictionaryEntry<Language>[] = []
     const matchedCandidates: string[] = []
@@ -422,7 +422,7 @@ async function lookupChainWithJudge(
       continue
     }
 
-    progress(`${tag}${label}: 뜻 ${senses.length}개 발견 — 문맥에 맞는 뜻 고르는 중…`)
+    progress(`${tag}${label}: 뜻 ${senses.length}개 발견 — 문맥에 맞는 뜻 고르는 중...`)
     const matchedWord = matchedCandidates.includes(word) ? word : (matchedCandidates[0] ?? word)
     const sourceId = collectedEntries[0].source
     const outcome = await judgeAndFormat({ word: matchedWord, source: sourceId, senses, ctx, ...llm })
@@ -772,7 +772,7 @@ async function lookupForcedSourceOnce(
   const candidates = await wordCandidatesFor(word, ctx)
   const tag = progressTag(tagWord)
   const label = SOURCE_LABELS[source]
-  progress(`${tag}${label}에서 "${word}" 검색 중…`)
+  progress(`${tag}${label}에서 "${word}" 검색 중...`)
   const collectedEntries: DictionaryEntry<Language>[] = []
   const matchedCandidates: string[] = []
   let suggestions: string[] | undefined
@@ -797,7 +797,7 @@ async function lookupForcedSourceOnce(
     return { suggestions, firstCandidateError }
   }
 
-  progress(`${tag}${label}: 뜻 ${senses.length}개 발견 — 문맥에 맞는 뜻 고르는 중…`)
+  progress(`${tag}${label}: 뜻 ${senses.length}개 발견 — 문맥에 맞는 뜻 고르는 중...`)
   const outcome = await judgeAndFormat({
     word: matchedCandidates.includes(word) ? word : (matchedCandidates[0] ?? word),
     source: collectedEntries[0].source,

@@ -768,13 +768,13 @@ export function sendDebugBlocks(blocks: Rect[]): void {
 }
 
 /** 선택 모드 진입/리사이즈/화면 변화 감지로 재추출이 시작될 때 호출 — 오버레이에
- * "언어 감지 & 텍스트 영역 탐지 중…" 표시(1단계)를 띄운다. */
+ * "언어 감지 & 텍스트 영역 탐지 중..." 표시(1단계)를 띄운다. */
 export function sendExtractionStarted(): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_STARTED)
 }
 
 /** extractionCache.ts 가 언어 감지를 끝내고 실제 OCR 을 시작할 때 호출 — 오버레이 표시를
- * "텍스트 추출 중…"(2단계)으로 넘긴다. */
+ * "텍스트 추출 중..."(2단계)으로 넘긴다. */
 export function sendExtractionOcrStarted(): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_OCR_STARTED)
 }

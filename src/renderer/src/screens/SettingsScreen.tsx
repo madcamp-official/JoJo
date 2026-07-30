@@ -608,7 +608,7 @@ export function SettingsScreen() {
         {settings.llm && apiKey.trim() && (
           <div className="provider-status">
             {validating ? (
-              <span className="muted">API 키 확인 중…</span>
+              <span className="muted">API 키 확인 중...</span>
             ) : currentValidation?.ok ? (
               <>
                 <span className="ok">
@@ -629,7 +629,7 @@ export function SettingsScreen() {
                     ))}
                   </select>
                 </label>
-                {modelTesting && <span className="muted">선택한 모델이 실제로 동작하는지 확인 중…</span>}
+                {modelTesting && <span className="muted">선택한 모델이 실제로 동작하는지 확인 중...</span>}
                 {modelTestError && (
                   <span className="err">
                     <WarnIcon /> {modelTestError}

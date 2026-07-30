@@ -231,7 +231,7 @@ function runExtractionCycle(bitmap: Buffer | null): void {
         // 시작"과 동일한 효과). 이 사이클(autoDetectRegion+refreshExtractionCache)
         // 이 끝날 때까지 잠금을 들고 있다가 완료되면(성공/실패 무관, finally) 풀어서
         // 다음 settle 사이클이 겹치지 않게 한다.
-        sendExtractionStarted() // 오버레이에 "텍스트 추출 중…" 표시(초기 진입 때와 동일한 배너)
+        sendExtractionStarted() // 오버레이에 "텍스트 추출 중..." 표시(초기 진입 때와 동일한 배너)
         return refreshExtractionCache()
       })
       .catch((err) => {

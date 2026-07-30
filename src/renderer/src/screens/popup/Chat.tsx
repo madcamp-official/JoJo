@@ -117,7 +117,7 @@ export function Chat({ messages, onSend, busy, className }: Props) {
         <textarea
           rows={1}
           value={input}
-          placeholder="궁금한 내용을 입력하세요…"
+          placeholder="궁금한 내용을 입력하세요..."
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             // 한글 등 IME 조합 중에 Enter를 누르면, 아직 조합 중인 마지막 글자가 input

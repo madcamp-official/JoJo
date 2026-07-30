@@ -68,7 +68,7 @@ export function Overlay() {
   // 비동기 영역 재감지를 거치는데, 그 사이에 사용자가 선택 모드를 나가도(Alt+`)
   // stopChangeWatcher 는 "아직 안 fire 한" 타이머만 취소할 뿐 이미 실행 중인 콜백은
   // 못 막는다 — 그 콜백이 뒤늦게 sendExtractionStarted 를 보내면 일반 모드에서도
-  // "텍스트 추출 중…" 배너가 뜨는 레이스가 실측 확인됐다. 이벤트 자체를 막을 수 없으니
+  // "텍스트 추출 중..." 배너가 뜨는 레이스가 실측 확인됐다. 이벤트 자체를 막을 수 없으니
   // 받는 쪽(여기)에서 그 시점의 최신 모드를 보고 걸러낸다 — mode state 는 비동기라
   // effect 의뢰존시(mode 를 deps 에 넣어 재구독)보다 ref 로 항상 최신값을 동기 참조하는
   // 쪽이 더 간단하고 안전하다.
@@ -95,7 +95,7 @@ export function Overlay() {
   )
 
   // 화면 변화 감지로 백그라운드 재추출이 시작될 때(changeWatcher.ts)도 초기 진입 때와
-  // 같은 "텍스트 추출 중…" 표시를 띄운다 — onExtractionWords 가 오면 자동으로 꺼진다.
+  // 같은 "텍스트 추출 중..." 표시를 띄운다 — onExtractionWords 가 오면 자동으로 꺼진다.
   // 단, 위 modeRef 주석의 레이스를 막기 위해 지금 선택 모드일 때만 반영한다.
   useEffect(
     () =>
@@ -359,8 +359,8 @@ export function Overlay() {
           <div className="overlay-resolving">
             <span className="overlay-spinner" />
             {extracting && extractionPhase === 'detect'
-              ? '언어 감지 & 텍스트 영역 탐지 중…'
-              : '텍스트 추출 중…'}
+              ? '언어 감지 & 텍스트 영역 탐지 중...'
+              : '텍스트 추출 중...'}
           </div>
         )
       )}

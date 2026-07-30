@@ -27,7 +27,7 @@ export function startSubtitleMode(): void {
   active = true
   extensionBridge.setSubtitleCapture(true)
   // 자막 경로는 OCR처럼 시간이 걸리지 않는다(확장이 이미 화면에 있는 자막을 즉시 씀) —
-  // hover 하이라이트도 확장이 페이지 안에서 직접 그린다. "텍스트 추출 중…" 배너는
+  // hover 하이라이트도 확장이 페이지 안에서 직접 그린다. "텍스트 추출 중..." 배너는
   // 2026-07-30부터 OCR 경로가 확정될 때만 메인이 명시적으로 켜므로(shortcut.ts:
   // startOcrFallback) 자막 경로에선 애초에 뜨지 않지만, onExtractionWords 핸들러가
   // words/needsRegion 상태도 같이 정리하므로 빈 배열을 그대로 보내 그 배선을 재사용한다

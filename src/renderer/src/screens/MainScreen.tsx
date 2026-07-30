@@ -40,7 +40,7 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
           </button>
         </div>
 
-        {!warmedUp && <p className="hint">텍스트 인식 엔진을 준비하는 중이에요…</p>}
+        {!warmedUp && <p className="hint">텍스트 인식 엔진을 준비하는 중이에요...</p>}
         {selected && <p className="hint">선택됨: {selected.name}</p>}
 
         {/* TODO: 사용 설명서 링크 연결(지금은 UI 만) */}

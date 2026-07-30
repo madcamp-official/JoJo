@@ -52,7 +52,7 @@ onWindowResized(() => {
   clearRegion()
   invalidateExtractionCache() // 이전 영역 기준 캐시/단어를 비움(오버레이에도 빈 배열 통지돼 박스가 사라짐)
   stopChangeWatcher() // 영역이 무효화됐으니 그 영역 기준 변화 감지도 멈춘다(재선택 후 다시 시작)
-  sendOverlayNotice('창 크기가 바뀌었어요. 본문 영역을 다시 찾는 중이에요…')
+  sendOverlayNotice('창 크기가 바뀌었어요. 본문 영역을 다시 찾는 중이에요...')
   if (resizeSettleTimer) clearTimeout(resizeSettleTimer)
   resizeSettleTimer = setTimeout(() => {
     resizeSettleTimer = null
@@ -262,7 +262,7 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
 // OCR 영역/캡처/변화감지 흐름으로 진입한다 — decision.mode 가 애초에 ocr/direct 였을 때,
 // 그리고 web 모드가 텍스트 부족으로 startWebMode 의 콜백을 통해 폴백할 때 공유한다.
 function startOcrFallback(epoch: number): void {
-  // "언어 감지 & 텍스트 영역 탐지 중…" 배너는 실제로 OCR 경로가 확정된 지금 시점에만
+  // "언어 감지 & 텍스트 영역 탐지 중..." 배너는 실제로 OCR 경로가 확정된 지금 시점에만
   // 띄운다(2026-07-30 사용자 제보 — 예전엔 Overlay.tsx가 mode==='select' 가 되는
   // 즉시 판정 결과와 무관하게 이 배너부터 켜서, 크롬 창을 선택했을 때 decideExtraction()
   // 의 활성 탭 대기(최대 1.2초, waitForBrowserSource) 동안 최종적으론 subtitle/web 으로
@@ -290,7 +290,7 @@ let pendingRedetect = false
  * 담당 A — 실험용 브랜치(experiment/doclayout-yolo). 영역이 없을 때(처음 선택한 창,
  * 리사이즈로 무효화된 뒤) 먼저 DocLayout-YOLO 로 본문 영역 자동 감지를 시도한다
  * (regionSelection.ts: autoDetectRegion) — 모드 진입 시 기본으로 뜨는 "텍스트 추출
- * 중…" 표시가 이 대기 시간도 자연히 가려준다. 성공하면 드래그 없이 바로 그 영역으로
+ * 중..." 표시가 이 대기 시간도 자연히 가려준다. 성공하면 드래그 없이 바로 그 영역으로
  * 추출을 시작하고, 실패하면(Python 환경 없음, 본문 인식 실패 등) 기존처럼 오버레이에
  * 드래그 선택을 요청한다 — 즉 이 실험 기능은 "잘 되면 자동, 안 되면 기존 수동 방식"
  * 으로 완전히 폴백하므로 항상 안전하다.
