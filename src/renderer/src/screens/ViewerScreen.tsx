@@ -71,6 +71,14 @@ export function ViewerScreen() {
   // epub 만 책 전체 검색에 book 객체가 필요하다(나머지는 DOM 만으로 찾는다).
   const epubSearchRef = useRef<{ book: Book; display: (href: string) => Promise<unknown>; host: () => HTMLElement | null } | null>(null)
 
+  // **반드시 안정적인 함수여야 한다.** 인라인 화살표로 넘기면 렌더마다 새 identity 가 되고,
+  // 이 값을 의존성에 쓰는 EpubView 의 렌더링 effect 가 매 렌더 재실행돼 book 이 계속
+  // 파괴·재생성된다 — 그러면 book.destroy() 가 spineItems 를 비워 책 전체 검색이 항상
+  // 0건이 나온다(2026-07-31 epub 검색 미동작의 원인).
+  const setEpubSearchable = useCallback((v: typeof epubSearchRef.current) => {
+    epubSearchRef.current = v
+  }, [])
+
   const runSearch = useCallback(
     async (q: string): Promise<SearchHit[]> => {
       const root = containerRef.current
@@ -277,7 +285,7 @@ export function ViewerScreen() {
             onPageState={setPageState}
             onToc={setToc}
             onTurn={goPage}
-            onSearchable={(v) => (epubSearchRef.current = v)}
+            onSearchable={setEpubSearchable}
           />
         )}
         </div>
