@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ViewerFilePayload } from '@shared/types'
 import { setWordSegments } from '@shared/hover/wordSegments'
 import { TxtView } from '../viewer/TxtView'
@@ -47,14 +47,28 @@ export function ViewerScreen() {
   // 다르지만(pager.ts 주석) 화살표 버튼·방향키는 이 핸들 하나만 부른다.
   const pagerRef = useRef<PagerHandle | null>(null)
   const [transition, setTransition] = useState<PageTransition>('slide')
+  const animRef = useRef<HTMLDivElement>(null)
   // 목차 — 문서에 들어 있을 때만 채워진다(PDF 아웃라인 / epub navigation). 비어 있으면
   // 버튼 자체를 띄우지 않는다.
   const [toc, setToc] = useState<TocEntry[]>([])
   const [tocOpen, setTocOpen] = useState(false)
-  // 넘김 방향과 "몇 번째 넘김인지" — 같은 방향으로 연속해서 넘겨도 CSS 애니메이션이 다시
-  // 시작되게 하려면 클래스 이름이 매번 달라져야 한다(홀/짝 두 벌을 번갈아 쓴다).
+  // 넘김 방향과 "몇 번째 넘김인지".
   // key 로 리마운트시키는 방법은 쓰면 안 된다 — PDF/epub 뷰가 통째로 다시 그려진다.
   const [turn, setTurn] = useState({ dir: 'next' as 'next' | 'prev', tick: 0 })
+
+  // 같은 방향으로 연속해서 넘길 때 효과를 다시 재생시킨다. 예전엔 클래스 이름을 홀/짝
+  // 두 벌로 번갈아 붙였는데(anim-slide-next-0/-1) 전혀 동작하지 않았다(2026-07-31 사용자
+  // 제보 — "설정 바꾼 직후 한 번만 효과가 보임") — CSS 애니메이션의 재시작은 **클래스
+  // 이름이 아니라 animation-name 등 계산된 애니메이션 속성**이 달라져야 일어나는데, 두
+  // 클래스가 같은 @keyframes 를 가리켜 브라우저 눈에는 "바뀐 게 없는" 상태였다. 대신
+  // 실제로 붙어 있는 애니메이션을 처음으로 되감아 재생한다.
+  useLayoutEffect(() => {
+    if (turn.tick === 0) return
+    for (const a of animRef.current?.getAnimations({ subtree: true }) ?? []) {
+      a.cancel()
+      a.play()
+    }
+  }, [turn])
 
   const goPage = useCallback((dir: 'next' | 'prev') => {
     setTurn((t) => ({ dir, tick: t.tick + 1 }))
@@ -192,9 +206,10 @@ export function ViewerScreen() {
         {error && <p className="hint">{error}</p>}
         {!file && !error && <p className="hint">불러오는 중…</p>}
         <div
+          ref={animRef}
           className={
             mode === 'page' && transition !== 'none'
-              ? `viewer-anim anim-${transition}-${turn.dir}-${turn.tick % 2}`
+              ? `viewer-anim anim-${transition}-${turn.dir}`
               : 'viewer-anim'
           }
         >

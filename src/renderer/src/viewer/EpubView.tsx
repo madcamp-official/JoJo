@@ -11,6 +11,41 @@ import type { TocEntry } from './Toc'
 // 페이지/스크롤 전환은 epubjs 자체 flow 를 쓴다('paginated' vs 'scrolled-doc'). flow 는
 // 렌더 시작 시점에 정해지므로 모드가 바뀌면 rendition 을 다시 만든다.
 
+/** epubjs 가 만드는 스크롤 컨테이너(스크롤 모드에서 실제로 스크롤되는 요소). */
+const EPUB_CONTAINER = '.epub-container'
+/** 우리가 iframe 문서에 넣는 글자 크기 스타일 노드의 id — 매번 갈아끼운다. */
+const FONT_STYLE_ID = 'nuance-epub-font'
+
+// epubjs 의 themes.fontSize() 는 iframe **body 의 인라인 스타일**에 font-size 를 얹을 뿐이라,
+// 책 자체 CSS 가 본문에 절대 크기(`p { font-size: 12pt }` 등)를 지정해 두면 상속이 끊겨
+// 본문은 그대로고 상대 단위(em)로 잡힌 제목만 커졌다 작아졌다 한다(2026-07-31 사용자 제보).
+// 그래서 본문 요소에 rem 기준 크기를 직접 덮어씌운다 — 기준점인 html 의 font-size 만
+// 슬라이더 값으로 바꾸면 제목/본문 비율은 아래 표대로 유지된 채 전체가 같이 커진다.
+function fontCss(size: number): string {
+  return `
+    html { font-size: ${size}px !important; }
+    body, p, div, span, li, dd, dt, td, th, blockquote, a, em, strong, i, b, small {
+      font-size: 1rem !important;
+    }
+    h1 { font-size: 1.9rem !important; }
+    h2 { font-size: 1.6rem !important; }
+    h3 { font-size: 1.35rem !important; }
+    h4, h5, h6 { font-size: 1.15rem !important; }
+    sup, sub { font-size: 0.7rem !important; }
+  `
+}
+
+function applyFontSize(doc: Document | null | undefined, size: number): void {
+  if (!doc?.head) return
+  let el = doc.getElementById(FONT_STYLE_ID)
+  if (!el) {
+    el = doc.createElement('style')
+    el.id = FONT_STYLE_ID
+    doc.head.appendChild(el)
+  }
+  el.textContent = fontCss(size)
+}
+
 export function EpubView({
   file,
   fontSize,
@@ -36,6 +71,10 @@ export function EpubView({
   // 터진다(실측: "Cannot read properties of undefined (reading 'resize')"). 준비 완료를
   // 표시해두고 그 뒤에만 건드린다.
   const readyRef = useRef(false)
+  // 새로 로드되는 챕터에도 같은 글자 크기를 바로 입혀야 하는데, 그 시점(content 훅)은
+  // rendition 생성 effect 안에 갇혀 있어 최신 prop 을 못 본다 — ref 로 흘려보낸다.
+  const fontSizeRef = useRef(fontSize)
+  fontSizeRef.current = fontSize
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -43,6 +82,7 @@ export function EpubView({
     const host = hostRef.current
     if (!host) return
     let cancelled = false
+    let chapterTurnLocked = false
     readyRef.current = false
 
     // slice() 로 복사본을 준다 — 원본 Uint8Array 를 그대로 넘기면 재마운트 때 이미
@@ -55,6 +95,40 @@ export function EpubView({
       flow: mode === 'page' ? 'paginated' : 'scrolled-doc',
     })
     renditionRef.current = rendition
+
+    // 챕터(섹션)가 iframe 에 실릴 때마다 불린다 — 새 문서에도 글자 크기를 입히고,
+    // 스크롤 모드면 휠을 바깥 스크롤 컨테이너로 넘겨준다(바로 아래 주석).
+    rendition.hooks.content.register((contents: { document: Document }) => {
+      const doc = contents.document
+      applyFontSize(doc, fontSizeRef.current)
+      if (mode !== 'scroll') return
+
+      // epubjs 는 스크롤 모드에서도 내용 iframe 에 scrolling="no" 를 박고, 스크롤은 그
+      // 바깥 컨테이너(.epub-container)가 담당한다. 그런데 커서가 iframe 위에 있으면 휠
+      // 이벤트는 그 안쪽 문서가 먹어버리고 — 안쪽은 내용 전체 높이라 스스로 스크롤할 게
+      // 없다 — 바깥으로 전달되지도 않아서, 본문 위에서는 스크롤이 통째로 먹통이었다
+      // (2026-07-31 사용자 제보). 휠을 받아 바깥 컨테이너를 직접 굴려준다.
+      const onWheel = (e: WheelEvent) => {
+        const box = host.querySelector<HTMLElement>(EPUB_CONTAINER)
+        if (!box) return
+        const before = box.scrollTop
+        box.scrollTop += e.deltaY
+        e.preventDefault()
+        // 스크롤이 더 안 먹히면 챕터의 끝(또는 처음)이다 — epub 의 스크롤 모드는 챕터
+        // 하나만 싣기 때문에, 여기서 다음/이전 챕터로 넘겨주지 않으면 책이 거기서 끝난
+        // 것처럼 보인다. 연타로 여러 챕터가 훌쩍 넘어가지 않게 잠깐 잠근다.
+        if (box.scrollTop !== before || chapterTurnLocked) return
+        if (e.deltaY > 0) {
+          chapterTurnLocked = true
+          void rendition.next()
+        } else if (e.deltaY < 0) {
+          chapterTurnLocked = true
+          void rendition.prev()
+        }
+        if (chapterTurnLocked) setTimeout(() => (chapterTurnLocked = false), 500)
+      }
+      doc.addEventListener('wheel', onWheel, { passive: false })
+    })
 
     // 페이지 총 개수는 epubjs 가 locations 를 다 계산해야 나오는데(책 전체 훑기라 느리다)
     // 화살표를 켜고 끄는 데는 지금 위치가 처음/끝인지만 알면 충분하다 — relocated 이벤트가
@@ -107,10 +181,13 @@ export function EpubView({
     }
   }, [file, mode, onPageState, onToc])
 
-  // 글자 크기·배색 — epubjs 는 내용이 iframe 안에 있어 바깥 CSS 가 안 닿는다. 테마로
-  // 직접 주입해야 한다.
+  // 글자 크기·배색 — epubjs 는 내용이 iframe 안에 있어 바깥 CSS 가 안 닿는다. 직접
+  // 주입해야 한다(글자 크기는 위 fontCss 주석 참고 — themes.fontSize() 는 책 CSS 에
+  // 밀려서 본문에 안 먹힌다). 지금 떠 있는 챕터들에 즉시 반영한다.
   useEffect(() => {
-    renditionRef.current?.themes.fontSize(`${fontSize}px`)
+    // 타입 정의는 Contents 하나를 반환한다고 돼 있지만 실제 구현은 배열을 준다.
+    const contents = renditionRef.current?.getContents() as unknown as { document: Document }[] | undefined
+    for (const c of contents ?? []) applyFontSize(c?.document, fontSize)
   }, [fontSize, mode])
 
   useEffect(() => {

@@ -354,6 +354,9 @@ export function registerIpc(): void {
     const ext = extname(filePath).slice(1).toLowerCase()
     if (ext !== 'pdf' && ext !== 'epub' && ext !== 'txt') return false
     createViewerWindow({ path: filePath, name: basename(filePath), kind: ext })
+    // 창 선택과 같은 규칙(위 SELECT_WINDOW 참고) — 대상이 정해졌으면 메인 창은 물러난다.
+    // 뷰어 뒤로가기(VIEWER_BACK)나 트레이 메뉴로 다시 꺼낸다.
+    getMainWindow()?.hide()
     return true
   })
 

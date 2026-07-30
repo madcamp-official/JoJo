@@ -840,30 +840,48 @@ button:disabled { cursor: not-allowed; }
 /* ── 페이지 넘김 효과 ────────────────────────────────────────────────────────
    포맷별 렌더러(pdf/epub/txt)를 건드리지 않고 본문 전체를 감싼 래퍼에 CSS 애니메이션만
    건다 — 넘기는 방법은 포맷마다 다르지만 "넘어간 뒤 새 내용이 나타나는" 순간은 공통이라
-   한 곳에서 처리된다. 같은 방향으로 연속해서 넘겨도 다시 재생되도록 클래스 이름을
-   홀/짝 두 벌로 번갈아 쓴다(ViewerScreen 의 turn.tick). */
-.viewer-anim { height: 100%; }
+   한 곳에서 처리된다. 같은 방향으로 연속해서 넘길 때의 재생은 ViewerScreen 이
+   getAnimations() 로 되감아 처리한다(클래스 두 벌 번갈아쓰기는 동작하지 않는다 — 그쪽
+   주석 참고). */
+.viewer-anim { height: 100%; position: relative; }
 
-@keyframes page-slide-next { from { transform: translateX(46px); opacity: 0.35; } to { transform: none; opacity: 1; } }
-@keyframes page-slide-prev { from { transform: translateX(-46px); opacity: 0.35; } to { transform: none; opacity: 1; } }
-.anim-slide-next-0, .anim-slide-next-1 { animation: page-slide-next 0.26s cubic-bezier(0.22, 0.61, 0.36, 1); }
-.anim-slide-prev-0, .anim-slide-prev-1 { animation: page-slide-prev 0.26s cubic-bezier(0.22, 0.61, 0.36, 1); }
+/* 0.26s 는 "넘어갔다"는 느낌 없이 순간이동처럼 보였다(2026-07-31 사용자 제보) — 눈이
+   따라갈 수 있게 지속시간을 늘리고 이동 거리도 그만큼 키운다. */
+@keyframes page-slide-next { from { transform: translateX(72px); opacity: 0.25; } to { transform: none; opacity: 1; } }
+@keyframes page-slide-prev { from { transform: translateX(-72px); opacity: 0.25; } to { transform: none; opacity: 1; } }
+.anim-slide-next { animation: page-slide-next 0.52s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.anim-slide-prev { animation: page-slide-prev 0.52s cubic-bezier(0.22, 0.61, 0.36, 1); }
 
-/* 종이가 넘어오듯 안쪽 모서리를 축으로 젖혀지며 펴진다(perspective + rotateY). */
+/* 실제 책장이 넘어오는 느낌 — 새 페이지가 안쪽 모서리(제본 쪽)를 경첩 삼아 거의 세워진
+   상태에서 평평하게 눕는다. 각도를 크게(-84°) 주고 원근도 가깝게 잡아야 "종이가 눕는다"로
+   보인다(예전 -24° 는 그냥 살짝 기운 화면이었다). 넘어오는 종이의 그늘은 아래 ::after 가
+   훑고 지나가며 표현한다 — 이 둘이 같이 있어야 입체로 읽힌다. */
 @keyframes page-flip-next {
-  from { transform: perspective(1400px) rotateY(-24deg) translateX(24px); opacity: 0.25; }
-  to { transform: perspective(1400px) rotateY(0) translateX(0); opacity: 1; }
+  0% { transform: perspective(1100px) rotateY(-84deg); opacity: 0.2; }
+  60% { opacity: 1; }
+  100% { transform: perspective(1100px) rotateY(0); opacity: 1; }
 }
 @keyframes page-flip-prev {
-  from { transform: perspective(1400px) rotateY(24deg) translateX(-24px); opacity: 0.25; }
-  to { transform: perspective(1400px) rotateY(0) translateX(0); opacity: 1; }
+  0% { transform: perspective(1100px) rotateY(84deg); opacity: 0.2; }
+  60% { opacity: 1; }
+  100% { transform: perspective(1100px) rotateY(0); opacity: 1; }
 }
-.anim-flip-next-0, .anim-flip-next-1 {
-  transform-origin: right center; animation: page-flip-next 0.34s cubic-bezier(0.22, 0.61, 0.36, 1);
+.anim-flip-next {
+  transform-origin: right center; animation: page-flip-next 0.62s cubic-bezier(0.33, 0.9, 0.35, 1);
 }
-.anim-flip-prev-0, .anim-flip-prev-1 {
-  transform-origin: left center; animation: page-flip-prev 0.34s cubic-bezier(0.22, 0.61, 0.36, 1);
+.anim-flip-prev {
+  transform-origin: left center; animation: page-flip-prev 0.62s cubic-bezier(0.33, 0.9, 0.35, 1);
 }
+
+/* 넘어오는 종이가 드리우는 그늘 — 경첩 반대쪽이 가장 어둡고, 종이가 눕는 동안 옅어진다.
+   본문 위에 얹히기만 하므로 클릭/호버(호버박스)는 그대로 통과시킨다. */
+.anim-flip-next::after, .anim-flip-prev::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+  animation: page-flip-shade 0.62s cubic-bezier(0.33, 0.9, 0.35, 1) forwards;
+}
+.anim-flip-next::after { background: linear-gradient(to left, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0) 62%); }
+.anim-flip-prev::after { background: linear-gradient(to right, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0) 62%); }
+@keyframes page-flip-shade { from { opacity: 1; } to { opacity: 0; } }
 
 .viewer-select {
   font: inherit; font-size: 13px; color: inherit; background: transparent;
