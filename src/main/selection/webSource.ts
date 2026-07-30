@@ -55,7 +55,7 @@ export function startWebMode(onInsufficientText: () => void): void {
       return
     }
     active = true
-    // "텍스트 추출 중…" 배너는 OCR 경로 확정 시에만 뜨므로(2026-07-30, subtitleSource.ts
+    // "텍스트 추출 중..." 배너는 OCR 경로 확정 시에만 뜨므로(2026-07-30, subtitleSource.ts
     // 동일 주석 참고) 웹 경로에선 애초에 뜨지 않지만, onExtractionWords 핸들러가
     // words/needsRegion 상태도 같이 정리하므로 빈 배열을 그대로 보내 그 배선을 재사용한다
     // (오버레이 자체 하이라이트도 안 그리게 되는 효과를 겸함 — hover는 확장이 그림).

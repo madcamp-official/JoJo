@@ -275,7 +275,7 @@ button:disabled { cursor: not-allowed; }
   background: #f6f7f9; color: #1e2230;
   padding: 24px 28px 40px;
 }
-.settings-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.settings-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .settings-header .icon-btn.back {
   background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;
   padding: 4px 8px; border-radius: 6px;
