@@ -24,11 +24,31 @@ export const EMPTY_PAGE_STATE: PageState = { current: 0, total: 0, canPrev: fals
 
 export type ViewerMode = 'scroll' | 'page'
 
-/** 페이지 넘김 효과 — 포맷별 렌더러를 건드리지 않고 본문 전체에 CSS 애니메이션으로 준다. */
-export type PageTransition = 'none' | 'slide' | 'flip'
+/**
+ * 페이지 넘김 효과 — 포맷별 렌더러를 건드리지 않고 본문 전체에 애니메이션을 건다.
+ *
+ * CSS 클래스가 아니라 **Web Animations API 로 매번 새 애니메이션을 만든다**. CSS 로
+ * 하면 같은 방향으로 연속해 넘길 때 재생이 안 되는 문제를 피할 수 없었다 — 클래스
+ * 이름만 바꿔서는 브라우저가 재시작을 안 하고(계산된 animation 속성이 같다), 그렇다고
+ * getAnimations() 로 되감으면 **이미 끝난 애니메이션은 목록에 없어서** 잡히지 않는다.
+ * 그래서 "방향을 바꿀 때만 한 번 재생되고 같은 방향 반복은 무시"되는 증상이 났다
+ * (2026-07-31 사용자 제보). element.animate() 는 호출할 때마다 새 인스턴스라 그런 함정이
+ * 없다.
+ */
+export type PageTransition = 'none' | 'slide'
 
-export const PAGE_TRANSITIONS: { value: PageTransition; label: string }[] = [
-  { value: 'none', label: '효과 없음' },
-  { value: 'slide', label: '슬라이딩' },
-  { value: 'flip', label: '페이지 넘김' },
-]
+/** 넘김 방향에 맞는 키프레임(없음이면 null). */
+export function pageTurnKeyframes(t: PageTransition, dir: 'next' | 'prev'): Keyframe[] | null {
+  if (t !== 'slide') return null
+  const from = dir === 'next' ? 72 : -72
+  return [
+    { transform: `translateX(${from}px)`, opacity: 0.25 },
+    { transform: 'translateX(0)', opacity: 1 },
+  ]
+}
+
+export const PAGE_TURN_TIMING: KeyframeAnimationOptions = {
+  // 420ms 는 "넘어갔다"는 느낌이 오기 전에 끝나버렸다(사용자 요청으로 추가 완화).
+  duration: 700,
+  easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
+}

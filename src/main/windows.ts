@@ -358,10 +358,11 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   if (process.platform === 'darwin') {
     // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
     win.setHiddenInMissionControl(true)
-    // NSTrackingArea 기반 커서 관리 시도(2026-07-31, macCursorTracking.ts 주석 참고) —
-    // 활성 앱 여부와 무관하게 hit-test 로 커서가 반영되게 한다. 실패해도 예외 없이
-    // false 만 반환하고, 기존 폴링(syncMacCursorPolling/macDesiredCursor)이 그대로
-    // 동작하므로 안전망은 유지된다.
+    // NSTrackingArea 기반 커서 관리(2026-07-31 재적용 — 한 번 넣었다가 호버박스 위치
+    // 회귀의 용의자로 급히 되돌렸는데, 되돌려도 그 회귀가 그대로여서 무관함이 확인됨.
+    // macCursorTracking.ts 주석 참고) — 활성 앱 여부와 무관하게 hit-test 로 커서가
+    // 반영되게 한다. 실패해도 예외 없이 false 만 반환하고, 기존 폴링
+    // (syncMacCursorPolling/macDesiredCursor)이 그대로 동작하므로 안전망은 유지된다.
     void import('./selection/macCursorTracking').then(({ attachCursorTracking }) => {
       if (!win.isDestroyed()) attachCursorTracking(win.getNativeWindowHandle(), () => macDesiredCursor)
     })
@@ -717,8 +718,11 @@ function syncMacCursorPolling(): void {
       const p = screen.getCursorScreenPoint()
       const b = overlayWindow.getBounds()
       const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
+      // OVERLAY_CURSOR 는 hover 판정의 유일한 통로(mac 은 클릭스루라 렌더러에 mousemove 가
+      // 안 옴)라 안/밖과 무관하게 항상 보내야 한다(2026-07-31 회귀 — 아래 커서 강제
+      // 게이팅과 같은 조건에 잘못 묶었더니 OCR·PDF-direct 호버박스 위치가 전부 어긋났다).
+      overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
       if (inside) {
-        overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
         macWindowModule?.setMacCursor(macDesiredCursor ?? 'arrow')
         macCursorWasInside = true
       } else if (macCursorWasInside) {

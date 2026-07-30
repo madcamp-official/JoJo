@@ -300,6 +300,16 @@ export function abandonInFlightExtraction(): void {
 // 정렬 기준으로 못 쓰므로 이 확장이 필요) — 아래 함수 본문 주석 참고.
 const MAX_ANCHOR_LINE_LENGTH = 300
 
+// 담당 milleion — 하한 추가(2026-07-31, 실사용 제보 — "클릭하면 이상한 위치 텍스트가
+// 뜬다"). 위 상한(useRawAnchor)이 발동하면 정렬 기준이 findLineSpan 이 준 anchor 그대로가
+// 되는데, **lineId 가 없는 직접 추출 경로(mac AX PDF 등)는 그 anchor 가 클릭한 단어
+// 하나뿐이다**(selection/index.ts: findLineSpan 폴백). "comfortable" 같은 단어 하나는
+// 직전 회차 텍스트에 우연히 딱 한 번만 나오면 유일성 검사를 통과해버리고, 그 지점이
+// 클릭 위치와 무관해도 병합이 실행돼 스크롤 전 화면의 텍스트가 현재 문맥을 통째로
+// 덮어썼다. 정렬 기준으로 삼기엔 너무 짧은 anchor 면 병합을 포기한다 — 오정렬로 문맥이
+// 뒤섞이는 것보다 "이전 문맥 없음"이 안전하다(위 함수 주석의 원칙과 동일).
+const MIN_ANCHOR_LENGTH_FOR_MERGE = 20
+
 export function mergeWithPreviousContext(
   text: string,
   anchorStart: number,
@@ -322,7 +332,9 @@ export function mergeWithPreviousContext(
   const effStart = useRawAnchor ? anchorStart : lineStart
   const effEnd = useRawAnchor ? anchorEnd : lineEnd
   const anchorLine = text.slice(effStart, effEnd)
-  if (!anchorLine.trim()) return { text, anchorStart, anchorEnd }
+  if (!anchorLine.trim() || anchorLine.length < MIN_ANCHOR_LENGTH_FOR_MERGE) {
+    return { text, anchorStart, anchorEnd }
+  }
 
   const prevIdx = prev.text.indexOf(anchorLine)
   if (prevIdx === -1 || prev.text.indexOf(anchorLine, prevIdx + 1) !== -1) {

@@ -1,60 +1,88 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ViewerFilePayload } from '@shared/types'
 import { setWordSegments } from '@shared/hover/wordSegments'
 import { TxtView } from '../viewer/TxtView'
 import { PdfView } from '../viewer/PdfView'
 import { EpubView } from '../viewer/EpubView'
 import { useHoverHighlight } from '../viewer/useHoverHighlight'
-import { ArrowLeftIcon, MoonIcon, ScrollIcon, PageIcon, SunIcon } from './icons'
+import { ArrowLeftIcon } from './icons'
 import { PageNav } from '../viewer/PageNav'
+import { Progress } from '../viewer/Progress'
 import { Toc, type TocEntry } from '../viewer/Toc'
 import { ListIcon } from './icons'
 import {
   EMPTY_PAGE_STATE,
-  PAGE_TRANSITIONS,
+  PAGE_TURN_TIMING,
+  pageTurnKeyframes,
   type PageState,
   type PageTransition,
   type PagerHandle,
   type ViewerMode,
 } from '../viewer/pager'
+import {
+  loadViewerPrefs,
+  saveViewerPrefs,
+  ViewerSettings,
+  type ViewerStyle,
+} from '../viewer/ViewerSettings'
+import { SlidersIcon } from './icons'
 
 // 자체 문서 뷰어(pdf/epub/txt) — 외부 뷰어(크롬 내장 PDF 뷰어·Kindle 등)는 텍스트나 좌표를
 // 신뢰할 수 있게 주지 않아서(TODO.md 96~111 조사) 우리가 직접 파싱·렌더링한다. 우리 DOM
 // 위에서 확장이 웹페이지에 쓰는 것과 **같은 소스**(@shared/hover)로 호버박스를 띄우므로
 // 접근성 API 도 OCR 도 필요 없고 mac/Windows 가 동일하게 동작한다.
 
-const FONT_SIZE_MIN = 12
-const FONT_SIZE_MAX = 32
-const FONT_SIZE_DEFAULT = 18
-// 좌우 여백(px) — 글자 크기와 **독립**으로 사용자가 고정한다. 예전엔 본문 폭을 `44em`
-// (글자 크기 배수)로 잡아서, 글자를 줄이면 줄바꿈은 그대로인 채 여백만 넓어졌다
-// (2026-07-31 사용자 제보). 이제 여백은 이 값으로 고정되고 글자 크기만 바뀌므로,
-// 줄바꿈은 "고정된 폭 안에 글자가 몇 개 들어가는지"에 따라 자연스럽게 다시 잡힌다.
-const MARGIN_MIN = 0
-const MARGIN_MAX = 320
-const MARGIN_DEFAULT = 72
+
+/** 커서가 창 위쪽 이 범위 안에 들어오면 툴바를 보여준다. */
+const TOOLBAR_REVEAL_PX = 90
 
 export function ViewerScreen() {
   const [file, setFile] = useState<ViewerFilePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [fontSize, setFontSize] = useState(FONT_SIZE_DEFAULT)
-  const [margin, setMargin] = useState(MARGIN_DEFAULT)
-  const [dark, setDark] = useState(false)
-  const [mode, setMode] = useState<ViewerMode>('scroll')
+  // 글자 크기/자간/줄 간격/여백을 한 덩어리로 — 툴바의 "보기 설정" 버튼 뒤 패널에서 만진다.
+  // 마지막에 쓰던 설정으로 시작한다(ViewerSettings.loadViewerPrefs — localStorage).
+  const [prefs0] = useState(loadViewerPrefs)
+  const [style, setStyle] = useState<ViewerStyle>(prefs0.style)
+  const [styleOpen, setStyleOpen] = useState(false)
+  const [dark, setDark] = useState(prefs0.dark)
+  const [mode, setMode] = useState<ViewerMode>(prefs0.mode)
   const [pageState, setPageState] = useState<PageState>(EMPTY_PAGE_STATE)
   const containerRef = useRef<HTMLDivElement>(null)
   // 각 뷰(pdf/epub/txt)가 자기 방식대로 채워 넣는 "넘기기" 핸들 — 넘기는 방법은 포맷마다
   // 다르지만(pager.ts 주석) 화살표 버튼·방향키는 이 핸들 하나만 부른다.
   const pagerRef = useRef<PagerHandle | null>(null)
-  const [transition, setTransition] = useState<PageTransition>('slide')
+  const [transition, setTransition] = useState<PageTransition>(prefs0.transition)
+  const animRef = useRef<HTMLDivElement>(null)
   // 목차 — 문서에 들어 있을 때만 채워진다(PDF 아웃라인 / epub navigation). 비어 있으면
   // 버튼 자체를 띄우지 않는다.
   const [toc, setToc] = useState<TocEntry[]>([])
   const [tocOpen, setTocOpen] = useState(false)
-  // 넘김 방향과 "몇 번째 넘김인지" — 같은 방향으로 연속해서 넘겨도 CSS 애니메이션이 다시
-  // 시작되게 하려면 클래스 이름이 매번 달라져야 한다(홀/짝 두 벌을 번갈아 쓴다).
+  // 넘김 방향과 "몇 번째 넘김인지".
   // key 로 리마운트시키는 방법은 쓰면 안 된다 — PDF/epub 뷰가 통째로 다시 그려진다.
   const [turn, setTurn] = useState({ dir: 'next' as 'next' | 'prev', tick: 0 })
+
+  // 넘길 때마다 새 애니메이션을 만들어 재생한다(pager.ts 주석 — CSS 클래스 방식으로는
+  // 같은 방향 연속 넘김에서 재생이 안 되는 함정을 못 피한다).
+  useLayoutEffect(() => {
+    if (turn.tick === 0) return
+    const frames = pageTurnKeyframes(transition, turn.dir)
+    if (!frames) return
+    animRef.current?.animate(frames, PAGE_TURN_TIMING)
+  }, [turn, transition])
+
+  useEffect(() => {
+    saveViewerPrefs({ style, mode, transition, dark })
+  }, [style, mode, transition, dark])
+
+  // 툴바 자동 숨김 — 읽는 동안 화면을 가리지 않게 평소엔 숨기고, 커서를 창 위쪽으로
+  // 가져가면 나타난다. 설정 패널이 열려 있는 동안은 계속 띄워둔다(조작 중에 사라지면
+  // 안 되므로).
+  const [barShown, setBarShown] = useState(true)
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => setBarShown(e.clientY <= TOOLBAR_REVEAL_PX)
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [])
 
   const goPage = useCallback((dir: 'next' | 'prev') => {
     setTurn((t) => ({ dir, tick: t.tick + 1 }))
@@ -113,7 +141,7 @@ export function ViewerScreen() {
 
   return (
     <div className={`screen viewer-screen${dark && isReflowable ? ' dark' : ''}`}>
-      <header className="viewer-toolbar">
+      <header className={`viewer-toolbar${barShown || styleOpen || tocOpen ? '' : ' hidden'}`}>
         <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
           <ArrowLeftIcon />
         </button>
@@ -126,80 +154,39 @@ export function ViewerScreen() {
           {file?.name ?? '문서'}
         </span>
         <div className="viewer-controls">
-          {/* 스크롤 ↔ 페이지 전환 — 세 포맷 모두 지원한다(구현 방식만 포맷별로 다름). */}
+          {/* 읽기 방식·테마·글자 설정·넘김 효과를 전부 이 버튼 뒤 패널로 접었다 —
+              툴바에 컨트롤을 늘어놓으면 금방 지저분해진다(사용자 요청). */}
           <button
-            className="viewer-mode"
-            title={mode === 'page' ? '스크롤 모드로' : '페이지 모드로'}
-            onClick={() => setMode((m) => (m === 'page' ? 'scroll' : 'page'))}
+            className={`viewer-style-btn${styleOpen ? ' on' : ''}`}
+            title="보기 설정"
+            onClick={() => setStyleOpen((v) => !v)}
           >
-            {mode === 'page' ? <ScrollIcon /> : <PageIcon />}
-            {mode === 'page' ? '스크롤' : '페이지'}
+            <SlidersIcon />
           </button>
-          {mode === 'page' && (
-            <label className="viewer-font-control">
-              넘김 효과
-              <select
-                className="viewer-select"
-                value={transition}
-                onChange={(e) => setTransition(e.target.value as PageTransition)}
-              >
-                {PAGE_TRANSITIONS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {isReflowable && (
-            <>
-            <button
-              className="viewer-theme"
-              title={dark ? '라이트 모드로' : '다크 모드로'}
-              onClick={() => setDark((v) => !v)}
-            >
-              {dark ? <SunIcon /> : <MoonIcon />}
-            </button>
-            <label className="viewer-font-control">
-              여백
-              <input
-                type="range"
-                min={MARGIN_MIN}
-                max={MARGIN_MAX}
-                step={8}
-                value={margin}
-                onChange={(e) => setMargin(Number(e.target.value))}
-              />
-              <span className="viewer-font-value">{margin}px</span>
-            </label>
-            <label className="viewer-font-control">
-              글자 크기
-              <input
-                type="range"
-                min={FONT_SIZE_MIN}
-                max={FONT_SIZE_MAX}
-                value={fontSize}
-                onChange={(e) => setFontSize(Number(e.target.value))}
-              />
-              <span className="viewer-font-value">{fontSize}px</span>
-            </label>
-            </>
-          )}
+          <ViewerSettings
+            open={styleOpen}
+            onClose={() => setStyleOpen(false)}
+            style={style}
+            onChange={setStyle}
+            showTextStyle={isReflowable}
+            showTransition={mode === 'page'}
+            transition={transition}
+            onTransitionChange={setTransition}
+            mode={mode}
+            onModeChange={setMode}
+            showTheme={isReflowable}
+            dark={dark}
+            onDarkChange={setDark}
+          />
         </div>
       </header>
 
       <div className="viewer-body" ref={containerRef}>
         {error && <p className="hint">{error}</p>}
         {!file && !error && <p className="hint">불러오는 중…</p>}
-        <div
-          className={
-            mode === 'page' && transition !== 'none'
-              ? `viewer-anim anim-${transition}-${turn.dir}-${turn.tick % 2}`
-              : 'viewer-anim'
-          }
-        >
+        <div ref={animRef} className="viewer-anim">
         {file?.kind === 'txt' && (
-          <TxtView file={file} fontSize={fontSize} margin={margin} mode={mode} pagerRef={pagerRef} onPageState={setPageState} />
+          <TxtView file={file} style={style} mode={mode} pagerRef={pagerRef} onPageState={setPageState} />
         )}
         {file?.kind === 'pdf' && (
           <PdfView file={file} mode={mode} pagerRef={pagerRef} onPageState={setPageState} onToc={setToc} />
@@ -207,13 +194,13 @@ export function ViewerScreen() {
         {file?.kind === 'epub' && (
           <EpubView
             file={file}
-            fontSize={fontSize}
-            margin={margin}
+            style={style}
             dark={dark}
             mode={mode}
             pagerRef={pagerRef}
             onPageState={setPageState}
             onToc={setToc}
+            onTurn={goPage}
           />
         )}
         </div>
@@ -222,11 +209,12 @@ export function ViewerScreen() {
           <PageNav state={pageState} onPrev={() => goPage('prev')} onNext={() => goPage('next')} />
         )}
       </div>
+      <Progress mode={mode} pageState={pageState} bodyRef={containerRef} />
       <HoverBinding
         file={file}
         containerRef={containerRef}
         requestSegments={requestSegments}
-        deps={[fontSize, margin, dark, mode, pageState]}
+        deps={[style, dark, mode, pageState]}
       />
     </div>
   )

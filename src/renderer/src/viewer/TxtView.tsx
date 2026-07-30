@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react'
 import type { ViewerFilePayload } from '@shared/types'
 import type { PageState, PagerHandle, ViewerMode } from './pager'
+import type { ViewerStyle } from './ViewerSettings'
 
 // txt — 빈 줄로 문단을 나눠 <p> 로 그린다. 호버 스택의 기본 문단 선택자가 <p> 라
 // (webArticle.ts) 별도 설정 없이 웹페이지와 똑같이 동작한다.
@@ -11,19 +12,18 @@ import type { PageState, PagerHandle, ViewerMode } from './pager'
 // 그대로 남아 있어 호버 좌표 계산은 아무 영향 없이 그대로 동작한다.
 export function TxtView({
   file,
-  fontSize,
-  margin,
+  style,
   mode,
   pagerRef,
   onPageState,
 }: {
   file: ViewerFilePayload
-  fontSize: number
-  margin: number
+  style: ViewerStyle
   mode: ViewerMode
   pagerRef: RefObject<PagerHandle | null>
   onPageState: (s: PageState) => void
 }) {
+  const { fontSize, margin, letterSpacing, lineHeight } = style
   const paragraphs = (file.text ?? '').split(/\n{2,}/).filter((p) => p.trim())
   const scrollRef = useRef<HTMLDivElement>(null)
   const articleRef = useRef<HTMLElement>(null)
@@ -34,20 +34,25 @@ export function TxtView({
   // 열 간격을 여백의 2배로 두면 한 장 넘길 때 이동량이 정확히 화면 폭 하나가 된다
   // (열너비 + 간격 = (W−2m) + 2m = W).
   const [colWidth, setColWidth] = useState(0)
-  // 한 장 넘길 때 옮기는 거리(=화면 폭). 스크롤이 아니라 transform 으로 옮긴다 —
+  // 한 장 넘길 때 옮기는 거리. 스크롤이 아니라 transform 으로 옮긴다 —
   // scrollLeft 는 `scrollWidth - clientWidth` 로 클램프되는데, 전체 내용 폭이 화면 폭의
   // 정확한 배수가 아니면 **마지막 장에서만** 그 클램프에 걸려 열 시작점에 못 맞춘다
   // (실사용 제보: 마지막 페이지에서 왼쪽 여백만 넓어지고 오른쪽은 끝까지 붙음).
   // transform 은 레이아웃 밖이라 클램프가 없어 모든 장이 같은 위치에 정확히 선다.
-  const [pageWidth, setPageWidth] = useState(0)
+  // 이동량은 화면 폭이 아니라 **실제 열 간격(열 너비 + 열 사이 간격)**이어야 한다.
+  // 보통은 둘이 같지만((W−2m) + 2m = W), 여백이 화면 폭에 비해 크면 열 너비가 최소값으로
+  // 잘려서 둘이 어긋난다 — 그러면 한 장 넘길 때마다 조금씩 밀려 앞뒤 페이지가 한 화면에
+  // 같이 보였다(2026-07-31 사용자 제보).
+  const [advance, setAdvance] = useState(0)
 
   // 1단계 — 화면 폭에서 열 너비/한 장 이동거리를 정한다.
   const measure = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const per = el.clientWidth
-    setPageWidth(per)
-    setColWidth(Math.max(80, per - margin * 2))
+    const col = Math.max(80, per - margin * 2)
+    setColWidth(col)
+    setAdvance(col + margin * 2)
   }, [margin])
 
   useEffect(() => {
@@ -63,7 +68,7 @@ export function TxtView({
       window.clearTimeout(id)
       window.removeEventListener('resize', measure)
     }
-  }, [mode, fontSize, margin, file, measure])
+  }, [mode, fontSize, margin, letterSpacing, lineHeight, file, measure])
 
   // 2단계 — 열 너비가 **실제 레이아웃에 반영된 뒤**에 페이지 수를 セン다. 한 프레임 뒤에
   // 재는 게 핵심이다: 같은 렌더에서 바로 재면 아직 이전(또는 초기 0) 열 너비 기준이라
@@ -76,12 +81,12 @@ export function TxtView({
     if (mode !== 'page') return
     const el = scrollRef.current
     const art = articleRef.current
-    if (!el || !art || colWidth <= 0 || pageWidth <= 0) return
+    if (!el || !art || colWidth <= 0 || advance <= 0) return
     const id = requestAnimationFrame(() => {
-      setTotal(Math.max(1, Math.ceil((art.scrollWidth - 1) / pageWidth)))
+      setTotal(Math.max(1, Math.ceil((art.scrollWidth - 1) / advance)))
     })
     return () => cancelAnimationFrame(id)
-  }, [mode, colWidth, pageWidth, fontSize, margin, file])
+  }, [mode, colWidth, advance, fontSize, margin, letterSpacing, lineHeight, file])
 
   // 폰트/여백이 바뀌어 전체 장수가 줄면 지금 페이지가 범위를 벗어날 수 있다.
   useEffect(() => {
@@ -111,13 +116,15 @@ export function TxtView({
           mode === 'page'
             ? {
                 fontSize,
+                letterSpacing,
+                lineHeight,
                 paddingLeft: margin,
                 paddingRight: margin,
                 columnWidth: colWidth,
                 columnGap: margin * 2,
-                transform: `translateX(${-page * pageWidth}px)`,
+                transform: `translateX(${-page * advance}px)`,
               }
-            : { fontSize, paddingLeft: margin, paddingRight: margin }
+            : { fontSize, letterSpacing, lineHeight, paddingLeft: margin, paddingRight: margin }
         }
       >
         {paragraphs.map((p, i) => (
