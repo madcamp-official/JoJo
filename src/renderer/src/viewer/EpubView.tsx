@@ -3,6 +3,7 @@ import ePub, { type Rendition } from 'epubjs'
 import type { ViewerFilePayload } from '@shared/types'
 import type { PageState, PagerHandle, ViewerMode } from './pager'
 import type { TocEntry } from './Toc'
+import type { ViewerStyle } from './ViewerSettings'
 
 // epub — epubjs 가 페이지네이션·CSS·폰트를 처리한다(사용자 확정). 내용은 iframe 안에 뜨는데,
 // 호버 스택이 컨테이너의 ownerDocument/defaultView 를 쓰도록 일반화돼 있어(articleHighlight.ts)
@@ -21,11 +22,13 @@ const FONT_STYLE_ID = 'nuance-epub-font'
 // 본문은 그대로고 상대 단위(em)로 잡힌 제목만 커졌다 작아졌다 한다(2026-07-31 사용자 제보).
 // 그래서 본문 요소에 rem 기준 크기를 직접 덮어씌운다 — 기준점인 html 의 font-size 만
 // 슬라이더 값으로 바꾸면 제목/본문 비율은 아래 표대로 유지된 채 전체가 같이 커진다.
-function fontCss(size: number): string {
+function fontCss(st: ViewerStyle): string {
   return `
-    html { font-size: ${size}px !important; }
+    html { font-size: ${st.fontSize}px !important; }
     body, p, div, span, li, dd, dt, td, th, blockquote, a, em, strong, i, b, small {
       font-size: 1rem !important;
+      letter-spacing: ${st.letterSpacing}px !important;
+      line-height: ${st.lineHeight} !important;
     }
     h1 { font-size: 1.9rem !important; }
     h2 { font-size: 1.6rem !important; }
@@ -35,7 +38,7 @@ function fontCss(size: number): string {
   `
 }
 
-function applyFontSize(doc: Document | null | undefined, size: number): void {
+function applyFontSize(doc: Document | null | undefined, st: ViewerStyle): void {
   if (!doc?.head) return
   let el = doc.getElementById(FONT_STYLE_ID)
   if (!el) {
@@ -43,27 +46,67 @@ function applyFontSize(doc: Document | null | undefined, size: number): void {
     el.id = FONT_STYLE_ID
     doc.head.appendChild(el)
   }
-  el.textContent = fontCss(size)
+  el.textContent = fontCss(st)
+}
+
+/** 챕터 연타 이동 방지용 잠금 — 휠 핸들러 여러 개(iframe 문서 + 호스트)가 공유한다. */
+interface TurnLock {
+  locked: boolean
+}
+
+/**
+ * epubjs 는 스크롤 모드에서도 내용 iframe 에 `scrolling="no"` 를 박고, 스크롤은 그 바깥
+ * 컨테이너(`.epub-container`)가 담당한다. 그래서 휠을 받는 쪽이 직접 그 컨테이너를 굴려
+ * 줘야 한다. 붙이는 곳이 **두 군데**인 게 중요하다:
+ *  - iframe 문서: 커서가 본문 위에 있을 때(안쪽이 이벤트를 먹고 바깥으로 안 넘긴다)
+ *  - 호스트 요소: 커서가 좌우 여백 위에 있을 때. 여백은 우리가 준 패딩이라 iframe 밖이고,
+ *    그 위에서는 휠이 아무 데도 안 닿아 스크롤이 통째로 죽었다(2026-07-31 실측 재현 —
+ *    여백 위에서 굴리면 scrollTop 이 1600 에서 꼼짝 안 함).
+ */
+function makeWheelHandler(
+  host: HTMLElement,
+  rendition: Rendition,
+  lock: TurnLock,
+): (e: WheelEvent) => void {
+  return (e: WheelEvent) => {
+    const box = host.querySelector<HTMLElement>(EPUB_CONTAINER)
+    if (!box) return
+    const before = box.scrollTop
+    box.scrollTop += e.deltaY
+    e.preventDefault()
+    // 더 안 굴러가면 챕터의 끝(또는 처음)이다 — 스크롤 모드는 챕터 하나만 싣기 때문에,
+    // 여기서 다음/이전 챕터로 넘겨주지 않으면 책이 거기서 끝난 것처럼 보인다.
+    if (box.scrollTop !== before || lock.locked) return
+    if (e.deltaY > 0) {
+      lock.locked = true
+      void rendition.next()
+    } else if (e.deltaY < 0) {
+      lock.locked = true
+      void rendition.prev()
+    }
+    if (lock.locked) setTimeout(() => (lock.locked = false), 500)
+  }
 }
 
 export function EpubView({
   file,
-  fontSize,
-  margin,
+  style,
   dark,
   mode,
   pagerRef,
   onPageState,
   onToc,
+  onTurn,
 }: {
   file: ViewerFilePayload
-  fontSize: number
-  margin: number
+  style: ViewerStyle
   dark: boolean
   mode: ViewerMode
   pagerRef: RefObject<PagerHandle | null>
   onPageState: (s: PageState) => void
   onToc: (entries: TocEntry[]) => void
+  /** 방향키로 넘기기 — iframe 안에서 누른 키는 부모 창까지 안 오므로 여기서 직접 전달한다. */
+  onTurn: (dir: 'next' | 'prev') => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const renditionRef = useRef<Rendition | null>(null)
@@ -73,8 +116,13 @@ export function EpubView({
   const readyRef = useRef(false)
   // 새로 로드되는 챕터에도 같은 글자 크기를 바로 입혀야 하는데, 그 시점(content 훅)은
   // rendition 생성 effect 안에 갇혀 있어 최신 prop 을 못 본다 — ref 로 흘려보낸다.
-  const fontSizeRef = useRef(fontSize)
-  fontSizeRef.current = fontSize
+  const styleRef = useRef(style)
+  styleRef.current = style
+  // content 훅은 rendition 생성 effect 안에 갇혀 있어 최신 prop 을 못 본다 — ref 로 흘린다.
+  const onTurnRef = useRef(onTurn)
+  onTurnRef.current = onTurn
+  const modeRef = useRef(mode)
+  modeRef.current = mode
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -82,7 +130,7 @@ export function EpubView({
     const host = hostRef.current
     if (!host) return
     let cancelled = false
-    let chapterTurnLocked = false
+    const lock: TurnLock = { locked: false }
     readyRef.current = false
 
     // slice() 로 복사본을 준다 — 원본 Uint8Array 를 그대로 넘기면 재마운트 때 이미
@@ -100,34 +148,24 @@ export function EpubView({
     // 스크롤 모드면 휠을 바깥 스크롤 컨테이너로 넘겨준다(바로 아래 주석).
     rendition.hooks.content.register((contents: { document: Document }) => {
       const doc = contents.document
-      applyFontSize(doc, fontSizeRef.current)
+      applyFontSize(doc, styleRef.current)
       if (mode !== 'scroll') return
 
-      // epubjs 는 스크롤 모드에서도 내용 iframe 에 scrolling="no" 를 박고, 스크롤은 그
-      // 바깥 컨테이너(.epub-container)가 담당한다. 그런데 커서가 iframe 위에 있으면 휠
-      // 이벤트는 그 안쪽 문서가 먹어버리고 — 안쪽은 내용 전체 높이라 스스로 스크롤할 게
-      // 없다 — 바깥으로 전달되지도 않아서, 본문 위에서는 스크롤이 통째로 먹통이었다
-      // (2026-07-31 사용자 제보). 휠을 받아 바깥 컨테이너를 직접 굴려준다.
-      const onWheel = (e: WheelEvent) => {
-        const box = host.querySelector<HTMLElement>(EPUB_CONTAINER)
-        if (!box) return
-        const before = box.scrollTop
-        box.scrollTop += e.deltaY
-        e.preventDefault()
-        // 스크롤이 더 안 먹히면 챕터의 끝(또는 처음)이다 — epub 의 스크롤 모드는 챕터
-        // 하나만 싣기 때문에, 여기서 다음/이전 챕터로 넘겨주지 않으면 책이 거기서 끝난
-        // 것처럼 보인다. 연타로 여러 챕터가 훌쩍 넘어가지 않게 잠깐 잠근다.
-        if (box.scrollTop !== before || chapterTurnLocked) return
-        if (e.deltaY > 0) {
-          chapterTurnLocked = true
-          void rendition.next()
-        } else if (e.deltaY < 0) {
-          chapterTurnLocked = true
-          void rendition.prev()
+      doc.addEventListener('wheel', makeWheelHandler(host, rendition, lock), { passive: false })
+
+      // 좌우 방향키 — 커서가 본문(iframe) 안에 있으면 keydown 이 그 문서에서 끝나고 부모
+      // 창까지 오지 않아서, ViewerScreen 의 전역 리스너로는 안 잡힌다(2026-07-31 사용자
+      // 제보: "방향키로 페이지 넘기는 게 안 먹힘"). 여기서 직접 받아 넘겨준다.
+      doc.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (modeRef.current !== 'page') return
+        if (e.key === 'ArrowRight') {
+          e.preventDefault()
+          onTurnRef.current('next')
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault()
+          onTurnRef.current('prev')
         }
-        if (chapterTurnLocked) setTimeout(() => (chapterTurnLocked = false), 500)
-      }
-      doc.addEventListener('wheel', onWheel, { passive: false })
+      })
     })
 
     // 페이지 총 개수는 epubjs 가 locations 를 다 계산해야 나오는데(책 전체 훑기라 느리다)
@@ -164,6 +202,10 @@ export function EpubView({
       // 목차가 없는 epub 도 흔하다 — 실패해도 조용히 넘어간다(버튼이 안 뜰 뿐).
       .catch(() => {})
 
+    // 여백 위에서 굴릴 때를 위해 호스트에도 같은 핸들러를 붙인다(위 makeWheelHandler 주석).
+    const hostWheel = makeWheelHandler(host, rendition, lock)
+    if (mode === 'scroll') host.addEventListener('wheel', hostWheel, { passive: false })
+
     rendition
       .display()
       .then(() => {
@@ -187,8 +229,8 @@ export function EpubView({
   useEffect(() => {
     // 타입 정의는 Contents 하나를 반환한다고 돼 있지만 실제 구현은 배열을 준다.
     const contents = renditionRef.current?.getContents() as unknown as { document: Document }[] | undefined
-    for (const c of contents ?? []) applyFontSize(c?.document, fontSize)
-  }, [fontSize, mode])
+    for (const c of contents ?? []) applyFontSize(c?.document, style)
+  }, [style, mode])
 
   useEffect(() => {
     const themes = renditionRef.current?.themes
@@ -211,7 +253,7 @@ export function EpubView({
     const apply = (): void => {
       if (!readyRef.current) return
       try {
-        renditionRef.current?.resize(Math.max(1, host.clientWidth - margin * 2), host.clientHeight)
+        renditionRef.current?.resize(Math.max(1, host.clientWidth - style.margin * 2), host.clientHeight)
       } catch {
         // 재배치 실패는 치명적이지 않다(다음 페이지 이동 때 어차피 다시 잡힌다).
       }
@@ -219,7 +261,7 @@ export function EpubView({
     apply()
     window.addEventListener('resize', apply)
     return () => window.removeEventListener('resize', apply)
-  }, [margin, mode])
+  }, [style.margin, mode])
 
   useImperativeHandle(pagerRef, () => ({
     next: () => void renditionRef.current?.next(),
@@ -232,7 +274,7 @@ export function EpubView({
       {/* 여백은 iframe 바깥(호스트)에 준다 — epubjs 가 iframe 을 호스트 크기에 맞추므로
           그만큼 본문 폭이 줄어 줄바꿈이 여백 기준으로 다시 잡힌다. 안쪽 body 에 padding 을
           주면 epubjs 자체 페이지네이션 계산과 어긋난다. */}
-      <div className="epub-host" ref={hostRef} style={{ paddingLeft: margin, paddingRight: margin }} />
+      <div className="epub-host" ref={hostRef} style={{ paddingLeft: style.margin, paddingRight: style.margin }} />
     </>
   )
 }

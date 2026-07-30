@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react'
 import type { ViewerFilePayload } from '@shared/types'
 import type { PageState, PagerHandle, ViewerMode } from './pager'
+import type { ViewerStyle } from './ViewerSettings'
 
 // txt — 빈 줄로 문단을 나눠 <p> 로 그린다. 호버 스택의 기본 문단 선택자가 <p> 라
 // (webArticle.ts) 별도 설정 없이 웹페이지와 똑같이 동작한다.
@@ -11,19 +12,18 @@ import type { PageState, PagerHandle, ViewerMode } from './pager'
 // 그대로 남아 있어 호버 좌표 계산은 아무 영향 없이 그대로 동작한다.
 export function TxtView({
   file,
-  fontSize,
-  margin,
+  style,
   mode,
   pagerRef,
   onPageState,
 }: {
   file: ViewerFilePayload
-  fontSize: number
-  margin: number
+  style: ViewerStyle
   mode: ViewerMode
   pagerRef: RefObject<PagerHandle | null>
   onPageState: (s: PageState) => void
 }) {
+  const { fontSize, margin, letterSpacing, lineHeight } = style
   const paragraphs = (file.text ?? '').split(/\n{2,}/).filter((p) => p.trim())
   const scrollRef = useRef<HTMLDivElement>(null)
   const articleRef = useRef<HTMLElement>(null)
@@ -63,7 +63,7 @@ export function TxtView({
       window.clearTimeout(id)
       window.removeEventListener('resize', measure)
     }
-  }, [mode, fontSize, margin, file, measure])
+  }, [mode, fontSize, margin, letterSpacing, lineHeight, file, measure])
 
   // 2단계 — 열 너비가 **실제 레이아웃에 반영된 뒤**에 페이지 수를 セン다. 한 프레임 뒤에
   // 재는 게 핵심이다: 같은 렌더에서 바로 재면 아직 이전(또는 초기 0) 열 너비 기준이라
@@ -81,7 +81,7 @@ export function TxtView({
       setTotal(Math.max(1, Math.ceil((art.scrollWidth - 1) / pageWidth)))
     })
     return () => cancelAnimationFrame(id)
-  }, [mode, colWidth, pageWidth, fontSize, margin, file])
+  }, [mode, colWidth, pageWidth, fontSize, margin, letterSpacing, lineHeight, file])
 
   // 폰트/여백이 바뀌어 전체 장수가 줄면 지금 페이지가 범위를 벗어날 수 있다.
   useEffect(() => {
@@ -111,13 +111,15 @@ export function TxtView({
           mode === 'page'
             ? {
                 fontSize,
+                letterSpacing,
+                lineHeight,
                 paddingLeft: margin,
                 paddingRight: margin,
                 columnWidth: colWidth,
                 columnGap: margin * 2,
                 transform: `translateX(${-page * pageWidth}px)`,
               }
-            : { fontSize, paddingLeft: margin, paddingRight: margin }
+            : { fontSize, letterSpacing, lineHeight, paddingLeft: margin, paddingRight: margin }
         }
       >
         {paragraphs.map((p, i) => (

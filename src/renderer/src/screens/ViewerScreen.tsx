@@ -11,34 +11,28 @@ import { Toc, type TocEntry } from '../viewer/Toc'
 import { ListIcon } from './icons'
 import {
   EMPTY_PAGE_STATE,
-  PAGE_TRANSITIONS,
+  PAGE_TURN_TIMING,
+  pageTurnKeyframes,
   type PageState,
   type PageTransition,
   type PagerHandle,
   type ViewerMode,
 } from '../viewer/pager'
+import { DEFAULT_STYLE, ViewerSettings, type ViewerStyle } from '../viewer/ViewerSettings'
+import { SlidersIcon } from './icons'
 
 // 자체 문서 뷰어(pdf/epub/txt) — 외부 뷰어(크롬 내장 PDF 뷰어·Kindle 등)는 텍스트나 좌표를
 // 신뢰할 수 있게 주지 않아서(TODO.md 96~111 조사) 우리가 직접 파싱·렌더링한다. 우리 DOM
 // 위에서 확장이 웹페이지에 쓰는 것과 **같은 소스**(@shared/hover)로 호버박스를 띄우므로
 // 접근성 API 도 OCR 도 필요 없고 mac/Windows 가 동일하게 동작한다.
 
-const FONT_SIZE_MIN = 12
-const FONT_SIZE_MAX = 32
-const FONT_SIZE_DEFAULT = 18
-// 좌우 여백(px) — 글자 크기와 **독립**으로 사용자가 고정한다. 예전엔 본문 폭을 `44em`
-// (글자 크기 배수)로 잡아서, 글자를 줄이면 줄바꿈은 그대로인 채 여백만 넓어졌다
-// (2026-07-31 사용자 제보). 이제 여백은 이 값으로 고정되고 글자 크기만 바뀌므로,
-// 줄바꿈은 "고정된 폭 안에 글자가 몇 개 들어가는지"에 따라 자연스럽게 다시 잡힌다.
-const MARGIN_MIN = 0
-const MARGIN_MAX = 320
-const MARGIN_DEFAULT = 72
 
 export function ViewerScreen() {
   const [file, setFile] = useState<ViewerFilePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [fontSize, setFontSize] = useState(FONT_SIZE_DEFAULT)
-  const [margin, setMargin] = useState(MARGIN_DEFAULT)
+  // 글자 크기/자간/줄 간격/여백을 한 덩어리로 — 툴바의 "보기 설정" 버튼 뒤 패널에서 만진다.
+  const [style, setStyle] = useState<ViewerStyle>(DEFAULT_STYLE)
+  const [styleOpen, setStyleOpen] = useState(false)
   const [dark, setDark] = useState(false)
   const [mode, setMode] = useState<ViewerMode>('scroll')
   const [pageState, setPageState] = useState<PageState>(EMPTY_PAGE_STATE)
@@ -56,19 +50,14 @@ export function ViewerScreen() {
   // key 로 리마운트시키는 방법은 쓰면 안 된다 — PDF/epub 뷰가 통째로 다시 그려진다.
   const [turn, setTurn] = useState({ dir: 'next' as 'next' | 'prev', tick: 0 })
 
-  // 같은 방향으로 연속해서 넘길 때 효과를 다시 재생시킨다. 예전엔 클래스 이름을 홀/짝
-  // 두 벌로 번갈아 붙였는데(anim-slide-next-0/-1) 전혀 동작하지 않았다(2026-07-31 사용자
-  // 제보 — "설정 바꾼 직후 한 번만 효과가 보임") — CSS 애니메이션의 재시작은 **클래스
-  // 이름이 아니라 animation-name 등 계산된 애니메이션 속성**이 달라져야 일어나는데, 두
-  // 클래스가 같은 @keyframes 를 가리켜 브라우저 눈에는 "바뀐 게 없는" 상태였다. 대신
-  // 실제로 붙어 있는 애니메이션을 처음으로 되감아 재생한다.
+  // 넘길 때마다 새 애니메이션을 만들어 재생한다(pager.ts 주석 — CSS 클래스 방식으로는
+  // 같은 방향 연속 넘김에서 재생이 안 되는 함정을 못 피한다).
   useLayoutEffect(() => {
     if (turn.tick === 0) return
-    for (const a of animRef.current?.getAnimations({ subtree: true }) ?? []) {
-      a.cancel()
-      a.play()
-    }
-  }, [turn])
+    const frames = pageTurnKeyframes(transition, turn.dir)
+    if (!frames) return
+    animRef.current?.animate(frames, PAGE_TURN_TIMING)
+  }, [turn, transition])
 
   const goPage = useCallback((dir: 'next' | 'prev') => {
     setTurn((t) => ({ dir, tick: t.tick + 1 }))
@@ -149,24 +138,7 @@ export function ViewerScreen() {
             {mode === 'page' ? <ScrollIcon /> : <PageIcon />}
             {mode === 'page' ? '스크롤' : '페이지'}
           </button>
-          {mode === 'page' && (
-            <label className="viewer-font-control">
-              넘김 효과
-              <select
-                className="viewer-select"
-                value={transition}
-                onChange={(e) => setTransition(e.target.value as PageTransition)}
-              >
-                {PAGE_TRANSITIONS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           {isReflowable && (
-            <>
             <button
               className="viewer-theme"
               title={dark ? '라이트 모드로' : '다크 모드로'}
@@ -174,47 +146,35 @@ export function ViewerScreen() {
             >
               {dark ? <SunIcon /> : <MoonIcon />}
             </button>
-            <label className="viewer-font-control">
-              여백
-              <input
-                type="range"
-                min={MARGIN_MIN}
-                max={MARGIN_MAX}
-                step={8}
-                value={margin}
-                onChange={(e) => setMargin(Number(e.target.value))}
-              />
-              <span className="viewer-font-value">{margin}px</span>
-            </label>
-            <label className="viewer-font-control">
-              글자 크기
-              <input
-                type="range"
-                min={FONT_SIZE_MIN}
-                max={FONT_SIZE_MAX}
-                value={fontSize}
-                onChange={(e) => setFontSize(Number(e.target.value))}
-              />
-              <span className="viewer-font-value">{fontSize}px</span>
-            </label>
-            </>
           )}
+          {/* 글자 크기·자간·줄 간격·여백·넘김 효과는 전부 이 버튼 뒤 패널로 접었다 —
+              툴바에 슬라이더를 늘어놓으면 금방 지저분해진다(사용자 요청). */}
+          <button
+            className={`viewer-style-btn${styleOpen ? ' on' : ''}`}
+            title="보기 설정"
+            onClick={() => setStyleOpen((v) => !v)}
+          >
+            <SlidersIcon />
+          </button>
+          <ViewerSettings
+            open={styleOpen}
+            onClose={() => setStyleOpen(false)}
+            style={style}
+            onChange={setStyle}
+            showTextStyle={isReflowable}
+            showTransition={mode === 'page'}
+            transition={transition}
+            onTransitionChange={setTransition}
+          />
         </div>
       </header>
 
       <div className="viewer-body" ref={containerRef}>
         {error && <p className="hint">{error}</p>}
         {!file && !error && <p className="hint">불러오는 중…</p>}
-        <div
-          ref={animRef}
-          className={
-            mode === 'page' && transition !== 'none'
-              ? `viewer-anim anim-${transition}-${turn.dir}`
-              : 'viewer-anim'
-          }
-        >
+        <div ref={animRef} className="viewer-anim">
         {file?.kind === 'txt' && (
-          <TxtView file={file} fontSize={fontSize} margin={margin} mode={mode} pagerRef={pagerRef} onPageState={setPageState} />
+          <TxtView file={file} style={style} mode={mode} pagerRef={pagerRef} onPageState={setPageState} />
         )}
         {file?.kind === 'pdf' && (
           <PdfView file={file} mode={mode} pagerRef={pagerRef} onPageState={setPageState} onToc={setToc} />
@@ -222,13 +182,13 @@ export function ViewerScreen() {
         {file?.kind === 'epub' && (
           <EpubView
             file={file}
-            fontSize={fontSize}
-            margin={margin}
+            style={style}
             dark={dark}
             mode={mode}
             pagerRef={pagerRef}
             onPageState={setPageState}
             onToc={setToc}
+            onTurn={goPage}
           />
         )}
         </div>
@@ -241,7 +201,7 @@ export function ViewerScreen() {
         file={file}
         containerRef={containerRef}
         requestSegments={requestSegments}
-        deps={[fontSize, margin, dark, mode, pageState]}
+        deps={[style, dark, mode, pageState]}
       />
     </div>
   )

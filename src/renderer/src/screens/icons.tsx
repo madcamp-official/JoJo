@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LlmProvider } from '@shared/types'
-import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, Sun, Moon, ScrollText, Copy, List } from 'lucide-react'
+import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, Sun, Moon, ScrollText, Copy, List, SlidersHorizontal } from 'lucide-react'
 
 // 담당 B — UI 아이콘 세트 (이모지 대체용, 인라인 SVG)
 // 액션 아이콘은 currentColor 라인 스타일(Feather 계열)로 통일해 텍스트 색을 따라간다.
@@ -99,6 +99,11 @@ export function PageIcon({ size = 15 }: { size?: number }) {
 // 뷰어 목차 열기.
 export function ListIcon({ size = 18 }: { size?: number }) {
   return <List size={size} strokeWidth={2} aria-hidden="true" />
+}
+
+// 뷰어 보기 설정(글자 크기·자간·줄 간격·여백·넘김 효과) 패널 열기.
+export function SlidersIcon({ size = 18 }: { size?: number }) {
+  return <SlidersHorizontal size={size} strokeWidth={2} aria-hidden="true" />
 }
 
 export function CheckIcon({ size = 14 }: { size?: number }) {

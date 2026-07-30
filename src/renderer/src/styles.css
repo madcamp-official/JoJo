@@ -764,8 +764,7 @@ button:disabled { cursor: not-allowed; }
   background: none; border: none; padding: 4px; cursor: pointer; color: inherit; flex: none;
 }
 .viewer-back:hover, .viewer-theme:hover { opacity: 0.6; }
-.viewer-controls { display: flex; align-items: center; gap: 14px; margin-left: auto; }
-.viewer-font-control { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #64748b; }
+.viewer-controls { display: flex; align-items: center; gap: 10px; margin-left: auto; position: relative; }
 .viewer-font-value { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .viewer-body { flex: 1; overflow: auto; position: relative; }
@@ -837,57 +836,9 @@ button:disabled { cursor: not-allowed; }
 .txt-scroll.paged { height: 100%; overflow: hidden; }
 .txt-scroll.paged .viewer-doc { height: 100%; column-fill: auto; }
 
-/* ── 페이지 넘김 효과 ────────────────────────────────────────────────────────
-   포맷별 렌더러(pdf/epub/txt)를 건드리지 않고 본문 전체를 감싼 래퍼에 CSS 애니메이션만
-   건다 — 넘기는 방법은 포맷마다 다르지만 "넘어간 뒤 새 내용이 나타나는" 순간은 공통이라
-   한 곳에서 처리된다. 같은 방향으로 연속해서 넘길 때의 재생은 ViewerScreen 이
-   getAnimations() 로 되감아 처리한다(클래스 두 벌 번갈아쓰기는 동작하지 않는다 — 그쪽
-   주석 참고). */
-.viewer-anim { height: 100%; position: relative; }
-
-/* 0.26s 는 "넘어갔다"는 느낌 없이 순간이동처럼 보였다(2026-07-31 사용자 제보) — 눈이
-   따라갈 수 있게 지속시간을 늘리고 이동 거리도 그만큼 키운다. */
-@keyframes page-slide-next { from { transform: translateX(72px); opacity: 0.25; } to { transform: none; opacity: 1; } }
-@keyframes page-slide-prev { from { transform: translateX(-72px); opacity: 0.25; } to { transform: none; opacity: 1; } }
-.anim-slide-next { animation: page-slide-next 0.52s cubic-bezier(0.22, 0.61, 0.36, 1); }
-.anim-slide-prev { animation: page-slide-prev 0.52s cubic-bezier(0.22, 0.61, 0.36, 1); }
-
-/* 실제 책장이 넘어오는 느낌 — 새 페이지가 안쪽 모서리(제본 쪽)를 경첩 삼아 거의 세워진
-   상태에서 평평하게 눕는다. 각도를 크게(-84°) 주고 원근도 가깝게 잡아야 "종이가 눕는다"로
-   보인다(예전 -24° 는 그냥 살짝 기운 화면이었다). 넘어오는 종이의 그늘은 아래 ::after 가
-   훑고 지나가며 표현한다 — 이 둘이 같이 있어야 입체로 읽힌다. */
-@keyframes page-flip-next {
-  0% { transform: perspective(1100px) rotateY(-84deg); opacity: 0.2; }
-  60% { opacity: 1; }
-  100% { transform: perspective(1100px) rotateY(0); opacity: 1; }
-}
-@keyframes page-flip-prev {
-  0% { transform: perspective(1100px) rotateY(84deg); opacity: 0.2; }
-  60% { opacity: 1; }
-  100% { transform: perspective(1100px) rotateY(0); opacity: 1; }
-}
-.anim-flip-next {
-  transform-origin: right center; animation: page-flip-next 0.62s cubic-bezier(0.33, 0.9, 0.35, 1);
-}
-.anim-flip-prev {
-  transform-origin: left center; animation: page-flip-prev 0.62s cubic-bezier(0.33, 0.9, 0.35, 1);
-}
-
-/* 넘어오는 종이가 드리우는 그늘 — 경첩 반대쪽이 가장 어둡고, 종이가 눕는 동안 옅어진다.
-   본문 위에 얹히기만 하므로 클릭/호버(호버박스)는 그대로 통과시킨다. */
-.anim-flip-next::after, .anim-flip-prev::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2;
-  animation: page-flip-shade 0.62s cubic-bezier(0.33, 0.9, 0.35, 1) forwards;
-}
-.anim-flip-next::after { background: linear-gradient(to left, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0) 62%); }
-.anim-flip-prev::after { background: linear-gradient(to right, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0) 62%); }
-@keyframes page-flip-shade { from { opacity: 1; } to { opacity: 0; } }
-
-.viewer-select {
-  font: inherit; font-size: 13px; color: inherit; background: transparent;
-  border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 6px; cursor: pointer;
-}
-.viewer-screen.dark .viewer-select { border-color: #4b5563; }
+/* 넘김 효과는 CSS 가 아니라 element.animate() 로 만든다(pager.ts 주석) — 여기엔
+   애니메이션이 얹힐 래퍼만 둔다. */
+.viewer-anim { height: 100%; }
 
 /* ── 목차 패널(PDF 아웃라인 / epub navigation 이 있을 때만) ─────────────────── */
 .viewer-toc {
@@ -916,3 +867,57 @@ button:disabled { cursor: not-allowed; }
 .viewer-screen.dark .viewer-toc { background: #1f2430; border-right-color: #374151; }
 .viewer-screen.dark .viewer-toc-head { border-bottom-color: #374151; }
 .viewer-screen.dark .viewer-toc-item:hover { background: rgba(124, 58, 237, 0.22); color: #c4b5fd; }
+
+/* ── 보기 설정 패널 ─────────────────────────────────────────────────────────
+   글자 크기·자간·줄 간격·여백·넘김 효과를 툴바 버튼 하나 뒤로 접었다. */
+.viewer-style-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 9px;
+  background: none; border: 1px solid transparent; color: #64748b; cursor: pointer;
+}
+.viewer-style-btn:hover { background: rgba(124, 58, 237, 0.08); color: var(--theme); }
+.viewer-style-btn.on { background: rgba(124, 58, 237, 0.12); border-color: var(--theme); color: var(--theme); }
+
+.viewer-style-panel {
+  position: absolute; top: calc(100% + 10px); right: 0; z-index: 40;
+  width: 306px; padding: 16px; border-radius: 14px;
+  background: #fff; border: 1px solid #e7e7ec;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.style-row { display: grid; grid-template-columns: 58px 1fr 46px; align-items: center; gap: 10px; }
+.style-label { font-size: 12.5px; color: #6b7280; white-space: nowrap; }
+.style-value { font-size: 12px; color: #9ca3af; text-align: right; font-variant-numeric: tabular-nums; }
+.style-note { margin: 0; font-size: 12.5px; color: #9ca3af; line-height: 1.5; }
+.style-divider { height: 1px; background: #eef0f4; margin: 2px 0; }
+
+/* 선택지가 둘뿐이라 드롭다운 대신 좌우로 붙은 토글. */
+.style-toggle { display: flex; border: 1px solid #e2e5ea; border-radius: 8px; overflow: hidden; }
+.style-toggle button {
+  flex: 1; padding: 5px 0; font: inherit; font-size: 12px; color: #6b7280;
+  background: #fff; border: none; cursor: pointer;
+}
+.style-toggle button + button { border-left: 1px solid #e2e5ea; }
+.style-toggle button:hover { background: #f6f5ff; }
+.style-toggle button.on { background: var(--theme); color: #fff; }
+
+/* 슬라이더 — 기본 크롬 모양 대신 얇은 트랙 + 작은 손잡이로 정돈. */
+.viewer-style-panel input[type='range'] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
+  border-radius: 2px; background: #e5e7eb; outline: none; cursor: pointer;
+}
+.viewer-style-panel input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--theme); border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.28);
+}
+
+.viewer-screen.dark .viewer-style-panel { background: #232936; border-color: #39414f; box-shadow: 0 12px 32px rgba(0,0,0,0.42); }
+.viewer-screen.dark .style-label { color: #9aa3b2; }
+.viewer-screen.dark .style-divider { background: #39414f; }
+.viewer-screen.dark .style-toggle { border-color: #454d5c; }
+.viewer-screen.dark .style-toggle button { background: #2a3140; color: #9aa3b2; }
+.viewer-screen.dark .style-toggle button + button { border-left-color: #454d5c; }
+.viewer-screen.dark .viewer-style-panel input[type='range'] { background: #414a59; }
+.viewer-screen.dark .viewer-style-btn { color: #9aa3b2; }
