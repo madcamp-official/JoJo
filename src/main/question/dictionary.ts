@@ -6,8 +6,7 @@ import type {
   SelectionContext,
 } from '@shared/types'
 import { getApiKey } from '@main/keyStore'
-import { segmentJapaneseWords, tokenizeJapanese } from '@main/nlp/japanese'
-import { segmentChineseWords } from '@main/nlp/chinese'
+import { tokenizeJapanese } from '@main/nlp/japanese'
 import { getSettings } from '@main/settingsStore'
 import { DEFAULT_MODELS } from '@shared/providers'
 import { getLanguageName, isFullLanguage } from '@shared/languages'
@@ -142,7 +141,12 @@ export async function lookupDictionary(
   // (2026-07-30, en 전용이던 걸 ja/zh 로 확장 — "popup 이 이미 원자 단위로 선택해줘서
   // 재분할이 의미 없다"는 예전 가정은, 드래그로 여러 단어/문장 범위를 잡을 수 있다는
   // 걸 놓친 것이었다. "must have been exorbitant" 류 다중 단어 사전 못 찾음 제보로 발견).
-  const words = await splitIntoDictionaryWords(word, ctx.language)
+  // 단어 분해는 여기서 다시 하지 않고 ctx.words 를 그대로 쓴다(2026-07-30) — 팝업이
+  // 선택 범위를 확정할 때 이미 같은 분해(popup/selection.ts tokenizeAtoms — 영어/라틴
+  // 하이픈 분리, 일본어 조사·조동사 병합, 중국어 세그멘터)를 거쳐뒀으므로, 여기서 en은
+  // 공백/하이픈 정규식으로, ja/zh 는 형태소 분석기를 다시 호출해 별도 기준으로 쪼개면
+  // 팝업에서 보인 단어 단위와 사전 조회 단위가 어긋날 수 있었다.
+  const words = ctx.words.map((w) => w.text)
   if (words.length <= 1) {
     return emit(onChunk, notFoundResult(word, whole.suggestions))
   }
@@ -432,25 +436,6 @@ async function toJapaneseDictionaryBaseForm(word: string): Promise<string | null
   return tokens.length >= 2 ? first.surface || null : null
 }
 
-/** en 폴백용 단어 분리 — 공백·하이픈 기준(팝업 atom 규칙과 동일한 축, 문장부호는 버림).
- *  "kick the bucket" → ["kick", "the", "bucket"]. 관사·조사 등 사전에 뜻이 없는 기능어는
- *  별도로 걸러내지 않는다 — 체인 끝까지 못 찾으면 자연히 결과에서 빠진다. */
-function splitIntoWords(text: string): string[] {
-  return text
-    .split(/[\s-]+/)
-    .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
-    .filter(Boolean)
-}
-
-/** 통째 조회 실패 후 단어 단위 폴백에 쓸 분해 — en 은 위 splitIntoWords(공백/하이픈),
- *  ja/zh 는 main/nlp 형태소 분석기(segmentJapaneseWords/segmentChineseWords)로 실제
- *  단어 경계를 얻는다. lookupDictionary/lookupForcedSource 양쪽이 공유. */
-async function splitIntoDictionaryWords(text: string, language: Language): Promise<string[]> {
-  if (language === 'en') return splitIntoWords(text)
-  if (language === 'ja') return (await segmentJapaneseWords(text)).map((w) => w.text)
-  return (await segmentChineseWords(text, language)).map((w) => w.text)
-}
-
 function notFoundResult(word: string, suggestions?: string[]): QuestionResult {
   const suggestion = suggestions?.length ? ` (제안: ${suggestions.slice(0, 5).join(', ')})` : ''
   return { kind: 'dictionary', content: `사전에서 "${word}"를 찾지 못했습니다.${suggestion}` }
@@ -736,7 +721,7 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelection
   // "못 찾음" 처리됐다. "직접 선택" 토글 기본값이 켜져 있어(Toolbar.tsx) 실사용에서도
   // 이 경로를 자주 타므로 정식 경로와 동작을 맞춘다. "강제"는 소스 하나만 고정한다는
   // 뜻이지 그 소스 내부 폴백(단어 분해 포함)까지 건너뛴다는 뜻이 아니다.
-  const words = await splitIntoDictionaryWords(word, ctx.language)
+  const words = ctx.words.map((w) => w.text)
   if (words.length <= 1) return notFoundResult(word, whole.suggestions)
   if (words.length > MAX_FALLBACK_WORDS) {
     const suggestion = whole.suggestions?.length
