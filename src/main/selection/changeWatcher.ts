@@ -57,6 +57,12 @@ let lastBitmap: Buffer | null = null
 // 요청이 동시에 몰려 각 요청이 정상보다 몇 배 느려지고(실측: 열 하나에 40~60초, 정상
 // 15~20초) 결과 순서도 뒤섞였다. 겹치지 않게 한 사이클씩만 처리한다.
 let regionRefreshInFlight = false
+// 담당 A — 추출 도중에도 화면이 또 바뀌면(2026-07-30, 사용자 제보 — 화면 전환 애니메이션
+// 도중 캡처된 화면을 DocLayout 이 잘못 인식해 한 열이 둘로 쪼개짐) 그 사실을 기억해뒀다가,
+// 지금 진행 중인 추출이 끝나는 즉시 새로 한 사이클을 돈다 — 안 그러면 그 변화가 딱 한
+// 번만 있고 그 뒤로 화면이 잠잠해지면(전환이 끝나서 더 이상 diff 가 안 남) 아무도 재추출을
+// 다시 트리거하지 않아, 전환 도중의 불완전한 화면으로 뽑은 결과가 그대로 굳어버린다.
+let pendingRetrigger = false
 
 function bitmapsDiffer(a: Buffer, b: Buffer): boolean {
   if (a.length !== b.length) return true
@@ -89,6 +95,101 @@ async function captureRegionBitmap(): Promise<Buffer | null> {
   }
 }
 
+function scheduleSettle(): void {
+  if (settleTimer) clearTimeout(settleTimer)
+  settleTimer = setTimeout(() => {
+    void onSettled()
+  }, SETTLE_DELAY_MS)
+}
+
+/** autoDetectRegion(옵션)+refreshExtractionCache 한 사이클을 실제로 돌린다 — 잠금을 쥐고
+ *  있다가 끝나면(성공/실패 무관) 풀고, 그 사이 pendingRetrigger 가 서 있었으면 곧바로
+ *  새 settle 대기를 한 번 더 건다(즉시 재추출하지 않는 이유는 onSettled 참고). */
+function runExtractionCycle(): void {
+  regionRefreshInFlight = true
+  const onCycleDone = () => {
+    regionRefreshInFlight = false
+    if (pendingRetrigger) {
+      pendingRetrigger = false
+      if (running) scheduleSettle()
+    }
+  }
+  if (getSettings().autoDetectRegion) {
+    // 내용이 바뀌었으니(스크롤, 페이지 넘김 등) 영역을 처음 모드 진입할 때처럼
+    // 다시 감지한다(autoDetectRegion, DocLayout 재실행) — 예전엔 캐시만 비우고
+    // region(위치/크기) 자체는 그대로 뒀는데, 페이지 넘김처럼 내용뿐 아니라 본문이
+    // 차지하는 영역 자체가 페이지마다 달라지는 경우(실사용 중 확인: 1페이지엔
+    // 비어있던 자리에 2페이지엔 본문이 생김) 옛 영역 밖으로 벗어난 본문은 크롭에
+    // 아예 안 들어가 인식이 안 됐다. autoDetectRegion 이 내부적으로 새 블록/줄
+    // 검출 결과를 캐시에 채워주므로 별도로 캐시를 비울 필요는 없다 — 실패하면
+    // (Python 환경 없음 등) 기존 region 을 그대로 유지한다(완전히 못 쓰게 되는
+    // 것보다 예전 영역으로라도 계속 동작하는 쪽이 안전).
+    void autoDetectRegion()
+      .then((detected) => {
+        if (detected) {
+          setRegion(detected, 'auto')
+          // 영역 크기가 바뀌었을 수 있어 이전 비트맵과 비교하면 크기 불일치로 항상
+          // "달라짐"이 떠서 이 갱신 직후 또 한 번 불필요한 재추출 사이클이 돈다 —
+          // 다음 폴링에서 새 영역 기준으로 조용히 새로 잡게 비워둔다.
+          lastBitmap = null
+        }
+        // refreshExtractionCache 는 자체적으로 inFlight promise 를 최신 호출로
+        // 덮어써서, 이 시점에 이전 추출이 진행 중이었더라도 그 결과는 캐시에
+        // 반영되지 않고 이번 호출 결과만 반영된다("진행 중인 추출을 취소하고 새로
+        // 시작"과 동일한 효과). 이 사이클(autoDetectRegion+refreshExtractionCache)
+        // 이 끝날 때까지 잠금을 들고 있다가 완료되면(성공/실패 무관, finally) 풀어서
+        // 다음 settle 사이클이 겹치지 않게 한다.
+        sendExtractionStarted() // 오버레이에 "텍스트 추출 중…" 표시(초기 진입 때와 동일한 배너)
+        return refreshExtractionCache()
+      })
+      .catch((err) => {
+        console.error('[changeWatcher] 영역 재감지/재추출 실패:', err)
+      })
+      .finally(onCycleDone)
+  } else {
+    // 자동 탐지가 꺼져 있으면(사용자 요청, 2026-07-29) 영역 자체는 처음 지정한
+    // 그대로 두고, 그 안의 내용만 다시 인식한다 — 사용자가 직접 고른 영역을
+    // 화면 변화 때마다 임의로 다시 잡으면 안 된다는 명시적 요구.
+    sendExtractionStarted()
+    void refreshExtractionCache()
+      .catch((err) => {
+        console.error('[changeWatcher] 재추출 실패:', err)
+      })
+      .finally(onCycleDone)
+  }
+}
+
+/** settle 대기(SETTLE_DELAY_MS)가 끝난 뒤 실제로 호출된다. */
+async function onSettled(): Promise<void> {
+  settleTimer = null
+  if (!running) return
+  // 담당 A — settle 판정 직전 재확인(2026-07-30, 사용자 제보 — 화면 전환 애니메이션
+  // 도중 캡처된 화면을 DocLayout 이 잘못 인식해 한 열이 둘로 쪼개짐). 폴링 주기(500ms)
+  // 사이사이의 변화는 diff 임계값(2%)을 개별적으론 안 넘겨도 누적되면 전환이 아직 안
+  // 끝났을 수 있다 — 실제로 추출을 시작하기 직전에 한 번 더 캡처해서 비교하고, 그
+  // 사이에도 바뀌었으면 이번엔 건너뛰고 settle 대기를 다시 건다. 다음 정기 poll() 이
+  // 알아서 다시 잡아줄 거라 기대하지 않는다 — 딱 이 순간 이후로 화면이 잠잠해지면
+  // poll() 은 diff 자체를 못 잡아서 재시도가 영영 안 걸릴 수 있다.
+  const freshBitmap = await captureRegionBitmap()
+  if (!running) return
+  if (freshBitmap && lastBitmap && bitmapsDiffer(lastBitmap, freshBitmap)) {
+    lastBitmap = freshBitmap
+    sendOverlayWords([])
+    scheduleSettle()
+    return
+  }
+  if (regionRefreshInFlight) {
+    // 담당 A — 이전 사이클이 아직 진행 중이면 겹쳐서 시작하지 않되, 화면이 이 사이에도
+    // 바뀐 상태(여기까지 온 것 자체가 diff 감지 때문)이므로 그냥 건너뛰지 않고 "이
+    // 추출이 끝나면 다시 한 번 돌아라"라고 표시해둔다(runExtractionCycle 의 onCycleDone
+    // 참고) — 화면이 딱 이 한 번만 더 바뀌고 그 뒤로 잠잠해지면(예: 전환 끝) 아무도 새
+    // diff 를 못 잡아서 재추출이 영영 안 걸리는 문제를 막는다.
+    pendingRetrigger = true
+    return
+  }
+  runExtractionCycle()
+}
+
 async function poll(): Promise<void> {
   if (!running) return
   const bitmap = await captureRegionBitmap()
@@ -116,64 +217,7 @@ async function poll(): Promise<void> {
       sendOverlayWords([])
       // 계속 바뀌는 동안(스크롤 등)은 대기 타이머를 매번 리셋해서, 변화가 완전히
       // 멈춘 뒤에만 재추출하도록 한다.
-      if (settleTimer) clearTimeout(settleTimer)
-      settleTimer = setTimeout(() => {
-        settleTimer = null
-        if (regionRefreshInFlight) {
-          // 이전 사이클이 아직 진행 중 — 겹쳐서 시작하지 않는다. 내용이 계속 바뀌는
-          // 중이면(페이지 전환 애니메이션 등) 다음 폴링에서 다시 변화가 감지돼 새
-          // 사이클이 걸리므로, 이번 트리거를 하나 건너뛰어도 결국 최신 내용으로 수렴한다.
-          return
-        }
-        regionRefreshInFlight = true
-        if (getSettings().autoDetectRegion) {
-          // 내용이 바뀌었으니(스크롤, 페이지 넘김 등) 영역을 처음 모드 진입할 때처럼
-          // 다시 감지한다(autoDetectRegion, DocLayout 재실행) — 예전엔 캐시만 비우고
-          // region(위치/크기) 자체는 그대로 뒀는데, 페이지 넘김처럼 내용뿐 아니라 본문이
-          // 차지하는 영역 자체가 페이지마다 달라지는 경우(실사용 중 확인: 1페이지엔
-          // 비어있던 자리에 2페이지엔 본문이 생김) 옛 영역 밖으로 벗어난 본문은 크롭에
-          // 아예 안 들어가 인식이 안 됐다. autoDetectRegion 이 내부적으로 새 블록/줄
-          // 검출 결과를 캐시에 채워주므로 별도로 캐시를 비울 필요는 없다 — 실패하면
-          // (Python 환경 없음 등) 기존 region 을 그대로 유지한다(완전히 못 쓰게 되는
-          // 것보다 예전 영역으로라도 계속 동작하는 쪽이 안전).
-          void autoDetectRegion()
-            .then((detected) => {
-              if (detected) {
-                setRegion(detected, 'auto')
-                // 영역 크기가 바뀌었을 수 있어 이전 비트맵과 비교하면 크기 불일치로 항상
-                // "달라짐"이 떠서 이 갱신 직후 또 한 번 불필요한 재추출 사이클이 돈다 —
-                // 다음 폴링에서 새 영역 기준으로 조용히 새로 잡게 비워둔다.
-                lastBitmap = null
-              }
-              // refreshExtractionCache 는 자체적으로 inFlight promise 를 최신 호출로
-              // 덮어써서, 이 시점에 이전 추출이 진행 중이었더라도 그 결과는 캐시에
-              // 반영되지 않고 이번 호출 결과만 반영된다("진행 중인 추출을 취소하고 새로
-              // 시작"과 동일한 효과). 이 사이클(autoDetectRegion+refreshExtractionCache)
-              // 이 끝날 때까지 잠금을 들고 있다가 완료되면(성공/실패 무관, finally) 풀어서
-              // 다음 settle 사이클이 겹치지 않게 한다.
-              sendExtractionStarted() // 오버레이에 "텍스트 추출 중…" 표시(초기 진입 때와 동일한 배너)
-              return refreshExtractionCache()
-            })
-            .catch((err) => {
-              console.error('[changeWatcher] 영역 재감지/재추출 실패:', err)
-            })
-            .finally(() => {
-              regionRefreshInFlight = false
-            })
-        } else {
-          // 자동 탐지가 꺼져 있으면(사용자 요청, 2026-07-29) 영역 자체는 처음 지정한
-          // 그대로 두고, 그 안의 내용만 다시 인식한다 — 사용자가 직접 고른 영역을
-          // 화면 변화 때마다 임의로 다시 잡으면 안 된다는 명시적 요구.
-          sendExtractionStarted()
-          void refreshExtractionCache()
-            .catch((err) => {
-              console.error('[changeWatcher] 재추출 실패:', err)
-            })
-            .finally(() => {
-              regionRefreshInFlight = false
-            })
-        }
-      }, SETTLE_DELAY_MS)
+      scheduleSettle()
     }
     lastBitmap = bitmap
   }
@@ -185,6 +229,7 @@ export function startChangeWatcher(): void {
   if (running) return
   running = true
   lastBitmap = null
+  pendingRetrigger = false
   pollTimer = setTimeout(poll, POLL_INTERVAL_MS)
 }
 
@@ -199,6 +244,8 @@ export function stopChangeWatcher(): void {
   // 진행 중이던 autoDetectRegion/refreshExtractionCache 사이클의 완료를 기다리지 않고
   // 그냥 잠금을 푼다 — 이미 시작된 비동기 작업 자체를 취소할 방법은 없지만(Promise 는
   // 중간에 못 끊음), 모드를 나갔다 다시 들어왔을 때 이 잠금이 계속 걸려 있어 새
-  // 워처가 영영 재감지를 못 하는 상황은 막아야 한다.
+  // 워처가 영영 재감지를 못 하는 상황은 막아야 한다. 그 사이클이 끝났을 때(onCycleDone)
+  // pendingRetrigger 를 보고 새 사이클을 또 걸지 않도록 이것도 같이 지운다.
   regionRefreshInFlight = false
+  pendingRetrigger = false
 }

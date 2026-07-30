@@ -765,21 +765,40 @@ async function recognizeOrderedLines(
   if (process.env.DEBUG_OCR_DUMP) {
     const { writeFileSync } = require('node:fs') as typeof import('node:fs')
     const { join } = require('node:path') as typeof import('node:path')
+    // 담당 A — 두 페이지(견본) 세로쓰기 읽기 순서 검증용(2026-07-30, 사용자 요청 —
+    // "선택 영역이 두 페이지/두 단일 때도 제대로 읽는지" 검증 전 실제 데이터 확인).
+    // 세로쓰기는 지금 DocLayout 블록 경계를 안 믿고 영역 전체를 x좌표로만 클러스터링해서
+    // (clusterVerticalLinesIntoColumns) 오른쪽→왼쪽 순서를 정하는데, 이 방식이 "페이지
+    // 사이 간격"도 "그냥 다른 열"로 정확히 갈라주기만 하면 별도 페이지 인식 로직 없이도
+    // 이미 올바른 순서(오른쪽 페이지 전체 → 왼쪽 페이지 전체)가 나올 것으로 예상된다 —
+    // 다만 실제로 그런지, 페이지 사이 간격이 일반 열 간격보다 충분히 넓게 검출되는지는
+    // 실측 확인이 필요하다. 인접한 두 열의 중심 간격과, 그 간격이 전체 간격들의 중앙값
+    // 대비 몇 배인지를 같이 남겨서 — 이 배율이 유난히 큰 지점(페이지 경계 후보)이 실제
+    // 페이지가 바뀌는 자리와 일치하는지 눈으로 바로 확인할 수 있게 한다.
+    const centers = orderedLines.map((l) => l.x + l.width / 2)
+    const gaps = centers.slice(1).map((c, i) => Math.abs(centers[i]! - c))
+    const medianGap = gaps.length > 0 ? median(gaps) : 0
     writeFileSync(
       join(process.env.DEBUG_OCR_DUMP, `texts-${Date.now()}.json`),
       JSON.stringify(
-        orderedLines.map((line, i) => ({
-          x: line.x,
-          width: line.width,
-          // 담당 A — 열 순서 디버깅용(2026-07-30, 사용자 제보). 이 배열의 순서 자체가
-          // clusterVerticalLinesIntoColumns 가 최종 확정한 읽기 순서라, center 값을
-          // 순서대로 눈으로 훑어보면 어느 지점에서 순서가 튀는지(예: A C B 처럼 갑자기
-          // 커졌다 작아지는 지점) 바로 보인다.
-          center: line.x + line.width / 2,
-          before: texts[i],
-          after: finalTexts[i],
-          changed: texts[i] !== finalTexts[i],
-        })),
+        orderedLines.map((line, i) => {
+          const center = line.x + line.width / 2
+          const gapToPrev = i > 0 ? Math.abs(centers[i - 1]! - center) : null
+          return {
+            x: line.x,
+            width: line.width,
+            // 담당 A — 열 순서 디버깅용(2026-07-30, 사용자 제보). 이 배열의 순서 자체가
+            // clusterVerticalLinesIntoColumns 가 최종 확정한 읽기 순서라, center 값을
+            // 순서대로 눈으로 훑어보면 어느 지점에서 순서가 튀는지(예: A C B 처럼 갑자기
+            // 커졌다 작아지는 지점) 바로 보인다.
+            center,
+            gapToPrev,
+            gapRatioToMedian: gapToPrev !== null && medianGap > 0 ? gapToPrev / medianGap : null,
+            before: texts[i],
+            after: finalTexts[i],
+            changed: texts[i] !== finalTexts[i],
+          }
+        }),
         null,
         2,
       ),
