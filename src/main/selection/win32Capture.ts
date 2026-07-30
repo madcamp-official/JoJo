@@ -217,39 +217,50 @@ function getOwnerExeBaseName(hwnd: bigint): string | null {
   }
 }
 
+/**
+ * hwnd 하나를 창 목록 후보 기준(가시성/소유 관계/툴윈도우/클로킹/제목)으로 판정해 정보를
+ * 반환한다 — 기준에 안 맞으면 null. listWin32Windows(EnumWindows 콜백)와 포그라운드 훅
+ * (startForegroundThumbnailCapture)이 이 판정 기준을 공유한다(2026-07-31, 사용자 요청으로
+ * 후자 추가하며 분리 — 원래 EnumWindows 콜백 안에 인라인돼 있던 로직 그대로, 동작 변경 없음).
+ */
+export function getWin32WindowInfo(hwnd: bigint): Win32Window | null {
+  if (!IsWindowVisible(hwnd)) return null
+  if (GetWindow(hwnd, GW_OWNER)) return null // 소유 창(툴팁/자식) 제외
+  if (isOwnThumbHost(hwnd)) return null // 우리 자신의 DWM 캡처용 숨김 창 제외
+  const exStyle = Number(GetWindowLongPtrW(hwnd, GWL_EXSTYLE))
+  if (exStyle & WS_EX_TOOLWINDOW) return null
+  if (isCloaked(hwnd)) return null // 백그라운드 UWP 호스트 등 실제로 안 그려지는 창 제외
+
+  const len = GetWindowTextLengthW(hwnd)
+  if (len === 0) return null
+  const buf = Buffer.alloc((len + 1) * 2)
+  GetWindowTextW(hwnd, buf, len + 1)
+  const title = buf.toString('utf16le').replace(/\0.*$/, '').trim()
+  if (!title) return null
+
+  const minimized = !!IsIconic(hwnd)
+  let width = 0
+  let height = 0
+  if (!minimized) {
+    const rect = { left: 0, top: 0, right: 0, bottom: 0 }
+    GetClientRect(hwnd, rect)
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+    if (width <= 0 || height <= 0) return null
+  }
+  // 최소화된 창은 크기를 여기서 알 수 없다 (GetClientRect 는 복원 아이콘 placeholder를
+  // 반환) — captureMinimizedWin32Window 가 DWM 에서 실제 크기를 다시 조회한다.
+
+  return { hwnd, title, width, height, minimized, ownerName: getOwnerExeBaseName(hwnd) }
+}
+
 /** 화면상 최상위 창 목록 — 가려짐/최소화와 무관하게 항상 보인다. */
 export function listWin32Windows(): Win32Window[] {
   const results: Win32Window[] = []
 
   const cb = koffi.register((hwnd: bigint) => {
-    if (!IsWindowVisible(hwnd)) return 1
-    if (GetWindow(hwnd, GW_OWNER)) return 1 // 소유 창(툴팁/자식) 제외
-    if (isOwnThumbHost(hwnd)) return 1 // 우리 자신의 DWM 캡처용 숨김 창 제외
-    const exStyle = Number(GetWindowLongPtrW(hwnd, GWL_EXSTYLE))
-    if (exStyle & WS_EX_TOOLWINDOW) return 1
-    if (isCloaked(hwnd)) return 1 // 백그라운드 UWP 호스트 등 실제로 안 그려지는 창 제외
-
-    const len = GetWindowTextLengthW(hwnd)
-    if (len === 0) return 1
-    const buf = Buffer.alloc((len + 1) * 2)
-    GetWindowTextW(hwnd, buf, len + 1)
-    const title = buf.toString('utf16le').replace(/\0.*$/, '').trim()
-    if (!title) return 1
-
-    const minimized = !!IsIconic(hwnd)
-    let width = 0
-    let height = 0
-    if (!minimized) {
-      const rect = { left: 0, top: 0, right: 0, bottom: 0 }
-      GetClientRect(hwnd, rect)
-      width = rect.right - rect.left
-      height = rect.bottom - rect.top
-      if (width <= 0 || height <= 0) return 1
-    }
-    // 최소화된 창은 크기를 여기서 알 수 없다 (GetClientRect 는 복원 아이콘 placeholder를
-    // 반환) — captureMinimizedWin32Window 가 DWM 에서 실제 크기를 다시 조회한다.
-
-    results.push({ hwnd, title, width, height, minimized, ownerName: getOwnerExeBaseName(hwnd) })
+    const info = getWin32WindowInfo(hwnd)
+    if (info) results.push(info)
     return 1
   }, koffi.pointer('WNDENUMPROC'))
 
@@ -529,6 +540,13 @@ const HOST_MAX_SIZE = 340
  * 대신 DWM Thumbnail API 로 DWM 이 캐싱해둔 "최소화되기 직전 마지막 프레임"을
  * 화면 좌상단의 작은 호스트 창에 합성시킨 뒤, 화면을 BitBlt 로 읽어 캡처한다.
  * (작업표시줄 마우스오버 미리보기·Zoom 화면공유 목록과 동일한 방식)
+ *
+ * **호스트 창이 화면 우하단에 아주 짧게 실제로 보인다** — DWM 이 화면 밖/투명/클로킹된
+ * 창은 합성을 건너뛰어서 어쩔 수 없는 본질적 제약(위 HOST_MAX_SIZE 주석). 그래서 창
+ * 목록(capture.ts: listWindowsWin32)에서는 더 이상 이 함수를 안 쓰고(사용자 제보,
+ * 2026-07-31 — 목록 열 때마다 우하단 깜빡임) 직전 썸네일 캐시/플레이스홀더로 대체했다 —
+ * 지금은 선택된 창이 최소화된 채 OCR 캡처가 필요한 폴백(capture.ts:
+ * captureFocusedWindow)에서만 쓰인다.
  */
 export async function captureMinimizedWin32Window(hwnd: bigint): Promise<CaptureResult | null> {
   ensureThumbHostClass()
