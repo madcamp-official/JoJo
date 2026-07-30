@@ -1,6 +1,6 @@
 {
   "name": "nuance",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Nuance - 외국어 콘텐츠 소비 보조 프로그램",
   "main": "./out/main/index.js",
   "author": "madcamp 26s-w4-c3-07 JoJo",
@@ -17,16 +17,20 @@
     "lint": "eslint . --ext .ts,.tsx",
     "build:ext": "node scripts/build-extension.mjs",
     "watch:ext": "node scripts/build-extension.mjs --watch",
+    "zip:ext": "npm run build:ext && node scripts/zip-extension.mjs",
     "pack:dir": "npm run build && electron-builder --dir",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:linux": "npm run build && electron-builder --linux"
+    "dist:linux": "npm run build && electron-builder --linux",
+    "release:mac": "npm run build && electron-builder --mac --publish always",
+    "release:win": "npm run build && electron-builder --win --publish always"
   },
   "dependencies": {
     "@node-rs/jieba": "^2.0.1",
     "chinese-tokenizer": "^2.4.0",
     "eld": "^2.0.3",
     "electron-context-menu": "^4.1.2",
+    "electron-updater": "^6.3.9",
     "epubjs": "^0.3.93",
     "lindera-wasm-nodejs-ipadic": "^2.0.0",
     "lucide-react": "^1.27.0",
@@ -48,6 +52,7 @@
     "@types/react-dom": "^18.3.0",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.1",
+    "archiver": "^7.0.1",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",

@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron'
+import { startAutoUpdateCheck } from './autoUpdate'
 import { createMainWindow, getMainWindow, setQuitting } from './windows'
 import { createTray } from './tray'
 import { registerIpc } from './ipc'
@@ -114,6 +115,11 @@ if (!app.requestSingleInstanceLock()) {
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
     })
+
+    // 담당 A — 자동 업데이트(2026-07-31, 사용자 요청, autoUpdate.ts 상단 주석 참고) —
+    // 패키징된 빌드에서만 동작(개발 모드는 내부에서 바로 무시). 시작 직후 다른 예열
+    // 작업들과 몰리지 않게 살짝 늦춰서 확인한다.
+    setTimeout(startAutoUpdateCheck, 10_000)
   })
 
   // 메인 창은 X 버튼으로 실제로 닫히지 않고 트레이로 숨는다(windows.ts) — 진짜 종료는

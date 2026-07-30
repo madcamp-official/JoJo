@@ -10,6 +10,19 @@ directories:
   output: dist # 패키지 산출물(dmg/exe 등)
   buildResources: build # 아이콘 등 소스 에셋(build/icon.png)
 
+# GitHub Releases 로 배포 + electron-updater 자동 업데이트 피드로 사용(2026-07-31, 사용자
+# 요청). `electron-builder --publish always`(scripts: release:mac/release:win, 또는
+# .github/workflows/release.yml)를 돌리면 이 저장소의 릴리스에 설치 파일 +
+# latest.yml/latest-mac.yml(업데이트 피드 메타데이터)을 자동으로 올린다. releaseType 을
+# draft 로 둬서, 빌드/업로드는 자동화하되 실제로 공개(Publish) 하는 건 GitHub 에서 릴리스
+# 노트를 확인/작성한 뒤 사람이 마지막으로 누르게 한다 — 첫 배포라 빈 노트로 그대로
+# 공개돼버리는 걸 방지.
+publish:
+  provider: github
+  owner: madcamp-official
+  repo: JoJo
+  releaseType: draft
+
 # 패키지에 포함할 파일 — electron-vite 산출물(out/**), package.json, 로컬 사전 번들(resources/**,
 # scripts/ensure-resources.sh 로 생성됨). resources/** 가 빠지면 asarUnpack 대상 자체가 없어서
 # JMdict/OEWN/CC-CEDICT 사전 조회가 배포판에서 전부 실패한다(2026-07-30 실측으로 확인된 버그).
