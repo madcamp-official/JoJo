@@ -1,6 +1,5 @@
 import type { AnyLanguage, SelectionSource } from '@shared/types'
-import { readWindowText } from './accessibility'
-import { getSelectedWindowId, getSelectedWindowName } from './capture'
+import { getSelectedWindowName } from './capture'
 import { detectLanguage } from './langDetect'
 import { activeTabTracker, getBrowserSource, type BrowserSource } from '../extension/activeTab'
 import { extensionBridge } from '../extension/bridge'
@@ -26,16 +25,12 @@ export interface ExtractionDecision {
   // web = 확장으로 일반 웹페이지 본문 DOM 텍스트 추출(비미디어 브라우저 페이지) — 낙관적
   // 판정이라 실제 텍스트 충분 여부는 webSource.ts: startWebMode()가 확인 후 부족하면
   // 스스로 OCR 경로로 넘어간다(§5.1 "텍스트 양으로 분기" 원칙).
-  mode: 'direct' | 'ocr' | 'subtitle' | 'web'
+  mode: 'ocr' | 'subtitle' | 'web'
   source: SelectionSource
   language: AnyLanguage
 }
 
 const cache = new Map<string, ExtractionDecision>() // key: url ?? appName
-
-// 이 미만이면 "의미 있는 텍스트"로 안 보고 OCR 로 폴백한다(빈 EDIT 컨트롤이나
-// 검색창 placeholder 같은 잡음성 텍스트를 direct 로 잘못 채택하는 걸 막기 위함).
-const MIN_DIRECT_TEXT_LENGTH = 20
 
 // 크롬 창을 선택한 직후엔 확장의 첫 activeTab 보고(WS 핸드셰이크)가 아직 도착하기 전일 수
 // 있다 — 이 짧은 순간에 판정하면 getBrowserSource() 가 null 이라 "브라우저 아님"으로 오판해
@@ -85,18 +80,6 @@ export async function decideExtraction(): Promise<ExtractionDecision> {
     // 일반 웹페이지: 확장의 범용 본문 탐지로 direct 추출을 우선 시도한다(낙관적 판정).
     // 실제 텍스트가 부족하면 webSource.ts가 스스로 OCR 경로로 넘어간다(shortcut.ts 참고).
     return { mode: 'web', source: browser.source, language }
-  }
-
-  // 표준 텍스트 컨트롤(메모장 등)이면 OCR 없이 바로 정확한 텍스트를 얻을 수 있다 —
-  // 브라우저·PDF 뷰어처럼 캔버스에 그리는 앱은 여기서 안 잡히고 OCR 로 자연스럽게 폴백.
-  // readWindowText 는 Windows 전용(WM_GETTEXT)이고, 창 id 도 Windows 에서만 숫자 hwnd 다.
-  // macOS 의 desktopCapturer id 는 "window:7805:0" 형태라 BigInt 변환이 불가 → win32 에서만 시도.
-  const id = getSelectedWindowId()
-  if (id && process.platform === 'win32') {
-    const text = await readWindowText(BigInt(id))
-    if (text && text.trim().length >= MIN_DIRECT_TEXT_LENGTH) {
-      return { mode: 'direct', source: { kind: 'txt' }, language }
-    }
   }
 
   // TODO(담당 A):

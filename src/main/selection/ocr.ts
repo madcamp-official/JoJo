@@ -3,7 +3,6 @@ import { createWorker, type Worker } from 'tesseract.js'
 import type { AnyLanguage, Rect, Word } from '@shared/types'
 import { getOcrLangCode } from '@shared/languages'
 import { HOVER_WORD_ATOM_PATTERN } from '@shared/wordTokenize'
-import type { Extracted } from './extractDirect'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
 import { detectLayoutBlocks, filterBlocksByRegion, type LayoutBlock, mergeIntoColumns, padRect } from './layoutDetect'
@@ -122,6 +121,13 @@ async function resolveLayout(image: Buffer, region: Rect | undefined): Promise<L
  * 단일 패스로 처리한다. 열이 1개 이하거나 레이아웃 검출 자체가 실패하면(Python 환경
  * 미설치 등) 기존 단일 패스로 폴백한다.
  */
+export interface Extracted {
+  /** 추출된 전체 텍스트 — ExtractedSelection.text/anchor 계산의 기준 문자열 */
+  text: string
+  language: AnyLanguage
+  words: Word[]
+}
+
 export async function runOcr(image: Buffer, language: AnyLanguage, region?: Rect): Promise<Extracted> {
   const { blocks: rawBlocks, vertical: shapeVertical, fallbackLines } = await resolveLayout(image, region)
   // regionSelection.ts(autoDetectRegion)는 본문 영역 경계를 계산할 때 본문 라벨
