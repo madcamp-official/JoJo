@@ -277,7 +277,7 @@ async function japaneseWordCandidates(word: string, ctx: DictSelectionContext): 
 function guessEnglishBaseForms(word: string): string[] {
   const lower = word.toLowerCase()
   if (lower === word && lower.length < 4) return []
-  if (word.includes("'")) return [] // 축약형("they're" 등)은 stripContraction이 따로 처리
+  if (/['’]/.test(word)) return [] // 축약형("they're" 등)은 stripContraction이 따로 처리
   const candidates = new Set<string>()
 
   const maybeUndoubleAndAdd = (stem: string) => {
@@ -308,7 +308,9 @@ function guessEnglishBaseForms(word: string): string[] {
  *  유용한 답은 "they"(대명사, "누구를 가리키는지" 등 실제 뜻풀이 여러 개)에 있다.
  *  "n't"(isn't/don't/won't 등)는 어미를 통째로 떼야 하고("aren't"→"are", 어간+"n't"
  *  분리가 아님), "won't"/"can't"는 규칙과 다른 불규칙 축약이라 따로 처리한다. 나머지
- *  ('re/'ve/'ll/'d/'m/'s)는 어퍼스트로피 앞부분을 그대로 쓰면 된다. */
+ *  ('re/'ve/'ll/'d/'m/'s)는 어퍼스트로피 앞부분을 그대로 쓰면 된다.
+ *
+ *  입력은 normalizeApostrophes 를 거친 ASCII 어퍼스트로피 표기를 전제한다. */
 function stripContraction(word: string): string | null {
   const lower = word.toLowerCase()
   if (lower === "won't") return 'will'
@@ -320,10 +322,29 @@ function stripContraction(word: string): string | null {
   return null
 }
 
+/** 활자용 어퍼스트로피(’ U+2019, ‘ U+2018, ʼ U+02BC)를 ASCII `'` 로 통일한다 —
+ *  실사용 중 발견(2026-07-31): EPUB/웹 본문은 대부분 `’`를 쓰는데(실측: "hadn’t"),
+ *  토크나이저(`WORD_ATOM_PATTERN`)는 `['’]` 둘 다 단어에 포함시키는 반면 축약형 판정은
+ *  ASCII `'` 기준이라, "hadn’t"가 축약형으로 인식되지 않아 원래 단어("had")를 아예
+ *  후보에 넣지 못하고 표면형 통짜로만 조회됐다(→ Wiktionary의 "축약형" 한 줄 설명만 나옴). */
+function normalizeApostrophes(word: string): string {
+  return word.replace(/[‘’ʼ]/g, "'")
+}
+
 function englishWordCandidates(word: string): string[] {
-  const candidates = [word, ...guessEnglishBaseForms(word)]
-  const contractionBase = stripContraction(word)
-  if (contractionBase && !candidates.includes(contractionBase)) candidates.push(contractionBase)
+  const candidates: string[] = []
+  const add = (c: string): void => {
+    if (c && !candidates.includes(c)) candidates.push(c)
+  }
+
+  add(word)
+  // 표면형과 별개로 ASCII 표기도 후보에 둔다 — 사전에 따라 `’` 표제어를 못 찾을 수 있다.
+  const normalized = normalizeApostrophes(word)
+  add(normalized)
+
+  for (const base of guessEnglishBaseForms(normalized)) add(base)
+  const contractionBase = stripContraction(normalized)
+  if (contractionBase) add(contractionBase)
   return candidates
 }
 
