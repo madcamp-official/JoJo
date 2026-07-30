@@ -5,9 +5,10 @@ import { TxtView } from '../viewer/TxtView'
 import { PdfView } from '../viewer/PdfView'
 import { EpubView } from '../viewer/EpubView'
 import { useHoverHighlight } from '../viewer/useHoverHighlight'
-import { ArrowLeftIcon } from './icons'
+import { ArrowLeftIcon, MinusIcon, PlusIcon } from './icons'
 import { PageNav } from '../viewer/PageNav'
 import { Progress } from '../viewer/Progress'
+import { PageJump } from '../viewer/PageJump'
 import { Toc, type TocEntry } from '../viewer/Toc'
 import { ListIcon } from './icons'
 import {
@@ -44,6 +45,11 @@ export function ViewerScreen() {
   const [prefs0] = useState(loadViewerPrefs)
   const [style, setStyle] = useState<ViewerStyle>(prefs0.style)
   const [styleOpen, setStyleOpen] = useState(false)
+  // PDF 확대 배율(1 = 100%).
+  const [zoom, setZoom] = useState(1)
+  // 일반/선택 모드 — 선택 모드일 때만 호버박스·팝업이 동작한다. 뷰어는 읽으면서 바로
+  // 찾아보는 용도라 선택 모드를 기본으로 둔다(사용자 지정).
+  const [selectMode, setSelectMode] = useState(true)
   const [dark, setDark] = useState(prefs0.dark)
   const [mode, setMode] = useState<ViewerMode>(prefs0.mode)
   const [pageState, setPageState] = useState<PageState>(EMPTY_PAGE_STATE)
@@ -81,7 +87,31 @@ export function ViewerScreen() {
   useEffect(() => {
     const onMove = (e: MouseEvent) => setBarShown(e.clientY <= TOOLBAR_REVEAL_PX)
     window.addEventListener('mousemove', onMove)
-    return () => window.removeEventListener('mousemove', onMove)
+
+    // epub 본문은 iframe 안이라 그 위에서 움직이면 부모 창에 mousemove 가 오지 않는다 —
+    // 툴바가 뜬 채로 남아 있던 이유다(2026-07-31 사용자 제보). iframe 안에서의 움직임은
+    // 곧 "커서가 본문 영역에 있다"는 뜻이므로 바로 숨긴다.
+    const docs: Document[] = []
+    const attach = (): void => {
+      for (const f of Array.from(document.querySelectorAll<HTMLIFrameElement>('.viewer-body iframe'))) {
+        const d = f.contentDocument
+        if (d && !docs.includes(d)) {
+          d.addEventListener('mousemove', hideBar)
+          docs.push(d)
+        }
+      }
+    }
+    function hideBar(): void {
+      setBarShown(false)
+    }
+    // iframe 은 나중에(챕터 로드 때마다) 새로 생기므로 주기적으로 다시 붙인다.
+    attach()
+    const timer = window.setInterval(attach, 600)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.clearInterval(timer)
+      for (const d of docs) d.removeEventListener('mousemove', hideBar)
+    }
   }, [])
 
   const goPage = useCallback((dir: 'next' | 'prev') => {
@@ -154,6 +184,30 @@ export function ViewerScreen() {
           {file?.name ?? '문서'}
         </span>
         <div className="viewer-controls">
+          {/* 일반/선택 모드는 읽는 중에 자주 바꾸는 스위치라 설정 패널에 넣지 않고
+              메뉴바에 그대로 노출한다(사용자 지정). */}
+          <div className="style-toggle bar-toggle">
+            <button className={!selectMode ? 'on' : ''} onClick={() => setSelectMode(false)}>
+              일반
+            </button>
+            <button className={selectMode ? 'on' : ''} onClick={() => setSelectMode(true)}>
+              선택
+            </button>
+          </div>
+          {file?.kind === 'pdf' && (
+            <>
+              <PageJump state={pageState} onJump={(n) => pagerRef.current?.goTo?.(n - 1)} />
+              <div className="style-toggle bar-toggle">
+                <button title="축소" onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)))}>
+                  <MinusIcon />
+                </button>
+                <button title="확대" onClick={() => setZoom((z) => Math.min(3, +(z + 0.1).toFixed(2)))}>
+                  <PlusIcon />
+                </button>
+              </div>
+              <span className="viewer-zoom-value">{Math.round(zoom * 100)}%</span>
+            </>
+          )}
           {/* 읽기 방식·테마·글자 설정·넘김 효과를 전부 이 버튼 뒤 패널로 접었다 —
               툴바에 컨트롤을 늘어놓으면 금방 지저분해진다(사용자 요청). */}
           <button
@@ -189,7 +243,7 @@ export function ViewerScreen() {
           <TxtView file={file} style={style} mode={mode} pagerRef={pagerRef} onPageState={setPageState} />
         )}
         {file?.kind === 'pdf' && (
-          <PdfView file={file} mode={mode} pagerRef={pagerRef} onPageState={setPageState} onToc={setToc} />
+          <PdfView file={file} mode={mode} zoom={zoom} pagerRef={pagerRef} onPageState={setPageState} onToc={setToc} />
         )}
         {file?.kind === 'epub' && (
           <EpubView
@@ -209,11 +263,14 @@ export function ViewerScreen() {
           <PageNav state={pageState} onPrev={() => goPage('prev')} onNext={() => goPage('next')} />
         )}
       </div>
-      <Progress mode={mode} pageState={pageState} bodyRef={containerRef} />
+      {/* 진도 표시는 페이지 모드에서만 — 스크롤로 읽을 때는 스크롤바가 이미 위치를
+          알려주므로 아래 바가 겹쳐 보인다(사용자 요청). */}
+      {mode === 'page' && <Progress pageState={pageState} />}
       <HoverBinding
         file={file}
         containerRef={containerRef}
         requestSegments={requestSegments}
+        enabled={selectMode}
         deps={[style, dark, mode, pageState]}
       />
     </div>
@@ -226,13 +283,15 @@ function HoverBinding({
   file,
   containerRef,
   requestSegments,
+  enabled,
   deps,
 }: {
   file: ViewerFilePayload | null
   containerRef: React.RefObject<HTMLDivElement | null>
   requestSegments: (text: string) => void
+  enabled: boolean
   deps: unknown[]
 }) {
-  useHoverHighlight({ file, containerRef, requestSegments, deps })
+  useHoverHighlight({ file, containerRef, requestSegments, enabled, deps })
   return null
 }

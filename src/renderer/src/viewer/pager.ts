@@ -8,6 +8,8 @@
 export interface PagerHandle {
   next(): void
   prev(): void
+  /** 번호로 바로 이동 — 쪽수를 아는 포맷(PDF)만 제공한다. */
+  goTo?(index: number): void
 }
 
 /** 화살표 버튼 활성/비활성과 "3 / 284" 표시에 쓰는 현재 상태. */
@@ -48,7 +50,10 @@ export function pageTurnKeyframes(t: PageTransition, dir: 'next' | 'prev'): Keyf
 }
 
 export const PAGE_TURN_TIMING: KeyframeAnimationOptions = {
-  // 420ms 는 "넘어갔다"는 느낌이 오기 전에 끝나버렸다(사용자 요청으로 추가 완화).
-  duration: 700,
-  easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
+  // 420ms 는 "넘어갔다"는 느낌 전에 끝나버려 늘렸는데, 700ms + 강한 ease-out 은 끝자락이
+  // 너무 오래 기어가 "다음 장에 닿고도 계속 끌린다"는 느낌을 줬다(2026-07-31 사용자 제보).
+  // 넘어가는 건 충분히 보이되 끝은 딱 맺도록, 길이를 줄이고 감속 곡선도 꼬리가 짧은
+  // 표준형으로 바꿨다.
+  duration: 480,
+  easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
 }

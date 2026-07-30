@@ -105,12 +105,16 @@ function sameVisualLine(a: DOMRect, b: DOMRect): boolean {
 export function PdfView({
   file,
   mode,
+  zoom,
   pagerRef,
   onPageState,
   onToc,
 }: {
   file: ViewerFilePayload
   mode: ViewerMode
+  /** 1 = 100%. CSS zoom 으로 준다 — 캔버스를 다시 그리지 않아 즉시 반영되고,
+   *  레이아웃도 함께 확대돼(transform 과 달리) 스크롤 범위가 정확히 맞는다. */
+  zoom: number
   pagerRef: RefObject<PagerHandle | null>
   onPageState: (s: PageState) => void
   onToc: (entries: TocEntry[]) => void
@@ -218,24 +222,31 @@ export function PdfView({
     if (mode === 'page') host.scrollIntoView({ block: 'start' })
   }, [mode, page, total])
 
+  const goTo = (index: number): void => {
+    const n = Math.min(Math.max(0, index), Math.max(0, total - 1))
+    setPage(n)
+    // 스크롤 모드에서는 페이지를 감추지 않으므로 해당 장으로 직접 스크롤해 준다.
+    hostRef.current?.querySelectorAll<HTMLElement>('.pdf-page')[n]?.scrollIntoView({ block: 'start' })
+  }
+
   useImperativeHandle(
     pagerRef,
     () => ({
       next: () => setPage((p) => Math.min(p + 1, Math.max(0, total - 1))),
       prev: () => setPage((p) => Math.max(0, p - 1)),
+      goTo,
     }),
     [total],
   )
 
   useEffect(() => {
-    if (mode !== 'page') return
     onPageState({ current: page + 1, total, canPrev: page > 0, canNext: page < total - 1 })
   }, [page, total, mode, onPageState])
 
   return (
     <>
       {error && <p className="hint">PDF를 열지 못했습니다: {error}</p>}
-      <div className="pdf-host" ref={hostRef} />
+      <div className="pdf-host" ref={hostRef} style={{ zoom }} />
     </>
   )
 }
