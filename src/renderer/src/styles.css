@@ -688,7 +688,7 @@ button:disabled { cursor: not-allowed; }
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 26px; background: none; border: none; cursor: pointer; color: #6b7280;
 }
-.edg-btn:hover:not(:disabled) { background: #f4f6fa; color: #1e2230; }
+.edg-btn:hover:not(:disabled) { background: var(--theme-weak); color: var(--theme); }
 .edg-btn.danger:hover:not(:disabled) { background: #fdf1f1; color: #dc2626; }
 .edg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .edg-divider { width: 1px; background: #dbe0e6; }
