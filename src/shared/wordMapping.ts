@@ -65,3 +65,26 @@ export function unionRects(rects: { x: number; y: number; width: number; height:
 export function unionBbox(words: Word[]): Rect | null {
   return unionRects(words.filter((w) => w.bbox).map((w) => w.bbox!))
 }
+
+/**
+ * 사각형들을 화면상 줄(y 겹침 기준)로 묶어, 줄마다 하나씩 합집합 사각형을 만든다 — CJK
+ * 형태소 분석 결과(예: "当地政府")가 화면 줄바꿈 지점에 걸치면, 앞쪽 절반은 그 줄 오른쪽
+ * 끝 근처에, 뒤쪽 절반은 다음 줄 왼쪽 끝 근처에 위치한다. 이 rect들을 통째로 `unionRects`
+ * 하나로 묶으면 min/max x가 두 줄의 양쪽 여백까지 벌어져, 실제 글자 폭과 무관하게 두 줄
+ * 전체 너비를 덮는 박스가 나온다(실사용 확인, 2026-07-30 — "선택 영역이 두 줄에 걸치면
+ * 두 줄이 통째로 하이라이트됨"). 줄별로 먼저 묶고 그 안에서만 합집합을 내면 이런 걸치기가
+ * 애초에 생기지 않는다 — 호출부(articleHighlight.ts/highlight.ts)는 박스 하나 대신 줄
+ * 개수만큼의 박스를 그려야 한다.
+ */
+export function groupRectsByLine(rects: { x: number; y: number; width: number; height: number }[]): Rect[] {
+  const sorted = [...rects].sort((a, b) => a.y - b.y)
+  const lines: { x: number; y: number; width: number; height: number }[][] = []
+  for (const r of sorted) {
+    const last = lines[lines.length - 1]
+    const lastRect = last?.[last.length - 1]
+    const overlaps = lastRect ? r.y < lastRect.y + lastRect.height && r.y + r.height > lastRect.y : false
+    if (last && overlaps) last.push(r)
+    else lines.push([r])
+  }
+  return lines.map((group) => unionRects(group)!)
+}

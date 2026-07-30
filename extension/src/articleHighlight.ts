@@ -9,7 +9,7 @@
 // 대해서만 wordsInParagraph()를 지연 계산 + 캐시한다(다른 문단으로 옮길 때만 재계산).
 import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 import type { RectPx, SubWord } from '@shared/extension'
-import { unionRects } from '@shared/wordMapping'
+import { groupRectsByLine } from '@shared/wordMapping'
 import type { ArticleExtraction, ArticleParagraph } from './webArticle'
 import { extractArticleText, wordsInParagraph } from './webArticle'
 import { getWordSegments } from './wordSegments'
@@ -21,17 +21,18 @@ export interface ArticleWordHit {
   anchorEnd: number
 }
 
-let box: HTMLDivElement | null = null
+// 화면 줄바꿈에 걸친 단어(예: "当地政府"가 두 줄에 나뉘어 걸림)는 박스 하나가 아니라
+// 줄 개수만큼 필요하다(groupWordAt의 rects 참고) — 풀로 관리해 매번 만들고 지우지 않는다.
+let boxes: HTMLDivElement[] = []
 
 // 전체화면 API는 전체화면 엘리먼트와 그 자손만 top layer에 그린다(highlight.ts와 동일 이유).
 function boxParent(): HTMLElement {
   return (document.fullscreenElement as HTMLElement | null) ?? document.documentElement
 }
 
-function ensureBox(): HTMLDivElement {
-  if (box) return box
+function createBox(): HTMLDivElement {
   const el = document.createElement('div')
-  el.id = 'nuance-article-word-highlight'
+  el.className = 'nuance-article-word-highlight'
   Object.assign(el.style, {
     position: 'fixed',
     boxSizing: 'border-box',
@@ -43,12 +44,17 @@ function ensureBox(): HTMLDivElement {
     display: 'none',
   })
   boxParent().appendChild(el)
-  box = el
   return el
 }
 
+// 필요한 개수만큼 박스를 확보한다(부족하면 새로 만들고, 남으면 숨겨서 재사용 대기).
+function ensureBoxes(count: number): HTMLDivElement[] {
+  while (boxes.length < count) boxes.push(createBox())
+  return boxes
+}
+
 function onFullscreenChange(): void {
-  if (box) boxParent().appendChild(box)
+  for (const el of boxes) boxParent().appendChild(el)
 }
 
 // 박스 자신은 pointerEvents:none 이라 실제 마우스는 밑에 깔린 페이지 요소가 받는다 —
@@ -72,19 +78,25 @@ function setHoveringCursor(hovering: boolean): void {
 }
 
 function hideBox(): void {
-  if (box) box.style.display = 'none'
+  for (const el of boxes) el.style.display = 'none'
   setHoveringCursor(false)
 }
 
-function showBoxAt(rect: RectPx): void {
-  const el = ensureBox()
+// rects 는 줄마다 하나씩(groupRectsByLine 결과) — 화면 줄바꿈에 걸친 단어는 배열 길이가
+// 2 이상이 된다. 필요한 개수만큼만 보이고 나머지 풀은 숨긴다.
+function showBoxesAt(rects: RectPx[]): void {
+  const els = ensureBoxes(rects.length)
   const p = WORD_BOX_STYLE.padding
-  el.style.left = `${rect.x - p}px`
-  el.style.top = `${rect.y - p}px`
-  el.style.width = `${rect.width + p * 2}px`
-  el.style.height = `${rect.height + p * 2}px`
-  el.style.display = 'block'
-  setHoveringCursor(true)
+  rects.forEach((rect, i) => {
+    const el = els[i]!
+    el.style.left = `${rect.x - p}px`
+    el.style.top = `${rect.y - p}px`
+    el.style.width = `${rect.width + p * 2}px`
+    el.style.height = `${rect.height + p * 2}px`
+    el.style.display = 'block'
+  })
+  for (let i = rects.length; i < els.length; i++) els[i]!.style.display = 'none'
+  setHoveringCursor(rects.length > 0)
 }
 
 // 문단별 단어 rect 캐시(hover 박스 표시 전용, 성능 목적) — 같은 문단에 마우스가 머무는
@@ -128,17 +140,19 @@ function groupWordAt(
   paragraphText: string,
   words: SubWord[],
   idx: number,
-): { rect: RectPx; text: string; start: number; end: number } {
+): { rects: RectPx[]; text: string; start: number; end: number } {
   const w = words[idx]!
   const segments = getWordSegments(paragraphText)
   const seg = segments?.find((s) => w.start >= s.start && w.start < s.end)
-  if (!seg) return { rect: w.rect, text: w.text, start: w.start, end: w.end }
+  if (!seg) return { rects: [w.rect], text: w.text, start: w.start, end: w.end }
   const groupRects: RectPx[] = []
   for (const other of words) {
     if (other.start >= seg.start && other.start < seg.end) groupRects.push(other.rect)
   }
-  // groupRects 는 항상 최소 1개(idx 자신)를 포함해 non-null.
-  return { rect: unionRects(groupRects)!, text: paragraphText.slice(seg.start, seg.end), start: seg.start, end: seg.end }
+  // 세그먼트가 화면 줄바꿈에 걸치면(예: "当地政府") 줄마다 따로 묶어야 두 줄 전체를
+  // 덮는 박스가 안 생긴다(groupRectsByLine 주석 참고) — groupRects 는 항상 최소 1개
+  // (idx 자신)를 포함해 결과 배열도 항상 비지 않는다.
+  return { rects: groupRectsByLine(groupRects), text: paragraphText.slice(seg.start, seg.end), start: seg.start, end: seg.end }
 }
 
 // hover 박스가 어떤 문단을 대상으로 할지 판정하는 데만 쓴다(캡처 시작 시점 스냅샷 —
@@ -157,7 +171,7 @@ function findWordIndexAt(words: SubWord[], x: number, y: number): number {
 }
 
 // hover 박스 표시 전용 — 캐시(성능 목적)를 쓴다. 클릭 결과 전송에는 안 쓴다(resolveClick 참고).
-function hoverHitAt(x: number, y: number): RectPx | null {
+function hoverHitAt(x: number, y: number): RectPx[] | null {
   const target = document.elementFromPoint(x, y)
   const p = target?.closest<HTMLParagraphElement>('p') ?? null
   const info = p ? paragraphByEl.get(p) : undefined
@@ -173,7 +187,7 @@ function hoverHitAt(x: number, y: number): RectPx | null {
   const idx = findWordIndexAt(cachedWords, x, y)
   if (idx < 0) return null
   const paragraphText = fullTextRef.slice(info.start, info.end)
-  return groupWordAt(paragraphText, cachedWords, idx).rect
+  return groupWordAt(paragraphText, cachedWords, idx).rects
 }
 
 // 클릭 지점의 앵커(본문 전체 텍스트 + 절대 오프셋)를 계산한다. 캡처 시작 시점에 만든
@@ -208,8 +222,8 @@ function resolveClick(x: number, y: number): ArticleWordHit | null {
 }
 
 function onMouseMove(e: MouseEvent): void {
-  const rect = hoverHitAt(e.clientX, e.clientY)
-  if (rect) showBoxAt(rect)
+  const rects = hoverHitAt(e.clientX, e.clientY)
+  if (rects) showBoxesAt(rects)
   else hideBox()
 }
 
