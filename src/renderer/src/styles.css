@@ -482,7 +482,7 @@ button:disabled { cursor: not-allowed; }
 .ctx-text .atom:hover {
   background: var(--theme-weak);
   box-shadow:
-    0 -1px 0 0 var(--theme-weak), 0 1px 0 0 var(--theme-weak),
+    0 -0.5px 0 0 var(--theme-weak), 0 0.5px 0 0 var(--theme-weak),
     -1.5px 0 0 0 var(--theme-weak), 1.5px 0 0 0 var(--theme-weak);
 }
 /* ja/zh "글자 단위" 모드(2026-07-28)는 글자 하나하나가 다 atom 이라 "단어를 고른다"는
@@ -522,20 +522,20 @@ button:disabled { cursor: not-allowed; }
 .ctx-text .atom.sel, .ctx-text .gap.sel {
   background: var(--theme);
   color: var(--theme-text);
-  box-shadow: 0 -1px 0 0 var(--purple), 0 1px 0 0 var(--purple);
+  box-shadow: 0 -0.5px 0 0 var(--purple), 0 0.5px 0 0 var(--purple);
   border-radius: 0;
 }
 .ctx-text .sel.sel-start {
-  box-shadow: 0 -1px 0 0 var(--purple), 0 1px 0 0 var(--purple), -1.5px 0 0 0 var(--purple);
+  box-shadow: 0 -0.5px 0 0 var(--purple), 0 0.5px 0 0 var(--purple), -1.5px 0 0 0 var(--purple);
   border-radius: 4px 0 0 4px;
 }
 .ctx-text .sel.sel-end {
-  box-shadow: 0 -1px 0 0 var(--purple), 0 1px 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
+  box-shadow: 0 -0.5px 0 0 var(--purple), 0 0.5px 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
   border-radius: 0 4px 4px 0;
 }
 .ctx-text .sel.sel-start.sel-end {
   box-shadow:
-    0 -1px 0 0 var(--purple), 0 1px 0 0 var(--purple),
+    0 -0.5px 0 0 var(--purple), 0 0.5px 0 0 var(--purple),
     -1.5px 0 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
   border-radius: 4px;
 }
