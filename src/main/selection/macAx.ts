@@ -28,13 +28,11 @@ type KFn = (...args: unknown[]) => unknown
 const CGRectS = koffi.struct('AxCGRect', { x: 'double', y: 'double', width: 'double', height: 'double' })
 const CGPointS = koffi.struct('AxCGPoint', { x: 'double', y: 'double' })
 const CGSizeS = koffi.struct('AxCGSize', { width: 'double', height: 'double' })
-const CFRangeS = koffi.struct('AxCFRange', { location: 'int64', length: 'int64' })
 
 const kAXValueCGPointType = 1
 const kAXValueCGSizeType = 2
 const kAXValueCGRectType = 3
 const kAXValueCFRangeType = 4
-const kCFNumberLongType = 10
 const kCFStringEncodingUTF8 = 0x08000100
 /** 파라미터 속성이 아예 없는 노드(그룹 등)에서 나는 오류 — 정상 흐름이라 로그도 남기지 않는다. */
 const kAXErrorParameterizedAttributeUnsupported = -25213
@@ -47,7 +45,6 @@ let AXValueGetValue: KFn | null = null
 let AXValueCreate: KFn | null = null
 let CFStringCreateWithCString: KFn | null = null
 let CFStringGetCString: KFn | null = null
-let CFNumberCreate: KFn | null = null
 let CFGetTypeID: KFn | null = null
 let CFStringGetTypeID: KFn | null = null
 let CFArrayGetTypeID: KFn | null = null
@@ -74,7 +71,6 @@ function ensureAx(): boolean {
     AXValueCreate = as.func('void* AXValueCreate(uint32_t type, void* ptr)')
     CFStringCreateWithCString = cf.func('void* CFStringCreateWithCString(void* alloc, const char* s, uint32_t enc)')
     CFStringGetCString = cf.func('bool CFStringGetCString(void* s, _Out_ char* buf, long size, uint32_t enc)')
-    CFNumberCreate = cf.func('void* CFNumberCreate(void* alloc, long type, void* valuePtr)')
     CFGetTypeID = cf.func('unsigned long CFGetTypeID(void* cf)')
     CFStringGetTypeID = cf.func('unsigned long CFStringGetTypeID()')
     CFArrayGetTypeID = cf.func('unsigned long CFArrayGetTypeID()')
@@ -117,7 +113,7 @@ function release(ref: unknown): void {
  * (특히 비동기 처리 뒤에) 다시 쓰려면 반드시 여기서 명시적으로 retain 해둬야 한다 —
  * 안 그러면 배열 해제 후 그 요소에 접근할 때 use-after-free 로 크래시난다(실측,
  * 2026-07-30: `AXUIElementCopyParameterizedAttributeValue`→`_AXUIElementValidate`에서
- * SIGSEGV — `AxLine.boundsOf` 클로저가 CJK 형태소 분석 대기 뒤에야 호출되는데, 그 사이
+ * SIGSEGV — `AxParagraph.boundsOf` 클로저가 CJK 형태소 분석 대기 뒤에야 호출되는데, 그 사이
  * 부모 `AXChildren` 배열이 이미 해제된 뒤였다). retain 한 요소는 다 쓴 뒤 반드시
  * `release()`로 짝을 맞춰야 한다(macAx.ts: releaseRetained 참고).
  */
@@ -235,95 +231,48 @@ function boundsForRange(el: unknown, location: number, length: number): Rect | n
   }
 }
 
-/** line 번째 화면 줄이 차지하는 문자 범위 — 문단 노드를 실제 표시된 줄로 쪼개는 데 쓴다.
- *  파라미터가 CFRange 가 아니라 CFNumber(줄 번호)라는 점이 다른 파라미터 속성과 다르다. */
-function rangeForLine(el: unknown, line: number): { location: number; length: number } | null {
-  const numBuf = Buffer.alloc(8)
-  numBuf.writeBigInt64LE(BigInt(line))
-  const num = CFNumberCreate!(null, kCFNumberLongType, numBuf)
-  if (!num) return null
-  const value = copyParameterized(el, 'AXRangeForLine', num)
-  release(num)
-  if (!value) return null
-  try {
-    const r = decodeAxValue(value, kAXValueCFRangeType, 16, CFRangeS)
-    if (!r) return null
-    return { location: Number(r.location), length: Number(r.length) }
-  } finally {
-    release(value)
-  }
-}
+// ---- 페이지/문단 추출 --------------------------------------------------------
 
-// ---- 페이지/줄 추출 ---------------------------------------------------------
-
-/** 한 화면 줄 — 텍스트와, 그 줄 안에서 문자 범위를 다시 조회할 수 있는 정보. */
-export interface AxLine {
+/**
+ * 텍스트 노드(문단) 하나 — 전체 텍스트와, 그 안 임의 문자 범위의 화면 사각형을 얻는 함수.
+ *
+ * **`AXRangeForLine`은 안 쓴다(2026-07-30/31, 실사용 제보 + `DEBUG_PDF_AX_DUMP` 덤프로
+ * 확인).** 처음엔 이 API로 "화면에 표시된 줄"을 얻어 그 경계에 맞춰 텍스트를 잘랐는데,
+ * 이 PDF의 특정 노드에서 근본적으로 신뢰할 수 없다는 게 드러났다 — 문단 첫 줄이 실제
+ * 시작이 아니라 한참 건너뛴 지점부터 시작하거나("In a hole in the ground there"
+ * 유실), 줄 경계가 공백이 아니라 단어 중간에서 끊기거나("pantries"→"pantrie"+"s"),
+ * 문단 하나의 마지막 "줄"이 다음 문단 내용까지 섞여서 나오는 등, 한 가지 보정으로는
+ * 끝이 없는 다양한 방식으로 어긋났다. 반면 문단 전체를 한 번에 가져오는 `AXValue`
+ * (`text`)와, 임의 문자 범위의 좌표를 그때그때 물어보는 `AXBoundsForRange`는 스파이크
+ * 실측부터 지금까지 일관되게 신뢰할 만했다 — 그래서 **텍스트는 항상 `AXValue`를
+ * 통째로 쓰고(줄 단위로 다시 쪼개지 않음), 단어 하나하나의 좌표만 필요할 때마다
+ * `AXBoundsForRange`로 직접 질의한다.** 화면상 줄바꿈이 필요한 곳(팝업 문맥 계산용)은
+ * AX 에 묻지 않고 인접 단어들의 실제 렌더 좌표(Y 겹침 여부)로 호출부(pdfAxSource.ts)가
+ * 직접 판정한다 — 이러면 애초에 "AX가 주장하는 줄 경계"라는 신뢰 못 할 개념 자체가
+ * 파이프라인에서 사라진다.
+ */
+export interface AxParagraph {
   text: string
-  /** 이 줄을 담고 있는 텍스트 노드(문단) 안에서의 시작 오프셋 */
-  location: number
-  /** 줄 전체를 감싸는 사각형(창 좌상단 기준 DIP) — 단어 rect 가 하나도 안 나올 때의 폴백 */
-  bbox: Rect | null
-  /** 줄 안의 문자 범위 → 사각형(창 기준 DIP). 단어 분리는 호출부가 정한다. */
+  /** text 안의 [start, start+length) 범위를 감싸는 사각형(창 좌상단 기준 DIP). */
   boundsOf: (start: number, length: number) => Rect | null
 }
 
-const MAX_LINES_PER_NODE = 4000
-
-/**
- * 텍스트 노드(문단) 하나를 화면에 표시된 줄들로 쪼갠다.
- *
- * 실사용 제보(2026-07-30, DEBUG_PDF_AX_DUMP 덤프로 확인)로 `AXRangeForLine`/
- * `AXStringForRange`가 이 PDF의 특정 노드에서 신뢰할 수 없다는 게 드러났다 — 문단
- * 첫 줄의 `AXRangeForLine(node, 0)`이 실제 시작(location 0)이 아니라 30자를 건너뛴
- * 지점을 리턴해 "In a hole in the ground there "가 통째로 유실됐고(정확히 30자),
- * 다른 줄은 `AXStringForRange`가 엉뚱한 위치의 텍스트(뒤 문단 내용까지 섞인 것)를
- * 리턴했다. 반면 문단 전체를 한 번에 가져오는 `AXValue`(`value`)는 믿을 만하다 —
- * 그래서 텍스트는 절대 AX 를 다시 호출해 얻지 않고 이미 받아둔 `value`를 직접
- * 슬라이스해서만 만든다(줄 경계 좌표만 AX 에 의존, 텍스트는 순수 JS 문자열 연산).
- * 또한 `AXRangeForLine`이 보고한 `location`이 지금까지 처리한 지점(`covered`)과
- * 어긋나면(문단 앞부분을 건너뛰거나 이미 처리한 구간과 겹치는 경우) 그 사이 구간을
- * `value`에서 직접 잘라내 별도 줄로 보충한다 — 좌표는 그 구간을 다시 `AXBoundsForRange`
- * 로 질의해서 얻는다(짧은 범위 질의는 스파이크 실측에서 정상 동작 확인됨).
- */
-function linesOfTextNode(node: unknown, origin: { x: number; y: number }): AxLine[] {
+function paragraphOfTextNode(node: unknown, origin: { x: number; y: number }): AxParagraph | null {
   const value = attributeString(node, 'AXValue')
-  if (!value) return []
+  if (!value) return null
   const toWindow = (r: Rect | null): Rect | null =>
     r ? { x: r.x - origin.x, y: r.y - origin.y, width: r.width, height: r.height } : null
-  const sliceLine = (start: number, end: number): AxLine => ({
-    text: value.slice(start, end),
-    location: start,
-    bbox: toWindow(boundsForRange(node, start, end - start)),
-    boundsOf: (s, len) => toWindow(boundsForRange(node, start + s, len)),
-  })
-
-  const lines: AxLine[] = []
-  let covered = 0
-  for (let i = 0; i < MAX_LINES_PER_NODE && covered < value.length; i++) {
-    const range = rangeForLine(node, i)
-    if (!range || range.length <= 0) break
-    const end = Math.min(value.length, range.location + range.length)
-    if (end <= covered) break // 줄 번호가 실제 진행하지 않으면(같은 범위 반복) 무한 루프를 막는다.
-    if (range.location > covered) {
-      // 건너뛴 구간이 있다 — value 에서 직접 잘라 보충한다(예: 문단 첫 줄 앞부분 누락).
-      lines.push(sliceLine(covered, range.location))
-    }
-    const start = Math.max(range.location, covered) // 겹치는 구간(이미 처리됨)은 건너뛴다.
-    lines.push(sliceLine(start, end))
-    covered = end
+  return {
+    text: value,
+    boundsOf: (start, length) => toWindow(boundsForRange(node, start, length)),
   }
-  // AXRangeForLine 이 끝까지 못 갔는데 아직 안 다룬 꼬리 구간이 남아있으면 마저 보충한다.
-  if (covered < value.length) lines.push(sliceLine(covered, value.length))
-  // 줄 정보를 못 얻는 노드(파라미터 속성 미지원 등)는 노드 전체를 한 줄로 취급한다.
-  if (lines.length === 0) lines.push(sliceLine(0, value.length))
-  return lines
 }
 
-/** 한 페이지 = 화면에 보이는 문단(텍스트 노드)들의 줄 목록. */
+/** 한 페이지 = 화면에 보이는 문단(텍스트 노드) 목록. */
 export interface AxPage {
   /** 페이지 사각형(창 기준 DIP) — 스크롤 위치 변화 감지에 쓴다. */
   bbox: Rect
-  paragraphs: AxLine[][]
+  paragraphs: AxParagraph[]
 }
 
 const MAX_TREE_DEPTH = 16
@@ -401,7 +350,7 @@ function withWindowElement<T>(windowId: number, fn: (win: unknown, bounds: Rect)
   }
 }
 
-/** readVisiblePages()의 반환값 — pages 안 AxLine.boundsOf 클로저가 참조하는 AX 노드는
+/** readVisiblePages()의 반환값 — pages 안 AxParagraph.boundsOf 클로저가 참조하는 AX 노드는
  *  전부 retain 돼 있다(위 retain() 주석 참고). 다 쓰고 나면 반드시 release() 를 호출해
  *  짝을 맞춰야 한다 — 안 그러면 누수(그 노드가 가리키는 accessibility 객체가 이 프로세스
  *  종료까지 해제되지 않음). */
@@ -440,19 +389,19 @@ export function readVisiblePages(windowId: number): AxReadResult | null {
         // 화면 밖 페이지(연속 스크롤이라 문서 전체가 트리에 있다)는 건너뛴다 — 페이지당
         // 텍스트 노드 순회 비용이 있어서, 안 보이는 285 페이지까지 읽으면 감당이 안 된다.
         if (!intersects(bbox, windowRect)) return
-        const paragraphs: AxLine[][] = []
+        const paragraphs: AxParagraph[] = []
         // 페이지 하나의 서브트리는 (이미지 조각별 장식용 그룹 등으로) 노드 수가 페이지
         // 찾기보다 훨씬 클 수 있어(실측: 한 깊이에 300개 이상) 페이지마다 별도 예산을 준다
         // — 한 페이지가 예산을 다 써도 다른 보이는 페이지의 텍스트 탐색에 영향이 없게.
         forEachTextNode(page, 0, { left: MAX_NODES_VISITED }, (node) => {
           // node 는 부모 AXChildren 배열에서 빌려온 참조 — 그 배열은 forEachChild 가 이
-          // 콜백에서 돌아오는 즉시 해제한다. AxLine.boundsOf 클로저는 나중에(호출부가
+          // 콜백에서 돌아오는 즉시 해제한다. AxParagraph.boundsOf 클로저는 나중에(호출부가
           // 비동기 토큰화를 마친 뒤) node 를 다시 쓰므로, 여기서 retain 해 배열 해제와
           // 무관하게 유효하도록 만든다(위 retain() 주석 — 안 하면 use-after-free 크래시).
           const retained = retain(node)
           retainedNodes.push(retained)
-          const lines = linesOfTextNode(retained, origin)
-          if (lines.length > 0) paragraphs.push(lines)
+          const paragraph = paragraphOfTextNode(retained, origin)
+          if (paragraph && paragraph.text.trim()) paragraphs.push(paragraph)
         })
         if (paragraphs.length > 0) pages.push({ bbox, paragraphs })
       })

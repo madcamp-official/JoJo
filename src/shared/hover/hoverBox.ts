@@ -13,16 +13,36 @@ import type { RectPx } from '@shared/extension'
 // 않는다.
 let boxes: HTMLDivElement[] = []
 
+// 박스를 그릴 문서 — 전역 document 가 기본이지만, 자체 뷰어의 epub 은 epubjs 가 내용을
+// iframe 안에 띄우므로 그 iframe 의 문서에 그려야 좌표계(position:fixed 기준)가 맞는다.
+// 문서가 바뀌면 기존 박스/스타일은 이전 문서에 속하므로 버리고 새로 만든다.
+let docRef: Document = typeof document !== 'undefined' ? document : (null as unknown as Document)
+
+export function setHoverBoxDocument(doc: Document): void {
+  if (doc === docRef) return
+  for (const el of boxes) el.remove()
+  boxes = []
+  cursorStyleEl?.remove()
+  cursorStyleEl = null
+  cursorOverridden = false
+  docRef = doc
+  doc.addEventListener('fullscreenchange', reattachBoxes)
+}
+
+function reattachBoxes(): void {
+  for (const el of boxes) boxParent().appendChild(el)
+}
+
 // 전체화면 API는 전체화면으로 전환된 엘리먼트(보통 플레이어 div, <html> 전체가 아님)와 그
 // 자손만 "top layer"에 그린다 — 박스가 document.documentElement 에 그대로 붙어있으면 그
 // top layer 바깥이라 전체화면 중엔 안 보인다(실사용 확인). 지금 전체화면 엘리먼트가 있으면
 // 그 안에, 없으면 documentElement 에 붙인다.
 function boxParent(): HTMLElement {
-  return (document.fullscreenElement as HTMLElement | null) ?? document.documentElement
+  return (docRef.fullscreenElement as HTMLElement | null) ?? docRef.documentElement
 }
 
 function createBox(): HTMLDivElement {
-  const el = document.createElement('div')
+  const el = docRef.createElement('div')
   el.className = 'nuance-hover-word-box'
   Object.assign(el.style, {
     position: 'fixed',
@@ -47,9 +67,7 @@ function ensureBoxes(count: number): HTMLDivElement[] {
 // 전체화면 진입/해제 시 박스를 새 top layer 대상 안으로 옮긴다(appendChild 는 이미 자식인
 // 노드를 다시 넣으면 같은 부모 안에서 이동만 하므로 항상 안전하게 재부착된다). 모듈 로드
 // 시 1회만 등록하면 되고, 자막/웹 어느 쪽이 활성이든 그대로 유효하다.
-document.addEventListener('fullscreenchange', () => {
-  for (const el of boxes) boxParent().appendChild(el)
-})
+if (typeof document !== 'undefined') document.addEventListener('fullscreenchange', reattachBoxes)
 
 // 박스 자신은 pointerEvents:none 이라 실제 마우스는 밑에 깔린 페이지 요소가 받는다 —
 // 그래서 박스에 cursor 를 줘도 반영이 안 되고, 대신 문서 전체 cursor 를 강제해야 한다.
@@ -61,9 +79,9 @@ let cursorOverridden = false
 let cursorStyleEl: HTMLStyleElement | null = null
 function ensureCursorStyle(): HTMLStyleElement {
   if (cursorStyleEl) return cursorStyleEl
-  const el = document.createElement('style')
+  const el = docRef.createElement('style')
   el.textContent = 'html.nuance-hover-pointer, html.nuance-hover-pointer * { cursor: pointer !important; }'
-  document.documentElement.appendChild(el)
+  docRef.documentElement.appendChild(el)
   cursorStyleEl = el
   return el
 }
@@ -71,7 +89,7 @@ function setHoveringCursor(hovering: boolean): void {
   if (hovering === cursorOverridden) return
   cursorOverridden = hovering
   ensureCursorStyle()
-  document.documentElement.classList.toggle('nuance-hover-pointer', hovering)
+  docRef.documentElement.classList.toggle('nuance-hover-pointer', hovering)
 }
 
 export function hideHoverBox(): void {

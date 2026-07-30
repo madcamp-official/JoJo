@@ -40,8 +40,8 @@ function visibleParagraphText(p: HTMLParagraphElement): string {
   return extractWordsAndText(p).text
 }
 
-function visibleParagraphs(container: Element): HTMLParagraphElement[] {
-  return Array.from(container.querySelectorAll<HTMLParagraphElement>('p')).filter(
+function visibleParagraphs(container: Element, selector = 'p'): HTMLParagraphElement[] {
+  return Array.from(container.querySelectorAll<HTMLParagraphElement>(selector)).filter(
     (p) => isVisible(p) && !isBoilerplate(p) && !p.closest('figure, figcaption, nav, footer, header, aside'),
   )
 }
@@ -94,10 +94,12 @@ export interface ArticleExtraction {
 // fullText 기준으로 미리 기록해두면, 클릭 시(articleHighlight.ts) 별도 텍스트 검색 없이
 // 바로 절대 오프셋을 계산할 수 있다(subtitleSource.ts의 anchorInTranscript와 달리 문자열
 // 재검색이 필요 없음 — 확장이 조립 시점에 오프셋을 이미 알고 있으므로).
-export function extractArticleText(container: Element): ArticleExtraction {
+// selector: 문단으로 볼 요소 — 기본 <p>(웹페이지·txt·epub). PDF 는 pdf.js 텍스트 레이어가
+// 만드는 span 을 넘긴다(자체 뷰어, articleHighlight.ts 의 paragraphSelector 와 같은 값).
+export function extractArticleText(container: Element, selector = 'p'): ArticleExtraction {
   const paragraphs: ArticleParagraph[] = []
   let fullText = ''
-  for (const p of visibleParagraphs(container)) {
+  for (const p of visibleParagraphs(container, selector)) {
     const text = visibleParagraphText(p)
     if (!text.trim()) continue
     const start = fullText.length

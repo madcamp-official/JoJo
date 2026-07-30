@@ -703,3 +703,30 @@ export interface ZhWord {
   start: number
   end: number
 }
+
+// ── 자체 문서 뷰어(pdf/epub/txt) ──────────────────────────────────────────
+// 외부 뷰어의 접근성 API 좌표를 못 믿어(TODO.md 96~111) 우리가 직접 파싱·렌더링하고,
+// 그 DOM 위에서 웹페이지와 똑같은 방식으로 호버박스를 띄운다.
+
+export type ViewerKind = 'pdf' | 'epub' | 'txt'
+
+/** 메인이 읽어 뷰어 렌더러로 넘기는 파일 — txt 는 text, pdf/epub 는 bytes 가 채워진다. */
+export interface ViewerFilePayload {
+  path: string
+  name: string
+  kind: ViewerKind
+  text?: string
+  bytes?: Uint8Array
+}
+
+/** 뷰어에서 단어를 클릭했을 때 렌더러 → 메인. 확장의 PageClickHit 과 같은 역할이다. */
+export interface ViewerWordHit {
+  /** 문서에서 추출한 전체 텍스트(팝업 문맥의 기준 문자열) */
+  text: string
+  /** 클릭한 단어의 text 내 [start, end) 절대 오프셋 */
+  anchorStart: number
+  anchorEnd: number
+  kind: ViewerKind
+  /** 파일 이름 — 팝업이 출처를 표시하는 용도 */
+  name: string
+}

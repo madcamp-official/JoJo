@@ -470,7 +470,12 @@ export function PopupScreen() {
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== id) return m
-          if (chunk.error) return { ...m, content: chunk.content, error: chunk.error, streaming: false }
+          if (chunk.error) {
+            return { ...m, content: chunk.content, error: chunk.error, streaming: false, progress: undefined }
+          }
+          // 진행 상황(사전 검색 단계 안내)은 본문에 섞지 않고 따로 쌓아 둔다 — 최종
+          // 결과가 오면 아래 send() 가 통째로 비운다(dictionary.ts createProgressEmitter).
+          if (chunk.meta?.progress) return { ...m, progress: [...(m.progress ?? []), chunk.content] }
           if (chunk.meta?.streaming) return { ...m, content: m.content + chunk.content }
           return m
         }),
@@ -497,7 +502,7 @@ export function PopupScreen() {
     setMessages((prev) =>
       prev.map((m) =>
         m.id === asstId
-          ? { ...m, content: result.content, error: result.error, streaming: false }
+          ? { ...m, content: result.content, error: result.error, streaming: false, progress: undefined }
           : m,
       ),
     )
@@ -623,8 +628,7 @@ export function PopupScreen() {
 const SOURCE_LABEL_MAX_LENGTH = 60
 
 // youtube/netflix는 URL(시청 기록·영상 ID 노출)을 그대로 보여주지 않고 서비스 이름으로,
-// txt/ocr/pdf/epub은 appName이 아직 없어(readActiveWindow 미구현) kind 자체를 라벨로 쓰되
-// 대문자 표기로 통일한다(사용자 요청, 2026-07-30).
+// txt/ocr/pdf/epub은 kind 자체를 라벨로 쓰되 대문자 표기로 통일한다(사용자 요청, 2026-07-30).
 const SOURCE_KIND_LABEL: Partial<Record<ExtractedSelection['source']['kind'], string>> = {
   youtube: 'Youtube',
   netflix: 'Netflix',
@@ -634,9 +638,18 @@ const SOURCE_KIND_LABEL: Partial<Record<ExtractedSelection['source']['kind'], st
   epub: 'EPUB'
 }
 
+// appName(파일명)이 있으면 고정 라벨 뒤에 붙인다("PDF · The Hobbit.pdf") — mac 미리보기
+// PDF 직접추출(pdfAxSource.ts)과 자체 문서 뷰어(viewerSource.ts) 둘 다 appName 을 채워
+// 넘기는데, 예전엔 고정 라벨(fixed)이 항상 우선이라 appName 이 있어도 조용히 무시됐다
+// (사용자 요청, 2026-07-31 — "PDF 파일 이름도 가능하면 같이 출력해줘"). url 은 여기 안
+// 붙인다 — youtube/netflix 가 위 주석대로 URL(시청 기록·영상 ID 노출)을 의도적으로
+// 숨기고 있어서, 같은 필드를 재사용하면 그 의도가 깨진다.
 function sourceLabel(ex: ExtractedSelection): string {
   const fixed = SOURCE_KIND_LABEL[ex.source.kind]
-  const raw = fixed ?? ex.source.appName ?? ex.source.url ?? ex.source.kind
+  const raw =
+    fixed && ex.source.appName
+      ? `${fixed} · ${ex.source.appName}`
+      : (fixed ?? ex.source.appName ?? ex.source.url ?? ex.source.kind)
   return raw.length > SOURCE_LABEL_MAX_LENGTH ? `${raw.slice(0, SOURCE_LABEL_MAX_LENGTH)}...` : raw
 }
 

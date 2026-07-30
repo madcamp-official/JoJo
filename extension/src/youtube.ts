@@ -2,7 +2,7 @@
 // 유튜브 자막은 .ytp-caption-segment span 으로 렌더된다(극장/전체화면/자막 위치 이동과
 // 무관하게 항상 이 구조). 공용 유틸(domWords.ts)로 단어별 뷰포트 사각형을 잰다.
 import type { SubLine, SubtitleSnapshot } from '@shared/extension'
-import { extractWordsAndText, observeContainer, videoCurrentTime, viewportInfo } from './domWords'
+import { extractWordsAndText, observeContainer, videoCurrentTime, viewportInfo } from '@shared/hover/domWords'
 
 const CAPTION_WINDOW = '.caption-window' // 자막 컨테이너(여러 줄/위치 이동의 최상위)
 const CAPTION_SEGMENT = '.ytp-caption-segment'

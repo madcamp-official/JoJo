@@ -6,8 +6,8 @@
 // shared/highlightStyle.ts(오버레이와 동일 소스)를 그대로 읽어 인라인 스타일로 적용한다.
 import type { RectPx, SubLine } from '@shared/extension'
 import { groupSegmentAt } from '@shared/wordMapping'
-import { hideHoverBox, showHoverBoxesAt } from './hoverBox'
-import { getWordSegments } from './wordSegments'
+import { hideHoverBox, showHoverBoxesAt } from '@shared/hover/hoverBox'
+import { getWordSegments } from '@shared/hover/wordSegments'
 
 export interface WordHit {
   text: string

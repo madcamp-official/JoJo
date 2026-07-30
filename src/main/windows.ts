@@ -668,6 +668,15 @@ export function setOverlayInteractive(interactive: boolean, cursor: 'pointer' | 
   // mac 전용 — CSS cursor 가 안 먹히는 비활성 앱 창이라(macWindow.ts setMacCursor 주석)
   // 렌더러가 원하는 커서 모양을 같이 받아 네이티브로 설정한다. 유지는 커서 폴링이 담당.
   macDesiredCursor = interactive ? cursor : null
+  // 실험(2026-07-31, 사용자 제보 — "Preview가 포커싱돼 있을 땐 커서가 잘 바뀌는데 다른
+  // 창이 포커싱돼 있으면 기본 커서 모양"): 오버레이는 focusable:false 로 만들어져
+  // (ensureOverlayWindow) macOS 입장에서 우리 앱이 절대 "활성 앱"이 될 수 없는데,
+  // NSCursor.set()(macWindow.ts setMacCursor)의 효력이 활성 앱 여부에 좌우되는 것으로
+  // 보인다. 클릭을 받기 위해 클릭스루를 끄는 이 짧은 인터랙티브 구간에만 focusable 을
+  // 켜본다 — .focus() 를 직접 부르지 않으므로(클릭/명시적 호출 전까진 실제로 포커스를
+  // 뺏지 않음) 대상 앱 포커스가 바로 뺏기진 않지만, 클릭 시 포커스가 넘어갈 가능성은
+  // 남아있다 — 실사용 확인 필요(부작용 있으면 되돌릴 것).
+  if (process.platform === 'darwin') overlayWindow?.setFocusable(interactive)
 }
 
 export function getOverlayMode(): AppMode {
@@ -688,6 +697,9 @@ const MAC_CURSOR_POLL_MS = 33
 let macCursorTimer: NodeJS.Timeout | null = null
 let macDesiredCursor: 'pointer' | 'crosshair' | null = null
 let macWindowModule: typeof import('./selection/macWindow') | null = null
+// 커서가 마지막 틱에 오버레이(대상 창) 영역 안에 있었는지 — 밖으로 나가는 순간을
+// 잡아서 딱 한 번만 arrow 로 되돌리기 위한 상태(아래 주석 참고).
+let macCursorWasInside = false
 
 function syncMacCursorPolling(): void {
   if (process.platform !== 'darwin') return
@@ -700,13 +712,28 @@ function syncMacCursorPolling(): void {
       if (!overlayWindow || overlayWindow.isDestroyed() || !overlayVisible) return
       const p = screen.getCursorScreenPoint()
       const b = overlayWindow.getBounds()
-      overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
-      macWindowModule?.setMacCursor(macDesiredCursor ?? 'arrow')
+      const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
+      if (inside) {
+        overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
+        macWindowModule?.setMacCursor(macDesiredCursor ?? 'arrow')
+        macCursorWasInside = true
+      } else if (macCursorWasInside) {
+        // 방금 대상 창(오버레이) 영역을 벗어났다 — 선택 모드를 유지한 채 마우스를
+        // Nuance 자기 화면(메인/설정 등)으로 옮긴 경우가 대표적. 매 틱 무조건
+        // NSCursor 를 강제하면 그 창 위에서도 계속 arrow/crosshair 로 덮어써져,
+        // 그 창 자신의(Chromium 표준) 커서 렌더링(예: 버튼 hover 시 pointer)이 아예
+        // 못 먹는 문제가 있었다(2026-07-31 사용자 제보 — "버튼에 커서 올려도 모양이
+        // 안 바뀜"). 벗어나는 순간 딱 한 번만 arrow 로 되돌려 고정 상태를 풀고, 그
+        // 뒤로는 손을 떼서 그 창이 자기 커서를 알아서 관리하게 둔다.
+        macWindowModule?.setMacCursor('arrow')
+        macCursorWasInside = false
+      }
     }, MAC_CURSOR_POLL_MS)
   } else if (!shouldRun && macCursorTimer) {
     clearInterval(macCursorTimer)
     macCursorTimer = null
     macDesiredCursor = null
+    macCursorWasInside = false
     macWindowModule?.setMacCursor('arrow') // 폴링을 멈추기 전에 마지막으로 한 번 복원
   }
 }
@@ -916,4 +943,54 @@ export function getPopupContext(): ExtractedSelection | null {
 export function getPopupBounds(): { x: number; y: number; width: number; height: number } | null {
   if (!popupWindow || popupWindow.isDestroyed()) return null
   return popupWindow.getBounds()
+}
+
+// ── 자체 문서 뷰어(pdf/epub/txt) ────────────────────────────────────────────
+// 외부 뷰어(크롬 내장 PDF 뷰어·Kindle 등)는 텍스트나 좌표를 신뢰할 수 있게 주지 않아서
+// (TODO.md 96~111 조사 참고) 우리가 직접 파싱·렌더링한다. 우리 DOM 위에서 웹페이지와
+// 똑같은 방식으로 호버박스를 띄우므로 접근성 API도 OCR도 필요 없고 mac/Windows가 동일하다.
+
+/** 뷰어 창 하나가 열고 있는 파일 — 렌더러가 VIEWER_GET_FILE 로 pull 해간다. */
+export interface ViewerFile {
+  path: string
+  name: string
+  kind: 'pdf' | 'epub' | 'txt'
+}
+
+const viewerFiles = new Map<number, ViewerFile>()
+
+export function createViewerWindow(file: ViewerFile): BrowserWindow {
+  const { x, y } = centerOnCursorDisplay(900, 900)
+  const win = new BrowserWindow({
+    width: 900,
+    height: 900,
+    x,
+    y,
+    show: true,
+    title: file.name,
+    autoHideMenuBar: true,
+    icon: resolveIconPath(),
+    webPreferences: { preload, sandbox: false },
+  })
+  // id 를 지금 붙잡아둔다 — 'closed' 시점엔 webContents 가 이미 파괴돼 있어서 그때 다시
+  // 읽으면 "Object has been destroyed" 로 던진다(실행 중 확인).
+  const wcId = win.webContents.id
+  viewerFiles.set(wcId, file)
+  win.on('closed', () => viewerFiles.delete(wcId))
+  loadRoute(win, 'viewer')
+  return win
+}
+
+/** 이 webContents 가 속한 뷰어 창이 열고 있는 파일(없으면 null). */
+export function getViewerFile(webContentsId: number): ViewerFile | null {
+  return viewerFiles.get(webContentsId) ?? null
+}
+
+/**
+ * 뷰어 창인지 — capture.ts 가 "Nuance 자기 창은 캡처 목록에서 제외" 필터를 만들 때 이
+ * 창들만 예외로 남겨, 사용자가 뷰어 창을 창 선택으로 골라 OCR 도 얹을 수 있게 한다.
+ */
+export function isViewerWindow(win: BrowserWindow): boolean {
+  if (win.isDestroyed()) return false
+  return viewerFiles.has(win.webContents.id)
 }

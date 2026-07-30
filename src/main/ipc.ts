@@ -1,4 +1,6 @@
-import { clipboard, ipcMain, screen } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain, screen } from 'electron'
+import { readFile } from 'node:fs/promises'
+import { basename, extname } from 'node:path'
 import { IPC } from '@shared/channels'
 import type {
   AnyLanguage,
@@ -13,6 +15,7 @@ import type {
   QuestionRequest,
   Rect,
   SelectionContext,
+  ViewerWordHit,
 } from '@shared/types'
 import { runSelectionPipeline } from './selection'
 import { runQuestion } from './question'
@@ -27,13 +30,17 @@ import {
 import { clearExtractionHistory, invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
 import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
 import { isWarmedUp } from './selection/warmup'
+import { onViewerWordClicked } from './selection/viewerSource'
 import {
   createPopupWindow,
+  createViewerWindow,
   getMainWindow,
   getOverlayMode,
   getPopupContext,
   getPopupBounds,
+  getViewerFile,
   openSettingsWindow,
+  showMainWindowAtRoute,
   showMacSelectionOverlay,
   setMainWindowRoute,
   setOverlayInteractive,
@@ -57,6 +64,8 @@ import { naverDictionaryUrl } from './question/naver'
 import { openUrlInNewWindow } from './question/browser'
 import { JA_ENGINE, tokenizeJapanese } from './nlp/japanese'
 import { segmentChineseWords } from './nlp/chinese'
+import { segmentCjkText } from './nlp/segmentCjk'
+import { resolveCjkLanguage } from '@shared/languageDetect'
 
 // IPC 허브 (공동) — A→B 연결점.
 // 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
@@ -259,11 +268,24 @@ export function registerIpc(): void {
     const id = getSelectedWindowId()
     void import('./selection/macWindow').then(async ({ parseMacWindowId, getMacWindowOwnerPid }) => {
       const wid = parseMacWindowId(id ?? '')
-      if (wid === null) return
+      if (wid === null) {
+        // 임시 진단 로그(2026-07-31, 사용자 제보 — 스크롤 우회가 여전히 안 됨). 이
+        // 가드에서 조용히 멈추면 애초에 스크롤 전달 자체를 시도조차 안 한 것이라
+        // macScroll.ts 쪽을 볼 필요가 없다는 뜻 — 실사용 로그로 어디서 끊기는지 확인.
+        console.warn('[forwardScroll] windowId 파싱 실패, id=', id)
+        return
+      }
       const pid = getMacWindowOwnerPid(wid)
-      if (pid === null) return
+      if (pid === null) {
+        console.warn('[forwardScroll] owner pid 조회 실패, windowId=', wid)
+        return
+      }
       const { postScrollToPid } = await import('./selection/macScroll')
-      postScrollToPid(pid, screen.getCursorScreenPoint(), payload.deltaX, payload.deltaY)
+      const point = screen.getCursorScreenPoint()
+      console.log(
+        `[forwardScroll] pid=${pid} point=(${point.x},${point.y}) delta=(${payload.deltaX},${payload.deltaY})`,
+      )
+      postScrollToPid(pid, point, payload.deltaX, payload.deltaY)
     })
   })
 
@@ -314,5 +336,61 @@ export function registerIpc(): void {
   // zh-Hans 는 jieba 고정, zh-Hant 는 ZH_HANT_ENGINE 스위치)
   ipcMain.handle(IPC.TOKENIZE_ZH, async (_e, text: string, language: 'zh-Hans' | 'zh-Hant') => {
     return segmentChineseWords(text, language)
+  })
+
+  // ── 자체 문서 뷰어(pdf/epub/txt) ─────────────────────────────────────────
+  // 메인 화면 "파일 열기" — 확장자를 셋으로 제한한 다이얼로그를 띄우고, 고르면 그 파일을
+  // 담은 뷰어 창을 연다. 취소하면 아무 일도 없다(false 반환).
+  ipcMain.handle(IPC.VIEWER_OPEN_FILE_DIALOG, async () => {
+    const parent = getMainWindow()
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: '문서', extensions: ['pdf', 'epub', 'txt'] }],
+      ...(parent ? { parent } : {}),
+    })
+    const filePath = filePaths[0]
+    if (canceled || !filePath) return false
+
+    const ext = extname(filePath).slice(1).toLowerCase()
+    if (ext !== 'pdf' && ext !== 'epub' && ext !== 'txt') return false
+    createViewerWindow({ path: filePath, name: basename(filePath), kind: ext })
+    return true
+  })
+
+  // 뷰어 렌더러가 자기 창에 열린 파일을 pull 한다 — contextIsolation 을 유지하려고 렌더러가
+  // fs 에 직접 접근하지 않고 메인이 읽어서 넘긴다. txt 는 문자열, pdf/epub 는 바이너리라
+  // Uint8Array 로 넘긴다(구조적 복제로 그대로 전달됨).
+  ipcMain.handle(IPC.VIEWER_GET_FILE, async (e) => {
+    const file = getViewerFile(e.sender.id)
+    if (!file) return null
+    if (file.kind === 'txt') {
+      return { ...file, text: await readFile(file.path, 'utf8') }
+    }
+    const buf = await readFile(file.path)
+    return { ...file, bytes: new Uint8Array(buf) }
+  })
+
+  // 뷰어 뒤로가기 — 이 뷰어 창을 닫고 메인 창을 다시 띄운다.
+  ipcMain.handle(IPC.VIEWER_BACK, async (e) => {
+    showMainWindowAtRoute('main')
+    BrowserWindow.fromWebContents(e.sender)?.close()
+  })
+
+  // 뷰어에서 단어 클릭 — 확장의 pageClick 과 같은 역할(viewerSource.ts 가 팝업을 띄운다).
+  ipcMain.handle(IPC.VIEWER_WORD_CLICKED, async (e, hit: ViewerWordHit) => {
+    onViewerWordClicked(hit, BrowserWindow.fromWebContents(e.sender))
+  })
+
+  // 뷰어 문단의 CJK 형태소 분할 — 확장이 WebSocket 으로 하던 것과 같은 함수를 IPC 로
+  // 연결한다(segmentCjk.ts 를 확장 bridge 와 공유). CJK 가 아니면 빈 배열(공백 분리로 충분).
+  ipcMain.handle(IPC.VIEWER_SEGMENT, async (_e, text: string) => {
+    const lang = resolveCjkLanguage(text)
+    if (!lang) return []
+    try {
+      return await segmentCjkText(text, lang)
+    } catch (err) {
+      console.warn('[viewer] 세그멘테이션 실패:', (err as Error)?.message)
+      return []
+    }
   })
 }

@@ -5,6 +5,7 @@ import { SettingsScreen } from './screens/SettingsScreen'
 import { PopupScreen } from './screens/PopupScreen'
 import { Overlay } from './screens/Overlay'
 import { WindowPickerScreen } from './screens/WindowPickerScreen'
+import { ViewerScreen } from './screens/ViewerScreen'
 import { matchesAccelerator } from './shortcutMatch'
 
 // 해시에 쿼리(예: '#/popup?demo=zh')가 붙어도 라우트 매칭은 '?' 앞부분만 본다.
@@ -71,6 +72,8 @@ export function App() {
       return <Overlay />
     case 'picker':
       return <WindowPickerScreen />
+    case 'viewer':
+      return <ViewerScreen />
     case 'main':
     default:
       return <MainScreen selected={selected} />

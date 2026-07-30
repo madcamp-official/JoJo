@@ -79,7 +79,12 @@ function ensure(): boolean {
  * 적용해준다(실제 장치 이벤트와 동일한 처리 경로를 타므로).
  */
 export function postScrollToPid(pid: number, point: { x: number; y: number }, deltaX: number, deltaY: number): void {
-  if (!ensure()) return
+  // 임시 진단 로그(2026-07-31, 사용자 제보 — 스크롤 우회가 여전히 안 됨) — 어느 단계에서
+  // 멈추는지(로드 실패/이벤트 생성 실패/여기까진 왔는데 실제 스크롤만 안 되는지) 구분한다.
+  if (!ensure()) {
+    console.warn('[macScroll] CoreGraphics 바인딩 준비 안 됨 — 스크롤 전달 포기')
+    return
+  }
   if (deltaX === 0 && deltaY === 0) return
   try {
     // 가변 인자는 koffi 관례대로 (타입, 값) 쌍으로 넘긴다 — wheel1(수직), wheel2(수평).
@@ -92,10 +97,14 @@ export function postScrollToPid(pid: number, point: { x: number; y: number }, de
       'int32_t',
       Math.round(-deltaX),
     )
-    if (!event) return
+    if (!event) {
+      console.warn('[macScroll] CGEventCreateScrollWheelEvent 가 null 반환')
+      return
+    }
     try {
       CGEventSetLocation!(event, point)
       CGEventPostToPid!(pid, event)
+      console.log(`[macScroll] pid=${pid} 로 스크롤 이벤트 전달 완료`)
     } finally {
       CFRelease!(event)
     }

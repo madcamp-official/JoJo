@@ -194,7 +194,9 @@ export function parseJudgeReply(reply: string, senses: NumberedSense[]): Selecte
   return out
 }
 
-const SOURCE_LABELS: Record<DictionarySourceId, string> = {
+/** 사람이 읽을 사전 소스 이름 — 최종 답변의 "출처:" 줄과, dictionary.ts 가 채팅창에
+ *  실시간으로 흘려보내는 진행 상황("Merriam-Webster에서 검색 중…" 등)이 함께 쓴다. */
+export const SOURCE_LABELS: Record<DictionarySourceId, string> = {
   'merriam-webster': 'Merriam-Webster',
   wordnet: 'OEWN (Open English WordNet)',
   wiktionary: 'Wiktionary',

@@ -9,7 +9,7 @@
 // 대해서만 wordsInParagraph()를 지연 계산 + 캐시한다(다른 문단으로 옮길 때만 재계산).
 import type { RectPx, SubWord } from '@shared/extension'
 import { groupSegmentAt } from '@shared/wordMapping'
-import { hideHoverBox, showHoverBoxesAt } from './hoverBox'
+import { hideHoverBox, setHoverBoxDocument, showHoverBoxesAt } from './hoverBox'
 import type { ArticleExtraction, ArticleParagraph } from './webArticle'
 import { extractArticleText, wordsInParagraph } from './webArticle'
 import { getWordSegments } from './wordSegments'
@@ -83,6 +83,16 @@ let fullTextRef = ''
 // 클릭 시 fullText 를 다시 추출하려면 컨테이너가 필요하다(아래 resolveClick 참고).
 let containerRef: Element | null = null
 
+// 이벤트·히트테스트가 어느 문서 기준인지 — 전역 document/window 를 직접 쓰지 않고
+// 컨테이너에서 유도한다. 웹페이지·자체 뷰어(txt/pdf)는 그냥 전역과 같지만, 자체 뷰어의
+// epub 은 epubjs 가 내용을 iframe 안에 띄우므로 그 iframe 의 문서여야 한다.
+let docRef: Document = typeof document !== 'undefined' ? document : (null as unknown as Document)
+let winRef: Window = typeof window !== 'undefined' ? window : (null as unknown as Window)
+
+// 문단으로 볼 요소의 선택자 — 웹페이지/txt/epub 은 <p>(기본값), PDF 는 pdf.js 텍스트
+// 레이어가 만드는 span 이다(startArticleHighlight 의 opts.paragraphSelector 로 주입).
+let paragraphSelectorRef = 'p'
+
 function findWordIndexAt(words: SubWord[], x: number, y: number): number {
   for (let i = 0; i < words.length; i++) {
     const r = words[i]!.rect
@@ -93,8 +103,8 @@ function findWordIndexAt(words: SubWord[], x: number, y: number): number {
 
 // hover 박스 표시 전용 — 캐시(성능 목적)를 쓴다. 클릭 결과 전송에는 안 쓴다(resolveClick 참고).
 function hoverHitAt(x: number, y: number): RectPx[] | null {
-  const target = document.elementFromPoint(x, y)
-  const p = target?.closest<HTMLParagraphElement>('p') ?? null
+  const target = docRef.elementFromPoint(x, y)
+  const p = target?.closest<HTMLParagraphElement>(paragraphSelectorRef) ?? null
   const info = p ? paragraphByEl.get(p) : undefined
   if (!p || !info) {
     invalidateCache()
@@ -121,10 +131,10 @@ function hoverHitAt(x: number, y: number): RectPx[] | null {
 // 전체 재추출해도 비용 문제 없다.
 function resolveClick(x: number, y: number): ArticleWordHit | null {
   if (!containerRef) return null
-  const target = document.elementFromPoint(x, y)
-  const p = target?.closest<HTMLParagraphElement>('p') ?? null
+  const target = docRef.elementFromPoint(x, y)
+  const p = target?.closest<HTMLParagraphElement>(paragraphSelectorRef) ?? null
   if (!p) return null
-  const fresh = extractArticleText(containerRef)
+  const fresh = extractArticleText(containerRef, paragraphSelectorRef)
   const info = fresh.paragraphs.find((fp) => fp.el === p)
   if (!info) return null
   const words = wordsInParagraph(p)
@@ -172,26 +182,38 @@ function onViewportChange(): void {
   hideHoverBox()
 }
 
+export interface ArticleHighlightOptions {
+  /** 문단으로 볼 요소의 선택자 — 기본 'p'. PDF 는 pdf.js 텍스트 레이어 span 을 넘긴다. */
+  paragraphSelector?: string
+}
+
 export function startArticleHighlight(
   container: Element,
   extraction: ArticleExtraction,
   onClickFn: (hit: ArticleWordHit) => void,
   requestSegments: (text: string) => void,
+  opts: ArticleHighlightOptions = {},
 ): () => void {
   containerRef = container
+  // 전역이 아니라 컨테이너가 속한 문서를 쓴다 — epub(epubjs iframe)이면 그 iframe 의
+  // 문서/창이라, 리스너·히트테스트·박스 좌표가 전부 같은 좌표계로 일관되게 맞는다.
+  docRef = container.ownerDocument ?? document
+  winRef = docRef.defaultView ?? window
+  paragraphSelectorRef = opts.paragraphSelector ?? 'p'
+  setHoverBoxDocument(docRef)
   fullTextRef = extraction.fullText
   paragraphByEl = new Map(extraction.paragraphs.map((p) => [p.el, p]))
   onWordClick = onClickFn
   requestSegmentsFn = requestSegments
-  window.addEventListener('mousemove', onMouseMove, true)
-  window.addEventListener('click', onClick, true)
-  window.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
-  window.addEventListener('resize', onViewportChange, { passive: true })
+  winRef.addEventListener('mousemove', onMouseMove, true)
+  winRef.addEventListener('click', onClick, true)
+  winRef.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
+  winRef.addEventListener('resize', onViewportChange, { passive: true })
   return () => {
-    window.removeEventListener('mousemove', onMouseMove, true)
-    window.removeEventListener('click', onClick, true)
-    window.removeEventListener('scroll', onViewportChange, { capture: true } as EventListenerOptions)
-    window.removeEventListener('resize', onViewportChange)
+    winRef.removeEventListener('mousemove', onMouseMove, true)
+    winRef.removeEventListener('click', onClick, true)
+    winRef.removeEventListener('scroll', onViewportChange, { capture: true } as EventListenerOptions)
+    winRef.removeEventListener('resize', onViewportChange)
     hideHoverBox()
     invalidateCache()
     paragraphByEl = new Map()

@@ -816,25 +816,25 @@ export function SettingsScreen() {
 
       {/* 문맥 범위(Byte) */}
       <section className="settings-section">
-        <h2>문맥 범위 (Byte)</h2>
+        <div className="section-header">
+          <h2>문맥 범위 (Byte)</h2>
+          <button className="reset-btn" disabled={!defaultSettings} onClick={resetContextRange}>
+            기본값으로 초기화
+          </button>
+        </div>
         <p className="desc">
           선택한 표현을 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
           전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
         </p>
 
-        <div className="section-header">
-          <label className="byte-link-toggle">
-            <input
-              type="checkbox"
-              checked={settings.contextBytesLinked}
-              onChange={toggleLinked}
-            />
-            앞·뒤를 동일한 값으로 설정
-          </label>
-          <button className="reset-btn" disabled={!defaultSettings} onClick={resetContextRange}>
-            기본값으로 초기화
-          </button>
-        </div>
+        <label className="byte-link-toggle">
+          <input
+            type="checkbox"
+            checked={settings.contextBytesLinked}
+            onChange={toggleLinked}
+          />
+          앞·뒤를 동일한 값으로 설정
+        </label>
 
         {settings.contextBytesLinked ? (
           <ByteControl
