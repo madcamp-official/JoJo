@@ -401,7 +401,18 @@ export function readVisiblePages(windowId: number): AxReadResult | null {
           const retained = retain(node)
           retainedNodes.push(retained)
           const paragraph = paragraphOfTextNode(retained, origin)
-          if (paragraph && paragraph.text.trim()) paragraphs.push(paragraph)
+          if (!paragraph || !paragraph.text.trim()) return
+          // 실측 확인(2026-07-31, 사용자 제보 — "호버박스 위치가 이상해"): 한 AXPage 의
+          // bbox 가 실제 창 높이(875pt)보다 훨씬 큰 값(1816pt)으로 보고되는 경우가 있다 —
+          // Preview 가 연속 스크롤 뷰에서 "페이지" 하나를 인접 페이지까지 포함한 범위로
+          // 잡는 듯하다. 그 안의 텍스트 노드 중에는 화면 위/아래로 수백 pt 벗어난(y<0 또는
+          // y>창높이) 것도 섞여 있는데, 위 페이지 단위 intersects 검사만으로는 이런 개별
+          // 문단까지 걸러지지 않아 안 보이는 텍스트의 실좌표가 그대로 words[]에 들어갔다 —
+          // 스크롤 중 겹치는 좌표를 만들어 호버박스가 엉뚱한 텍스트를 가리키는 원인이었다.
+          // 문단 자체의 bbox(전체 범위)로 다시 한번 화면 교차 여부를 확인한다.
+          const wholeBbox = paragraph.boundsOf(0, paragraph.text.length)
+          if (wholeBbox && !intersects(wholeBbox, windowRect)) return
+          paragraphs.push(paragraph)
         })
         if (paragraphs.length > 0) pages.push({ bbox, paragraphs })
       })
