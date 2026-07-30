@@ -20,6 +20,12 @@ export const IPC = {
   // 메인이 커서 위치를 폴링(windows.ts)해 오버레이-로컬 좌표로 보내주면 렌더러
   // (Overlay.tsx)가 mousemove 와 동일하게 hover 판정에 쓴다.
   OVERLAY_CURSOR: 'overlay:cursor',
+  // macOS 전용(2026-07-30) — 오버레이가 클릭을 받으려고 비-클릭스루 상태가 되는 동안
+  // 스크롤 휠까지 같이 막히는 문제 우회. 렌더러(Overlay.tsx)가 자신이 가로챈 wheel
+  // 이벤트의 델타를 메인으로 넘기면, 메인이 대상 창의 소유 프로세스에 합성 스크롤
+  // 이벤트로 재전달한다(macScroll.ts: CGEventPostToPid — 히트테스트를 건너뛰어 우리
+  // 오버레이가 화면상 앞에 있어도 무관하게 전달된다).
+  OVERLAY_FORWARD_SCROLL: 'overlay:forwardScroll',
   // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록을 오버레이로 통지 (extractionCache.ts)
   EXTRACTION_WORDS: 'selection:words',
   // 추출 진행 알림 1단계("언어 감지 & 텍스트 영역 탐지") — 선택 모드 진입, 리사이즈,

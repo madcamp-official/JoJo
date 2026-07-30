@@ -13,6 +13,7 @@ import {
 } from './selection/shortcut'
 import { isSubtitleModeActive } from './selection/subtitleSource'
 import { isWebModeActive } from './selection/webSource'
+import { isPdfAxModeActive, isPreviewWindowSelected } from './selection/pdfAxSource'
 import {
   getMainWindow,
   hideSelectionOverlay,
@@ -36,7 +37,13 @@ import {
 // "OCR로 전환"(자막/웹 direct 추출 중일 때만 노출, 2026-07-30 사용자 요청)은 자동판정
 // 결과가 마음에 안 들 때 강제로 OCR로 덮어쓰는 용도 — shortcut.ts: requestForceOcr.
 // 같은 페이지에서만 유지되고 다른 페이지로 이동하거나 선택 모드를 나갔다 다시 들어가면
-// 자동판정으로 되돌아간다.
+// 자동판정으로 되돌아간다. 웹/자막은 이 방향(direct→OCR)만 지원한다.
+// PDF(Preview)는 선택 모드인 동안 항상 노출되고 **양방향**이다(사용자 요청, 2026-07-30) —
+// 지금 direct(AX)로 읽는 중이면 "OCR로 전환", OCR로 읽는 중(초기 스캔본 판정 또는 이전
+// 토글 결과)이면 "텍스트 추출로 전환"으로 라벨이 바뀐다. pdfAxSource.ts 가 문서당 판정을
+// 한 번만 내리고 스크롤로는 재판정하지 않기 때문에(삽화 페이지 등으로 문서 전체가 잘못
+// 스캔본 취급되는 걸 막는 정책), 첫 판정이 틀렸을 때 사용자가 직접 되돌릴 수 있는 유일한
+// 통로가 이 토글이다.
 
 let tray: Tray | null = null
 
@@ -73,6 +80,12 @@ function buildTrayMenu(): Menu {
   const inSelectMode = currentMode() === 'select'
   // "OCR로 전환"은 지금 실제로 자막/웹 direct 추출 중일 때만 뜻이 있다(이미 OCR이면 필요 없음).
   const inDirectExtraction = isSubtitleModeActive() || isWebModeActive()
+  // PDF(Preview)는 양방향 토글이라 라벨이 현재 상태에 따라 바뀐다(사용자 요청, 2026-07-30)
+  // — direct(AX)로 읽는 중이면 "OCR로 전환", OCR로 읽는 중(초기 스캔본 판정 또는 이전
+  // 토글 결과)이면 "텍스트 추출로 전환". 웹/자막처럼 한쪽 방향만 있는 게 아니라 선택된
+  // 창이 Preview인 동안은 늘 노출된다(직접 추출이 지금 실패 중이어도 되돌릴 방법이 있어야
+  // 하므로 inDirectExtraction 과 달리 "지금 direct 중" 조건을 안 건다).
+  const isPdfWindow = isPreviewWindowSelected()
   const settings = getSettings()
 
   return Menu.buildFromTemplate([
@@ -102,14 +115,21 @@ function buildTrayMenu(): Menu {
           },
         ]
       : []),
-    ...(inDirectExtraction
+    ...(inSelectMode && isPdfWindow
       ? [
           {
-            ...menuEntry('OCR로 전환', settings.forceOcrShortcut),
+            ...menuEntry(isPdfAxModeActive() ? 'OCR로 전환' : '텍스트 추출로 전환', settings.forceOcrShortcut),
             click: requestForceOcr,
           },
         ]
-      : []),
+      : inDirectExtraction
+        ? [
+            {
+              ...menuEntry('OCR로 전환', settings.forceOcrShortcut),
+              click: requestForceOcr,
+            },
+          ]
+        : []),
     { ...menuEntry('설정', settings.settingsShortcut), click: openSettingsWindow },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },

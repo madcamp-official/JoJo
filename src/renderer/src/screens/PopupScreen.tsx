@@ -240,11 +240,23 @@ export function PopupScreen() {
     // 무관한 공용 규칙이라 소스별로 다르게 동작할 이유가 없다(2026-07-30 사용자 지적으로
     // web 전용 분기를 걷어냄 — 애초에 p가 이미 문장 시작이면 그대로 반환하는 함수라
     // 대부분의 OCR/자막에는 사실상 no-op이다).
+    // 담당 A — anchor 클램프 추가(2026-07-31, 사용자 제보 — "다른 줄을 선택했는데
+    // 팝업엔 완전히 다른 단어가 뜸, 재클릭해도 안 고쳐짐"). skipPartialSentenceForward
+    // 는 "문맥 창 시작점"이 문장 중간에 걸리면 그 문장을 통째로 버리고 다음 문장
+    // 시작까지 건너뛰는데, 이 판단은 anchor(클릭한 줄) 위치를 전혀 모른 채 이뤄진다 —
+    // 대부분의 소스는 한 문장이 길어야 한두 줄이라 이 건너뛰기가 anchor 까지 넘어갈 일이
+    // 없었지만, 가로쓰기 일본어(NDLOCR, 문단 단위로만 '\n' 삽입, 위 문단 판정 로직 참고)는
+    // 한 "문장"이 문단 전체(수십~수백 자)를 가로지를 수 있어 창 시작점이 그 안에 걸리면
+    // "다음 문장 시작"이 anchor 보다 뒤로 넘어가버릴 수 있다(실측 확인: anchor=[733,828)
+    // 인데 range.start 가 그 뒤로 밀려 windowedSelStart 가 음수가 되고, 이후 오프셋
+    // 전체가 어긋나 완전히 다른 단어가 선택됨). "문맥 창은 anchor 를 항상 포함해야
+    // 한다"는 불변조건을 여기서 직접 강제 — 문장 경계 보정이 이 조건을 어기면 무시하고
+    // anchor 경계를 그대로 쓴다.
     setMeasured({
       ctx: baseCtx,
       range: {
-        start: skipPartialSentenceForward(fullText, absStart),
-        end: sentenceEnd(fullText, Math.max(absStart, absEnd - 1)),
+        start: Math.min(skipPartialSentenceForward(fullText, absStart), baseCtx.anchor.start),
+        end: Math.max(sentenceEnd(fullText, Math.max(absStart, absEnd - 1)), baseCtx.anchor.end),
       },
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -260,33 +272,47 @@ export function PopupScreen() {
     () => buildDisplayText(baseCtx, measuredRange ?? undefined).displayText,
     [baseCtx, measuredRange],
   )
-  const [jaResult, setJaResult] = useState<JaTokenizeResult | undefined>(undefined)
+  // 담당 A — displayText 태깅(2026-07-31, 사용자 제보 — "일부 줄이 처음 클릭 시 그 줄의
+  // 첫 단어만 선택됨, 다시 선택하면 전체 선택됨"). 원인은 baseCtx(새 anchor)가 바뀌면
+  // displayText 도 새로 계산되는데, jaResult 를 지우는 setJaResult(undefined) 는 별도
+  // useEffect(커밋 이후, 비동기)에서 일어나서 — 딱 한 렌더 동안 "새 displayText + 이전
+  // 줄의 stale jaResult" 라는 안 맞는 조합으로 model(buildSelectionModel)이 계산됐다.
+  // 이전 줄 기준 토큰 오프셋이 새 텍스트에선 의미가 없어 atom 경계가 어긋나고, 새 anchor
+  // 와 하나도 안 겹쳐 atom 0(=화면상 "첫 단어") 으로 폴백해 그 상태가 그대로 찍혔다
+  // (DEBUG 로그로 실측 확인: baseCtxChanged=true 순간 atoms 수가 직전 클릭 것과 동일,
+  // initialFrom=initialTo=0). state 에 결과가 어느 displayText 기준인지 같이 저장해두고,
+  // 지금 displayText 와 다르면(= 아직 새 텍스트에 대한 응답이 안 왔으면) 그냥 무시하고
+  // undefined(=즉석 대체 규칙 폴백)로 취급해 stale 조합이 model 에 절대 안 들어가게 한다.
+  // zhWords(중국어)도 같은 구조의 잠재 버그라 대칭으로 같이 고친다.
+  const [jaResultTagged, setJaResultTagged] = useState<{ text: string; result: JaTokenizeResult } | undefined>(
+    undefined,
+  )
   useEffect(() => {
-    setJaResult(undefined)
     if (baseCtx.language !== 'ja') return
     let active = true
     window.nuance.tokenizeJapanese(displayText).then((result) => {
-      if (active) setJaResult(result)
+      if (active) setJaResultTagged({ text: displayText, result })
     })
     return () => {
       active = false
     }
   }, [baseCtx.language, displayText])
+  const jaResult = jaResultTagged?.text === displayText ? jaResultTagged.result : undefined
 
   // 중국어는 main/nlp/chinese.ts 가 정한 단어 경계를 그대로 atom 으로 쓴다 — OCR 단어
   // 클릭(main/selection/ocr.ts)과 동일한 분석 결과라 병합 규칙 없이 바로 쓸 수 있다.
-  const [zhWords, setZhWords] = useState<ZhWord[] | undefined>(undefined)
+  const [zhWordsTagged, setZhWordsTagged] = useState<{ text: string; words: ZhWord[] } | undefined>(undefined)
   useEffect(() => {
-    setZhWords(undefined)
     if (baseCtx.language !== 'zh-Hans' && baseCtx.language !== 'zh-Hant') return
     let active = true
     window.nuance.tokenizeChinese(displayText, baseCtx.language).then((words) => {
-      if (active) setZhWords(words)
+      if (active) setZhWordsTagged({ text: displayText, words })
     })
     return () => {
       active = false
     }
   }, [baseCtx.language, displayText])
+  const zhWords = zhWordsTagged?.text === displayText ? zhWordsTagged.words : undefined
 
   // ja/zh 전용 "글자 단위" 선택 토글(2026-07-28) — 기본은 단어 단위(false), 켜면 한자를
   // 한 글자씩 개별 선택할 수 있게 한다(selection.ts buildSelectionModel/tokenizeAtoms 참고).
@@ -337,6 +363,18 @@ export function PopupScreen() {
     prevBaseCtxRef.current = baseCtx
     const span = baseCtxChanged ? null : lastSpanRef.current
 
+    // 담당 A — 진단용(2026-07-31, 사용자 제보 — "일부 줄이 처음 클릭 시 첫 단어만
+    // 선택되고 다시 선택하면 전체 선택됨"). 처음 로그는 재매핑(span 있는) 분기 안에만
+    // 있어서, baseCtxChanged=true(진짜 새 클릭, span=null → 곧바로 model.initialFrom/To
+    // 로 리셋)인 순간이 전혀 안 찍히고 있었다 — 그 리셋 순간의 anchor/atoms/initialFrom/To
+    // 가 이미 좁게 나오는지가 핵심 의심 지점이라 그 분기도 항상 로그를 남기도록 이동.
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(
+        `[PopupScreen] model 변경: baseCtxChanged=${baseCtxChanged} anchor=${JSON.stringify(baseCtx.anchor)} ` +
+          `lastSpan=${JSON.stringify(span)} atoms=${model.atoms.length} initialFrom=${model.initialFrom} initialTo=${model.initialTo}`,
+      )
+    }
+
     if (span) {
       let newFrom = -1
       let newTo = -1
@@ -348,6 +386,9 @@ export function PopupScreen() {
           if (newFrom < 0) newFrom = i
           newTo = i
         }
+      }
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PopupScreen] 재매핑 결과: newFrom=${newFrom} newTo=${newTo}`)
       }
       if (newFrom >= 0) {
         updateRange(newFrom, newTo)

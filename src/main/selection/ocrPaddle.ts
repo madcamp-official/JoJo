@@ -269,6 +269,23 @@ const FURIGANA_HEIGHT_RATIO = 1.15
 const FURIGANA_X_OVERLAP_MIN = 0.5
 const FURIGANA_MAX_GAP_RATIO_VERTICAL = 2
 
+// 담당 A — 방향성(위/아래) 조건 추가(2026-07-31, 사용자 제보 — "제목 밑 작가 이름이
+// 인식이 안 됨"). 후리가나는 항상 본문 글자 **위**에 붙는데, 기존 조건엔 위/아래
+// 구분이 전혀 없어서 "더 큰 이웃이 가까이 있음"만 보고 판정했다 — 제목(큰 폰트)
+// 바로 아래 작가 이름(제목보다 작고 본문보다 큰 폰트)이 제목과 x가 겹치고 y 간격도
+// 가까워서 "제목의 후리가나"로 오판·제외되고 있었다. 후리가나 후보(line)는 그 큰
+// 이웃(other)보다 반드시 위에 있어야 한다(line.y < other.y)는 조건을 추가 — 진짜
+// 후리가나는 이 조건을 항상 만족하고, 큰 텍스트 아래에 오는 작은/중간 텍스트(작가
+// 이름, 부제 등)는 이 조건에서 자연히 제외된다.
+// 담당 A — 폭 조건 추가(2026-07-31, 사용자 제보 — "ほか 후리가나 하나가 인식됨").
+// DEBUG_OCR_DUMP 덤프로 실측 확인: 좁은 후리가나 박스(w=26,h=21) 하나가 그 바로 위(주의
+// — 위 방향성 조건 자체는 이 박스→몸통 방향이 아니라 반대로 적용됐다) **넓은 본문 줄**
+// (w=1507,h=18)보다 근소하게(21 vs 18×1.15=20.7) 더 크게 측정돼 "더 큰 이웃"으로 잘못
+// 인식됐다 — 그 결과 넓은 본문 줄이 "이 좁은 박스의 후리가나"로 거꾸로 오판·제외되고,
+// 정작 좁은 박스 자신은 걸러줄 상대가 없어져 그대로 살아남았다(후리가나가 본문처럼
+// 인식됨). 후리가나는 그게 딸린 본문 줄보다 항상 좁거나 같아야 한다 — "더 큰 이웃(other)"
+// 후보는 반드시 candidate(line)보다 넓어야 한다는 조건을 추가해, 좁은 박스가 넓은 줄의
+// "몸통"인 척하는 이 역방향 오판을 막는다.
 export function excludeFuriganaHorizontal<T extends Rect>(
   lines: T[],
   heightRatio: number = FURIGANA_HEIGHT_RATIO,
@@ -277,6 +294,8 @@ export function excludeFuriganaHorizontal<T extends Rect>(
     const hasTallerNeighbor = lines.some((other) => {
       if (other === line) return false
       if (other.height < line.height * heightRatio) return false
+      if (other.width < line.width) return false
+      if (line.y >= other.y) return false
       if (xOverlapFraction(line, other) < FURIGANA_X_OVERLAP_MIN) return false
       return yGap(line, other) <= line.height * FURIGANA_MAX_GAP_RATIO_VERTICAL
     })
@@ -971,10 +990,17 @@ async function recognizeOrderedLines(
   // hover/클릭 대상 아님, lineId 도 없어 findLineSpan 그룹 확장도 여기서 자연히 끊김)
   // 이라 `text = words.join('')` 불변조건이 그대로 유지된다. 빈 줄(인식 결과 없음) 앞뒤로는
   // 마커를 겹쳐 넣지 않는다('\n\n' 방지).
+  //
+  // 담당 A — 문단 판정 기반으로 승격(2026-07-31, 일본어에서 검증한 detectParagraphStarts
+  // 이식). 예전엔 무조건 매 줄/열마다 '\n'을 넣었는데, 이제 진짜 새 문단인 줄/열만
+  // '\n'을 넣고 문단 중간에 줄바꿈된(이어지는) 줄/열은 구분자 없이 바로 이어붙인다 —
+  // "불필요한 줄바꿈 삭제"까지 같이 해결된다.
+  const paragraphStarts = detectParagraphStarts(orderedLines, finalTexts, vertical, typicalCellSize)
   const flat: Word[] = []
-  for (const words of grouped) {
+  for (let i = 0; i < grouped.length; i++) {
+    const words = grouped[i]!
     if (words.length === 0) continue
-    if (flat.length > 0) flat.push({ text: '\n' })
+    if (flat.length > 0 && paragraphStarts[i]) flat.push({ text: '\n' })
     flat.push(...words)
   }
   return flat
@@ -1049,6 +1075,126 @@ export function estimateCellSizeFromIndent(lines: Rect[]): number | null {
     }
   }
   return best
+}
+
+// 담당 A — 문단 분리/불필요한 줄바꿈 정리(2026-07-31, 사용자 요청 — 일본어에서 검증한
+// 로직을 중국어 세로쓰기/가로쓰기에도 적용). ocrNdlocr.ts(일본어 NDLOCR-Lite 전용
+// 경로)의 alignColumnStarts/detectRowParagraphStarts와 같은 원리를 recognizeOrderedLines
+// (중국어가 실제로 타는 PaddleOCR 경로, zh-Hans/zh-Hant + ja 폴백 공용)에 이식한다.
+// 대사/독백 시작 기호는 두 언어가 공유(일본어 쪽 정의를 여기로 옮기고 ocrNdlocr.ts 는
+// 이 export를 import해서 씀) — 다만 이 문자 집합(「『―—)은 일본어 라이트노벨 실측으로
+// 확인된 것이라 중국어에도 그대로 맞는지는 검증되지 않았다(중국어는 간체 큰따옴표""나
+// 중국식 줄표 ——를 더 흔히 씀) — 중국어 실사용 재현 시 DEBUG_OCR_DUMP 로 재확인 필요.
+// 문턱값(SNAP_RESIDUAL_RATIO 계열)도 마찬가지로 일본어 실측 기준이라, 중국어로 다시
+// 튜닝될 수 있다는 전제로 시작한다. 세로쓰기에서 실측으로 추가했던 "이번 열이
+// 이어짐처럼 안 보여야 함" 세부 게이트(nearestMultiple<0 배제)는 특정 페이지 실측
+// 하나로 확정된 보정이라 중국어 검증 없이는 옮기지 않고, 더 보수적인 기본 sanity
+// 문턱(PARAGRAPH_SHORT_LINE_SANITY_MIN_RATIO)만 적용한다.
+export const PARAGRAPH_LEADING_MARK_RE = /^[「『―—]/
+
+const PARAGRAPH_SNAP_RESIDUAL_RATIO = 0.35
+const PARAGRAPH_SHORT_LINE_GAP_RATIO = 0.3
+const PARAGRAPH_SHORT_LINE_SANITY_MIN_RATIO = -1.5
+
+// computeBaseline/estimateCellSizeFromIndent(위, y축 전용)의 x축 버전 — 가로쓰기에서
+// "줄이 왼쪽 여백보다 오른쪽에서 시작하면 들여쓰기"를 판정하는 데 쓴다(ocrNdlocr.ts:
+// computeLeftMargin/estimateIndentWidthHorizontal 과 동일한 원리, 그쪽은 일본어
+// NDLOCR 전용 경로라 이 파일에서 다시 정의했다).
+function computeLeftMargin(bodyLines: Rect[]): number | null {
+  if (bodyLines.length < 2) return null
+  const rounded = bodyLines.map((l) => Math.round(l.x / 5) * 5)
+  const counts = new Map<number, number>()
+  for (const x of rounded) counts.set(x, (counts.get(x) ?? 0) + 1)
+  let leftMargin = rounded[0]!
+  let bestCount = 0
+  for (const [x, c] of counts) {
+    if (c > bestCount || (c === bestCount && x < leftMargin)) {
+      bestCount = c
+      leftMargin = x
+    }
+  }
+  return leftMargin
+}
+
+function estimateIndentWidthHorizontal(bodyLines: Rect[], leftMargin: number): number | null {
+  const diffs = bodyLines.map((l) => l.x - leftMargin).filter((d) => d > 5)
+  if (diffs.length === 0) return null
+  const roundedDiffs = diffs.map((d) => Math.round(d / 2) * 2)
+  const diffCounts = new Map<number, number>()
+  for (const d of roundedDiffs) diffCounts.set(d, (diffCounts.get(d) ?? 0) + 1)
+  let best = roundedDiffs[0]!
+  let bestDiffCount = 0
+  for (const [d, c] of diffCounts) {
+    if (c > bestDiffCount) {
+      bestDiffCount = c
+      best = d
+    }
+  }
+  return best
+}
+
+// 세로쓰기 "짧은 열" 신호(commonBottom, 열들의 하단 최빈값)와 가로쓰기 "짧은 줄" 신호
+// (commonRightEdge, 줄들의 오른쪽 끝 최빈값)를 같은 함수로 통합 — 방향(axis)만 다르다.
+function computeCommonEdge(bodyLines: Rect[], axis: 'bottom' | 'right'): number | null {
+  if (bodyLines.length < 2) return null
+  const edgeOf = (l: Rect): number => (axis === 'bottom' ? l.y + l.height : l.x + l.width)
+  const rounded = bodyLines.map((l) => Math.round(edgeOf(l) / 5) * 5)
+  const counts = new Map<number, number>()
+  for (const e of rounded) counts.set(e, (counts.get(e) ?? 0) + 1)
+  let commonEdge = rounded[0]!
+  let bestCount = 0
+  for (const [e, c] of counts) {
+    // 동점이면 더 큰 값(=더 많이 채워진 쪽)을 우선한다 — computeBaseline/computeLeftMargin
+    // 이 동점일 때 더 작은 값을 우선하는 것과 대칭.
+    if (c > bestCount || (c === bestCount && e > commonEdge)) {
+      bestCount = c
+      commonEdge = e
+    }
+  }
+  return commonEdge
+}
+
+/**
+ * 줄/열 배열에서 새 문단이 시작되는 지점을 판정한다. vertical=true(세로쓰기, 한 원소가
+ * 열 하나)면 y축(들여쓰기=기준선보다 아래서 시작, 짧은 열=공통 하단에 못 미침) 기준,
+ * false(가로쓰기, 한 원소가 줄 하나)면 x축(들여쓰기=왼쪽 여백보다 오른쪽에서 시작,
+ * 짧은 줄=공통 오른쪽 끝에 못 미침) 기준으로 대칭 계산한다. 신호 셋(들여쓰기/대사 기호/
+ * 짧은 이전 줄+이어짐 아닌 것 같은 이번 줄)을 OR로 결합 — ocrNdlocr.ts 의 문단 판정과
+ * 동일한 계층 구조.
+ */
+export function detectParagraphStarts(
+  orderedLines: Rect[],
+  texts: string[],
+  vertical: boolean,
+  verticalTypicalCellSize: number | null,
+): boolean[] {
+  const bodyLines = vertical ? orderedLines.filter((l) => l.height >= MIN_BODY_LINE_HEIGHT) : orderedLines
+  const baseline = vertical ? computeBaseline(bodyLines) : computeLeftMargin(bodyLines)
+  const typicalCellSize = vertical
+    ? verticalTypicalCellSize
+    : baseline !== null
+      ? estimateIndentWidthHorizontal(bodyLines, baseline)
+      : null
+  const commonEdge = computeCommonEdge(bodyLines, vertical ? 'bottom' : 'right')
+
+  return orderedLines.map((line, i) => {
+    if (i === 0) return false
+    const text = texts[i] ?? ''
+    if (PARAGRAPH_LEADING_MARK_RE.test(text)) return true
+    if (baseline === null || typicalCellSize === null) return false
+    const rawOffset = (vertical ? line.y : line.x) - baseline
+    const rawRatio = rawOffset / typicalCellSize
+    const nearestMultiple = Math.round(rawRatio)
+    const residual = rawOffset - nearestMultiple * typicalCellSize
+    if (nearestMultiple === 1 && Math.abs(residual) <= typicalCellSize * PARAGRAPH_SNAP_RESIDUAL_RATIO) {
+      return true
+    }
+    if (commonEdge === null || rawRatio < PARAGRAPH_SHORT_LINE_SANITY_MIN_RATIO) return false
+    const prev = orderedLines[i - 1]!
+    const prevEdge = vertical ? prev.y + prev.height : prev.x + prev.width
+    const shortfall = commonEdge - prevEdge
+    return shortfall > typicalCellSize * PARAGRAPH_SHORT_LINE_GAP_RATIO
+  })
 }
 
 // 미검출/미식별 구간(대시 외에도 종류가 다양함 — 물결표, 각종 강조 기호 등)을 표시할

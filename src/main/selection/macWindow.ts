@@ -142,6 +142,12 @@ export function getMacWindowBounds(windowId: number): MacWindowRect | null {
   return getWindowInfo(windowId)?.bounds ?? null
 }
 
+/** windowId 로 그 창을 소유한 앱의 PID 를 조회한다 — 접근성(AX) API 는 창이 아니라 앱
+ *  단위로 진입점을 만들기 때문에(AXUIElementCreateApplication) macAx.ts 가 필요로 한다. */
+export function getMacWindowOwnerPid(windowId: number): number | null {
+  return getWindowInfo(windowId)?.pid ?? null
+}
+
 /**
  * windowId 가 지금 최소화되지 않고 화면에(=현재 활성 데스크탑/Space 에) 보이는 상태인지
  * 확인한다 — win32 의 `IsIconic`(win32Capture.ts) 에 대응. `getMacWindowBounds`
