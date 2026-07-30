@@ -140,6 +140,8 @@ const api = {
   setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke(IPC.SETTINGS_SET, patch),
 
+  getDefaultSettings: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.SETTINGS_GET_DEFAULTS),
+
   getFrequent: (): Promise<string[]> => ipcRenderer.invoke(IPC.FREQUENT_GET),
 
   setFrequent: (list: string[]): Promise<string[]> => ipcRenderer.invoke(IPC.FREQUENT_SET, list),

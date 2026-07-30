@@ -86,6 +86,8 @@ export const IPC = {
   // 설정 / API 키 (담당 B)
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+  // 설정 화면 "기본값으로 초기화" 버튼용 — 코드에 박힌 기본값(settingsStore.ts DEFAULT_SETTINGS)을 그대로 내려준다.
+  SETTINGS_GET_DEFAULTS: 'settings:getDefaults',
   FREQUENT_GET: 'frequent:get',
   FREQUENT_SET: 'frequent:set',
   APIKEY_GET: 'apikey:get',

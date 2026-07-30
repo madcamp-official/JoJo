@@ -262,6 +262,14 @@ export function SettingsScreen() {
     window.nuance.getSettings().then(setSettingsState)
   }, [])
 
+  // 단축키/문맥 범위 섹션 "기본값으로 초기화" 버튼용 — 코드에 박힌 기본값(settingsStore.ts
+  // DEFAULT_SETTINGS)을 그대로 가져온다. 사용자가 지금 설정한 값이 아니라 앱이 원래 들고
+  // 있는 기본값으로 되돌리는 것(2026-07-30 요청 시점 기준 이미 그 값들이 "현재 값"이었음).
+  const [defaultSettings, setDefaultSettings] = useState<AppSettings | null>(null)
+  useEffect(() => {
+    window.nuance.getDefaultSettings().then(setDefaultSettings)
+  }, [])
+
   useEffect(() => {
     if (!settings) return
     if (!settings.llm) {
@@ -406,6 +414,27 @@ export function SettingsScreen() {
     // 링크를 켜면 뒤 값을 앞 값에 맞춰 통일한다.
     if (linked) void patch({ contextBytesLinked: true, contextBytesAfter: settings!.contextBytesBefore })
     else void patch({ contextBytesLinked: false })
+  }
+
+  function resetShortcuts() {
+    if (!defaultSettings) return
+    void patch({
+      modeShortcut: defaultSettings.modeShortcut,
+      settingsShortcut: defaultSettings.settingsShortcut,
+      windowSelectShortcut: defaultSettings.windowSelectShortcut,
+      windowDeselectShortcut: defaultSettings.windowDeselectShortcut,
+      manualRegionShortcut: defaultSettings.manualRegionShortcut,
+      forceOcrShortcut: defaultSettings.forceOcrShortcut,
+    })
+  }
+
+  function resetContextRange() {
+    if (!defaultSettings) return
+    void patch({
+      contextBytesBefore: defaultSettings.contextBytesBefore,
+      contextBytesAfter: defaultSettings.contextBytesAfter,
+      contextBytesLinked: defaultSettings.contextBytesLinked,
+    })
   }
 
   const aiReady = !!settings.llm && apiKey.trim().length > 0
@@ -617,7 +646,12 @@ export function SettingsScreen() {
 
       {/* 단축키 설정 */}
       <section className="settings-section">
-        <h2>단축키</h2>
+        <div className="section-header">
+          <h2>단축키</h2>
+          <button className="reset-btn" disabled={!defaultSettings} onClick={resetShortcuts}>
+            기본값으로 초기화
+          </button>
+        </div>
         <p className="desc">연필 아이콘을 눌러 원하는 키 조합으로 다시 등록할 수 있습니다.</p>
         <div className="shortcut-row">
           <span className="label">모드 전환 (일반 ↔ 선택)</span>
@@ -719,7 +753,12 @@ export function SettingsScreen() {
 
       {/* 문맥 범위(Byte) */}
       <section className="settings-section">
-        <h2>문맥 범위 (Byte)</h2>
+        <div className="section-header">
+          <h2>문맥 범위 (Byte)</h2>
+          <button className="reset-btn" disabled={!defaultSettings} onClick={resetContextRange}>
+            기본값으로 초기화
+          </button>
+        </div>
         <p className="desc">
           선택한 표현을 기준으로 앞뒤 주변 텍스트를 포함할 Byte 수를 자유롭게 지정하세요. 실제
           전달 시에는 지정한 범위에서 <b>문장이 잘리지 않도록 문장 경계까지 확장</b>됩니다.
