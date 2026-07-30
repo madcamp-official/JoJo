@@ -17,28 +17,37 @@ export function createClaudeClient(config: LlmConfig): LlmClient {
         })
       }
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': config.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: req.model,
-          max_tokens: req.maxTokens ?? 1024,
-          // temperature 는 안 보낸다(2026-07-30) — 현재 모델이 이 파라미터 자체를
-          // "deprecated for this model" 400 에러로 거부한다(실측: pronunciation/
-          // dictionary 처럼 명시적 temperature 를 보내는 요청만 매번 실패, temperature
-          // 를 아예 안 보내는 자유 질문은 정상 동작 — req.temperature 가 undefined 면
-          // JSON.stringify 가 키 자체를 생략하는 걸로 실측 확인). classifyLlmError 가
-          // 이 메시지의 "credit"/"quota" 키워드 부재로 'unknown'(원인불명 오류)으로
-          // 뭉개서 크레딧 문제처럼 보였을 뿐, 실제로는 이 파라미터 문제였다.
-          stream: true,
-          system,
-          messages: req.messages,
-        }),
-      })
+      const requestMessage = (includeTemperature: boolean): Promise<Response> =>
+        fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': config.apiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: req.model,
+            max_tokens: req.maxTokens ?? 1024,
+            ...(includeTemperature ? { temperature: req.temperature } : {}),
+            stream: true,
+            system,
+            messages: req.messages,
+          }),
+        })
+
+      let res = await requestMessage(true)
+      if (!res.ok && res.status === 400) {
+        const detail = await res.clone().text()
+        // 실측 확인(2026-07-30): claude-sonnet-5/claude-opus-5는 temperature를 "deprecated
+        // for this model" 400 invalid_request_error로 거부하는데, claude-haiku-4-5는
+        // 그대로 받아준다(GPT 5.6 세대 전체가 temperature를 거부하는 것과는 다르게, Claude는
+        // 모델 등급별로 갈림) — 이 경우에만 temperature 없이 한 번 더 시도한다. 매번
+        // 무조건 생략하지 않고 이렇게 재시도로 처리해야, temperature를 받아주는 모델(예:
+        // haiku)로 바뀌었을 때 원래 의도(판정 작업의 응답 안정성)가 그대로 산다.
+        if (detail.includes('temperature') && detail.includes('deprecated')) {
+          res = await requestMessage(false)
+        }
+      }
       await ensureOk(res, 'Claude')
 
       let full = ''
