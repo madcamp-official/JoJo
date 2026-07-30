@@ -547,9 +547,11 @@ export function PopupScreen() {
             className={
               baseCtx.language === 'ja'
                 ? 'lang-ja'
-                : baseCtx.language === 'zh-Hans' || baseCtx.language === 'zh-Hant'
-                  ? 'lang-zh'
-                  : undefined
+                : baseCtx.language === 'zh-Hans'
+                  ? 'lang-zh-hans'
+                  : baseCtx.language === 'zh-Hant'
+                    ? 'lang-zh-hant'
+                    : undefined
             }
           />
         </section>
