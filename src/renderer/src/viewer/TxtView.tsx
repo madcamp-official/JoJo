@@ -26,6 +26,7 @@ export function TxtView({
 }) {
   const paragraphs = (file.text ?? '').split(/\n{2,}/).filter((p) => p.trim())
   const scrollRef = useRef<HTMLDivElement>(null)
+  const articleRef = useRef<HTMLElement>(null)
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
   // 페이지 모드의 열 너비는 "화면 폭 − 좌우 여백"이어야 한다. 열 너비는 길이값이라
@@ -33,14 +34,20 @@ export function TxtView({
   // 열 간격을 여백의 2배로 두면 한 장 넘길 때 이동량이 정확히 화면 폭 하나가 된다
   // (열너비 + 간격 = (W−2m) + 2m = W).
   const [colWidth, setColWidth] = useState(0)
+  // 한 장 넘길 때 옮기는 거리(=화면 폭). 스크롤이 아니라 transform 으로 옮긴다 —
+  // scrollLeft 는 `scrollWidth - clientWidth` 로 클램프되는데, 전체 내용 폭이 화면 폭의
+  // 정확한 배수가 아니면 **마지막 장에서만** 그 클램프에 걸려 열 시작점에 못 맞춘다
+  // (실사용 제보: 마지막 페이지에서 왼쪽 여백만 넓어지고 오른쪽은 끝까지 붙음).
+  // transform 은 레이아웃 밖이라 클램프가 없어 모든 장이 같은 위치에 정확히 선다.
+  const [pageWidth, setPageWidth] = useState(0)
 
-  // 열 개수(=페이지 수)는 폰트 크기·창 크기에 따라 달라지므로 레이아웃이 바뀔 때마다 다시 잰다.
+  // 1단계 — 화면 폭에서 열 너비/한 장 이동거리를 정한다.
   const measure = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const per = el.clientWidth
+    setPageWidth(per)
     setColWidth(Math.max(80, per - margin * 2))
-    setTotal(per > 0 ? Math.max(1, Math.round(el.scrollWidth / per)) : 0)
   }, [margin])
 
   useEffect(() => {
@@ -58,12 +65,28 @@ export function TxtView({
     }
   }, [mode, fontSize, margin, file, measure])
 
-  // 페이지가 바뀌면 그 열이 보이도록 가로 스크롤을 옮긴다.
+  // 2단계 — 열 너비가 **실제 레이아웃에 반영된 뒤**에 페이지 수를 セン다. 한 프레임 뒤에
+  // 재는 게 핵심이다: 같은 렌더에서 바로 재면 아직 이전(또는 초기 0) 열 너비 기준이라
+  // 열이 잘게 쪼개진 상태로 계산돼 페이지 수가 부풀려진다(실측: 7장짜리가 21장으로).
+  //
+  // 재는 대상도 스크롤 컨테이너가 아니라 본문(article)이다 — 본문에는 transform 이 걸려
+  // 있는데, transform 은 그 요소 **안쪽** 스크롤 폭에는 영향을 주지 않아 어느 페이지에
+  // 있든 같은 값이 나온다(컨테이너 기준으로 재면 넘긴 만큼 값이 달라진다).
   useEffect(() => {
+    if (mode !== 'page') return
     const el = scrollRef.current
-    if (!el || mode !== 'page') return
-    el.scrollTo({ left: page * el.clientWidth, behavior: 'auto' })
-  }, [page, mode, total])
+    const art = articleRef.current
+    if (!el || !art || colWidth <= 0 || pageWidth <= 0) return
+    const id = requestAnimationFrame(() => {
+      setTotal(Math.max(1, Math.ceil((art.scrollWidth - 1) / pageWidth)))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [mode, colWidth, pageWidth, fontSize, margin, file])
+
+  // 폰트/여백이 바뀌어 전체 장수가 줄면 지금 페이지가 범위를 벗어날 수 있다.
+  useEffect(() => {
+    setPage((p) => Math.min(p, Math.max(0, total - 1)))
+  }, [total])
 
   useImperativeHandle(
     pagerRef,
@@ -82,10 +105,18 @@ export function TxtView({
   return (
     <div className={`txt-scroll${mode === 'page' ? ' paged' : ''}`} ref={scrollRef}>
       <article
+        ref={articleRef}
         className="viewer-doc"
         style={
           mode === 'page'
-            ? { fontSize, paddingLeft: margin, paddingRight: margin, columnWidth: colWidth, columnGap: margin * 2 }
+            ? {
+                fontSize,
+                paddingLeft: margin,
+                paddingRight: margin,
+                columnWidth: colWidth,
+                columnGap: margin * 2,
+                transform: `translateX(${-page * pageWidth}px)`,
+              }
             : { fontSize, paddingLeft: margin, paddingRight: margin }
         }
       >
