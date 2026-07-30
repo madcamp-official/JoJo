@@ -846,14 +846,14 @@ export function SettingsScreen() {
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="2단계(A) — 네이버 사전 지원, OCR·발음(IPA)·구글">
+                <optgroup label="2단계(A) — 네이버 사전 지원, 범용 OCR·발음(IPA)·구글">
                   {TIER2_A_CODES.map((code) => (
                     <option key={code} value={code}>
                       {languageLabel(code)}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="2단계(B) — 네이버 사전 미지원, OCR·발음(IPA)·구글">
+                <optgroup label="2단계(B) — 네이버 사전 미지원, 범용 OCR·발음(IPA)·구글">
                   {TIER2_B_CODES.map((code) => (
                     <option key={code} value={code}>
                       {languageLabel(code)}
