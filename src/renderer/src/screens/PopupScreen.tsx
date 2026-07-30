@@ -470,7 +470,12 @@ export function PopupScreen() {
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== id) return m
-          if (chunk.error) return { ...m, content: chunk.content, error: chunk.error, streaming: false }
+          if (chunk.error) {
+            return { ...m, content: chunk.content, error: chunk.error, streaming: false, progress: undefined }
+          }
+          // 진행 상황(사전 검색 단계 안내)은 본문에 섞지 않고 따로 쌓아 둔다 — 최종
+          // 결과가 오면 아래 send() 가 통째로 비운다(dictionary.ts createProgressEmitter).
+          if (chunk.meta?.progress) return { ...m, progress: [...(m.progress ?? []), chunk.content] }
           if (chunk.meta?.streaming) return { ...m, content: m.content + chunk.content }
           return m
         }),
@@ -497,7 +502,7 @@ export function PopupScreen() {
     setMessages((prev) =>
       prev.map((m) =>
         m.id === asstId
-          ? { ...m, content: result.content, error: result.error, streaming: false }
+          ? { ...m, content: result.content, error: result.error, streaming: false, progress: undefined }
           : m,
       ),
     )

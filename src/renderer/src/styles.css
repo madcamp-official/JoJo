@@ -628,6 +628,20 @@ button:disabled { cursor: not-allowed; }
 }
 @keyframes blink { 50% { opacity: 0; } }
 
+/* 사전 검색 진행 상황(어느 사전에서 검색 중/폴백 사유) — 답변 도착 전까지만 말풍선 안
+   본문 위에 흐리게 쌓인다(Chat.tsx bubble-progress). 지나간 줄은 더 흐리게, 지금
+   진행 중인 마지막 줄만 진하게 해서 "현재 단계"가 한눈에 보이게 한다. */
+.bubble-progress {
+  display: flex; flex-direction: column; gap: 1px;
+  font-size: 12.5px; line-height: 1.45; color: #6b7280; opacity: 0.75;
+  white-space: normal;
+}
+.bubble-progress .now { opacity: 1; color: #4b5563; animation: progress-pulse 1.2s ease-in-out infinite; }
+@keyframes progress-pulse { 50% { opacity: 0.45; } }
+/* 진행 로그가 보이는 동안 본문은 아직 비어 있다 — 빈 본문에 붙는 스트리밍 커서(.md::after)가
+   진행 로그 아래에서 혼자 깜빡이면 어수선해서 숨긴다. */
+.bubble-progress + .md:empty { display: none; }
+
 /* 마크다운 렌더 결과(assistant 답변) — 말풍선 안에서 기본 여백을 줄이고 폰트 크기를 통일 */
 .bubble .md { white-space: normal; }
 .bubble .md > :first-child { margin-top: 0; }
