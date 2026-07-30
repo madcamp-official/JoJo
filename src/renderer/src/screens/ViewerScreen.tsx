@@ -5,7 +5,7 @@ import { TxtView } from '../viewer/TxtView'
 import { PdfView } from '../viewer/PdfView'
 import { EpubView } from '../viewer/EpubView'
 import { useHoverHighlight } from '../viewer/useHoverHighlight'
-import { ArrowLeftIcon, MoonIcon, ScrollIcon, PageIcon, SunIcon } from './icons'
+import { ArrowLeftIcon } from './icons'
 import { PageNav } from '../viewer/PageNav'
 import { Toc, type TocEntry } from '../viewer/Toc'
 import { ListIcon } from './icons'
@@ -129,26 +129,8 @@ export function ViewerScreen() {
           {file?.name ?? '문서'}
         </span>
         <div className="viewer-controls">
-          {/* 스크롤 ↔ 페이지 전환 — 세 포맷 모두 지원한다(구현 방식만 포맷별로 다름). */}
-          <button
-            className="viewer-mode"
-            title={mode === 'page' ? '스크롤 모드로' : '페이지 모드로'}
-            onClick={() => setMode((m) => (m === 'page' ? 'scroll' : 'page'))}
-          >
-            {mode === 'page' ? <ScrollIcon /> : <PageIcon />}
-            {mode === 'page' ? '스크롤' : '페이지'}
-          </button>
-          {isReflowable && (
-            <button
-              className="viewer-theme"
-              title={dark ? '라이트 모드로' : '다크 모드로'}
-              onClick={() => setDark((v) => !v)}
-            >
-              {dark ? <SunIcon /> : <MoonIcon />}
-            </button>
-          )}
-          {/* 글자 크기·자간·줄 간격·여백·넘김 효과는 전부 이 버튼 뒤 패널로 접었다 —
-              툴바에 슬라이더를 늘어놓으면 금방 지저분해진다(사용자 요청). */}
+          {/* 읽기 방식·테마·글자 설정·넘김 효과를 전부 이 버튼 뒤 패널로 접었다 —
+              툴바에 컨트롤을 늘어놓으면 금방 지저분해진다(사용자 요청). */}
           <button
             className={`viewer-style-btn${styleOpen ? ' on' : ''}`}
             title="보기 설정"
@@ -165,6 +147,11 @@ export function ViewerScreen() {
             showTransition={mode === 'page'}
             transition={transition}
             onTransitionChange={setTransition}
+            mode={mode}
+            onModeChange={setMode}
+            showTheme={isReflowable}
+            dark={dark}
+            onDarkChange={setDark}
           />
         </div>
       </header>

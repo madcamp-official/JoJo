@@ -48,6 +48,7 @@ export function pageTurnKeyframes(t: PageTransition, dir: 'next' | 'prev'): Keyf
 }
 
 export const PAGE_TURN_TIMING: KeyframeAnimationOptions = {
-  duration: 420,
+  // 420ms 는 "넘어갔다"는 느낌이 오기 전에 끝나버렸다(사용자 요청으로 추가 완화).
+  duration: 700,
   easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
 }

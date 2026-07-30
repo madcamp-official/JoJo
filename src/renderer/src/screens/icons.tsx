@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LlmProvider } from '@shared/types'
-import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, Sun, Moon, ScrollText, Copy, List, SlidersHorizontal } from 'lucide-react'
+import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, List, SlidersHorizontal, Copy } from 'lucide-react'
 
 // 담당 B — UI 아이콘 세트 (이모지 대체용, 인라인 SVG)
 // 액션 아이콘은 currentColor 라인 스타일(Feather 계열)로 통일해 텍스트 색을 따라간다.
@@ -61,7 +61,7 @@ export function GearIcon({ size = 16 }: { size?: number }) {
 }
 
 // 메인 화면 버튼용 — 창 선택(겹친 사각형, 사용자 제공 아이콘 참고)/자체 문서 뷰어(책)/
-// 사용 설명서(물음표). Copy 아이콘은 뷰어 툴바 PageIcon 과 같은 lucide 아이콘을 공유한다.
+// 사용 설명서(물음표).
 export function FolderIcon({ size = 20 }: { size?: number }) {
   return <Copy size={size} strokeWidth={2} aria-hidden="true" />
 }
@@ -74,26 +74,9 @@ export function HelpIcon({ size = 16 }: { size?: number }) {
   return <HelpCircle size={size} strokeWidth={2} aria-hidden="true" />
 }
 
-// 뷰어 툴바용 — 뒤로가기/라이트·다크 전환.
+// 뷰어 툴바용 — 뒤로가기.
 export function ArrowLeftIcon({ size = 18 }: { size?: number }) {
   return <ArrowLeft size={size} strokeWidth={2} aria-hidden="true" />
-}
-
-export function SunIcon({ size = 16 }: { size?: number }) {
-  return <Sun size={size} strokeWidth={2} aria-hidden="true" />
-}
-
-export function MoonIcon({ size = 16 }: { size?: number }) {
-  return <Moon size={size} strokeWidth={2} aria-hidden="true" />
-}
-
-// 뷰어 읽기 모드 전환 — 스크롤(이어보기) ↔ 페이지(한 장씩).
-export function ScrollIcon({ size = 15 }: { size?: number }) {
-  return <ScrollText size={size} strokeWidth={2} aria-hidden="true" />
-}
-
-export function PageIcon({ size = 15 }: { size?: number }) {
-  return <Copy size={size} strokeWidth={2} aria-hidden="true" />
 }
 
 // 뷰어 목차 열기.

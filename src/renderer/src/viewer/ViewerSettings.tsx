@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { PageTransition } from './pager'
+import type { PageTransition, ViewerMode } from './pager'
 
 // 읽기 스타일 설정 패널 — 툴바에 슬라이더를 늘어놓으면 메뉴바가 금방 지저분해져서
 // (글자 크기/자간/줄 간격/여백/넘김 효과) 버튼 하나 뒤로 접어두고, 누를 때만 카드로 띄운다.
@@ -42,6 +42,11 @@ export function ViewerSettings({
   showTransition,
   transition,
   onTransitionChange,
+  mode,
+  onModeChange,
+  showTheme,
+  dark,
+  onDarkChange,
 }: {
   open: boolean
   onClose: () => void
@@ -51,6 +56,12 @@ export function ViewerSettings({
   showTransition: boolean
   transition: PageTransition
   onTransitionChange: (t: PageTransition) => void
+  mode: ViewerMode
+  onModeChange: (m: ViewerMode) => void
+  /** 다크 모드는 리플로우 포맷에서만 — PDF 는 원본 레이아웃을 그대로 보여준다. */
+  showTheme: boolean
+  dark: boolean
+  onDarkChange: (v: boolean) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -80,6 +91,49 @@ export function ViewerSettings({
 
   return (
     <div className="viewer-style-panel" ref={ref}>
+      <div className="style-row">
+        <span className="style-label">읽기 방식</span>
+        <div className="style-toggle">
+          <button className={mode === 'scroll' ? 'on' : ''} onClick={() => onModeChange('scroll')}>
+            스크롤
+          </button>
+          <button className={mode === 'page' ? 'on' : ''} onClick={() => onModeChange('page')}>
+            페이지
+          </button>
+        </div>
+      </div>
+
+      {showTheme && (
+        <div className="style-row">
+          <span className="style-label">테마</span>
+          <div className="style-toggle">
+            <button className={!dark ? 'on' : ''} onClick={() => onDarkChange(false)}>
+              라이트
+            </button>
+            <button className={dark ? 'on' : ''} onClick={() => onDarkChange(true)}>
+              다크
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showTransition && (
+        <div className="style-row">
+          <span className="style-label">넘김 효과</span>
+          {/* 선택지가 둘뿐이라 드롭다운 대신 좌우로 붙은 토글이 더 빠르고 깔끔하다. */}
+          <div className="style-toggle">
+            <button className={transition === 'none' ? 'on' : ''} onClick={() => onTransitionChange('none')}>
+              없음
+            </button>
+            <button className={transition === 'slide' ? 'on' : ''} onClick={() => onTransitionChange('slide')}>
+              슬라이딩
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(showTextStyle || showTransition) && <div className="style-divider" />}
+
       {showTextStyle &&
         rows.map((row) => {
           const lim = STYLE_LIMITS[row.key]
@@ -106,29 +160,6 @@ export function ViewerSettings({
         <p className="style-note">PDF는 원본 레이아웃을 그대로 보여줘서 글자 설정이 없어요.</p>
       )}
 
-      {showTransition && (
-        <>
-          <div className="style-divider" />
-          <div className="style-row">
-            <span className="style-label">넘김 효과</span>
-            {/* 선택지가 둘뿐이라 드롭다운 대신 좌우로 붙은 토글이 더 빠르고 깔끔하다. */}
-            <div className="style-toggle">
-              <button
-                className={transition === 'none' ? 'on' : ''}
-                onClick={() => onTransitionChange('none')}
-              >
-                없음
-              </button>
-              <button
-                className={transition === 'slide' ? 'on' : ''}
-                onClick={() => onTransitionChange('slide')}
-              >
-                슬라이딩
-              </button>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   )
 }
