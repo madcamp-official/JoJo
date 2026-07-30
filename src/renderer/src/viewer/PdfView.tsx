@@ -12,6 +12,59 @@ import type { PDFPageProxy, PageViewport } from 'pdfjs-dist'
 
 const SCALE = 1.5
 
+/**
+ * pdf.js 텍스트 레이어의 span 들을 "화면상 한 줄" 단위로 묶어 `.pdf-line` 으로 감싼다.
+ *
+ * pdf.js 는 글꼴·자간이 바뀌는 지점마다 span 을 새로 만들기 때문에 한 단어가 두 span 으로
+ * 쪼개지는 경우가 있다(실측: "…Oxford ox2 6" + "dp", "…controlled-" + "U"). span 하나를
+ * 문단으로 취급하면 그 단어가 서로 다른 호버박스로 갈라진다 — macOS AX PDF 경로에서
+ * 먼저 겪은 것과 같은 증상이다(TODO.md: "pantries"→"pantrie"+"s").
+ *
+ * AX 경로는 줄 경계 정보가 없어 "앞뒤가 둘 다 공백이 아니면 같은 단어"라는 휴리스틱을
+ * 썼지만, 여기서는 각 span 의 실제 좌표가 있으므로 **세로로 겹치는지**로 정확히 가른다
+ * (실측: 같은 줄 3건 / 다른 줄 172건으로 깔끔하게 갈림). 한 줄을 통째로 감싸두면
+ * 줄 안에서는 텍스트가 이어지므로 쪼개진 단어가 자연히 하나로 합쳐지고, 줄 사이에만
+ * 개행이 들어간다(extractArticleText 가 문단 사이에 넣는 '\n').
+ *
+ * 감싸는 div 는 위치를 지정하지 않는다(static) — span 들은 `.textLayer`(position:relative)
+ * 기준으로 절대배치돼 있어서, 위치 없는 래퍼를 끼워도 좌표가 그대로 유지된다.
+ */
+function groupSpansIntoLines(textLayerEl: HTMLElement): void {
+  const spans = Array.from(textLayerEl.children).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && el.tagName === 'SPAN',
+  )
+  if (spans.length === 0) return
+
+  const lines: HTMLElement[][] = []
+  let current: HTMLElement[] = []
+  let currentRect: DOMRect | null = null
+
+  for (const span of spans) {
+    const rect = span.getBoundingClientRect()
+    if (currentRect && sameVisualLine(currentRect, rect)) {
+      current.push(span)
+    } else {
+      if (current.length > 0) lines.push(current)
+      current = [span]
+    }
+    currentRect = rect
+  }
+  if (current.length > 0) lines.push(current)
+
+  for (const line of lines) {
+    const wrapper = textLayerEl.ownerDocument.createElement('div')
+    wrapper.className = 'pdf-line'
+    line[0]!.before(wrapper)
+    for (const span of line) wrapper.appendChild(span)
+  }
+}
+
+/** 두 사각형이 세로로 절반 이상 겹치면 같은 줄로 본다. */
+function sameVisualLine(a: DOMRect, b: DOMRect): boolean {
+  const overlap = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+  return overlap / Math.max(1, Math.min(a.height, b.height)) > 0.5
+}
+
 export function PdfView({
   file,
   mode,
@@ -89,6 +142,7 @@ export function PdfView({
             viewport: slot.viewport,
           })
           await textLayer.render()
+          groupSpansIntoLines(slot.textLayerEl)
         }
       } catch (e) {
         if (!cancelled) setError((e as Error).message)

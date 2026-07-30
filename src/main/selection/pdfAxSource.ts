@@ -1,8 +1,7 @@
 import type { AnyLanguage, Word } from '@shared/types'
 import { detectSupportedLanguage, resolveCjkLanguage } from '@shared/languageDetect'
 import { unionRects } from '@shared/wordMapping'
-import { segmentChineseWords } from '../nlp/chinese'
-import { segmentJapaneseWords } from '../nlp/japanese'
+import { segmentCjkText } from '../nlp/segmentCjk'
 import { getLanguageOverride } from '../settingsStore'
 import { getSelectedWindowId, getSelectedWindowName } from './capture'
 import { commitDirectExtraction } from './extractionCache'
@@ -95,10 +94,9 @@ function splitBySpace(line: string): Token[] {
 /** CJK — 형태소 분석 경계로 자른다. 분석기가 못 덮은 구간(공백/기호 등)은 그대로 남겨
  *  역시 불변조건을 지킨다. */
 async function splitByMorpheme(line: string, lang: 'ja' | 'zh-Hans' | 'zh-Hant'): Promise<Token[]> {
-  const segments =
-    lang === 'ja'
-      ? (await segmentJapaneseWords(line)).map((t) => ({ start: t.start, end: t.end }))
-      : (await segmentChineseWords(line, lang)).map((w) => ({ start: w.start, end: w.end }))
+  // 분할 자체는 확장(자막·웹 문단)·자체 뷰어와 같은 소스를 쓴다 — 경로마다 다른 기준으로
+  // 쪼개면 같은 문장인데 호버로 묶이는 단위가 갈린다(segmentCjk.ts 주석 참고).
+  const segments = await segmentCjkText(line, lang)
   const sorted = segments.filter((s) => s.end > s.start).sort((a, b) => a.start - b.start)
   const tokens: Token[] = []
   let cursor = 0

@@ -216,12 +216,40 @@ export function extractWordsAndText(root: HTMLElement): WordsAndText {
       if ((node as Element).tagName === 'BR') text += '\n'
     } else {
       const t = node as Text
-      words.push(...wordsFromTextNode(t, text.length))
+      const nodeWords = wordsFromTextNode(t, text.length)
+      mergeAcrossNodeBoundary(words, nodeWords)
+      words.push(...nodeWords)
       text += t.textContent ?? ''
     }
     node = walker.nextNode()
   }
   return { text, words }
+}
+
+/**
+ * 토큰화는 텍스트 노드 하나씩 따로 하므로(wordsFromTextNode), 한 단어가 두 노드에 걸쳐
+ * 있으면 두 단어로 갈라진다. 노드 사이에 공백조차 없이 딱 붙어 있다면 그건 원래 한
+ * 단어였다는 뜻이라 여기서 다시 합친다(좌표는 두 조각의 합집합).
+ *
+ * PDF 뷰어에서 실제로 문제가 됐다 — pdf.js 는 글꼴·자간이 바뀌는 지점마다 span 을 새로
+ * 만들어서 "6dp" 가 "6"+"dp" 두 span 으로 쪼개지고, 호버박스도 따로 떴다. 웹페이지에서도
+ * `<b>hob</b>bit` 같은 마크업이면 같은 증상이 나던 잠재 버그다.
+ *
+ * **CJK 는 제외한다** — CJK 는 의도적으로 한 글자씩 쪼개 두고(형태소 분석 결과가 온 뒤
+ * 다시 묶는 구조라) 여기서 붙이면 그 설계가 깨진다. 공백도 제외(진짜 경계).
+ */
+function mergeAcrossNodeBoundary(words: SubWord[], nodeWords: SubWord[]): void {
+  const prev = words[words.length - 1]
+  const next = nodeWords[0]
+  if (!prev || !next) return
+  if (prev.end !== next.start) return // 사이에 뭔가 있었다 = 원래 다른 단어
+  if (!prev.text.trim() || !next.text.trim()) return
+  if (CJK_CHAR_RE.test(prev.text) || CJK_CHAR_RE.test(next.text)) return
+
+  const rect = unionRects([prev.rect, next.rect])
+  if (!rect) return
+  words[words.length - 1] = { text: prev.text + next.text, start: prev.start, end: next.end, rect }
+  nodeWords.shift()
 }
 
 /** 하위 호환 — 단어 사각형만 필요한 호출부용. 가능하면 extractWordsAndText 를 직접 써서
