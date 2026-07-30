@@ -39,6 +39,10 @@ function combine(group: JaToken[]): JaToken {
     pos: first.pos,
     posDetail1: first.posDetail1,
     start: first.start,
+    // 어간(첫 토큰)의 baseForm 을 그대로 들고 간다 — 병합된 atom 이 곧 사전 조회 단위이므로
+    // (popup/selection.ts wordsFromAtoms), 여기서 버리면 dictionary.ts 가 기본형을 구하려고
+    // 같은 텍스트를 또 형태소 분석해야 했다(TODO.md 239번).
+    baseForm: first.baseForm,
   }
 }
 

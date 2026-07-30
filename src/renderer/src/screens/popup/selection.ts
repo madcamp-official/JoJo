@@ -28,6 +28,9 @@ import { WORD_ATOM_PATTERN } from '@shared/wordTokenize'
 export interface Atom {
   start: number
   end: number
+  /** ja 활용형의 사전 기본형(atomsFromMergedTokens 가 병합된 토큰의 baseForm 을 그대로
+   *  옮겨둠) — wordsFromAtoms 가 이 값을 Word.baseForm 으로 실어 dictionary.ts 로 넘긴다. */
+  baseForm?: string
 }
 
 export interface PopupSelectionModel {
@@ -305,7 +308,7 @@ function atomsFromMergedTokens(jaResult: JaTokenizeResult): Atom[] {
   const atoms: Atom[] = []
   for (const t of mergeJaTokensForEngine(jaResult)) {
     if (!SELECTABLE_CONTENT_RE.test(t.surface)) continue
-    atoms.push({ start: t.start, end: t.start + t.surface.length })
+    atoms.push({ start: t.start, end: t.start + t.surface.length, baseForm: t.baseForm })
   }
   return atoms
 }
@@ -514,7 +517,7 @@ export function buildSelectionModel(
  *  재사용하기만 하면 된다.
  */
 function wordsFromAtoms(displayText: string, atoms: Atom[]): Word[] {
-  return atoms.map((a) => ({ text: displayText.slice(a.start, a.end) }))
+  return atoms.map((a) => ({ text: displayText.slice(a.start, a.end), baseForm: a.baseForm }))
 }
 
 /**

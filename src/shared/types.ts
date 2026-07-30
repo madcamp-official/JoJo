@@ -118,6 +118,11 @@ export interface Word {
    * 에 쓰인다. 추출 경로가 줄 정보를 안 주면(예: direct 추출) 비어있을 수 있고, 그 경우
    * 해당 단어 하나만의 범위로 폴백한다. */
   lineId?: string
+  /** 일본어 활용형의 사전 기본형(예: "向かった" → "向かう") — 팝업이 atom 병합 시 이미
+   * 형태소 분석(TOKENIZE_JA)을 거쳐뒀으므로 그 결과를 실어 보낸다. dictionary.ts 가 사전
+   * 조회용 기본형을 구하려고 같은 텍스트를 sudachi/lindera 에 또 넣지 않도록 재사용
+   * (TODO.md 239번, 2026-07-30). ja 가 아니거나 활용이 없으면 undefined. */
+  baseForm?: string
 }
 
 export type SourceKind =
