@@ -849,7 +849,11 @@ html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hid
 
 /* 세로만 스크롤한다 — 페이지는 가운데 정렬이라 가로로 넘길 일이 없는데, 확대 등으로
    잠깐 넘치면 아래쪽에 쓸데없는 가로 스크롤바가 생긴다(사용자 지적). */
-.viewer-body { flex: 1; overflow-x: hidden; overflow-y: auto; position: relative; }
+.viewer-body {
+  flex: 1; overflow-x: hidden; overflow-y: auto; position: relative;
+  /* 툴바가 뜨고 지는 것과 같은 속도로 내려갔다 올라온다(ViewerScreen: marginTop). */
+  transition: margin-top 0.22s ease;
+}
 /* 스크롤 모드의 스크롤바는 여기 하나뿐이고, 이 요소가 창 폭 전체라 그대로 창 맨
    오른쪽에 붙는다(사용자 요청). 본문 여백을 아무리 넓혀도 스크롤바는 따라 들어오지
    않는다 — 여백은 안쪽 .viewer-doc 이 갖기 때문이다.
