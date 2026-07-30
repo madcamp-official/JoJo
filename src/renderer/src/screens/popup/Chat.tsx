@@ -48,9 +48,12 @@ interface Props {
   messages: ChatMessage[]
   onSend: (prompt: string) => void
   busy: boolean
+  /** 원문 언어에 맞는 번들 폰트 클래스(lang-ja/lang-zh-hans/lang-zh-hant, PopupScreen.tsx
+   *  langFontClassName) — ContextView와 자형을 통일하기 위해 그대로 전달받는다. */
+  className?: string
 }
 
-export function Chat({ messages, onSend, busy }: Props) {
+export function Chat({ messages, onSend, busy, className }: Props) {
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -67,7 +70,7 @@ export function Chat({ messages, onSend, busy }: Props) {
   }
 
   return (
-    <div className="chat">
+    <div className={`chat ${className ?? ''}`}>
       <div className="chat-log" ref={scrollRef}>
         {messages.length === 0 && (
           <p className="chat-empty">선택한 표현에 대해 궁금한 점을 물어보세요.</p>

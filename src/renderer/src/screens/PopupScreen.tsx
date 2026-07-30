@@ -544,15 +544,7 @@ export function PopupScreen() {
             onChange={(from, to) => updateRange(from, to)}
             charLevel={charLevel}
             dir={isRtlLanguage(baseCtx.language) ? 'rtl' : 'ltr'}
-            className={
-              baseCtx.language === 'ja'
-                ? 'lang-ja'
-                : baseCtx.language === 'zh-Hans'
-                  ? 'lang-zh-hans'
-                  : baseCtx.language === 'zh-Hant'
-                    ? 'lang-zh-hant'
-                    : undefined
-            }
+            className={langFontClassName(baseCtx.language)}
           />
         </section>
 
@@ -572,7 +564,7 @@ export function PopupScreen() {
           onToggleForceSource={setForceSource}
         />
 
-        <Chat messages={messages} onSend={ask} busy={busy} />
+        <Chat messages={messages} onSend={ask} busy={busy} className={langFontClassName(baseCtx.language)} />
 
         <FrequentQuestions items={frequent} onAsk={ask} onChange={updateFrequent} disabled={busy} />
       </div>
@@ -615,4 +607,21 @@ function languageSourceLabel(isManual: boolean): string {
 // 2026-07-30 결정) 토글 없이 항상 글자 단위다 — buildSelectionModel/selection.ts 참고.
 function isCjkLikeLanguage(lang: ExtractedSelection['language']): boolean {
   return lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant'
+}
+
+// 일본어/중국어는 body 기본 폰트(Noto Sans KR)에 가나/한자 글리프가 없어 OS 시스템 폰트로
+// 폴백되는데, 원문 문맥(ContextView)만 이 클래스로 번들 Noto Sans JP/SC/TC를 명시하고
+// 채팅(LLM 응답)은 빠져 있어 같은 팝업 안에서 자형이 서로 달라 보이는 문제가 있었다
+// (2026-07-30 사용자 지적) — 채팅에도 같은 클래스를 적용해 통일한다.
+function langFontClassName(lang: ExtractedSelection['language']): string | undefined {
+  switch (lang) {
+    case 'ja':
+      return 'lang-ja'
+    case 'zh-Hans':
+      return 'lang-zh-hans'
+    case 'zh-Hant':
+      return 'lang-zh-hant'
+    default:
+      return undefined
+  }
 }

@@ -448,15 +448,18 @@ button:disabled { cursor: not-allowed; }
    넘어가 버린다. 언어별 전용 Noto Sans(JP/SC/TC)로 명시해서 항상 앱이 번들링한
    폰트로 그려지게 한다(2026-07-30). 중국어는 간체(zh-Hans)/번체(zh-Hant)가 같은
    유니코드 코드포인트라도 자형이 다르게 그려져야 해서(한자통합) 클래스와 폰트를
-   둘로 나눈다 — PopupScreen.tsx 가 baseCtx.language 에 따라 lang-zh-hans/lang-zh-hant
-   중 하나를 붙인다. */
-.ctx-text.lang-ja {
+   둘로 나눈다 — PopupScreen.tsx의 langFontClassName()이 baseCtx.language에 따라
+   lang-ja/lang-zh-hans/lang-zh-hant 중 하나를 붙인다. **채팅(.chat)도 원문 문맥
+   (.ctx-text)과 같은 클래스를 공유한다(2026-07-30 추가)** — 처음엔 .ctx-text에만
+   적용했다가, LLM 응답 안 일본어/중국어 단어가 OS 시스템 폰트로 떨어져 같은 팝업 안에서
+   원문과 자형이 달라 보인다는 사용자 지적으로 채팅에도 확장. */
+.ctx-text.lang-ja, .chat.lang-ja {
   font-family: 'Noto Sans JP', sans-serif;
 }
-.ctx-text.lang-zh-hans {
+.ctx-text.lang-zh-hans, .chat.lang-zh-hans {
   font-family: 'Noto Sans SC', sans-serif;
 }
-.ctx-text.lang-zh-hant {
+.ctx-text.lang-zh-hant, .chat.lang-zh-hant {
   font-family: 'Noto Sans TC', sans-serif;
 }
 /* .ctx-text 어디에도 user-select: none 을 두지 않는다 — Chromium 은 user-select: none
