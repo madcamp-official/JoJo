@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { CaptureSource } from '@shared/types'
 import { goto } from '../navigate'
-import { GearIcon } from './icons'
+import { BookIcon, FolderIcon, GearIcon, HelpIcon } from './icons'
 
-// 메인 화면 (PLAN.md §4 화면 구성) — 중앙 [창 선택] + 우상단 설정 아이콘.
-// [담당 A] 창 선택 버튼 → 같은 창 안에서 피커 화면으로 전환(goto), 선택 완료 시 App 이 통지받는다.
+// 메인 화면 (PLAN.md §4 화면 구성) — 제목 + 두 진입점(창 선택 / 자체 문서 뷰어) +
+// 사용 설명서 링크, 우상단 설정 아이콘.
+// [담당 A] 창 선택 → 같은 창 안에서 피커 화면으로 전환(goto), 선택 완료 시 App 이 통지받는다.
 export function MainScreen({ selected }: { selected: CaptureSource | null }) {
   // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열이
   // 안 끝난 상태에서 창을 고르면, 선택 모드 진입 시 그 예열 대기(첫 호출 8~20초+)를
@@ -22,38 +23,31 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
       <button className="icon-btn settings" title="설정" onClick={() => goto('settings')}>
         <GearIcon size={22} />
       </button>
+
       <div className="center">
-        <button className="primary" disabled={!warmedUp} onClick={() => goto('picker')}>
-          창 선택
-        </button>
-        {/* 자체 문서 뷰어 — pdf/epub/txt 를 Nuance 안에서 직접 열어 본다. 외부 뷰어와 달리
-            텍스트·좌표를 우리가 직접 계산하므로 OCR 없이 바로 호버박스가 뜬다. */}
-        <button className="primary" onClick={() => void window.nuance.openDocumentFile()}>
-          파일 열기
-        </button>
+        <h1 className="brand">Nuance</h1>
+
+        <div className="main-actions">
+          <button className="action primary" disabled={!warmedUp} onClick={() => goto('picker')}>
+            <FolderIcon />
+            창 선택
+          </button>
+          {/* 자체 문서 뷰어 — 외부 뷰어와 달리 텍스트·좌표를 우리가 직접 계산하므로
+              OCR 없이 바로 호버박스가 뜬다(OCR 예열과 무관해 항상 활성). */}
+          <button className="action secondary" onClick={() => void window.nuance.openDocumentFile()}>
+            <BookIcon />
+            PDF / EPUB / TXT 뷰어
+          </button>
+        </div>
+
         {!warmedUp && <p className="hint">텍스트 인식 엔진을 준비하는 중이에요…</p>}
         {selected && <p className="hint">선택됨: {selected.name}</p>}
 
-        {/* 데모 패널(담당 B) — 담당 A 선택 파이프라인 통합 전, 언어별 팝업 미리보기.
-            버튼 중앙 정렬에 영향 안 주도록 절대 위치로 오른쪽에 붙여둠 — 통합 후엔
-            선택 확정 시 자동으로 팝업이 뜨므로, 이 div 블록 전체만 지우면 제거 끝. */}
-        <div className="demo-panel">
-          <button className="link-btn demo" onClick={() => window.nuance.openPopup('hobbit')}>
-            🔍 팝업 미리보기 (영어: well-to-do)
-          </button>
-          <button className="link-btn demo" onClick={() => window.nuance.openPopup('en-bank')}>
-            🔍 팝업 미리보기 (영어 동음이의어: bank)
-          </button>
-          <button className="link-btn demo" onClick={() => window.nuance.openPopup('ja')}>
-            🔍 팝업 미리보기 (일본어: 新大橋)
-          </button>
-          <button className="link-btn demo" onClick={() => window.nuance.openPopup('zh-Hans')}>
-            🔍 팝업 미리보기 (중국어(간체): 天线)
-          </button>
-          <button className="link-btn demo" onClick={() => window.nuance.openPopup('zh-Hant')}>
-            🔍 팝업 미리보기 (중국어(번체): 行)
-          </button>
-        </div>
+        {/* TODO: 사용 설명서 링크 연결(지금은 UI 만) */}
+        <button className="manual-link" type="button">
+          <HelpIcon />
+          사용 설명서 보기
+        </button>
       </div>
     </div>
   )

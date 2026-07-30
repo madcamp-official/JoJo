@@ -70,20 +70,33 @@ button:disabled { cursor: not-allowed; }
   font-size: 22px; line-height: 1; padding: 4px;
 }
 .main-screen .icon-btn.settings:hover { opacity: 0.7; }
-.main-screen .center { text-align: center; position: relative; }
-.main-screen .primary {
-  padding: 18px 40px; font-size: 18px; color: var(--theme-text);
-  background: var(--theme); border: none; border-radius: 12px; cursor: pointer;
+.main-screen .center { text-align: center; }
+
+.main-screen .brand {
+  margin: 0 0 48px; font-size: 64px; font-weight: 800;
+  letter-spacing: -0.02em; color: var(--theme);
 }
-.main-screen .primary:disabled { opacity: 0.5; }
-.main-screen .hint { color: #94a3b8; }
-/* 데모 패널(2026-07-30) — 절대 위치라 .center 의 콘텐츠 폭 계산(=버튼 중앙 정렬)에
-   영향을 주지 않는다. .center 가 position:relative 라 left:100% 는 그 박스 오른쪽
-   바로 바깥을 뜻한다 — 이 블록을 지우려면 위 JSX .demo-panel div + 이 규칙만 지우면 됨. */
-.main-screen .demo-panel {
-  position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
-  margin-left: 24px; text-align: left; white-space: nowrap;
+
+/* 두 진입점 — 창 선택(주)과 자체 문서 뷰어(보조)를 나란히. */
+.main-screen .main-actions { display: flex; gap: 24px; justify-content: center; }
+.main-screen .action {
+  display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 20px 36px; font: inherit; font-size: 18px; font-weight: 600;
+  border-radius: 14px; cursor: pointer; border: 2px solid var(--theme);
 }
+.main-screen .action.primary { color: var(--theme-text); background: var(--theme); }
+.main-screen .action.secondary { color: var(--theme); background: transparent; }
+.main-screen .action.secondary:hover { background: var(--theme-weak); }
+.main-screen .action:disabled { opacity: 0.5; cursor: default; }
+
+.main-screen .hint { color: #94a3b8; margin: 20px 0 0; }
+
+.main-screen .manual-link {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 56px;
+  background: none; border: none; padding: 4px; cursor: pointer;
+  font: inherit; font-size: 15px; color: var(--theme);
+}
+.main-screen .manual-link:hover { text-decoration: underline; }
 
 .overlay-root {
   position: fixed; inset: 0; width: 100vw; height: 100vh;
