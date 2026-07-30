@@ -154,11 +154,10 @@ function requestTogglePdfExtraction(): void {
     return
   }
   abandonInFlightExtraction()
-  startPdfAxMode(() => {
-    // 되돌아간 화면에도 마침 텍스트가 없으면(예: 삽화 페이지에서 눌렀다면) 조용히 다시
-    // OCR로 — webSource.ts onInsufficientText 와 동일한 "실패하면 원래대로" 원칙.
-    startOcrFallback(epoch)
-  })
+  // treatMissingTextAsFailure:false — 사용자가 명시적으로 direct 모드를 요청한 것이므로,
+  // 지금 화면에 텍스트가 없어도 조용히 OCR로 되돌리지 않는다(사용자 요청, 2026-07-30).
+  // onUnavailable은 AX 자체가 안 되는 경우(권한 없음 등)에만 호출된다 — 그때만 OCR로.
+  startPdfAxMode(() => startOcrFallback(epoch), { treatMissingTextAsFailure: false })
 }
 
 /**

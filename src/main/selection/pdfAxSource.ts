@@ -130,7 +130,14 @@ interface AxExtraction {
   language: AnyLanguage
 }
 
-/** 화면에 보이는 페이지 전체를 읽어 OCR 결과와 같은 형태({text, words})로 만든다. */
+/**
+ * 화면에 보이는 페이지 전체를 읽어 OCR 결과와 같은 형태({text, words})로 만든다. 여기서는
+ * 텍스트 양을 따지지 않는다 — 글자 하나만 있어도 그대로 반환한다(사용자 요청, 2026-07-30
+ * — "텍스트가 적다면 그냥 그 적은 텍스트를 추출해서 걔만 호버박스 띄우면 된다"). "이 문서를
+ * 통째로 direct 로 볼지 OCR 로 볼지" 판단(MIN_AX_TEXT_LENGTH 기준)은 이 함수의 일이 아니라
+ * refresh() 가 최초 판정 시점에만 별도로 한다 — 그래야 이미 direct 모드로 들어온 뒤에는
+ * 텍스트가 적은 페이지(예: 페이지 번호 하나)에서도 있는 만큼 호버박스가 뜬다.
+ */
 async function extractOnce(windowId: number): Promise<AxExtraction | null> {
   const pages = readVisiblePages(windowId)
   if (!pages || pages.length === 0) return null
@@ -152,7 +159,7 @@ async function extractOnce(windowId: number): Promise<AxExtraction | null> {
   }
 
   const text = words.map((w) => w.text).join('')
-  if (text.trim().length < MIN_AX_TEXT_LENGTH) return null
+  if (!text.trim()) return null // 글자가 전혀 없음(순수 삽화 페이지 등) — 진짜 빈 결과
   const language = getLanguageOverride() ?? detectSupportedLanguage(text) ?? 'en'
   return { text, words, language }
 }
@@ -179,7 +186,12 @@ async function refresh(myEpoch: number, windowId: number, isInitialDecision: boo
   try {
     const result = await extractOnce(windowId)
     if (myEpoch !== epoch) return false // 그 사이 모드가 꺼졌거나 재시작됨 — 결과 폐기
-    if (!result) {
+    // MIN_AX_TEXT_LENGTH 는 "이 문서를 통째로 direct 로 볼지"를 정하는 최초 판정에서만
+    // 쓴다 — 페이지 번호 한둘처럼 짧은 텍스트만 있어도 이미 direct 모드로 들어온 뒤라면
+    // (isInitialDecision=false) 그 적은 텍스트 그대로 호버박스를 띄운다(사용자 요청,
+    // 2026-07-30 — "텍스트가 적다면 그냥 그 적은 텍스트를 추출해서 걔만 호버박스 띄우면
+    // 된다"). extractOnce() 자체는 이 기준을 모른다(글자가 하나라도 있으면 항상 반환).
+    if (!result || (isInitialDecision && result.text.trim().length < MIN_AX_TEXT_LENGTH)) {
       if (isInitialDecision) return false // 호출부가 OCR 폴백 여부를 결정
       // 세션 도중의 "텍스트 없음"은 문서 재판정이 아니라 이 페이지만의 특성으로 본다.
       commitDirectExtraction({
@@ -221,8 +233,16 @@ async function refresh(myEpoch: number, windowId: number, isInitialDecision: boo
  * onInsufficientText 와 같은 역할. 이 판정은 문서당 한 번만 내려지고 세션 도중에는
  * 재판정하지 않는다(위 refresh() 주석 참고) — 삽화 페이지로 스크롤해도 OCR 로 전환되지
  * 않고, 그 페이지에 호버박스가 없을 뿐 계속 direct 모드로 남는다.
+ *
+ * `treatMissingTextAsFailure=false`(shortcut.ts의 수동 "텍스트 추출로 전환" 토글 전용)면
+ * 첫 화면에 텍스트가 없어도 실패로 보지 않는다 — 사용자가 명시적으로 direct 모드를
+ * 요청한 것이므로, 텍스트가 없으면 그냥 호버박스 없이 대기하고 조용히 OCR 로 넘어가지
+ * 않는다(사용자 요청, 2026-07-30 — "조용히 OCR로 넘어가면 안 돼, 텍스트 없으면 그냥
+ * 호버박스만 안 띄우면 돼"). AX 자체가 안 되는 경우(권한 없음/대상 창 정보 없음)는 이
+ * 옵션과 무관하게 항상 onUnavailable 을 호출한다 — "텍스트 없음"과 달리 대안이 없다.
  */
-export function startPdfAxMode(onUnavailable: () => void): void {
+export function startPdfAxMode(onUnavailable: () => void, opts?: { treatMissingTextAsFailure?: boolean }): void {
+  const treatMissingTextAsFailure = opts?.treatMissingTextAsFailure ?? true
   // 이전 세션의 폴링 타이머가 남아있으면(모드를 껐다 바로 다시 켠 경우 등) 먼저 정리한다
   // — stopPdfAxMode() 는 호출 시점에 active 였을 때만 clearInterval 하므로, 그 전에
   // 놓친 타이머가 있으면 `active` 가드로 조용히 no-op 만 반복하며 영원히 살아있었다.
@@ -238,7 +258,7 @@ export function startPdfAxMode(onUnavailable: () => void): void {
   }
   active = true
   lastSignature = readScrollSignature(windowId)
-  void refresh(myEpoch, windowId, true).then((ok) => {
+  void refresh(myEpoch, windowId, treatMissingTextAsFailure).then((ok) => {
     if (myEpoch !== epoch) return
     if (!ok) {
       stopPdfAxMode()
