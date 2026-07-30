@@ -848,6 +848,12 @@ html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hid
   transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s;
 }
 .viewer-screen.dark .viewer-toolbar { background: #1f2430; }
+/* 포커스 링을 없앤다 — 화살표 버튼을 한 번 누르면 OS 강조색(맥에서는 노랑) 테두리가
+   남아 읽는 내내 눈에 띈다(사용자 지적). 뷰어는 키보드 조작이 방향키 하나뿐이고 그건
+   포커스와 무관하게 창 전역에서 받으므로, 링이 없어도 조작에 지장이 없다. */
+.viewer-screen button:focus,
+.viewer-screen button:focus-visible { outline: none; box-shadow: none; }
+
 /* 읽는 동안 화면을 가리지 않게 평소엔 숨긴다 — 커서를 창 위쪽으로 가져가면 다시 뜬다
    (ViewerScreen: TOOLBAR_REVEAL_PX). 자리를 계속 차지하도록 visibility 로만 감춰서,
    나타났다 사라질 때 본문이 위아래로 밀리지 않는다. */
