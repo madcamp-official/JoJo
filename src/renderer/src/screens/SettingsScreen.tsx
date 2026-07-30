@@ -707,6 +707,9 @@ export function SettingsScreen() {
           {IS_MAC
             ? 'Cmd·Ctrl·Opt·Shift 중 최소 하나를 포함한 키 조합, 또는 F1~F12 단독 키를 등록할 수 있습니다.'
             : 'Ctrl·Alt·Shift 중 최소 하나를 포함한 키 조합, 또는 F1~F12 단독 키를 등록할 수 있습니다.'}
+          {' '}Shift만 걸고 문자 키를 조합하면(예: Shift+T) 그 문자 입력을 가로채 타이핑이 깨지므로 등록할 수 없고,
+          다른 단축키와 겹치거나 OS·다른 앱의 필수 단축키({IS_MAC ? 'Cmd+Q, Cmd+Space 등' : 'Alt+F4, Ctrl+C 등'})와
+          겹치는 조합도 등록이 막히고 이유가 안내됩니다.
         </p>
         {shortcutError && (
           <div className="settings-warning">
