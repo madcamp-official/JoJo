@@ -64,15 +64,43 @@ function fullImageRect(image: Buffer): Rect {
   return { x: 0, y: 0, width, height }
 }
 
-// 개발 전용 디버그(사용자 요청, 2026-07-29) — 가장 최근 runOcr() 호출이 실제로 인식에
-// 넘긴 블록/열 경계. extractionCache.ts 가 이걸 읽어 오버레이에 반투명 사각형으로
-// 보여준다(캡처 이미지 기준 물리 픽셀 좌표 — words 와 마찬가지로 오버레이에 보내기
-// 전 DIP 보정이 필요하다). 크로스플랫폼 — 이 값 자체는 순수 JS 라 플랫폼과 무관하다.
+// 담당 A — 실사용 시각화용(2026-07-31 재설계, 사용자 요청 — 원래 2026-07-29 개발 전용
+// 디버그였다가 자동 탐지 결과 표시로 바뀐 데 이어, 이번엔 "텍스트로 탐지된 영역"을 매
+// 추출마다 3초간 노란 점선 사각형으로 보여주는 실사용 기능이 됐다). 가장 최근 runOcr()
+// 호출이 실제로 인식에 넘긴 열/블록 경계 — extractionCache.ts 가 이걸 읽어 오버레이에
+// 보여준다(캡처 이미지 기준 물리 픽셀 좌표 — words 와 마찬가지로 오버레이에 보내기 전
+// DIP 보정이 필요하다). 크로스플랫폼 — 이 값 자체는 순수 JS 라 플랫폼과 무관하다.
+//
+// 각 사각형은 DocLayout(또는 region 폴백)이 잡은 "블록 경계"를 그대로 쓰지 않고, 실제
+// 인식된 단어들의 bbox 로 덧대 확장한 결과다(unionWordBounds) — DocLayout 이 잡은
+// 영역과 실제 인식이 커버한 영역 사이에 차이가 있을 수 있어서(이 세션 내내 확인된
+// 원칙 — DocLayout 블록 경계를 그대로 못 믿는다), 두 사각형을 따로 겹쳐 보여주는 대신
+// 하나의 사각형이 그 차이만큼 자연스럽게 커지도록 한다. 처음엔(인식 시작 전) 열/블록
+// 경계 그대로 초기화해두고, 각 인식 경로가 완료되면 그 경로가 실제로 쓴 words 로
+// 덧씌운다 — 어느 경로를 타든(Tesseract 단일/다단, PaddleOCR/NDLOCR 세로쓰기·가로쓰기)
+// 마지막에 실제로 성공한 경로의 확장된 사각형이 남는다.
 let lastExtractionBlocks: Rect[] = []
 
-/** 개발 전용 디버그 시각화(extractionCache.ts)에서만 쓴다 — 실제 인식 로직과 무관. */
 export function getLastExtractionBlocks(): Rect[] {
   return lastExtractionBlocks
+}
+
+/** base 사각형을 words 의 실제 bbox 들을 전부 포함하도록(구분자 등 bbox 없는 항목은
+ *  건너뜀) 필요한 만큼만 키운다 — base 는 항상 그대로 포함된 채로 커지기만 하고
+ *  줄어들지는 않는다("사각형을 유지하면서 커지는" 방식, 2026-07-31 사용자 요청). */
+function unionWordBounds(base: Rect, words: Word[]): Rect {
+  let x0 = base.x
+  let y0 = base.y
+  let x1 = base.x + base.width
+  let y1 = base.y + base.height
+  for (const w of words) {
+    if (!w.bbox) continue
+    x0 = Math.min(x0, w.bbox.x)
+    y0 = Math.min(y0, w.bbox.y)
+    x1 = Math.max(x1, w.bbox.x + w.bbox.width)
+    y1 = Math.max(y1, w.bbox.y + w.bbox.height)
+  }
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
 }
 
 
@@ -170,9 +198,10 @@ export async function runOcr(
     blocks = []
     columns = []
   }
-  // 개발 전용 디버그(사용자 요청) — 실제로 OCR 인식에 넘긴 블록/열 경계를 기억해뒀다가
-  // extractionCache.ts 가 오버레이에 반투명 사각형으로 보여줄 수 있게 한다. 열이
-  // 여러 개면 열마다, 하나도 안 나뉘면(다단 아님) 영역 전체를 "블록 하나"로 기록한다.
+  // 인식 시작 전 우선 DocLayout 열/블록 경계 그대로 기록해둔다(실사용 시각화용, 위
+  // lastExtractionBlocks 주석 참고) — 열이 여러 개면 열마다, 하나도 안 나뉘면(다단
+  // 아님) 영역 전체를 "블록 하나"로. 아래 각 인식 경로가 끝나면 실제 인식된 words 로
+  // unionWordBounds 확장한 값으로 덮어쓴다 — 여기 값은 그 전까지의 초기값/폴백이다.
   lastExtractionBlocks = columns.length > 0 ? columns.map((c) => c.bbox) : [region ?? fullImageRect(image)]
   if (process.env.DEBUG_OCR_DUMP) {
     const { writeFileSync } = require('node:fs') as typeof import('node:fs')
@@ -234,6 +263,7 @@ export async function runOcr(
     const clampBounds = region ?? fullImageRect(image)
     const texts: string[] = []
     const words: Word[] = []
+    const enlargedBlocks: Rect[] = []
     for (let i = 0; i < columns.length; i++) {
       const column = columns[i]!
       // 담당 A — 열 사이 패딩이 옆 열을 침범하지 않게 제한(2026-07-30, 사용자 제보 —
@@ -266,11 +296,15 @@ export async function runOcr(
         texts.push(result.text)
       }
       words.push(...result.words)
+      enlargedBlocks.push(unionWordBounds(column.bbox, result.words))
     }
+    lastExtractionBlocks = enlargedBlocks
     return { text: texts.join('\n\n'), language, words }
   }
 
   const result = await recognizeRegion(w, image, language, region)
+  const singleBase = columns[0]?.bbox ?? region ?? fullImageRect(image)
+  lastExtractionBlocks = [unionWordBounds(singleBase, result.words)]
   return { text: result.text, language, words: result.words }
 }
 
@@ -312,6 +346,7 @@ async function runVerticalOcr(
     writeFileSync(join(process.env.DEBUG_OCR_DUMP, `words-${Date.now()}.json`), JSON.stringify(words, null, 2))
   }
   if (!words) return null
+  lastExtractionBlocks = [unionWordBounds(target, words)]
   // zh/ja 는 띄어쓰기 없는 문자 체계라 단어 사이를 공백 없이 그냥 이어붙인다.
   const text = words.map((w) => w.text).join('')
   return { text, language, words }
@@ -405,6 +440,7 @@ async function runNonTesseractOcr(
   )
   if (perColumn.some((columnWords) => !columnWords)) return null // 열 하나라도 실패하면 통째로 Tesseract 폴백
   const words = perColumn.flatMap((columnWords) => columnWords!)
+  lastExtractionBlocks = targets.map((bbox, i) => unionWordBounds(bbox, perColumn[i]!))
   // 이 함수는 zh/ja 전용이라(en 은 항상 Tesseract) 원래 띄어쓰기 없는 문자 체계다 —
   // 단어 사이를 공백 없이 그냥 이어붙인다.
   const text = words.map((w) => w.text).join('')

@@ -43,12 +43,17 @@ export const IPC = {
   REGION_SELECTION_NEEDED: 'region:selectionNeeded',
   SUBMIT_REGION: 'region:submit',
   OVERLAY_NOTICE: 'overlay:notice',
-  // OCR이 텍스트를 추출한 영역(블록/열 단위)을 오버레이에 반투명 사각형으로 보여준다
-  // (extractionCache.ts, Overlay.tsx). 원래 개발 전용 디버그였으나(2026-07-28), 텍스트
-  // 영역 자동 탐지 설정(autoDetectRegion, 2026-07-29)의 결과 시각화로 실사용 기능이 됐다
-  // — 자동 탐지로 잡힌 영역일 때만 보내고(설정 OFF 이거나 사용자가 수동으로 영역을
-  // 지정했으면 안 보냄), 개발 모드에서는 그 조건과 무관하게 항상 보낸다(디버깅용).
-  DEBUG_BLOCKS: 'debug:blocks',
+  // 담당 A — 시각화 재설계(2026-07-31, 사용자 요청). 원래 DEBUG_BLOCKS 라는 이름으로
+  // 개발 전용 디버그였다가(2026-07-28) 자동 탐지 결과 시각화로 실사용 기능이 됐던 것을
+  // (2026-07-29), 이제 완전히 새 방식으로 교체 — OCR이 실제로 텍스트를 찾아낸 영역(열/
+  // 블록 단위, DocLayout 이 잡은 경계를 실제 인식된 단어 bbox 로 덧대 확장한 결과)을
+  // 노란 점선 반투명 사각형으로 매 추출마다 3초간 잠깐 띄운다(extractionCache.ts,
+  // Overlay.tsx) — 설정/개발 모드 여부와 무관하게 항상 보낸다.
+  DETECTED_BLOCKS: 'region:detectedBlocks',
+  // 영역 수동 선택으로 지정된 OCR 대상 영역 — 선택 모드 내내 그 영역 밖을 반투명 회색으로
+  // 덮어 "지금 이 영역만 인식 대상"임을 계속 보여준다(자동 탐지 영역은 이 처리 대상이
+  // 아님 — 사용자 결정, 2026-07-31). 영역이 없거나 자동 탐지로 잡힌 영역이면 null.
+  REGION_INFO: 'region:info',
 
   // 메인/피커/설정 화면 전환 (공동) — 세 화면은 한 창을 재사용한다(동시 표시 불필요).
   // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.

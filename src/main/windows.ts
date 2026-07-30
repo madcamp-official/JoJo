@@ -786,13 +786,23 @@ export function sendOverlayWords(words: Word[]): void {
   overlayWindow?.webContents.send(IPC.EXTRACTION_WORDS, words)
 }
 
-/** OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 시각화한다(회색 덮개+투명 구멍)
- * — 텍스트 영역 자동 탐지(autoDetectRegion) 결과 시각화(extractionCache.ts 가 조건 판단).
- * 예전엔 "블록이 떠 있으면 모드 전환 첫 누름은 블록만 지운다" 규칙용 상태 추적
- * (debugBlocksVisible/consumeDebugBlocksVisible)이 같이 있었는데 규칙 제거(2026-07-30,
+/** OCR이 실제로 텍스트를 찾아낸 영역(열/블록 단위)을 오버레이에 노란 점선 사각형으로
+ * 매 추출마다 잠깐(3초) 보여준다(extractionCache.ts) — 설정/개발 모드 여부와 무관하게
+ * 항상 보낸다(2026-07-31 재설계, 이전엔 "회색 덮개+투명 구멍" 방식의 자동 탐지 전용
+ * 시각화였음). 예전엔 "블록이 떠 있으면 모드 전환 첫 누름은 블록만 지운다" 규칙용 상태
+ * 추적(debugBlocksVisible/consumeDebugBlocksVisible)이 같이 있었는데 규칙 제거(2026-07-30,
  * shortcut.ts: toggleMode 주석 참고)와 함께 정리됨. */
-export function sendDebugBlocks(blocks: Rect[]): void {
-  overlayWindow?.webContents.send(IPC.DEBUG_BLOCKS, blocks)
+export function sendDetectedBlocks(blocks: Rect[]): void {
+  overlayWindow?.webContents.send(IPC.DETECTED_BLOCKS, blocks)
+}
+
+/** 영역 수동 선택으로 지정된 OCR 대상 영역을 오버레이에 알려, 선택 모드 내내 그 영역
+ * 밖을 반투명 회색으로 덮어 보여준다(2026-07-31, 사용자 요청) — 자동 탐지 영역은
+ * 대상이 아니므로 그 경우와 영역이 없을 때는 null 을 보낸다(ipc.ts: SUBMIT_REGION,
+ * shortcut.ts: startOcrFallback 가 호출; extractionCache.ts: invalidateExtractionCache/
+ * commitDirectExtraction 이 정리 시점에 null 로 지운다). */
+export function sendRegionInfo(rect: Rect | null): void {
+  overlayWindow?.webContents.send(IPC.REGION_INFO, rect)
 }
 
 /** extractionCache.ts: runExtraction() 이 파이프라인의 각 단계(엔진 예열/영역 탐지/언어

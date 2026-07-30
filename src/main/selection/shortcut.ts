@@ -2,14 +2,21 @@ import { globalShortcut } from 'electron'
 import type { AppMode } from '@shared/types'
 import {
   onWindowResized,
+  sendExtractionPhase,
   sendOverlayNotice,
+  sendRegionInfo,
   sendRegionSelectionNeeded,
   setOverlayMode,
 } from '../windows'
 import { getSettings } from '../settingsStore'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
-import { abandonInFlightExtraction, invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
-import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
+import {
+  abandonInFlightExtraction,
+  alignRectToOverlay,
+  invalidateExtractionCache,
+  refreshExtractionCache,
+} from './extractionCache'
+import { autoDetectRegion, clearRegion, getRegion, getRegionSource, setRegion } from './regionSelection'
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
 import { isWebModeActive, startWebMode, stopWebMode } from './webSource'
@@ -279,7 +286,17 @@ function startOcrFallback(epoch: number): void {
   // (2026-07-30 사용자 제보) 크롬 창을 선택했을 때 decideExtraction() 의 활성 탭 대기
   // (최대 1.2초, waitForBrowserSource) 동안 최종적으론 subtitle/web 으로 판정될
   // 페이지에서도 OCR 문구가 먼저 잠깐 떴다. subtitle/web 경로는 이 신호 자체가 없다.
-  if (getRegion()) {
+  const region = getRegion()
+  if (region) {
+    // 담당 A — 캐시된 수동 영역으로 선택 모드에 재진입할 때도 영역 밖 반투명 회색
+    // 표시가 다시 떠야 한다(2026-07-31, 사용자 요청 "선택 모드 내내 유지") — 처음
+    // 드래그로 지정한 직후(ipc.ts: SUBMIT_REGION)와 달리 이번엔 오버레이가 새로
+    // 마운트돼 이전 상태를 모르므로 여기서 다시 알려준다. 자동 탐지 영역은 대상이 아님.
+    if (getRegionSource() === 'manual') {
+      void alignRectToOverlay(region).then((aligned) => {
+        if (aligned) sendRegionInfo(aligned)
+      })
+    }
     refreshExtractionCache()
     startChangeWatcher()
   } else if (getSettings().autoDetectRegion) {
@@ -299,11 +316,20 @@ let pendingRedetect = false
 /**
  * 담당 A — 실험용 브랜치(experiment/doclayout-yolo). 영역이 없을 때(처음 선택한 창,
  * 리사이즈로 무효화된 뒤) 먼저 DocLayout-YOLO 로 본문 영역 자동 감지를 시도한다
- * (regionSelection.ts: autoDetectRegion) — 모드 진입 시 기본으로 뜨는 "텍스트 추출
- * 중..." 표시가 이 대기 시간도 자연히 가려준다. 성공하면 드래그 없이 바로 그 영역으로
+ * (regionSelection.ts: autoDetectRegion). 성공하면 드래그 없이 바로 그 영역으로
  * 추출을 시작하고, 실패하면(Python 환경 없음, 본문 인식 실패 등) 기존처럼 오버레이에
  * 드래그 선택을 요청한다 — 즉 이 실험 기능은 "잘 되면 자동, 안 되면 기존 수동 방식"
  * 으로 완전히 폴백하므로 항상 안전하다.
+ *
+ * 담당 A — 대기 중 알림 추가(2026-07-31, 사용자 제보 — "자동 영역 탐지일 때 처음에
+ * 영역 탐지 중일 때 알림이 안 뜨는 것 같다"). 예전엔 모드 진입 시 기본으로 뜨는
+ * "텍스트 추출 중..." 배너가 이 대기 시간도 자연히 가려줬는데, 추출 진행 알림을
+ * 5단계로 재설계하면서(2026-07-31, extractionCache.ts: runExtraction) 그 기본 배너
+ * 자체가 없어졌다 — 이제 배너는 runExtraction() 안에서만 단계별로 뜨는데, 이 함수
+ * (autoDetectRegion 호출)는 그보다 앞서(refreshExtractionCache 를 부르기도 전에) 실행
+ * 되는 별도 단계라 그 사이엔 아무 알림도 없이 비어 있었다 — runExtraction() 내부의
+ * "영역 탐지 중..." 과 같은 문구를 여기서도 미리 띄운다(성공하면 곧바로 이어지는
+ * refreshExtractionCache 의 첫 단계 문구와 자연스럽게 이어짐).
  */
 async function acquireRegionAutomaticallyOrAskDrag(epoch = decisionEpoch): Promise<void> {
   if (detecting) {
@@ -311,6 +337,7 @@ async function acquireRegionAutomaticallyOrAskDrag(epoch = decisionEpoch): Promi
     return
   }
   detecting = true
+  sendExtractionPhase('영역 탐지 중...')
   try {
     const detected = await autoDetectRegion()
     // 그 사이 모드가 바뀌었거나(빠른 토글 등), 더 최신 판정(예: 자막 모드)으로 대체됐으면

@@ -1,11 +1,10 @@
 import type { AnyLanguage, Rect, SelectionSource, Word } from '@shared/types'
 import { getLanguageName } from '@shared/languages'
-import { getPhysicalToDipScale, sendDebugBlocks, sendExtractionPhase, sendOverlayWords } from '../windows'
-import { getSettings } from '../settingsStore'
+import { getPhysicalToDipScale, sendDetectedBlocks, sendExtractionPhase, sendOverlayWords, sendRegionInfo } from '../windows'
 import { captureFocusedWindow, getSelectedWindowId } from './capture'
 import { detectLanguage } from './langDetect'
 import { getLastExtractionBlocks, resolveLayout, runOcr } from './ocr'
-import { getRegion, getRegionSource } from './regionSelection'
+import { getRegion } from './regionSelection'
 import { ensureCjkEngineWarm, isCjkEngineWarm, isGeneralEngineWarm, startGeneralWarmUp } from './warmup'
 
 // 담당 A — 선택 창 추출 결과 캐시 (PLAN.md §5.1 / §8)
@@ -27,12 +26,13 @@ export interface CachedExtraction {
   language: AnyLanguage
   source: SelectionSource
   extraction: 'direct' | 'ocr'
-  /** 자동 탐지 블록 시각화용(오버레이 DIP 정렬 완료) — 표시 조건에 안 걸리면 빈 배열.
-   *  담당 A(2026-07-30): 예전엔 runExtraction 안에서 바로 sendDebugBlocks 했는데, 그러면
-   *  폐기된(abandonInFlightExtraction) 추출도 커밋 가드와 무관하게 오염된 화면 기준
-   *  블록을 오버레이에 쏴버렸다 — 결과에 담아 커밋 시점(가드 안)에만 보내고, 캐시
+  /** OCR이 실제로 텍스트를 찾아낸 영역 시각화용(오버레이 DIP 정렬 완료, 노란 점선
+   *  사각형으로 3초간 표시) — 항상 채워진다(2026-07-31, 설정/개발 모드 조건 제거).
+   *  담당 A(2026-07-30): 예전엔 runExtraction 안에서 바로 sendDetectedBlocks 했는데,
+   *  그러면 폐기된(abandonInFlightExtraction) 추출도 커밋 가드와 무관하게 오염된 화면
+   *  기준 블록을 오버레이에 쏴버렸다 — 결과에 담아 커밋 시점(가드 안)에만 보내고, 캐시
    *  복원(changeWatcher 복귀 판정) 때도 같이 복원할 수 있게 한다. */
-  debugBlocks: Rect[]
+  detectedBlocks: Rect[]
 }
 
 let cached: CachedExtraction | null = null
@@ -93,20 +93,14 @@ async function runExtraction(): Promise<CachedExtraction> {
   const extracted = await timed(`ocr(${language})`, () => runOcr(image, language, layout, region))
   console.log(`[timing] total: ${Date.now() - overallStart}ms`)
 
-  // OCR이 실제로 인식에 넘긴 블록/열 경계를 오버레이에 반투명 사각형으로 보여준다 —
-  // 원래 개발 전용 디버그였으나, 텍스트 영역 자동 탐지 설정(autoDetectRegion, 사용자
-  // 요청 2026-07-29)의 결과 시각화로 실사용 기능이 됐다. 자동 탐지로 잡힌 영역일 때만
-  // 보여준다(설정이 꺼져 있거나 사용자가 "영역 수동 선택"으로 직접 지정했으면 안 보여줌
-  // — regionSelection.ts: getRegionSource). 개발 모드에서는 이 조건과 무관하게 항상
-  // 보내(디버깅 편의), words 와 같은 좌표 보정(물리 픽셀 → 오버레이 DIP)이 필요해서
-  // alignWordsToOverlay 를 그대로 재사용한다(Rect 를 텍스트 없는 가짜 Word 로 감싸서
-  // 넘기고 bbox 만 다시 뺌).
-  let debugBlocks: Rect[] = []
-  if (import.meta.env.DEV || (getSettings().autoDetectRegion && getRegionSource() === 'auto')) {
-    const blocks = getLastExtractionBlocks()
-    const aligned = await alignWordsToOverlay(blocks.map((bbox) => ({ text: '', bbox })))
-    debugBlocks = aligned.map((w) => w.bbox).filter((b): b is Rect => b !== undefined)
-  }
+  // OCR이 실제로 텍스트를 찾아낸 영역(열/블록 단위)을 오버레이에 노란 점선 사각형으로
+  // 매 추출마다 3초간 보여준다(2026-07-31 재설계, 사용자 요청) — 설정/개발 모드 여부와
+  // 무관하게 항상 계산해서 보낸다. words 와 같은 좌표 보정(물리 픽셀 → 오버레이 DIP)이
+  // 필요해서 alignWordsToOverlay 를 그대로 재사용한다(Rect 를 텍스트 없는 가짜 Word 로
+  // 감싸서 넘기고 bbox 만 다시 뺌).
+  const rawDetectedBlocks = getLastExtractionBlocks()
+  const alignedDetected = await alignWordsToOverlay(rawDetectedBlocks.map((bbox) => ({ text: '', bbox })))
+  const detectedBlocks = alignedDetected.map((w) => w.bbox).filter((b): b is Rect => b !== undefined)
 
   const alignedWords = await alignWordsToOverlay(extracted.words)
   // 담당 A — 클릭 매핑 어긋남 진단용(2026-07-30, 사용자 제보). 물리 픽셀→DIP 보정
@@ -131,7 +125,7 @@ async function runExtraction(): Promise<CachedExtraction> {
     language: extracted.language,
     source: { kind: 'ocr' },
     extraction: 'ocr',
-    debugBlocks,
+    detectedBlocks,
   }
 }
 
@@ -207,6 +201,15 @@ async function alignWordsToOverlay(words: Word[]): Promise<Word[]> {
   )
 }
 
+/** 사각형 하나만 오버레이 좌표로 정렬할 때 쓰는 얇은 래퍼 — alignWordsToOverlay 를
+ *  텍스트 없는 가짜 Word 배열 하나로 감싸 재사용한다. ipc.ts(수동 영역 제출 직후)와
+ *  shortcut.ts(캐시된 수동 영역으로 선택 모드 재진입)가 영역 밖 반투명 회색 표시용
+ *  좌표 변환에 쓴다(2026-07-31, 사용자 요청). */
+export async function alignRectToOverlay(rect: Rect): Promise<Rect | undefined> {
+  const [aligned] = await alignWordsToOverlay([{ text: '', bbox: rect }])
+  return aligned?.bbox
+}
+
 /**
  * 선택 모드 진입 시 호출 — 백그라운드로 캡처+추출을 시작해 캐시를 채운다(기본적으로
  * 대기 안 하고 호출부는 반환값을 무시해도 됨). 완료(성공/실패 무관) 시점을 알아야 하는
@@ -223,7 +226,7 @@ export function refreshExtractionCache(): Promise<void> {
         cached = result
         inFlight = null
         sendOverlayWords(result.words) // 오버레이가 실제 단어 bbox 로 hover/클릭 판정하게 통지
-        sendDebugBlocks(result.debugBlocks) // 자동 탐지 블록 시각화도 커밋 가드 안에서만(CachedExtraction.debugBlocks 주석)
+        sendDetectedBlocks(result.detectedBlocks) // 노란 탐지 영역 플래시도 커밋 가드 안에서만(CachedExtraction.detectedBlocks 주석)
       }
     })
     .catch((err) => {
@@ -231,7 +234,7 @@ export function refreshExtractionCache(): Promise<void> {
       if (inFlight === promise) {
         inFlight = null
         sendOverlayWords([]) // 실패해도 "생성 중" 표시가 안 멈추지 않게 빈 결과로 통지
-        sendDebugBlocks([]) // 실패한 회차의 옛 자동 탐지 블록이 화면에 남아있지 않게
+        sendDetectedBlocks([]) // 실패한 회차의 옛 탐지 영역 표시가 화면에 남아있지 않게
       }
     })
 }
@@ -251,7 +254,8 @@ export function commitDirectExtraction(result: CachedExtraction): void {
   previousExtraction = cached
   cached = result
   sendOverlayWords(result.words)
-  sendDebugBlocks([])
+  sendDetectedBlocks([])
+  sendRegionInfo(null) // direct 추출은 OCR 영역 개념이 없다 — 이전 OCR 영역의 회색 표시가 남지 않게
 }
 
 /**
@@ -273,7 +277,8 @@ export function invalidateExtractionCache(): void {
   cached = null
   inFlight = null
   sendOverlayWords([]) // 이전 창의 단어 박스가 오버레이에 남아있지 않게
-  sendDebugBlocks([]) // 이전 창의 자동 탐지 블록도 같이
+  sendDetectedBlocks([]) // 이전 창의 노란 탐지 영역 표시도 같이
+  sendRegionInfo(null) // 이전 영역의 회색 표시도 같이
 }
 
 /** 직전 회차 추출 결과 조회 — 다음 추출의 문맥 재사용 등에 쓴다. 없으면(첫 회차 등) null. */

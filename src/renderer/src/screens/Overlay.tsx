@@ -16,6 +16,10 @@ import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 // 보내고, 여기서 드래그로 사각형을 그려 SUBMIT_REGION 으로 돌려준다.
 
 const NOTICE_DURATION_MS = 4000
+// 담당 A — 탐지 영역 노란 플래시 지속시간(2026-07-31, 사용자 요청 — "텍스트로 탐지된
+// 영역이 3초간 노란색 반투명 사각형으로 표시"). 매 추출마다(선택 모드 진입은 물론
+// 스크롤 등으로 인한 백그라운드 재추출 때도) 새로 뜬다.
+const DETECTED_BLOCKS_FLASH_MS = 3000
 const MIN_REGION_SIZE = 8 // 이보다 작은 드래그는 실수 클릭으로 보고 무시
 // macOS 는 창 모서리가 둥글고 Windows 는 각져 있다 — 오버레이 테두리도 대상 창의
 // 실제 모서리 모양과 맞춰야 자연스럽다(styles.css: .overlay-root.is-mac 이 라운드 값 적용).
@@ -39,10 +43,15 @@ export function Overlay() {
   // 팝업의 초기 선택 범위도 메인 프로세스(selection/index.ts: findLineSpan)가 같은
   // 방식으로 줄 전체를 anchor 로 잡는다.
   const [hoveredLine, setHoveredLine] = useState<Word[]>([])
-  // 개발 전용 디버그(사용자 요청) — OCR이 실제로 인식에 넘긴 블록/열 경계를 반투명
-  // 사각형으로 보여준다. 프로덕션에서는 메인이 아예 이 이벤트를 안 보내므로 항상 빈
-  // 배열로 남는다(onDebugBlocks 자체는 등록해도 무해 — 그냥 아무 이벤트도 안 옴).
-  const [debugBlocks, setDebugBlocks] = useState<Rect[]>([])
+  // 담당 A — 탐지 영역 시각화 재설계(2026-07-31, 사용자 요청). OCR이 실제로 텍스트를
+  // 찾아낸 영역(열/블록 단위)을 매 추출마다 노란 점선 사각형으로 3초간 잠깐 보여준다 —
+  // showDetectedFlash 가 그 3초 동안만 true. detectedBlocks 자체는 최근 값을 계속
+  // 들고 있어도 무방하다(표시 여부는 showDetectedFlash 가 결정).
+  const [detectedBlocks, setDetectedBlocks] = useState<Rect[]>([])
+  const [showDetectedFlash, setShowDetectedFlash] = useState(false)
+  // 영역 수동 선택으로 지정된 OCR 대상 영역 — 선택 모드 내내 이 영역 밖을 반투명
+  // 회색으로 덮어 보여준다(2026-07-31, 사용자 요청 — 자동 탐지 영역은 대상 아님).
+  const [regionInfo, setRegionInfo] = useState<Rect | null>(null)
   const [resolving, setResolving] = useState(false)
   // 담당 A — 5단계 진행 알림으로 재설계(2026-07-31, 사용자 요청). 메인이 OCR 경로가
   // 실제로 확정된 뒤(shortcut.ts: startOcrFallback, changeWatcher.ts 재추출 등)에만
@@ -124,13 +133,35 @@ export function Overlay() {
   useEffect(() => window.nuance.onOverlayNotice(setNotice), [])
 
   // onExtractionStarted 와 같은 레이스(위 modeRef 주석 참고) — changeWatcher.ts 의
-  // 배경 재추출이 모드를 나간 뒤에도 뒤늦게 끝나면서 onDebugBlocks 가 일반 모드에서도
-  // 도착해, 방금 나가면서 비운 블록이 다시 나타나는 문제가 실측 확인됨. 그 시점의
+  // 배경 재추출이 모드를 나간 뒤에도 뒤늦게 끝나면서 onDetectedBlocks 가 일반 모드에서도
+  // 도착해, 방금 나가면서 비운 표시가 다시 나타나는 문제가 실측 확인됨. 그 시점의
   // 최신 모드를 보고 선택 모드일 때만 반영한다.
   useEffect(
     () =>
-      window.nuance.onDebugBlocks((blocks) => {
-        if (modeRef.current === 'select') setDebugBlocks(blocks)
+      window.nuance.onDetectedBlocks((blocks) => {
+        if (modeRef.current === 'select') setDetectedBlocks(blocks)
+      }),
+    [],
+  )
+
+  // 탐지 영역 노란 플래시 — 새 블록이 올 때마다(매 추출마다) 3초간 보여주고 자동으로
+  // 끈다(notice 배너의 자동 소멸 패턴과 동일). 빈 배열이 오면(실패/무효화) 즉시 끈다.
+  useEffect(() => {
+    if (detectedBlocks.length === 0) {
+      setShowDetectedFlash(false)
+      return
+    }
+    setShowDetectedFlash(true)
+    const timer = setTimeout(() => setShowDetectedFlash(false), DETECTED_BLOCKS_FLASH_MS)
+    return () => clearTimeout(timer)
+  }, [detectedBlocks])
+
+  // 영역 수동 선택 밖 반투명 회색 표시 — 자동 탐지 영역은 대상 아님(메인이 그 경우
+  // null 을 보낸다). 위 onDetectedBlocks 와 같은 레이스 방지로 선택 모드일 때만 반영.
+  useEffect(
+    () =>
+      window.nuance.onRegionInfo((rect) => {
+        if (modeRef.current === 'select') setRegionInfo(rect)
       }),
     [],
   )
@@ -148,7 +179,8 @@ export function Overlay() {
     if (mode !== 'select') {
       setWords([])
       setHoveredLine([])
-      setDebugBlocks([])
+      setDetectedBlocks([])
+      setRegionInfo(null)
       setExtractionPhaseText(null)
       setNeedsRegion(false)
       setDragStart(null)
@@ -226,6 +258,10 @@ export function Overlay() {
       justSubmittedRegionRef.current = false
       return
     }
+    // 임시 진단 로그(2026-07-31, 사용자 제보 — "자동 탐지에서 클릭해도 팝업 안 뜸").
+    console.log(
+      `[Overlay] onOverlayClick mode=${mode} needsRegion=${needsRegion} resolving=${resolving} point=(${e.clientX},${e.clientY})`,
+    )
     if (mode !== 'select' || needsRegion || resolving) return
     setResolving(true)
     try {
@@ -272,24 +308,36 @@ export function Overlay() {
       onMouseMove={onRootMouseMove}
       onMouseUp={onRootMouseUp}
     >
-      {/* 자동 탐지 영역 시각화(2026-07-30 디자인 변경, 사용자 요청) — 예전엔 블록마다
-          노란 점선 사각형을 그렸는데, 이제 반대로 "탐지된 영역만 투명하게 뚫린 반투명
-          회색 덮개"로 보여준다(테두리 없음) — 영역 수동 드래그 UI(.region-dim)와 동일한
-          시각 언어. 블록이 여러 개(다단 등)라 box-shadow 트릭으론 구멍을 여러 개 못
-          뚫어서 SVG mask(흰 바탕=칠함, 검정 사각형=구멍)로 처리한다. */}
-      {debugBlocks.length > 0 && (
-        <svg className="region-mask" width="100%" height="100%">
-          <defs>
-            <mask id="region-holes">
-              <rect width="100%" height="100%" fill="white" />
-              {debugBlocks.map((block, i) => (
-                <rect key={i} x={block.x} y={block.y} width={block.width} height={block.height} fill="black" />
-              ))}
-            </mask>
-          </defs>
-          <rect width="100%" height="100%" fill="rgba(220, 38, 38, 0.5)" mask="url(#region-holes)" />
-        </svg>
+      {/* 영역 수동 선택 밖 반투명 회색 표시(2026-07-31, 사용자 요청) — 드래그 중(needsRegion)
+          쓰는 것과 똑같은 시각 언어(.region-dim/-clip/-topcoat)를 재사용해, 드래그가
+          끝난 뒤에도 선택 모드 내내 "이 영역만 인식 대상"임을 계속 보여준다. 자동 탐지
+          영역은 대상이 아니라 regionInfo 가 그 경우 null 로 온다(메인이 판단).
+          needsRegion 이 true 인 동안(새 영역을 다시 드래그하는 중)은 그쪽 라이브
+          미리보기와 겹치지 않도록 숨긴다. */}
+      {!needsRegion && regionInfo && (
+        <>
+          <div className="region-dim-clip">
+            <div
+              className="region-dim"
+              style={{ left: regionInfo.x, top: regionInfo.y, width: regionInfo.width, height: regionInfo.height }}
+            />
+          </div>
+          <div className="region-border-topcoat" />
+        </>
       )}
+      {/* 탐지 영역 노란 플래시(2026-07-31 디자인 변경, 사용자 요청) — OCR이 실제로
+          텍스트를 찾아낸 영역(열/블록 단위)을 매 추출마다 3초간 노란 반투명 사각형 +
+          점선 테두리로 보여준다. 예전엔 "탐지된 영역만 투명하게 뚫린 반투명 회색 덮개"
+          (SVG mask)였는데, 이제 사각형 자체를 그대로 그리는 방식으로 바뀌어 mask 가
+          필요 없다 — 사각형이 여러 개(다단 등)라도 그냥 div 를 여러 개 그리면 된다. */}
+      {showDetectedFlash &&
+        detectedBlocks.map((block, i) => (
+          <div
+            key={i}
+            className="detected-block"
+            style={{ left: block.x, top: block.y, width: block.width, height: block.height }}
+          />
+        ))}
       {hoveredBox && (
         <div
           className="word-box"
