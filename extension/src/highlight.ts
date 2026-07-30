@@ -6,7 +6,7 @@
 // shared/highlightStyle.ts(오버레이와 동일 소스)를 그대로 읽어 인라인 스타일로 적용한다.
 import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 import type { RectPx, SubLine } from '@shared/extension'
-import { unionRects } from '@shared/wordMapping'
+import { groupRectsByLine } from '@shared/wordMapping'
 import { getWordSegments } from './wordSegments'
 
 export interface WordHit {
@@ -21,7 +21,9 @@ export interface WordHit {
 // 속한 글자들의 rect 를 하나로 묶어 보여준다. 아직 분석 결과가 없는 줄은 글자 단위로
 // 폴백한다.
 
-let box: HTMLDivElement | null = null
+// 화면 줄바꿈에 걸친 세그먼트는 박스 하나가 아니라 줄 개수만큼 필요하다(wordAtPoint의
+// rects 참고) — 풀로 관리해 매번 만들고 지우지 않는다.
+let boxes: HTMLDivElement[] = []
 
 // 전체화면 API는 전체화면으로 전환된 엘리먼트(보통 플레이어 div, <html> 전체가 아님)와 그
 // 자손만 "top layer"에 그린다 — 박스가 document.documentElement 에 그대로 붙어있으면 그
@@ -31,10 +33,9 @@ function boxParent(): HTMLElement {
   return (document.fullscreenElement as HTMLElement | null) ?? document.documentElement
 }
 
-function ensureBox(): HTMLDivElement {
-  if (box) return box
+function createBox(): HTMLDivElement {
   const el = document.createElement('div')
-  el.id = 'nuance-word-highlight'
+  el.className = 'nuance-word-highlight'
   Object.assign(el.style, {
     position: 'fixed',
     boxSizing: 'border-box',
@@ -46,30 +47,40 @@ function ensureBox(): HTMLDivElement {
     display: 'none',
   })
   boxParent().appendChild(el)
-  box = el
   return el
+}
+
+function ensureBoxes(count: number): HTMLDivElement[] {
+  while (boxes.length < count) boxes.push(createBox())
+  return boxes
 }
 
 // 전체화면 진입/해제 시 박스를 새 top layer 대상 안으로 옮긴다(appendChild 는 이미 자식인
 // 노드를 다시 넣으면 같은 부모 안에서 이동만 하므로 항상 안전하게 재부착된다).
 function onFullscreenChange(): void {
-  if (box) boxParent().appendChild(box)
+  for (const el of boxes) boxParent().appendChild(el)
 }
 
 function hideBox(): void {
-  if (box) box.style.display = 'none'
+  for (const el of boxes) el.style.display = 'none'
   setHoveringCursor(false)
 }
 
-function showBoxAt(rect: RectPx): void {
-  const el = ensureBox()
+// rects 는 줄마다 하나씩(groupRectsByLine 결과) — 화면 줄바꿈에 걸친 세그먼트는 배열
+// 길이가 2 이상이 된다.
+function showBoxesAt(rects: RectPx[]): void {
+  const els = ensureBoxes(rects.length)
   const p = WORD_BOX_STYLE.padding
-  el.style.left = `${rect.x - p}px`
-  el.style.top = `${rect.y - p}px`
-  el.style.width = `${rect.width + p * 2}px`
-  el.style.height = `${rect.height + p * 2}px`
-  el.style.display = 'block'
-  setHoveringCursor(true)
+  rects.forEach((rect, i) => {
+    const el = els[i]!
+    el.style.left = `${rect.x - p}px`
+    el.style.top = `${rect.y - p}px`
+    el.style.width = `${rect.width + p * 2}px`
+    el.style.height = `${rect.height + p * 2}px`
+    el.style.display = 'block'
+  })
+  for (let i = rects.length; i < els.length; i++) els[i]!.style.display = 'none'
+  setHoveringCursor(rects.length > 0)
 }
 
 // 박스 자신은 pointerEvents:none 이라 실제 마우스는 유튜브 자막 DOM(밑에 깔린 요소)이
@@ -100,7 +111,7 @@ function setHoveringCursor(hovering: boolean): void {
   document.documentElement.classList.toggle('nuance-hover-pointer', hovering)
 }
 
-function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect: RectPx }) | null {
+function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rects: RectPx[] }) | null {
   for (const line of lines) {
     // line.words[].start/end 는 domWords.ts extractWordsAndText 가 line.text 를 조립하는
     // 바로 그 순회에서 함께 계산해 실어 보낸 절대 오프셋이다(2026-07-30 수정 — 예전엔
@@ -112,7 +123,7 @@ function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect:
       const r = w.rect
       if (!(x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) continue
       const seg = segments?.find((s) => w.start >= s.start && w.start < s.end)
-      if (!seg) return { text: w.text, lineText: line.text, wordOffsetInLine: w.start, rect: r }
+      if (!seg) return { text: w.text, lineText: line.text, wordOffsetInLine: w.start, rects: [r] }
       // CJK 형태소 분석 결과가 있으면 같은 세그먼트에 속한 글자들의 rect 를 하나로 묶는다.
       const groupRects: RectPx[] = []
       for (const other of line.words) {
@@ -122,8 +133,9 @@ function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect:
         text: line.text.slice(seg.start, seg.end),
         lineText: line.text,
         wordOffsetInLine: seg.start,
-        // groupRects 는 항상 최소 1개(현재 단어 자신)를 포함해 non-null.
-        rect: unionRects(groupRects)!,
+        // 세그먼트가 화면 줄바꿈에 걸치면(articleHighlight.ts의 동일 수정 주석 참고)
+        // 줄마다 따로 묶는다 — groupRects 는 항상 최소 1개(현재 단어 자신)를 포함.
+        rects: groupRectsByLine(groupRects),
       }
     }
   }
@@ -135,7 +147,7 @@ let onWordClick: ((hit: WordHit) => void) | null = null
 
 function onMouseMove(e: MouseEvent): void {
   const hit = wordAtPoint(getLines?.() ?? [], e.clientX, e.clientY)
-  if (hit) showBoxAt(hit.rect)
+  if (hit) showBoxesAt(hit.rects)
   else hideBox()
 }
 
