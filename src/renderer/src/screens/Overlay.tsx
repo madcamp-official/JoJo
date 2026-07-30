@@ -213,6 +213,26 @@ export function Overlay() {
     window.nuance.setOverlayInteractive(interactive, interactive ? interactiveCursor : null)
   }, [interactive, interactiveCursor])
 
+  // 단어 위에서 호버 중(=오버레이가 비-클릭스루 상태)이면 스크롤 휠 이벤트가 이 오버레이
+  // 창에 갇혀 아래에 있는 실제 창(PDF 뷰어 등)으로 전달되지 않는다 — 클릭을 받으려면
+  // 오버레이가 마우스 입력을 전부 가로챌 수밖에 없는 게 원인이라(위 interactive 관련
+  // 주석 참고, macOS `setIgnoreMouseEvents(false)`는 이벤트 종류별로 나눠 막을 수 없음),
+  // 여기서 가로챈 델타를 메인으로 넘겨 대상 창의 소유 프로세스에 합성 스크롤로
+  // 재전달한다(macScroll.ts, mac 전용 — win32는 forward:true 가 실제로 동작해 이 문제
+  // 자체가 없다). 영역 드래그 중(needsRegion)에는 넘기지 않는다 — 그때 스크롤은 드래그
+  // 취소 등 다른 의도일 수 있어 기존 동작(포커스만 못 옮김) 그대로 둔다.
+  useEffect(() => {
+    // win32는 forward:true 가 실제로 동작해 이 문제 자체가 없다(위 주석) — 그쪽까지 이
+    // 리스너를 걸 이유가 없어 mac 으로만 좁힌다.
+    if (!IS_MAC || mode !== 'select' || hoveredLine.length === 0) return
+    function onWheel(e: WheelEvent) {
+      e.preventDefault()
+      window.nuance.forwardScroll(e.deltaX, e.deltaY)
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [mode, hoveredLine])
+
   async function onOverlayClick(e: React.MouseEvent) {
     if (justSubmittedRegionRef.current) {
       justSubmittedRegionRef.current = false

@@ -165,6 +165,32 @@ async function extractOnce(windowId: number): Promise<AxExtraction | null> {
     const text = words.map((w) => w.text).join('')
     if (!text.trim()) return null // 글자가 전혀 없음(순수 삽화 페이지 등) — 진짜 빈 결과
     const language = getLanguageOverride() ?? detectSupportedLanguage(text) ?? 'en'
+    // 담당 milleion — 텍스트 누락/오인식 진단용(2026-07-30, 사용자 제보: 문장 앞부분이
+    // 통째로 안 잡히거나 단어 중간 알파벳이 드문드문 빠짐). extractionCache.ts의
+    // DEBUG_OCR_DUMP와 같은 패턴 — 환경변수로 지정한 디렉터리에 페이지별 원본
+    // AXStaticText 값·줄 단위 분해 결과·최종 words[] 를 나란히 남겨, "AX가 원래 못
+    // 주는 데이터"인지 "우리 파싱이 잘못 잘라내는지"를 구분한다.
+    if (process.env.DEBUG_PDF_AX_DUMP) {
+      const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+      const { join } = require('node:path') as typeof import('node:path')
+      writeFileSync(
+        join(process.env.DEBUG_PDF_AX_DUMP, `pdf-ax-${Date.now()}.json`),
+        JSON.stringify(
+          {
+            pages: result.pages.map((page) => ({
+              bbox: page.bbox,
+              paragraphs: page.paragraphs.map((paragraph) =>
+                paragraph.map((line) => ({ text: line.text, location: line.location, bbox: line.bbox })),
+              ),
+            })),
+            words: words.map((w) => ({ text: w.text, bbox: w.bbox ?? null })),
+            text,
+          },
+          null,
+          2,
+        ),
+      )
+    }
     return { text, words, language }
   } finally {
     result.release()

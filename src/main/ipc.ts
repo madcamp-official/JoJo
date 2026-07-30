@@ -1,4 +1,4 @@
-import { clipboard, ipcMain } from 'electron'
+import { clipboard, ipcMain, screen } from 'electron'
 import { IPC } from '@shared/channels'
 import type {
   AnyLanguage,
@@ -249,6 +249,22 @@ export function registerIpc(): void {
   // 팝업이 실제 내용을 그리고 첫 페인트까지 끝냈을 때 통지 — 그때까지 숨겨뒀던 창을 보여준다.
   ipcMain.on(IPC.POPUP_CONTENT_READY, () => {
     signalPopupContentReady()
+  })
+
+  // macOS 전용 — 오버레이가 클릭을 받으려고 비-클릭스루 상태가 되는 동안 스크롤 휠까지
+  // 막혀버리는 문제 우회(사용자 요청, 2026-07-30). 렌더러가 자신이 가로챈 wheel 이벤트의
+  // 델타를 넘기면, 선택된 창의 소유 프로세스로 합성 스크롤을 재전달한다(macScroll.ts).
+  ipcMain.on(IPC.OVERLAY_FORWARD_SCROLL, (_e, payload: { deltaX: number; deltaY: number }) => {
+    if (process.platform !== 'darwin') return
+    const id = getSelectedWindowId()
+    void import('./selection/macWindow').then(async ({ parseMacWindowId, getMacWindowOwnerPid }) => {
+      const wid = parseMacWindowId(id ?? '')
+      if (wid === null) return
+      const pid = getMacWindowOwnerPid(wid)
+      if (pid === null) return
+      const { postScrollToPid } = await import('./selection/macScroll')
+      postScrollToPid(pid, screen.getCursorScreenPoint(), payload.deltaX, payload.deltaY)
+    })
   })
 
   // 담당 B: 구글 발음/이미지 검색 — 기본 브라우저의 새 창으로(팝업과 같은 위치·크기) 연다(google.ts)

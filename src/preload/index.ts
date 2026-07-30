@@ -70,6 +70,12 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.OVERLAY_CURSOR, listener)
   },
 
+  // macOS 전용 — 오버레이가 클릭을 받으려고 비-클릭스루 상태가 되는 동안 스크롤 휠까지
+  // 막혀버리는 문제 우회(shared/channels.ts OVERLAY_FORWARD_SCROLL 주석). 응답이 필요
+  // 없어 invoke 대신 send(fire-and-forget).
+  forwardScroll: (deltaX: number, deltaY: number): void =>
+    ipcRenderer.send(IPC.OVERLAY_FORWARD_SCROLL, { deltaX, deltaY }),
+
   // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열
   // 완료 여부(MainScreen 이 창 선택 버튼을 막을지 판단).
   getWarmupStatus: (): Promise<boolean> => ipcRenderer.invoke(IPC.WARMUP_GET),
