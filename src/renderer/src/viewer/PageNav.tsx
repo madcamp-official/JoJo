@@ -25,11 +25,6 @@ export function PageNav({
           <ChevronRight size={26} strokeWidth={1.75} aria-hidden="true" />
         </button>
       )}
-      {state.total > 0 && (
-        <div className="page-indicator">
-          {state.current} / {state.total}
-        </div>
-      )}
     </>
   )
 }

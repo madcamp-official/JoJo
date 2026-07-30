@@ -7,6 +7,7 @@ import { EpubView } from '../viewer/EpubView'
 import { useHoverHighlight } from '../viewer/useHoverHighlight'
 import { ArrowLeftIcon } from './icons'
 import { PageNav } from '../viewer/PageNav'
+import { Progress } from '../viewer/Progress'
 import { Toc, type TocEntry } from '../viewer/Toc'
 import { ListIcon } from './icons'
 import {
@@ -208,6 +209,7 @@ export function ViewerScreen() {
           <PageNav state={pageState} onPrev={() => goPage('prev')} onNext={() => goPage('next')} />
         )}
       </div>
+      <Progress mode={mode} pageState={pageState} bodyRef={containerRef} />
       <HoverBinding
         file={file}
         containerRef={containerRef}

@@ -775,7 +775,9 @@ button:disabled { cursor: not-allowed; }
 .viewer-body { flex: 1; overflow: auto; position: relative; }
 
 /* txt/epub 본문 — 읽기 좋은 폭으로 가운데 정렬. font-size 는 인라인으로 주입된다. */
-.viewer-doc { padding-top: 32px; padding-bottom: 32px; line-height: 1.8; }
+/* 아래는 위보다 넉넉히 — 진도 표시가 깔리는 자리이기도 하고, 위아래가 같으면
+   마지막 줄이 화면 끝에 붙어 보인다(2026-07-31 사용자 지적). */
+.viewer-doc { padding-top: 32px; padding-bottom: 72px; line-height: 1.8; }
 .viewer-doc p { margin: 0 0 1.2em; white-space: pre-wrap; }
 
 /* PDF — 캔버스 위에 투명 텍스트 레이어를 정확히 겹친다(pdf.js 표준 구조). 텍스트는 눈에
@@ -792,7 +794,7 @@ button:disabled { cursor: not-allowed; }
   color: transparent; transform-origin: 0 0;
 }
 
-.epub-host { width: 100%; height: 100%; }
+.epub-host { width: 100%; height: 100%; padding-bottom: 26px; }
 
 
 /* 다크 모드 — txt/epub 전용(PDF 는 원본 레이아웃을 그대로 보여주는 게 목적이라 제외).
@@ -829,13 +831,8 @@ button:disabled { cursor: not-allowed; }
 .viewer-screen.dark .page-nav:hover { border-color: var(--theme); color: #c4b5fd; background: rgba(124, 58, 237, 0.16); }
 
 /* 현재 쪽 표시 — 화살표와 같은 톤으로 하단 중앙에. */
-.page-indicator {
-  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 20;
-  padding: 5px 14px; border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05); color: #71717a; border: 1px solid #e4e4e7;
-  font-size: 13px; font-variant-numeric: tabular-nums; pointer-events: none;
-}
-.viewer-screen.dark .page-indicator { background: rgba(255, 255, 255, 0.06); color: #9ca3af; border-color: #374151; }
+
+.viewer-screen.dark .page-indicator-unused { background: rgba(255, 255, 255, 0.06); color: #9ca3af; border-color: #374151; }
 
 /* txt 페이지 모드 — 본문을 화면 폭짜리 열(column)로 흘려 가로로 넘긴다. 줄이 중간에서
    잘리지 않고, 텍스트가 DOM 에 그대로 남아 호버 좌표 계산도 영향받지 않는다. */
@@ -847,8 +844,11 @@ button:disabled { cursor: not-allowed; }
 .viewer-anim { height: 100%; }
 
 /* ── 목차 패널(PDF 아웃라인 / epub navigation 이 있을 때만) ─────────────────── */
+@keyframes toc-slide-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
 .viewer-toc {
   position: absolute; left: 0; top: 0; bottom: 0; z-index: 30;
+  animation: toc-slide-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
   width: 300px; display: flex; flex-direction: column;
   background: #fff; border-right: 1px solid #e2e8f0;
   box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
@@ -927,3 +927,18 @@ button:disabled { cursor: not-allowed; }
 .viewer-screen.dark .style-toggle button + button { border-left-color: #454d5c; }
 .viewer-screen.dark .viewer-style-panel input[type='range'] { background: #414a59; }
 .viewer-screen.dark .viewer-style-btn { color: #9aa3b2; }
+
+/* ── 아래 진도 표시 ─────────────────────────────────────────────────────────
+   페이지 모드는 "3 / 16", 스크롤 모드는 읽은 비율. 본문 위에 겹치되 클릭은 통과시킨다. */
+.viewer-progress {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 15;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px 10px; pointer-events: none;
+}
+.viewer-progress-bar { flex: 1; height: 3px; border-radius: 2px; background: rgba(15, 23, 42, 0.08); overflow: hidden; }
+.viewer-progress-bar span { display: block; height: 100%; border-radius: 2px; background: var(--theme); transition: width 0.2s; }
+.viewer-progress-text {
+  font-size: 11.5px; color: #9ca3af; font-variant-numeric: tabular-nums; min-width: 54px; text-align: right;
+}
+.viewer-screen.dark .viewer-progress-bar { background: rgba(255, 255, 255, 0.12); }
+.viewer-screen.dark .viewer-progress-text { color: #8b93a1; }

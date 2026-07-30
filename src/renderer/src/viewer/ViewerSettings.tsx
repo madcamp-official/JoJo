@@ -72,7 +72,7 @@ export function saveViewerPrefs(prefs: ViewerPrefs): void {
 const ROWS: { key: keyof ViewerStyle; label: string; digits: number }[] = [
   { key: 'fontSize', label: '글자 크기', digits: 0 },
   { key: 'letterSpacing', label: '자간', digits: 1 },
-  { key: 'lineHeight', label: '줄 간격', digits: 2 },
+  { key: 'lineHeight', label: '행간', digits: 2 },
   { key: 'margin', label: '여백', digits: 0 },
 ]
 
@@ -114,18 +114,30 @@ export function ViewerSettings({
     if (!open) return
     const onDown = (e: MouseEvent) => {
       const el = e.target as Node
-      if (ref.current && !ref.current.contains(el) && !(el as HTMLElement).closest?.('.viewer-style-btn')) {
-        onClose()
-      }
+      // 패널 자신과 여는 버튼 위 클릭은 "바깥"이 아니다(버튼은 토글이라 여기서 닫으면
+      // 곧바로 다시 열려 깜빡인다).
+      if (ref.current?.contains(el)) return
+      if ((el as HTMLElement).closest?.('.viewer-style-btn')) return
+      onClose()
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
+
+    // epub 본문은 iframe 안에 있어서 거기서 누른 mousedown 은 부모 창까지 오지 않는다 —
+    // 본문을 클릭해도 패널이 안 닫히던 이유다(2026-07-31 실측 재현). 지금 떠 있는 뷰어
+    // iframe 문서에도 같은 리스너를 달아준다. 클릭 위치는 어차피 패널 밖이므로 바로 닫는다.
+    const frames = Array.from(document.querySelectorAll<HTMLIFrameElement>('.viewer-body iframe'))
+    const innerDocs = frames.map((f) => f.contentDocument).filter((d): d is Document => !!d)
+    const onInnerDown = (): void => onClose()
+    for (const d of innerDocs) d.addEventListener('mousedown', onInnerDown)
+
     return () => {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
+      for (const d of innerDocs) d.removeEventListener('mousedown', onInnerDown)
     }
   }, [open, onClose])
 
