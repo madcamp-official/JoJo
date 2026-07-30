@@ -1,7 +1,8 @@
 import { useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react'
 import type { ViewerFilePayload } from '@shared/types'
 import type { PageState, PagerHandle, ViewerMode } from './pager'
-import type { PDFPageProxy, PageViewport } from 'pdfjs-dist'
+import type { TocEntry } from './Toc'
+import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from 'pdfjs-dist'
 
 // PDF — 원본 레이아웃을 그대로 보여준다(사용자 확정): pdf.js 가 페이지를 캔버스로 그리고,
 // 그 위에 투명한 텍스트 레이어(span 절대배치)를 겹친다. 그림·수식·다단이 원본과 같게
@@ -59,6 +60,42 @@ function groupSpansIntoLines(textLayerEl: HTMLElement): void {
   }
 }
 
+/**
+ * PDF 아웃라인 → 목차 항목. 각 항목의 `dest` 는 페이지 객체 참조라서 `getPageIndex` 로
+ * 실제 번호를 물어봐야 한다(문자열 이름이면 `getDestination` 으로 먼저 푼다). 목적지를
+ * 못 푸는 항목은 이동할 곳이 없으니 버린다.
+ */
+async function buildPdfToc(
+  doc: PDFDocumentProxy,
+  goToPage: (index: number) => void,
+): Promise<TocEntry[]> {
+  const outline = await doc.getOutline().catch(() => null)
+  if (!outline || outline.length === 0) return []
+
+  const entries: TocEntry[] = []
+  const walk = async (items: typeof outline, depth: number): Promise<void> => {
+    for (const item of items) {
+      const index = await resolvePageIndex(doc, item.dest)
+      if (index !== null) {
+        entries.push({ label: item.title || '(제목 없음)', depth, go: () => goToPage(index) })
+      }
+      if (item.items?.length) await walk(item.items, depth + 1)
+    }
+  }
+  await walk(outline, 0)
+  return entries
+}
+
+async function resolvePageIndex(doc: PDFDocumentProxy, dest: unknown): Promise<number | null> {
+  try {
+    const resolved = typeof dest === 'string' ? await doc.getDestination(dest) : dest
+    if (!Array.isArray(resolved) || resolved.length === 0) return null
+    return await doc.getPageIndex(resolved[0] as Parameters<PDFDocumentProxy['getPageIndex']>[0])
+  } catch {
+    return null
+  }
+}
+
 /** 두 사각형이 세로로 절반 이상 겹치면 같은 줄로 본다. */
 function sameVisualLine(a: DOMRect, b: DOMRect): boolean {
   const overlap = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
@@ -70,11 +107,13 @@ export function PdfView({
   mode,
   pagerRef,
   onPageState,
+  onToc,
 }: {
   file: ViewerFilePayload
   mode: ViewerMode
   pagerRef: RefObject<PagerHandle | null>
   onPageState: (s: PageState) => void
+  onToc: (entries: TocEntry[]) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
@@ -99,6 +138,17 @@ export function PdfView({
         const doc = await pdfjs.getDocument({ data: file.bytes!.slice() }).promise
         if (cancelled) return
         setTotal(doc.numPages)
+
+        // 목차(아웃라인) — PDF 에 들어 있을 때만 나온다. 항목의 목적지(dest)는 참조라
+        // 실제 페이지 번호로 바꾸려면 getPageIndex 로 한 번 더 물어봐야 한다.
+        void buildPdfToc(doc, (n) => {
+          setPage(n)
+          const host2 = hostRef.current
+          const el = host2?.querySelectorAll<HTMLElement>('.pdf-page')[n]
+          el?.scrollIntoView({ block: 'start' })
+        }).then((entries) => {
+          if (!cancelled) onToc(entries)
+        })
 
         // 1단계 — 모든 페이지의 자리(정확한 크기의 빈 상자)를 먼저 만들어 붙인다.
         // 예전엔 한 장 그릴 때마다 하나씩 append 했는데, 그러면 문서를 다 그릴 때까지

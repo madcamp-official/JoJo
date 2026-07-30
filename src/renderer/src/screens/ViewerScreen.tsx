@@ -7,7 +7,16 @@ import { EpubView } from '../viewer/EpubView'
 import { useHoverHighlight } from '../viewer/useHoverHighlight'
 import { ArrowLeftIcon, MoonIcon, ScrollIcon, PageIcon, SunIcon } from './icons'
 import { PageNav } from '../viewer/PageNav'
-import { EMPTY_PAGE_STATE, type PageState, type PagerHandle, type ViewerMode } from '../viewer/pager'
+import { Toc, type TocEntry } from '../viewer/Toc'
+import { ListIcon } from './icons'
+import {
+  EMPTY_PAGE_STATE,
+  PAGE_TRANSITIONS,
+  type PageState,
+  type PageTransition,
+  type PagerHandle,
+  type ViewerMode,
+} from '../viewer/pager'
 
 // 자체 문서 뷰어(pdf/epub/txt) — 외부 뷰어(크롬 내장 PDF 뷰어·Kindle 등)는 텍스트나 좌표를
 // 신뢰할 수 있게 주지 않아서(TODO.md 96~111 조사) 우리가 직접 파싱·렌더링한다. 우리 DOM
@@ -37,6 +46,21 @@ export function ViewerScreen() {
   // 각 뷰(pdf/epub/txt)가 자기 방식대로 채워 넣는 "넘기기" 핸들 — 넘기는 방법은 포맷마다
   // 다르지만(pager.ts 주석) 화살표 버튼·방향키는 이 핸들 하나만 부른다.
   const pagerRef = useRef<PagerHandle | null>(null)
+  const [transition, setTransition] = useState<PageTransition>('slide')
+  // 목차 — 문서에 들어 있을 때만 채워진다(PDF 아웃라인 / epub navigation). 비어 있으면
+  // 버튼 자체를 띄우지 않는다.
+  const [toc, setToc] = useState<TocEntry[]>([])
+  const [tocOpen, setTocOpen] = useState(false)
+  // 넘김 방향과 "몇 번째 넘김인지" — 같은 방향으로 연속해서 넘겨도 CSS 애니메이션이 다시
+  // 시작되게 하려면 클래스 이름이 매번 달라져야 한다(홀/짝 두 벌을 번갈아 쓴다).
+  // key 로 리마운트시키는 방법은 쓰면 안 된다 — PDF/epub 뷰가 통째로 다시 그려진다.
+  const [turn, setTurn] = useState({ dir: 'next' as 'next' | 'prev', tick: 0 })
+
+  const goPage = useCallback((dir: 'next' | 'prev') => {
+    setTurn((t) => ({ dir, tick: t.tick + 1 }))
+    if (dir === 'next') pagerRef.current?.next()
+    else pagerRef.current?.prev()
+  }, [])
 
   useEffect(() => {
     window.nuance
@@ -69,18 +93,23 @@ export function ViewerScreen() {
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        pagerRef.current?.prev()
+        goPage('prev')
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
-        pagerRef.current?.next()
+        goPage('next')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [mode])
+  }, [mode, goPage])
 
   // 모드를 바꾸면 이전 모드의 페이지 상태(화살표 활성 여부 등)는 의미가 없다.
   useEffect(() => setPageState(EMPTY_PAGE_STATE), [mode, file])
+  // 파일이 바뀌면 이전 문서의 목차는 버린다.
+  useEffect(() => {
+    setToc([])
+    setTocOpen(false)
+  }, [file])
 
   return (
     <div className={`screen viewer-screen${dark && isReflowable ? ' dark' : ''}`}>
@@ -88,6 +117,11 @@ export function ViewerScreen() {
         <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
           <ArrowLeftIcon />
         </button>
+        {toc.length > 0 && (
+          <button className="viewer-back" title="목차" onClick={() => setTocOpen((v) => !v)}>
+            <ListIcon />
+          </button>
+        )}
         <span className="viewer-title" title={file?.path}>
           {file?.name ?? '문서'}
         </span>
@@ -101,6 +135,22 @@ export function ViewerScreen() {
             {mode === 'page' ? <ScrollIcon /> : <PageIcon />}
             {mode === 'page' ? '스크롤' : '페이지'}
           </button>
+          {mode === 'page' && (
+            <label className="viewer-font-control">
+              넘김 효과
+              <select
+                className="viewer-select"
+                value={transition}
+                onChange={(e) => setTransition(e.target.value as PageTransition)}
+              >
+                {PAGE_TRANSITIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {isReflowable && (
             <>
             <button
@@ -141,11 +191,18 @@ export function ViewerScreen() {
       <div className="viewer-body" ref={containerRef}>
         {error && <p className="hint">{error}</p>}
         {!file && !error && <p className="hint">불러오는 중…</p>}
+        <div
+          className={
+            mode === 'page' && transition !== 'none'
+              ? `viewer-anim anim-${transition}-${turn.dir}-${turn.tick % 2}`
+              : 'viewer-anim'
+          }
+        >
         {file?.kind === 'txt' && (
           <TxtView file={file} fontSize={fontSize} margin={margin} mode={mode} pagerRef={pagerRef} onPageState={setPageState} />
         )}
         {file?.kind === 'pdf' && (
-          <PdfView file={file} mode={mode} pagerRef={pagerRef} onPageState={setPageState} />
+          <PdfView file={file} mode={mode} pagerRef={pagerRef} onPageState={setPageState} onToc={setToc} />
         )}
         {file?.kind === 'epub' && (
           <EpubView
@@ -156,14 +213,13 @@ export function ViewerScreen() {
             mode={mode}
             pagerRef={pagerRef}
             onPageState={setPageState}
+            onToc={setToc}
           />
         )}
+        </div>
+        <Toc entries={toc} open={tocOpen} onClose={() => setTocOpen(false)} />
         {mode === 'page' && (
-          <PageNav
-            state={pageState}
-            onPrev={() => pagerRef.current?.prev()}
-            onNext={() => pagerRef.current?.next()}
-          />
+          <PageNav state={pageState} onPrev={() => goPage('prev')} onNext={() => goPage('next')} />
         )}
       </div>
       <HoverBinding

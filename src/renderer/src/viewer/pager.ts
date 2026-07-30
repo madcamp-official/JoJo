@@ -23,3 +23,12 @@ export interface PageState {
 export const EMPTY_PAGE_STATE: PageState = { current: 0, total: 0, canPrev: false, canNext: false }
 
 export type ViewerMode = 'scroll' | 'page'
+
+/** 페이지 넘김 효과 — 포맷별 렌더러를 건드리지 않고 본문 전체에 CSS 애니메이션으로 준다. */
+export type PageTransition = 'none' | 'slide' | 'flip'
+
+export const PAGE_TRANSITIONS: { value: PageTransition; label: string }[] = [
+  { value: 'none', label: '효과 없음' },
+  { value: 'slide', label: '슬라이딩' },
+  { value: 'flip', label: '페이지 넘김' },
+]
