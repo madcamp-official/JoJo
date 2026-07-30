@@ -23,6 +23,7 @@ import {
   formatDictionaryAnswer,
   numberSenses,
   parseJudgeReply,
+  SOURCE_LABELS,
 } from './dictionary/senseSelect'
 import { buildContextBlock, createClient, getActiveProvider } from './llm/adapter'
 import { classifyLlmError } from './llm/errors'
@@ -45,6 +46,15 @@ import { buildErrorResult } from './errors'
 // 수만큼 늘어나므로 MAX_FALLBACK_WORDS 로 상한을 둔다. forceSource(사전 소스 직접 선택,
 // 정식 기능)도 동일한 분해 로직을 공유한다(lookupForcedSourceOnce) — "직접 선택"은 소스
 // 하나만 고정한다는 뜻이지, 그 소스 내부의 단어 분해 폴백까지 건너뛴다는 뜻이 아니다.
+//
+// 진행 상황 실시간 표시(2026-07-31): 사전 조회는 소스를 순서대로 때리고 그때마다 LLM
+// 판정까지 도는 구조라 최종 결과가 나오기까지 수 초가 걸리는데, 그 사이 채팅창이 완전히
+// 비어 있어 "지금 뭘 하는 중인지 / 왜 오래 걸리는지"를 알 수 없다는 사용자 피드백으로
+// ProgressFn 을 체인 전 구간에 배선했다 — 어느 사전에서 검색 중인지, 결과가 없어 다음
+// 사전으로 폴백했는지, 사전엔 있었는데 LLM 이 문맥에 맞는 뜻을 못 골랐는지를 한 줄씩
+// onChunk(meta.progress) 로 흘려보낸다. 이 청크는 답변 본문(content)이 아니라 렌더러가
+// 따로 쌓아 두는 진행 로그이고, 최종 결과가 도착하면 통째로 지워진다(PopupScreen.tsx
+// onQuestionStream / Chat.tsx bubble-progress).
 
 const DICTIONARY_JUDGE_TEMPERATURE = 0.2
 const DICTIONARY_JUDGE_MAX_TOKENS = 500
@@ -79,6 +89,7 @@ export async function lookupDictionary(
     return emit(onChunk, { kind: 'dictionary', content: '이 언어는 아직 사전 검색을 지원하지 않습니다.' })
   }
   const ctx: DictSelectionContext = { ...rawCtx, language: rawCtx.language }
+  const progress = createProgressEmitter(onChunk)
 
   // ============================================================================
   // 사전 소스 직접 선택 — 정식 기능(2026-07-30 격상, 팝업 드롭다운+토글, registry.ts 와
@@ -87,7 +98,7 @@ export async function lookupDictionary(
   // 이 경로는 정식 폴백 체인 대신 사용자가 고른 소스 하나만 호출한다(다중 단어 분해 등
   // 나머지 동작은 lookupForcedSourceOnce 가 정식 폴백과 동일하게 공유).
   if (forceSource) {
-    return emit(onChunk, await lookupForcedSource(forceSource, ctx))
+    return emit(onChunk, await lookupForcedSource(forceSource, ctx, progress))
   }
   // ============================================================================
 
@@ -115,26 +126,18 @@ export async function lookupDictionary(
   const model = settings.models[provider] || DEFAULT_MODELS[provider]
   const cacheableContext = buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter)
 
-  const whole = await lookupThroughFallbackChain(word, ctx)
-  const lookupWord = whole.matchedWord ?? word
-  if (whole.senses.length && whole.sourceId) {
-    const outcome = await judgeAndFormat({
-      word: lookupWord,
-      source: whole.sourceId,
-      senses: whole.senses,
-      ctx,
-      client,
-      model,
-      cacheableContext,
+  const llm: LlmDeps = { client, model, cacheableContext }
+
+  const whole = await lookupChainWithJudge(word, ctx, llm, progress)
+  if (whole.formatted) {
+    return emit(onChunk, {
+      kind: 'dictionary',
+      content: whole.formatted,
+      meta: { provider, source: whole.sourceId },
     })
-    if (outcome.ok) {
-      return emit(onChunk, {
-        kind: 'dictionary',
-        content: withDebugCountsLine(outcome.formatted, whole.entries, whole.senses.length, outcome.selected), // TEMP DEBUG
-        meta: { provider, source: whole.sourceId },
-      })
-    }
-    return emit(onChunk, buildErrorResult('dictionary', classifyLlmError(outcome.error), provider))
+  }
+  if (whole.llmError) {
+    return emit(onChunk, buildErrorResult('dictionary', classifyLlmError(whole.llmError), provider))
   }
 
   // 통째 조회가 체인 끝까지 실패 — 단어 단위로 쪼개 각각 같은 체인을 재시도한다
@@ -146,9 +149,47 @@ export async function lookupDictionary(
   // 하이픈 분리, 일본어 조사·조동사 병합, 중국어 세그멘터)를 거쳐뒀으므로, 여기서 en은
   // 공백/하이픈 정규식으로, ja/zh 는 형태소 분석기를 다시 호출해 별도 기준으로 쪼개면
   // 팝업에서 보인 단어 단위와 사전 조회 단위가 어긋날 수 있었다.
+  //
+  // 단어별 폴백은 "체인 어디에도 없음"뿐 아니라 "사전엔 있었지만 어느 소스에서도 문맥에
+  // 맞는 뜻이 없었음"(whole.noContextMatch)일 때도 시도한다(2026-07-31) — 후자도 통째
+  // 표제어로는 답을 못 준 것이므로 단어별로 쪼개보는 게 그냥 포기하는 것보다 낫다.
   const words = ctx.words.map((w) => w.text)
-  if (words.length <= 1) {
-    return emit(onChunk, notFoundResult(word, whole.suggestions))
+  if (words.length > 1 && words.length <= MAX_FALLBACK_WORDS) {
+    progress(`통째로는 답을 못 찾아 단어별로 다시 검색합니다: ${words.join(', ')}`)
+    const perWordResults = await Promise.allSettled(
+      words.map((w) => lookupSingleWordThroughChain(w, ctx, llm, progress)),
+    )
+    const outcomes = perWordResults.map((r) => (r.status === 'fulfilled' ? r.value : null))
+
+    const formattedBlocks = outcomes
+      .filter((o): o is { formatted: string } => o !== null && 'formatted' in o)
+      .map((o) => o.formatted)
+
+    if (formattedBlocks.length) {
+      return emit(onChunk, {
+        kind: 'dictionary',
+        content: formattedBlocks.join('\n\n---\n\n'),
+        meta: { provider },
+      })
+    }
+    // 단어 전부가 사전에 없는 것과, LLM 호출 자체가 전부 실패한 것(잘못된 모델 등)은
+    // 원인이 다르다 — 후자를 "사전에서 못 찾음"으로 뭉개면 사용자가 엉뚱한 곳을
+    // 의심하게 되므로, 있었으면 그걸 그대로 보여준다(개별 소스 조회 실패는 체인 내부에서
+    // 이미 다음 소스로 흡수되므로 여기까지 올라오지 않는다 — lookupChainWithJudge 참고).
+    const llmError = outcomes.find((o): o is { llmError: unknown } => o !== null && 'llmError' in o)
+    if (llmError) {
+      return emit(onChunk, buildErrorResult('dictionary', classifyLlmError(llmError.llmError), provider))
+    }
+  }
+
+  // 사전에는 있었지만 어느 소스에서도 문맥에 맞는 뜻을 못 골랐다면, 마지막 수단으로
+  // 체인에서 가장 우선순위가 높았던 소스의 안내문(뜻 후보 자체는 있었다는 사실)을 보여준다.
+  if (whole.noContextMatch) {
+    return emit(onChunk, {
+      kind: 'dictionary',
+      content: whole.noContextMatch.formatted,
+      meta: { provider, source: whole.noContextMatch.source },
+    })
   }
   if (words.length > MAX_FALLBACK_WORDS) {
     // 긴 속담/관용구는 사용자가 실제로 드래그한 표면형(대명사·부속어 포함)으로는 통째
@@ -163,46 +204,48 @@ export async function lookupDictionary(
       content: `선택 범위가 너무 넓어 사전 검색을 건너뜁니다(단어 ${words.length}개, 최대 ${MAX_FALLBACK_WORDS}개).${suggestion}`,
     })
   }
+  return emit(onChunk, notFoundResult(word, whole.suggestions))
+}
 
-  const perWordResults = await Promise.allSettled(
-    words.map((w) => lookupSingleWordThroughChain(w, ctx, client, model, cacheableContext)),
-  )
-  const outcomes = perWordResults.map((r) => (r.status === 'fulfilled' ? r.value : null))
+// ---- 진행 상황(채팅창 실시간 표시) --------------------------------------------
 
-  const formattedBlocks = outcomes
-    .filter((o): o is { formatted: string } => o !== null && 'formatted' in o)
-    .map((o) => o.formatted)
+/** 진행 상황 한 줄을 채팅창으로 흘려보내는 콜백 — 사전 체인 전 구간이 공유한다. */
+type ProgressFn = (text: string) => void
 
-  if (!formattedBlocks.length) {
-    // 단어 전부가 사전에 없는 것과, LLM 호출 자체가 전부 실패한 것(잘못된 모델 등)은
-    // 원인이 다르다 — 후자를 "사전에서 못 찾음"으로 뭉개면 사용자가 엉뚱한 곳을
-    // 의심하게 되므로, 있었으면 그걸 그대로 보여준다(개별 소스 조회 실패는 체인 내부에서
-    // 이미 다음 소스로 흡수되므로 여기까지 올라오지 않는다 — lookupThroughFallbackChain 참고).
-    const llmError = outcomes.find((o): o is { llmError: unknown } => o !== null && 'llmError' in o)
-    if (llmError) {
-      return emit(onChunk, buildErrorResult('dictionary', classifyLlmError(llmError.llmError), provider))
-    }
-    return emit(onChunk, notFoundResult(word, whole.suggestions))
-  }
+/** meta.progress 가 붙은 청크는 답변 본문이 아니라 "지금 무엇을 하는 중인지"를 알리는
+ *  진행 로그다 — 렌더러가 말풍선 위에 회색 줄로 쌓아 두고, 최종 결과(질문 IPC 의 반환값)가
+ *  도착하는 순간 통째로 지운다(PopupScreen.tsx). content 를 누적(meta.streaming)하는
+ *  LLM 델타와 달리 본문에는 절대 섞이지 않는다. */
+function createProgressEmitter(onChunk: (chunk: QuestionResult) => void): ProgressFn {
+  return (text) => onChunk({ kind: 'dictionary', content: text, meta: { progress: true } })
+}
 
-  return emit(onChunk, {
-    kind: 'dictionary',
-    content: formattedBlocks.join('\n\n---\n\n'),
-    meta: { provider },
-  })
+/** 진행 로그 한 줄의 접두사 — 단어별 폴백은 여러 단어의 조회가 동시에 진행돼 로그가
+ *  뒤섞이므로 어느 단어 얘기인지 앞에 붙여준다(통째 조회 경로는 빈 문자열). */
+function progressTag(word: string | undefined): string {
+  return word ? `[${word}] ` : ''
 }
 
 // ---- 폴백 체인 실행 -----------------------------------------------------------
 
-interface ChainLookupResult {
-  senses: ReturnType<typeof numberSenses>
+interface ChainJudgeOutcome {
+  /** 문맥에 맞는 뜻까지 골라낸 최종 서식 결과 — 이게 있으면 성공. */
+  formatted?: string
   sourceId?: DictionarySourceId
   suggestions?: string[]
-  /** 실제로 결과를 준 표면형 — ja 는 원래 조회어와 다를 수 있다(활용형→기본형 재시도,
-   *  아래 lookupThroughFallbackChain 참고). undefined 면 원래 조회어 그대로 성공한 것. */
-  matchedWord?: string
-  /** TEMP DEBUG(맨 윗줄 entry/reading/sense 개수 표시용) — 제거 시 이 필드도 같이 삭제. */
-  entries?: DictionaryEntry<Language>[]
+  /** LLM 호출 자체가 실패(잘못된 모델·키 등) — "사전에 없음"과 구분해야 한다. */
+  llmError?: unknown
+  /** 사전엔 뜻이 있었지만 LLM 이 문맥에 맞는 뜻을 못 고른 경우(2026-07-31) — 이제 여기서
+   *  멈추지 않고 다음 사전으로 계속 폴백하되, 체인이 끝까지 다 실패했을 때 보여줄
+   *  "문맥에 맞는 뜻을 찾지 못했습니다" 안내문은 가장 우선순위가 높았던 소스 것으로 남겨둔다. */
+  noContextMatch?: { formatted: string; source: DictionarySourceId }
+}
+
+/** judgeAndFormat 에 필요한 LLM 호출 재료 묶음 — 체인/단어별 폴백 전 구간에 그대로 전달된다. */
+interface LlmDeps {
+  client: ReturnType<typeof createClient>
+  model: string
+  cacheableContext: string
 }
 
 /** ja 전용 — 조회 후보 목록(표면형 + 있으면 활용형 기본형)을 만든다. daijisen·JMdict가
@@ -310,11 +353,33 @@ async function wordCandidatesFor(word: string, ctx: DictSelectionContext): Promi
   return [word]
 }
 
-async function lookupThroughFallbackChain(word: string, ctx: DictSelectionContext): Promise<ChainLookupResult> {
+/** 폴백 체인을 앞에서부터 돌면서 소스마다 "조회 → LLM 판정/번역"까지 끝내고, 문맥에 맞는
+ *  뜻을 실제로 고른 첫 소스에서 멈춘다.
+ *
+ *  **판정을 체인 안으로 들여왔다(2026-07-31)** — 예전엔 "sense 가 하나라도 있는 첫 소스"에서
+ *  체인을 끝내고 그 뒤에 판정을 한 번만 돌려서, 사전엔 뜻이 있는데 LLM 이 "문맥에 맞는 게
+ *  없다"(번호: 0)고 답하면 거기서 그냥 끝나버렸다 — 뒤에 남아 있는 사전들은 시도조차 안 했다.
+ *  이제는 그 경우도 "이 소스는 실패"로 보고 다음 소스로 계속 폴백한다(사용자 요청). 체인이
+ *  끝까지 다 실패하면 그 중 가장 앞선 소스의 안내문을 noContextMatch 로 돌려준다. */
+async function lookupChainWithJudge(
+  word: string,
+  ctx: DictSelectionContext,
+  llm: LlmDeps,
+  progress: ProgressFn,
+  /** 단어별 폴백에서 여러 조회가 동시에 돌 때 진행 로그를 구분하기 위한 접두사용 단어. */
+  tagWord?: string,
+): Promise<ChainJudgeOutcome> {
   const chain = FALLBACK_CHAINS[ctx.language]
   const candidates = await wordCandidatesFor(word, ctx)
+  const tag = progressTag(tagWord)
   let suggestions: string[] | undefined
-  for (const source of chain) {
+  let noContextMatch: ChainJudgeOutcome['noContextMatch']
+
+  for (const [i, source] of chain.entries()) {
+    const label = SOURCE_LABELS[source]
+    const nextNote = i === chain.length - 1 ? ' (더 시도할 사전 없음)' : ' → 다음 사전으로'
+    progress(`${tag}${label}에서 "${word}" 검색 중…`)
+
     const collectedEntries: DictionaryEntry<Language>[] = []
     const matchedCandidates: string[] = []
     for (const candidate of candidates) {
@@ -329,39 +394,47 @@ async function lookupThroughFallbackChain(word: string, ctx: DictSelectionContex
         console.warn(`[dictionary] ${source}(${candidate}) 조회 실패, 다음으로 폴백:`, err)
       }
     }
-    if (collectedEntries.length) {
-      const senses = numberSenses(collectedEntries)
-      if (senses.length) {
-        return {
-          senses,
-          sourceId: collectedEntries[0].source,
-          suggestions,
-          entries: collectedEntries,
-          matchedWord: matchedCandidates.includes(word) ? undefined : matchedCandidates[0],
-        }
-      }
+
+    const senses = collectedEntries.length ? numberSenses(collectedEntries) : []
+    if (!senses.length) {
+      progress(`${tag}${label}: 결과 없음${nextNote}`)
+      continue
     }
+
+    progress(`${tag}${label}: 뜻 ${senses.length}개 발견 — 문맥에 맞는 뜻 고르는 중…`)
+    const matchedWord = matchedCandidates.includes(word) ? word : (matchedCandidates[0] ?? word)
+    const sourceId = collectedEntries[0].source
+    const outcome = await judgeAndFormat({ word: matchedWord, source: sourceId, senses, ctx, ...llm })
+    if (!outcome.ok) return { llmError: outcome.error, suggestions }
+
+    const formatted = withDebugCountsLine(outcome.formatted, collectedEntries, senses.length, outcome.selected) // TEMP DEBUG
+    if (outcome.selected.length) return { formatted, sourceId, suggestions }
+
+    progress(`${tag}${label}: 문맥에 맞는 뜻 없음${nextNote}`)
+    // 체인이 전부 실패했을 때 보여줄 안내문은 **가장 앞선(우선순위 높은)** 소스 것으로 —
+    // 뒤로 갈수록 얇은 뜻풀이(Wiktionary 굴절 안내 등)라 사용자에게 덜 쓸모 있다.
+    noContextMatch ??= { formatted, source: sourceId }
   }
-  return { senses: [], suggestions }
+  return { suggestions, noContextMatch }
 }
 
 /** 단어 하나를 폴백 체인 조회 → LLM 판정/번역까지 끝내 서식화된 마크다운으로 돌려준다.
- *  폴백 경로 전용 — "사전에 없는 단어"(null)와 "LLM 호출 자체가 실패함"(llmError)을
- *  구분해 돌려준다. 개별 소스 조회 실패는 lookupThroughFallbackChain 안에서 이미 다음
- *  소스로 흡수되므로 여기서 따로 구분할 필요가 없다. */
+ *  단어별 폴백 경로 전용 — "사전에 없는 단어"(null)와 "LLM 호출 자체가 실패함"(llmError)을
+ *  구분해 돌려준다. 개별 소스 조회 실패는 lookupChainWithJudge 안에서 이미 다음 소스로
+ *  흡수되므로 여기서 따로 구분할 필요가 없다. 체인 전체가 "문맥에 맞는 뜻 없음"으로 끝난
+ *  경우엔 그 안내문이라도 블록으로 실어 보낸다 — 다른 단어는 답이 나왔는데 이 단어만
+ *  통째로 사라지면 왜 빠졌는지 알 수 없기 때문. */
 async function lookupSingleWordThroughChain(
   word: string,
   ctx: DictSelectionContext,
-  client: ReturnType<typeof createClient>,
-  model: string,
-  cacheableContext: string,
+  llm: LlmDeps,
+  progress: ProgressFn,
 ): Promise<{ formatted: string } | { llmError: unknown } | null> {
-  const { senses, sourceId, entries } = await lookupThroughFallbackChain(word, ctx)
-  if (!senses.length || !sourceId) return null
-
-  const outcome = await judgeAndFormat({ word, source: sourceId, senses, ctx, client, model, cacheableContext })
-  if (!outcome.ok) return { llmError: outcome.error }
-  return { formatted: withDebugCountsLine(outcome.formatted, entries, senses.length, outcome.selected) } // TEMP DEBUG
+  const outcome = await lookupChainWithJudge(word, ctx, llm, progress, word)
+  if (outcome.formatted) return { formatted: outcome.formatted }
+  if (outcome.llmError) return { llmError: outcome.llmError }
+  if (outcome.noContextMatch) return { formatted: outcome.noContextMatch.formatted }
+  return null
 }
 
 interface JudgeAndFormatArgs {
@@ -645,6 +718,10 @@ function describeSourceError(source: DictionarySourceId, err: unknown): string {
 // ============================================================================
 interface ForcedSourceOnceResult {
   formatted?: string
+  /** 사전엔 뜻이 있었지만 LLM 이 문맥에 맞는 뜻을 못 고른 경우의 안내문(2026-07-31) —
+   *  성공(formatted)과 구분해야 이 경우에도 단어별 분해 재시도로 넘어갈 수 있다. 강제
+   *  소스 경로는 소스가 하나로 고정돼 있어 정식 체인처럼 "다음 사전"으로는 못 넘어간다. */
+  noContextFormatted?: string
   entries?: DictionaryEntry<Language>[]
   suggestions?: string[]
   firstCandidateError?: unknown
@@ -657,9 +734,10 @@ async function lookupForcedSourceOnce(
   source: DictionarySourceId,
   ctx: DictSelectionContext,
   word: string,
-  client: ReturnType<typeof createClient>,
-  model: string,
-  cacheableContext: string,
+  llm: LlmDeps,
+  progress: ProgressFn,
+  /** 단어별 폴백에서 여러 조회가 동시에 돌 때 진행 로그를 구분하기 위한 접두사용 단어. */
+  tagWord?: string,
 ): Promise<ForcedSourceOnceResult> {
   // 활용형→기본형 후보(japaneseWordCandidates/englishWordCandidates)를 전부 시도해
   // entries 를 합친다(2026-07-29) — 이전엔 표면형 하나만 쿼리해서 "行って"(行く의 て형)처럼
@@ -671,6 +749,9 @@ async function lookupForcedSourceOnce(
   // 주석 참고). 표면형(첫 후보) 조회 실패만 설정 문제(키 미설정 등)일 수 있어 그대로
   // 보여주고, 그 다음 후보들의 실패는 체인과 동일하게 조용히 다음 후보로 넘어간다.
   const candidates = await wordCandidatesFor(word, ctx)
+  const tag = progressTag(tagWord)
+  const label = SOURCE_LABELS[source]
+  progress(`${tag}${label}에서 "${word}" 검색 중…`)
   const collectedEntries: DictionaryEntry<Language>[] = []
   const matchedCandidates: string[] = []
   let suggestions: string[] | undefined
@@ -689,27 +770,34 @@ async function lookupForcedSourceOnce(
     }
   }
 
-  if (!collectedEntries.length) return { suggestions, firstCandidateError }
-  const senses = numberSenses(collectedEntries)
-  if (!senses.length) return { suggestions, firstCandidateError }
+  const senses = collectedEntries.length ? numberSenses(collectedEntries) : []
+  if (!senses.length) {
+    progress(`${tag}${label}: 결과 없음`)
+    return { suggestions, firstCandidateError }
+  }
 
+  progress(`${tag}${label}: 뜻 ${senses.length}개 발견 — 문맥에 맞는 뜻 고르는 중…`)
   const outcome = await judgeAndFormat({
     word: matchedCandidates.includes(word) ? word : (matchedCandidates[0] ?? word),
     source: collectedEntries[0].source,
     senses,
     ctx,
-    client,
-    model,
-    cacheableContext,
+    ...llm,
   })
   if (!outcome.ok) return { llmError: outcome.error, entries: collectedEntries }
-  return {
-    formatted: withDebugCountsLine(outcome.formatted, collectedEntries, senses.length, outcome.selected), // TEMP DEBUG
-    entries: collectedEntries,
+  const formatted = withDebugCountsLine(outcome.formatted, collectedEntries, senses.length, outcome.selected) // TEMP DEBUG
+  if (!outcome.selected.length) {
+    progress(`${tag}${label}: 문맥에 맞는 뜻 없음`)
+    return { noContextFormatted: formatted, entries: collectedEntries, suggestions }
   }
+  return { formatted, entries: collectedEntries }
 }
 
-async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelectionContext): Promise<QuestionResult> {
+async function lookupForcedSource(
+  source: DictionarySourceId,
+  ctx: DictSelectionContext,
+  progress: ProgressFn,
+): Promise<QuestionResult> {
   const word = ctx.selectedText.trim()
   if (!word) {
     return { kind: 'dictionary', content: '선택된 표현이 없습니다.' }
@@ -725,7 +813,9 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelection
   const model = settings.models[provider] || DEFAULT_MODELS[provider]
   const cacheableContext = buildContextBlock(ctx, settings.contextBytesBefore, settings.contextBytesAfter)
 
-  const whole = await lookupForcedSourceOnce(source, ctx, word, client, model, cacheableContext)
+  const llm: LlmDeps = { client, model, cacheableContext }
+
+  const whole = await lookupForcedSourceOnce(source, ctx, word, llm, progress)
   if (whole.formatted) {
     return {
       kind: 'dictionary',
@@ -744,8 +834,43 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelection
   // "못 찾음" 처리됐다. "직접 선택" 토글 기본값이 켜져 있어(Toolbar.tsx) 실사용에서도
   // 이 경로를 자주 타므로 정식 경로와 동작을 맞춘다. "강제"는 소스 하나만 고정한다는
   // 뜻이지 그 소스 내부 폴백(단어 분해 포함)까지 건너뛴다는 뜻이 아니다.
+  //
+  // 정식 체인과 마찬가지로(2026-07-31) "사전엔 있었지만 문맥에 맞는 뜻이 없음"도 통째
+  // 조회 실패로 보고 단어별 분해까지 마저 시도한다 — 소스가 하나로 고정된 경로라 "다음
+  // 사전"은 없지만, 단어 단위 재조회는 그대로 남은 수단이다.
   const words = ctx.words.map((w) => w.text)
-  if (words.length <= 1) return notFoundResult(word, whole.suggestions)
+  if (words.length > 1 && words.length <= MAX_FALLBACK_WORDS) {
+    progress(`통째로는 답을 못 찾아 단어별로 다시 검색합니다: ${words.join(', ')}`)
+    const perWordResults = await Promise.allSettled(
+      words.map((w) => lookupForcedSourceOnce(source, ctx, w, llm, progress, w)),
+    )
+    const formattedBlocks = perWordResults
+      .map((r) => (r.status === 'fulfilled' ? (r.value.formatted ?? r.value.noContextFormatted) : undefined))
+      .filter((f): f is string => Boolean(f))
+
+    if (formattedBlocks.length) {
+      return {
+        kind: 'dictionary',
+        content: formattedBlocks.join('\n\n---\n\n'),
+        meta: { provider, source },
+      }
+    }
+    const llmErrorResult = perWordResults.find(
+      (r): r is PromiseFulfilledResult<ForcedSourceOnceResult> =>
+        r.status === 'fulfilled' && r.value.llmError !== undefined,
+    )
+    if (llmErrorResult) {
+      return buildErrorResult('dictionary', classifyLlmError(llmErrorResult.value.llmError), provider)
+    }
+  }
+
+  if (whole.noContextFormatted) {
+    return {
+      kind: 'dictionary',
+      content: whole.noContextFormatted,
+      meta: { provider, source: whole.entries?.[0]?.source ?? source },
+    }
+  }
   if (words.length > MAX_FALLBACK_WORDS) {
     const suggestion = whole.suggestions?.length
       ? ` (제안: ${whole.suggestions.slice(0, 5).join(', ')})`
@@ -755,28 +880,5 @@ async function lookupForcedSource(source: DictionarySourceId, ctx: DictSelection
       content: `선택 범위가 너무 넓어 사전 검색을 건너뜁니다(단어 ${words.length}개, 최대 ${MAX_FALLBACK_WORDS}개).${suggestion}`,
     }
   }
-
-  const perWordResults = await Promise.allSettled(
-    words.map((w) => lookupForcedSourceOnce(source, ctx, w, client, model, cacheableContext)),
-  )
-  const formattedBlocks = perWordResults
-    .map((r) => (r.status === 'fulfilled' ? r.value.formatted : undefined))
-    .filter((f): f is string => Boolean(f))
-
-  if (!formattedBlocks.length) {
-    const llmErrorResult = perWordResults.find(
-      (r): r is PromiseFulfilledResult<ForcedSourceOnceResult> =>
-        r.status === 'fulfilled' && r.value.llmError !== undefined,
-    )
-    if (llmErrorResult) {
-      return buildErrorResult('dictionary', classifyLlmError(llmErrorResult.value.llmError), provider)
-    }
-    return notFoundResult(word, whole.suggestions)
-  }
-
-  return {
-    kind: 'dictionary',
-    content: formattedBlocks.join('\n\n---\n\n'),
-    meta: { provider, source },
-  }
+  return notFoundResult(word, whole.suggestions)
 }

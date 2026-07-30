@@ -75,11 +75,25 @@ export function Chat({ messages, onSend, busy, className }: Props) {
         {messages.length === 0 && (
           <p className="chat-empty">선택한 표현에 대해 궁금한 점을 물어보세요.</p>
         )}
-        {messages.map((m) => (
+        {messages.map((m) => {
+          const progressLines = m.progress ?? []
+          return (
           <div
             key={m.id}
             className={`bubble ${m.role} ${m.error ? 'error' : ''} ${m.streaming ? 'streaming' : ''}`}
           >
+            {/* 진행 상황(사전 검색 단계별 안내) — 답변이 도착하기 전까지만 본문 위에
+                흐리게 쌓아 보여준다. 최종 결과가 오면 PopupScreen 이 progress 를 비워
+                자동으로 사라진다(마지막 줄만 강조해 "지금 하는 일"을 드러냄). */}
+            {progressLines.length > 0 && (
+              <div className="bubble-progress">
+                {progressLines.map((line, i) => (
+                  <div key={i} className={i === progressLines.length - 1 ? 'now' : undefined}>
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
             {m.error ? (
               <div className="err-body">
                 <strong>⚠️ {errorTitle(m.error.code)}</strong>
@@ -95,7 +109,8 @@ export function Chat({ messages, onSend, busy, className }: Props) {
               m.content
             )}
           </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="chat-input">
