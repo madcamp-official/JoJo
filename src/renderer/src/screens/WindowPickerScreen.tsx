@@ -20,7 +20,11 @@ export function WindowPickerScreen() {
     })
 
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') goto('main')
+      if (e.key !== 'Escape') return
+      // 이미 선택된 창이 있는 상태에서 (재선택 없이) 나가는 거라면 메인 화면을 띄우지
+      // 않고 그냥 숨긴다 — 원래 창 선택 중엔 메인 창이 숨어 있던 상태였으므로 그대로 복귀.
+      if (selectedId != null) void window.nuance.hideMainWindow()
+      else goto('main')
     }
     window.addEventListener('keydown', onKeyDown)
 
@@ -28,7 +32,7 @@ export function WindowPickerScreen() {
       cancelled = true
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [])
+  }, [selectedId])
 
   async function pick(source: CaptureSource) {
     await window.nuance.selectWindow(source)

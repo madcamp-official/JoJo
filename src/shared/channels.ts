@@ -7,6 +7,9 @@ export const IPC = {
   SELECT_WINDOW: 'window:select',
   WINDOW_SELECTED: 'window:selected',
   GET_SELECTED_WINDOW_ID: 'window:getSelectedId',
+  // 창 선택 화면에서 Esc — 이미 선택된 창이 있으면 메인 화면으로 안 돌아가고 그냥 숨는다
+  // (2026-07-30 사용자 요청: "창 선택이 돼 있는 상태라면 메인 화면이 뜨지 않도록").
+  WINDOW_HIDE: 'window:hide',
   GET_MODE: 'mode:get',
   MODE_CHANGED: 'mode:changed',
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
@@ -51,6 +54,10 @@ export const IPC = {
   // 메인/피커/설정 화면 전환 (공동) — 세 화면은 한 창을 재사용한다(동시 표시 불필요).
   // 렌더러(goto()) → 메인: 창 크기만 맞춰달라 요청. 메인(트레이 등) → 렌더러: 화면을 바꾸라고 지시.
   WINDOW_SET_ROUTE: 'window:setRoute',
+  // 렌더러가 NAVIGATE 를 받아 실제로 해당 라우트로 전환·렌더를 마쳤을 때 응답(windows.ts:
+  // showMainWindowAtRoute 가 이 신호를 받은 뒤에야 숨겨진 창을 show() 해 화면 전환
+  // 깜빡임을 없앤다).
+  NAVIGATE_READY: 'window:navigateReady',
   NAVIGATE: 'window:navigate',
   // "설정 화면 열기" 단축키(기본 Cmd/Ctrl+,, 2026-07-29) — 예전엔 globalShortcut(OS
   // 전역 후킹)으로 구현했으나, Cmd+,는 VSCode/Claude Desktop 등 다른 앱도 흔히 쓰는

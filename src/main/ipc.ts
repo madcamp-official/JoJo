@@ -76,6 +76,10 @@ export function registerIpc(): void {
     setMainWindowRoute(route)
   })
 
+  ipcMain.handle(IPC.WINDOW_HIDE, async (): Promise<void> => {
+    getMainWindow()?.hide()
+  })
+
   ipcMain.handle(IPC.SELECT_WINDOW, async (_e, source: CaptureSource) => {
     setSelectedWindowId(source.id)
     setSelectedWindowName(source.name)

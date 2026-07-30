@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
 import type { AppMode, ExtractedSelection, Rect, Word } from '@shared/types'
@@ -132,10 +132,51 @@ export function navigateMainWindow(route: MainRoute): void {
   win.webContents.send(IPC.NAVIGATE, route)
 }
 
+// main/picker/settings 는 창 하나를 재사용하는 SPA라, 숨겨져 있던 창을 다시 show() 할 때
+// 렌더러엔 여전히 "숨기기 전 마지막 화면"이 그려진 채 남아 있다 — show() 는 그 프레임을
+// 그대로 화면에 노출한 뒤에야 NAVIGATE IPC 가 렌더러에 도착해 해시가 바뀌므로, 그 사이
+// (IPC 왕복 + React 리렌더) 짧게 "이전 화면 → 목표 화면"으로 바뀌는 게 보인다(2026-07-30
+// 사용자 제보). 렌더러가 실제로 목표 라우트로 전환·렌더를 마쳤다는 걸 확인(NAVIGATE_READY)
+// 한 뒤에야 show() 하도록 순서를 뒤집는다 — 팝업 창의 POPUP_CONTENT_READY 와 같은 패턴.
+let pendingShowRoute: MainRoute | null = null
+let pendingShowTimer: NodeJS.Timeout | null = null
+
+ipcMain.on(IPC.NAVIGATE_READY, (_e, route: MainRoute) => {
+  if (pendingShowRoute !== route) return
+  pendingShowRoute = null
+  if (pendingShowTimer) {
+    clearTimeout(pendingShowTimer)
+    pendingShowTimer = null
+  }
+  mainWindow?.show()
+})
+
+/** 숨겨진 메인 창을 특정 라우트로 띄운다 — 렌더러가 그 라우트로 전환을 끝냈다는 응답을
+ *  받은 뒤에 show() 해 이전 화면이 잠깐 보이는 깜빡임을 없앤다(위 주석 참고). 창이 이미
+ *  보이는 상태라면 깜빡일 여지가 없으니 바로 전환한다. */
+export function showMainWindowAtRoute(route: MainRoute): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  if (win.isVisible()) {
+    navigateMainWindow(route)
+    return
+  }
+  resizeMainWindowForRoute(route)
+  win.webContents.send(IPC.NAVIGATE, route)
+  pendingShowRoute = route
+  if (pendingShowTimer) clearTimeout(pendingShowTimer)
+  // 렌더러가 아직 로드 전이거나(첫 실행 직후) 응답을 놓친 경우를 대비한 안전망.
+  pendingShowTimer = setTimeout(() => {
+    if (pendingShowRoute === route) {
+      pendingShowRoute = null
+      win.show()
+    }
+  }, 500)
+}
+
 /** 트레이 메뉴·전역 단축키(shortcut.ts) 등 "어디서든 설정 화면 열기"가 공유하는 진입점. */
 export function openSettingsWindow(): void {
-  mainWindow?.show()
-  navigateMainWindow('settings')
+  showMainWindowAtRoute('settings')
 }
 
 let overlayWindow: BrowserWindow | null = null

@@ -27,6 +27,15 @@ export function App() {
   // 메인 프로세스(트레이 등)가 화면 전환을 지시하면 해시를 바꿔 반영한다(navigate.ts 참고).
   useEffect(() => window.nuance.onNavigate((r) => (window.location.hash = `#/${r}`)), [])
 
+  // 라우트가 실제로 바뀌어 화면이 리렌더된 뒤(main/picker/settings 만 대상 — 이 셋만
+  // 창 하나를 재사용해 숨김↔전환 깜빡임 문제가 있다), 메인 프로세스에 "전환 완료"를
+  // 알린다 — showMainWindowAtRoute 가 숨겨진 창을 이 신호를 받은 뒤에야 보여준다.
+  useEffect(() => {
+    if (route === 'main' || route === 'picker' || route === 'settings') {
+      window.nuance.notifyNavigateReady(route)
+    }
+  }, [route])
+
   // 최상위에서 항상 구독 — MainScreen 이 마운트돼 있지 않을 때(피커 화면 등) 선택 이벤트를
   // 놓치지 않도록. 메인/피커/설정이 창 하나를 재사용하는 구조라 이 순서가 어긋날 수 있다.
   useEffect(() => window.nuance.onWindowSelected(setSelected), [])

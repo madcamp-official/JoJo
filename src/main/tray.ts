@@ -16,7 +16,7 @@ import { isWebModeActive } from './selection/webSource'
 import {
   getMainWindow,
   hideSelectionOverlay,
-  navigateMainWindow,
+  showMainWindowAtRoute,
   onTargetWindowGone,
   openSettingsWindow,
   resolveIconPath,
@@ -47,15 +47,12 @@ export function deselectWindow(): void {
   clearExtractionHistory() // 선택 해제도 "전환"과 동일하게 직전 회차 문맥을 비운다
   clearRegion()
   hideSelectionOverlay()
-  const main = getMainWindow()
-  main?.webContents.send(IPC.WINDOW_SELECTED, null)
-  main?.show()
-  navigateMainWindow('main')
+  getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, null)
+  showMainWindowAtRoute('main')
 }
 
 export function openWindowPicker(): void {
-  getMainWindow()?.show()
-  navigateMainWindow('picker')
+  showMainWindowAtRoute('picker')
 }
 
 // 단축키가 해제(빈 문자열)돼 있으면 Electron MenuItem 에 accelerator 를 아예 안 준다 —
