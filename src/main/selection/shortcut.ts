@@ -43,8 +43,12 @@ let resizeSettleTimer: NodeJS.Timeout | null = null
 // 드래그 모드로 들어간다(오버레이가 배너를 먼저 잠깐 보여준 뒤 드래그 안내로 전환).
 onWindowResized(() => {
   if (mode !== 'select') return
-  // 자막/웹 경로는 화면 좌표 기반 OCR 영역이 아예 없으므로 창 리사이즈 시 재선택이 필요 없다.
-  if (isSubtitleModeActive() || isWebModeActive()) return
+  // 자막/웹/PDF-direct 경로는 화면 좌표 기반 OCR 영역이 아예 없으므로 창 리사이즈 시
+  // 재선택이 필요 없다 — PDF-direct 가 빠져있던 걸 놓쳐서, Preview 창을 리사이즈하면
+  // (스크롤 중 미세한 레이아웃 변화로도 발생 가능) OCR 영역 자동 탐지 파이프라인이
+  // AX 직접 추출과 무관하게 병렬로 켜져버렸다(사용자 제보, 2026-07-31 — "OCR도
+  // 병렬로 자동 실행되는 것 같다").
+  if (isSubtitleModeActive() || isWebModeActive() || isPdfAxModeActive()) return
   clearRegion()
   invalidateExtractionCache() // 이전 영역 기준 캐시/단어를 비움(오버레이에도 빈 배열 통지돼 박스가 사라짐)
   stopChangeWatcher() // 영역이 무효화됐으니 그 영역 기준 변화 감지도 멈춘다(재선택 후 다시 시작)
