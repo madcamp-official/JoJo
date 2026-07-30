@@ -139,11 +139,28 @@ function sameLine(a: Rect, b: Rect): boolean {
  * 바뀌는 지점이라도 팝업에는 자연스럽게 이어 붙여 보여준다(팝업 쪽 CSS 가 알아서
  * 다시 줄바꿈한다) — 실제 문단 경계('\n')는 이 문단(AX 노드) 자체가 끝나는 지점에서만,
  * 호출부(extractOnce)가 다음 문단과의 기하 관계로 판정한다.
+ *
+ * **중국어 PDF는 문단 텍스트 자체에 시각적 줄바꿈마다 리터럴 `\n`이 박혀 있다**(2026-07-31,
+ * 사용자 제보 — "삼체 pdf에서 줄바꿈이 문단 단위가 아니라 pdf 줄바꿈 단위로 되네").
+ * `DEBUG_PDF_AX_DUMP` 덤프로 확인: 三体.pdf 는 문단(AX 노드) 하나의 `AXValue` 자체가
+ * `"...科幻繁华\n巨厦的情感..."`처럼 문장 중간 줄바꿈 지점에 `\n`을 그대로 포함한다
+ * (The Hobbit 은 이런 임베디드 개행이 전혀 없었다 — PDF/렌더러별로 AX 가 텍스트를
+ * 인코딩하는 방식이 다른 것으로 보인다). 이 개행은 문단 경계가 아니라 순수 시각적
+ * 줄바꿈이라 다른 공백과 똑같이 취급해야 하는데, 위쪽(문단 "안"의 줄바꿈을 안 만든다)
+ * 주석대로 여기선 아무 개행도 새로 안 만드는데도 **원본 텍스트에 이미 박혀 있는**
+ * 개행은 그대로 살아남아 팝업에 문장 단위 줄바꿈으로 보였다. 모든 토큰의 출력 텍스트에서
+ * 개행 문자를 무조건 제거한다 — 실제 문단 경계 개행은 `extractOnce`가 노드 "사이"에서
+ * 별도로 넣으므로 이 문단 "안"의 개행만 지워도 안전하다. **공백 전용 토큰만 걸러서
+ * 지우면 안 된다**(첫 시도에서 놓친 부분) — CJK 분할기가 개행 문자를 하드 경계로 안
+ * 보고 앞뒤 글자와 한 토큰으로 묶어버리는 경우가 있어서("与此同时，\n科" 처럼 개행이
+ * 낀 채로 한 세그먼트가 됨), `trim()`이 비어있지 않은(=글자로 보이는) 토큰에도 개행이
+ * 섞여 들어올 수 있다 — bbox 조회 여부는 원본 `t.text.trim()` 기준으로 그대로 두고,
+ * 출력 텍스트에서만 개행을 지운다(bbox 범위는 원본 문자 오프셋 그대로라 영향 없음).
  */
 async function wordsOfParagraph(paragraph: AxParagraph): Promise<Word[]> {
   const tokens = await tokenizeLine(paragraph.text)
   return tokens.map((t) => ({
-    text: t.text,
+    text: t.text.replace(/\n/g, ''),
     bbox: t.text.trim() ? (paragraph.boundsOf(t.start, t.text.length) ?? undefined) : undefined,
   }))
 }
