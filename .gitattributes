@@ -1,0 +1,6 @@
+# scripts/*.sh 는 predev(bash scripts/ensure-resources.sh) 등에서 항상 bash 로 실행된다.
+# Windows 에서 core.autocrlf=true(기본값에 가까움)면 이 파일들이 체크아웃 시 CRLF 로
+# 변환되는데, bash 는 셔뱅 뒤/옵션 뒤의 \r 을 문자 그대로 취급해(`set -o pipefail\r` 등)
+# "invalid option name"/"command not found" 로 깨진다(실사용 중 Windows 에서 확인) —
+# 사용자 전역 git 설정을 바꾸지 않고도 이 저장소에서는 항상 LF 로 체크아웃되도록 고정한다.
+*.sh text eol=lf

@@ -1,0 +1,525 @@
+import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, UsageTag } from '@shared/types'
+
+// 담당 B — Merriam-Webster Collegiate Dictionary API 어댑터 (PLAN.md §6 en-1)
+// 실측 근거는 DICTIONARY_SOURCES.md "Merriam-Webster (MW)" 절 참고.
+// 원본 JSON(sseq/dt/vis 중첩 구조, {bc}/{it}/{sx|..} 같은 마크업 토큰)을 파싱해
+// 통일 스키마(DictionaryEntry)로 변환한다.
+
+const MERRIAM_WEBSTER_ENDPOINT = 'https://www.dictionaryapi.com/api/v3/references/collegiate/json'
+
+/** MW 요청 실패(HTTP 에러 또는 무효 키의 평문 응답) — llm/errors.ts 의 LlmHttpError 와
+ *  같은 모양이지만, MW 는 provider(LlmProvider)가 아니라(ApiKeyId 만) classifyLlmError
+ *  대상이 아니라서 별도 클래스로 둔다. */
+export class MerriamWebsterHttpError extends Error {
+  constructor(
+    public status: number,
+    public body: string,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'MerriamWebsterHttpError'
+  }
+}
+
+// ---- MW 원본 응답 타입 (느슨하게 — 공식 스키마 문서가 없어 실측 기반) ----------------
+
+interface MerriamWebsterPr {
+  mw?: string
+}
+
+interface MerriamWebsterHwi {
+  hw: string
+  prs?: MerriamWebsterPr[]
+}
+
+interface MerriamWebsterVis {
+  t: string
+}
+
+/** dt(defining text)는 [key, value] 튜플의 배열. key 는 'text'/'vis'/'uns'/'ca' 등. */
+type MerriamWebsterDtItem = ['text', string] | ['vis', MerriamWebsterVis[]] | ['uns', MerriamWebsterDtItem[][]] | [string, unknown]
+
+interface MerriamWebsterSense {
+  dt?: MerriamWebsterDtItem[]
+  sls?: string[]
+  /** 실측 확인(2026-07-28, "photosynthesis"): 메인 정의(dt)와 별개로 그보다 좁은 하위
+   *  세분 정의가 형제 필드로 붙는 경우가 있다 — "synthesis of chemical compounds with
+   *  the aid of radiant energy and especially light"(메인) 옆에 sdsense로
+   *  `{ sd: "especially", dt: [...formation of carbohydrates...] }`가 따로 옴.
+   *  DictionarySense.parentIndex(2026-07-28 신설)가 정확히 이 구조를 위한 필드. */
+  sdsense?: { sd?: string; dt?: MerriamWebsterDtItem[] }
+}
+
+/** sseq 트리는 'sense'/'pseq'/'bs' 등 태그로 임의 깊이까지 중첩된다 — 실사용 케이스는
+ *  대부분 'sense' leaf 만 있으면 충분해, 아래 collectSenseNodes 가 트리 모양을 가리지
+ *  않고 재귀적으로 'sense' leaf 를 전부 찾아 평탄화한다. */
+type MerriamWebsterSseqNode = unknown
+
+interface MerriamWebsterDef {
+  sseq: MerriamWebsterSseqNode[][]
+  /** "verb divider" — 타동/자동사 구분(실측: "run"이 intransitive/transitive verb 로
+   *  def 블록이 2개로 갈림). entry.fl 이 아니라 def 블록 단위라, lbs(entry 전체→모든
+   *  sense 복제)와 비슷하게 이 블록 안 sense 전부에 전파해야 한다. */
+  vd?: string
+}
+
+interface MerriamWebsterCxs {
+  cxl: string
+  cxtis?: { cxt: string }[]
+}
+
+interface MerriamWebsterUro {
+  ure: string
+  fl?: string
+  prs?: MerriamWebsterPr[]
+}
+
+interface MerriamWebsterEntry {
+  meta: { id: string; stems?: string[] }
+  hwi: MerriamWebsterHwi
+  fl?: string
+  ins?: { if?: string }[]
+  def?: MerriamWebsterDef[]
+  cxs?: MerriamWebsterCxs[]
+  uros?: MerriamWebsterUro[]
+  /** 실측 확인(2026-07-28, "deco" → `["often attributive"]`) — 전문분야 라벨이 아니라
+   *  sls 와 같은 성격의 일반 표기 관례 라벨. entry 최상위 필드라 sense 레벨인
+   *  usageTags 와 위치가 다르므로, 아래에서 그 entry의 모든 sense 에 복제해 합친다. */
+  lbs?: string[]
+}
+
+/** 표제어를 못 찾으면 MW 는 유사 단어 제안 문자열 배열을 반환한다(엔트리 객체가 아님). */
+type MerriamWebsterRaw = MerriamWebsterEntry | string
+
+// ---- fl(functional label) → CanonicalPos --------------------------------------
+
+const FL_TO_POS: Record<string, CanonicalPos<'en'>> = {
+  noun: 'noun',
+  pronoun: 'pronoun',
+  verb: 'verb',
+  'transitive verb': 'verb',
+  'intransitive verb': 'verb',
+  adjective: 'adjective',
+  adverb: 'adverb',
+  preposition: 'preposition',
+  conjunction: 'conjunction',
+  interjection: 'interjection',
+  article: 'article',
+  // 실측 확인(2026-07-28, "the"/"a"/"an" 직접 호출): MW 는 fl 을 그냥 "article"이 아니라
+  // "definite article"/"indefinite article"로 세분해서 준다 — 이 매핑이 없으면 flToPos 가
+  // undefined 를 반환해 품사 자체가 통째로 비어 있었다.
+  'definite article': 'article',
+  'indefinite article': 'article',
+  suffix: 'suffix',
+  prefix: 'prefix',
+}
+
+/** MW 의 fl 은 entry 당 하나뿐이라 배열이라도 항상 원소 1개 — DictionarySense.pos 가
+ *  배열로 바뀐 것(2026-07-28, shared/types.ts 주석 참고)에 맞춰 감싸서 반환한다. */
+function flToPos(fl?: string): CanonicalPos<'en'>[] | undefined {
+  if (!fl) return undefined
+  const mapped = FL_TO_POS[fl]
+  return mapped ? [mapped] : undefined
+}
+
+// ---- MW 마크업 토큰({bc}/{it}.../{sx|word||} 등) 제거 ---------------------------
+
+/** MW dt 텍스트 안의 토큰 마크업을 사람이 읽는 평문으로 정리한다. 알려진 토큰만
+ *  선별 처리하고, 나머지(태그 목록이 공개돼 있지 않아 전부 알 수 없음)는 통째로
+ *  제거해 깨진 토큰이 그대로 gloss/example 에 노출되는 일을 막는다. */
+function stripMerriamWebsterTokens(raw: string): string {
+  let s = raw
+  // 내용은 유지하고 태그만 제거하는 페어 토큰(이탤릭/볼드/위첨자 등)
+  s = s.replace(/\{\/?(?:it|b|sup|inf|phrase|wi|dx|dx_def|dx_ety|ma|parahw)\}/g, '')
+  // {bc}(definition-start colon)는 맨 앞 하나만 오는 게 아니라, 한 dt 안에 짧은 뜻
+  // 여러 개를 이어붙일 때 그 사이 구분자로도 쓰인다(실측: "sunlight" → "{bc}the light
+  // of the sun {bc}{sx|sunshine||}", MW 자체 shortdef 는 이걸 " : "로 렌더링함
+  // — {bc} 를 그냥 지워버리면 "the light of the sun sunshine"처럼 단어가 붙어버린다).
+  // 일단 전부 " : "로 바꾸고, 맨 앞에 남는 건(문두라 구분할 대상이 없음) 다음 trim 단계에서 제거한다.
+  s = s.replace(/\{bc\}/g, ' : ')
+  s = s.replace(/\{ldquo\}/g, '“').replace(/\{rdquo\}/g, '”')
+  // 파이프 구분 교차참조 토큰: 첫 필드(표시 텍스트)만 남기고 나머지(링크 대상 등) 버림
+  s = s.replace(/\{(?:sx|dxt|a_link|d_link|i_link|et_link|mat)\|([^|}]*)(?:\|[^}]*)?\}/g, '$1')
+  // 위에서 못 거른 나머지 토큰은 전부 제거(알 수 없는 태그가 평문에 새는 것을 방지)
+  s = s.replace(/\{[^}]*\}/g, '')
+  // {bc}→" : " 치환으로 문두에 남는 ": "(구분할 대상이 없는 첫 {bc})는 제거한다.
+  return s.replace(/\s+/g, ' ').trim().replace(/^:\s*/, '')
+}
+
+// ---- sseq 평탄화 -----------------------------------------------------------
+
+/** sseq 트리(임의 깊이로 중첩된 'sense'/'pseq' 등 태그) 안에서 ['sense', MerriamWebsterSense] 형태의
+ *  leaf 를 전부 찾아 순서대로 평탄화한다. 'pseq'(구 표제어 하위 구분)처럼 태그+배열 형태는
+ *  재귀로 자연스럽게 뚫고 들어가지만, 'bs'(binding substitute, `["bs", {"sense": {...}}]`
+ *  처럼 sense 가 튜플이 아니라 객체 프로퍼티로 한 겹 더 감싸인 형태)는 이 재귀가 못 찾아
+ *  건너뛴다 — 실사용 빈도가 낮아 우선 스코프에서 제외(TODO: 실측되면 별도 분기 추가). */
+function collectSenseNodes(node: unknown, out: MerriamWebsterSense[]): void {
+  if (!Array.isArray(node)) return
+  if (node.length === 2 && node[0] === 'sense' && typeof node[1] === 'object') {
+    out.push(node[1] as MerriamWebsterSense)
+    return
+  }
+  for (const child of node) collectSenseNodes(child, out)
+}
+
+function extractDt(dt: MerriamWebsterDtItem[] | undefined): { gloss: string[]; examples: string[]; usageNote?: string } {
+  const gloss: string[] = []
+  const examples: string[] = []
+  const usageNotes: string[] = []
+  // uns 블록에서 뽑은 내용은 두 가지 역할을 할 수 있어 별도로 모아둔다 — 아래 참고.
+  const unsGloss: string[] = []
+  const unsExamples: string[] = []
+  for (const item of dt ?? []) {
+    const [key, value] = item
+    if (key === 'text' && typeof value === 'string') {
+      // {dx}/{dx_def}/{dx_ety} 블록은 정의가 아니라 "다른 표제어도 보라"는 교차참조
+      // 문구다(실측: "go"/"book" 등에서 한 sense의 dt 안에 진짜 정의 text 튜플과
+      // 별개로 "{dx}see also {dxt|go down||}...{/dx}" 만 담긴 text 튜플이 추가로 옴).
+      // 통째로 지우고 남는 게 있을 때만 gloss 로 채택 — 안 지우면 이런 참조 문구가
+      // 마치 별개의 진짜 뜻풀이처럼 gloss 배열에 섞여 LLM 후보 목록을 오염시킨다.
+      const withoutCrossRefBlocks = value.replace(/\{dx[a-z_]*\}[\s\S]*?\{\/dx[a-z_]*\}/g, '')
+      const text = stripMerriamWebsterTokens(withoutCrossRefBlocks)
+      if (text) gloss.push(text)
+    } else if (key === 'vis' && Array.isArray(value)) {
+      for (const v of value as MerriamWebsterVis[]) {
+        const text = stripMerriamWebsterTokens(v.t)
+        if (text) examples.push(text)
+      }
+    } else if (key === 'uns' && Array.isArray(value)) {
+      // uns(usage note) 값은 dt 형태의 블록 배열 — 재귀적으로 텍스트·예문을 뽑는다.
+      // 실측 확인(2026-07-28, "the"/"a" 직접 호출): 관사·전치사 같은 기능어는 dt 가
+      // text 튜플 없이 **uns 블록 하나로만** 채워지는 경우가 있다("the"의 정관사 뜻,
+      // "a"의 "an unspecified example..." 등) — 이 경우 uns 안 내용이 보충 설명이
+      // 아니라 그 sense의 유일한 진짜 뜻풀이다. 무조건 usageNote 로만 흡수하면 이런
+      // sense가 gloss 없이(extractDt 호출부의 `if (gloss.length)`) 통째로 버려진다.
+      for (const block of value as MerriamWebsterDtItem[][]) {
+        const inner = extractDt(block)
+        unsGloss.push(...inner.gloss)
+        unsExamples.push(...inner.examples)
+      }
+    }
+  }
+  // 위 실측 근거대로: 이 dt 에 text 튜플로 온 진짜 gloss 가 이미 있으면 uns 는 그대로
+  // 보충 설명(usageNote)으로 유지하고, 없으면 uns 내용을 gloss/examples 자리로 승격한다.
+  if (gloss.length) {
+    usageNotes.push(...unsGloss)
+  } else {
+    gloss.push(...unsGloss)
+    examples.push(...unsExamples)
+  }
+  return { gloss, examples, usageNote: usageNotes.length ? usageNotes.join(' ') : undefined }
+}
+
+/** sense 레벨 sls 와 entry 최상위 lbs(둘 다 표기 관례/격식 라벨, DICTIONARY_SOURCES.md
+ *  실측 확인)를 하나의 usageTags 로 합친다. lbs 는 entry 전체에 적용되는 라벨이라
+ *  그 entry의 모든 sense 에 동일하게 복제된다. */
+function mergeUsageTags(sls: string[] | undefined, lbs: string[] | undefined): UsageTag[] | undefined {
+  const merged: UsageTag[] = [
+    ...(lbs ?? []).map((text) => ({ text, kind: 'convention' as const })),
+    ...(sls ?? []).map((text) => ({ text, kind: 'register' as const })),
+  ]
+  return merged.length ? merged : undefined
+}
+
+function normalizeForMatch(s: string): string {
+  // uros[].ure 실측 확인(2026-07-28, "photosynthesizing" 실API 호출): 음절 경계가
+  // '·'(중점)가 아니라 headword/ins[].if 와 동일하게 '*'였다 — 문서에 남아있던 '·' 가정은
+  // 오기였고, 이 함수가 '·'만 지워 실제 데이터에선 매칭이 전혀 안 되고 있었다.
+  return s.replace(/[·*]/g, '').toLowerCase()
+}
+
+/** MW 는 조회어 자체와 무관한 entry 까지 응답에 같이 섞어 보낸다 — 실측 확인(2026-07-28,
+ *  "catching" 조회): 정작 관련 있는 entry(`catching`/`catch:1`) 외에도 `catching` 이
+ *  구성 성분으로 들어간 관용구(`catch fire`/`catch it`/`catch one's breath`/`(one's)
+ *  age is catching up to one`)와, 심지어 **완전히 다른 단어("break:2", stems 에
+ *  "catching a break"가 있다는 이유만으로)** 까지 같이 온다. 이걸 다 entry.fl==='phrase'
+ *  일 때만 걸러내면 관용구는 잡아도 "break" 같은 완전 무관 단어는 못 거른다. 실제로
+ *  구분이 되는 축은 `meta.stems` — 진짜 연관 entry 는 조회어가 **다른 단어와 결합되지
+ *  않은 단독 형태**로 stems 에 그대로 들어있고(`catch:1` stems 에 'catching' 단독 원소
+ *  있음), 무관한 entry 는 조회어가 항상 다른 단어와 묶인 여러 단어짜리 문자열로만
+ *  등장한다(`catching a break`처럼). 그래서 "조회어가 stems 안에 단독 원소로 있는가"로
+ *  거른다 — 조회어 자체가 여러 단어 관용구(예: "kick the bucket")인 경우는 그 표현 자체가
+ *  stems 에 단독으로 들어있어 정상적으로 살아남는다. */
+function isRelevantEntry(entry: MerriamWebsterEntry, word: string): boolean {
+  const target = word.toLowerCase()
+  if (entry.meta.stems?.some((s) => s.toLowerCase() === target)) return true
+  return entry.hwi.hw.replace(/[·*]/g, '').toLowerCase() === target
+}
+
+/** uros(파생어) 처리 — 조회한 표면형이 파생 접사가 붙은 형태면 최상위 응답이 항상 원
+ *  표제어로 돌아온다(DICTIONARY_SOURCES.md 실측). uros[] 에서 조회 표면형과 일치하는
+ *  항목을 찾아 그 fl/발음으로 보정한다(뜻풀이는 uros 에 없어 원 표제어 def 를 그대로 씀). */
+function findMatchingUro(entry: MerriamWebsterEntry, queryWord: string): MerriamWebsterUro | undefined {
+  const target = normalizeForMatch(queryWord)
+  return entry.uros?.find((u) => normalizeForMatch(u.ure) === target)
+}
+
+// ---- MerriamWebsterEntry → DictionaryReading -------------------------------------------
+
+function entryToReading(
+  entry: MerriamWebsterEntry,
+  queryWord: string,
+  fallbackPronunciations: DictionaryReading<'en'>['pronunciations'],
+): DictionaryReading<'en'> | null {
+  const uro = findMatchingUro(entry, queryWord)
+  const fl = uro?.fl ?? entry.fl
+  const pos = flToPos(fl)
+  // fl 은 vd 와 달리 entry(정확히는 uro 보정 후) 레벨이라 def 블록별로 갈릴 일이 없어,
+  // vd 처럼 블록 단위로 따로 추적할 필요 없이 이 entry의 모든 sense에 그대로 적용한다.
+  const definite = fl === 'definite article' ? true : fl === 'indefinite article' ? false : undefined
+  // ins[].if 도 headword 와 같은 '·'(중점) 음절 경계 표기를 씀(실측: "banked, bank·ing, banks").
+  const irregularForms = (entry.ins ?? [])
+    .map((i) => i.if?.replace(/[·*]/g, ''))
+    .filter((v): v is string => !!v)
+
+  // def 블록마다 vd(타동/자동사 구분, 실측: "run"이 intransitive/transitive verb 로
+  // 블록이 갈림)가 다를 수 있어 sense 를 def 블록과 묶어서 수집한다(평탄화하면 어느
+  // sense 가 어느 vd 에 속했는지 정보가 사라짐).
+  const senseNodes: { node: MerriamWebsterSense; transitive?: boolean }[] = []
+  for (const def of entry.def ?? []) {
+    const transitive =
+      def.vd === 'transitive verb' ? true : def.vd === 'intransitive verb' ? false : undefined
+    const nodes: MerriamWebsterSense[] = []
+    collectSenseNodes(def.sseq, nodes)
+    for (const node of nodes) senseNodes.push({ node, transitive })
+  }
+
+  // sdsense(하위 세분 정의, 실측: "photosynthesis"의 메인 정의 옆에 형제로 붙는
+  // `{ sd: "especially", dt: [...] }`)를 부모 바로 뒤에 밀어넣고 parentIndex 로 관계를
+  // 남긴다 — .map() 으론 부모의 최종 배열 인덱스를 미리 알 수 없어 순차 push 로 바꿨다.
+  const senses: DictionarySense<'en'>[] = []
+  for (const { node, transitive } of senseNodes) {
+    const { gloss, examples, usageNote } = extractDt(node.dt)
+    let parentIndex: number | undefined
+    if (gloss.length) {
+      // MW gloss 는 필수 필드라 메인 dt 가 비어 있으면(sdsense 만 있는 드문 경우) 메인
+      // sense 자체는 안 만들고, 아래에서 sdsense 를 parentIndex 없이 독립 sense 로 채택한다.
+      senses.push({
+        pos,
+        posRaw: fl,
+        irregularForms: irregularForms.length ? irregularForms : undefined,
+        transitive,
+        definite,
+        gloss,
+        examples: examples.length ? examples : undefined,
+        usageTags: mergeUsageTags(node.sls, entry.lbs),
+        usageNote,
+      })
+      parentIndex = senses.length - 1
+    }
+    if (node.sdsense) {
+      const sub = extractDt(node.sdsense.dt)
+      if (sub.gloss.length) {
+        const label = node.sdsense.sd
+        senses.push({
+          pos,
+          posRaw: fl,
+          irregularForms: irregularForms.length ? irregularForms : undefined,
+          transitive,
+          definite,
+          gloss: label ? sub.gloss.map((g) => `${label} : ${g}`) : sub.gloss,
+          examples: sub.examples.length ? sub.examples : undefined,
+          usageTags: mergeUsageTags(node.sls, entry.lbs),
+          usageNote: sub.usageNote,
+          parentIndex,
+        })
+      }
+    }
+  }
+
+  if (!senses.length) return null
+
+  const prs = uro?.prs ?? entry.hwi.prs
+  const ownPronunciations = prs
+    ?.map((p) => p.mw)
+    .filter((v): v is string => !!v)
+    .map((value) => ({ value }))
+  // MW 는 같은 hw 를 공유하는 후속 entry(예: bank 명사 다음의 bank 동사)에서 발음이
+  // 이전과 같으면 hwi.prs 자체를 생략하는 경우가 실측 확인됨 — 이 경우 직전 entry의
+  // 발음을 그대로 물려받는다(완전히 새 단어라 prs 가 없는 경우는 fallback 도 없어 undefined).
+  const pronunciations = ownPronunciations?.length ? ownPronunciations : fallbackPronunciations
+
+  return {
+    pronunciations,
+    senses,
+  }
+}
+
+// ---- cxs(cross-reference 전용 엔트리) 처리 -----------------------------------
+// 실측: "colour" 조회 시 def/shortdef 가 전부 비어있고 cxs 만 옴. cxl+cxt 를 합성해
+// gloss 로 대체한다(재조회 없음 — DICTIONARY_SOURCES.md 옵션 (1)).
+
+function cxsToSense(entry: MerriamWebsterEntry): DictionarySense<'en'> | null {
+  const cxs = entry.cxs?.[0]
+  if (!cxs) return null
+  const targets = cxs.cxtis?.map((t) => t.cxt).join(', ')
+  if (!targets) return null
+  return {
+    pos: flToPos(entry.fl),
+    posRaw: entry.fl,
+    gloss: [`${cxs.cxl} ${targets}`],
+  }
+}
+
+// ---- 진입점 -----------------------------------------------------------------
+
+export interface MerriamWebsterLookupResult {
+  /** MW 가 정확한 표제어를 못 찾고 유사 단어만 제안한 경우 */
+  suggestions?: string[]
+  entries?: DictionaryEntry<'en'>[]
+}
+
+export async function fetchMerriamWebsterEntry(word: string, apiKey: string): Promise<MerriamWebsterLookupResult> {
+  const url = `${MERRIAM_WEBSTER_ENDPOINT}/${encodeURIComponent(word)}?key=${apiKey}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new MerriamWebsterHttpError(res.status, '', `MW API 요청 실패: HTTP ${res.status}`)
+  }
+  // 실측 확인(2026-07-28, 무효 키로 직접 호출): 키가 무효해도 HTTP 200을 그대로 주고
+  // 본문에 JSON 배열 대신 평문("Invalid API key. Not subscribed for this reference.")을
+  // 담아 보낸다 — 위 !res.ok 체크로는 절대 못 걸러진다. res.json() 을 바로 부르면
+  // SyntaxError 가 나서 호출부가 "네트워크 오류"로 뭉뚱그리게 되므로, 텍스트로 먼저
+  // 받아 파싱 실패 시 그 본문을 실은 MerriamWebsterHttpError 로 명시적으로 구분해 던진다.
+  const text = await res.text()
+  let raw: MerriamWebsterRaw[]
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    throw new MerriamWebsterHttpError(res.status, text, `MW 응답을 파싱할 수 없습니다: ${text.slice(0, 200)}`)
+  }
+  if (raw.length === 0) return {}
+  if (typeof raw[0] === 'string') return { suggestions: raw as string[] }
+
+  const entries = raw.filter((r): r is MerriamWebsterEntry => typeof r !== 'string')
+
+  // 조회어와 무관한 entry(관용구 구성 성분 등)를 먼저 제외한 뒤, 남은 entry를 실제
+  // 표제어(hw)별로 묶는다. 실측 확인(2026-07-28, "closed" 조회): 활용형 하나가 서로
+  // 다른 두 표제어에 동시에 걸치는 경우가 있다 — "closed" 자체가 형용사 표제어이면서,
+  // 동시에 동사 "close"의 활용형(stems)에도 포함된다. 이걸 하나의 DictionaryEntry로
+  // 뭉치면 headword가 하나로 뭉개져서, 실제로 골라진 뜻이 형용사 "closed"인지 동사
+  // 원형 "close"인지 표시에서 구분이 안 된다 — 표제어별로 별도 DictionaryEntry를 만든다.
+  const groups = new Map<string, MerriamWebsterEntry[]>()
+  for (const entry of entries) {
+    if (!isRelevantEntry(entry, word)) continue
+    const headword = entry.hwi.hw.replace(/[·*]/g, '') // MW hw 는 음절 경계를 '·'/'*'로 표시
+    const group = groups.get(headword)
+    if (group) group.push(entry)
+    else groups.set(headword, [entry])
+  }
+
+  const built: BuiltEntry[] = []
+  for (const [headword, groupEntries] of groups) {
+    const result = await buildEntryForHeadword(headword, groupEntries, word, apiKey)
+    if (result) built.push(result)
+  }
+
+  // cxs 포인터("was/were는 be의 과거형이다" 같은 문법 설명)는 진짜 뜻풀이가 하나도 없을
+  // 때만 의미가 있다 — 다른 entry(예: "be")에 진짜 뜻풀이가 있으면 그 안에 이미 실질적인
+  // 내용이 다 들어있어서, 포인터 후보까지 LLM 판정 목록에 끼워 넣는 건 노이즈만 늘린다
+  // (실측 확인, 2026-07-28: "were" 조회 시 후보 1번이 항상 이 포인터였음). 진짜 뜻풀이가
+  // 하나도 없을 때(예: "colour" → cxs 뿐)는 그거라도 보여주는 게 나아 그대로 둔다.
+  const hasRealDefinition = built.some((b) => !b.isCxsOnly)
+  const resultEntries = (hasRealDefinition ? built.filter((b) => !b.isCxsOnly) : built).map((b) => b.entry)
+
+  if (!resultEntries.length) return {}
+  return { entries: resultEntries }
+}
+
+interface BuiltEntry {
+  entry: DictionaryEntry<'en'>
+  /** 이 entry의 모든 sense가 cxs 포인터에서만 나왔는지(진짜 뜻풀이가 하나도 없는지) */
+  isCxsOnly: boolean
+}
+
+/** 표제어 하나에 속한 MW entry(들, 보통 hom 별)를 모아 DictionaryEntry 하나로 만든다. */
+async function buildEntryForHeadword(
+  headword: string,
+  groupEntries: MerriamWebsterEntry[],
+  word: string,
+  apiKey: string,
+): Promise<BuiltEntry | null> {
+  const readings: DictionaryReading<'en'>[] = []
+  let isIdiom = false
+  let isCxsOnly = true
+  let lastPronunciations: DictionaryReading<'en'>['pronunciations']
+
+  for (const entry of groupEntries) {
+    if (entry.fl === 'phrase') isIdiom = true
+
+    if (entry.cxs) {
+      const sense = cxsToSense(entry)
+      if (sense) {
+        // 실측 확인(2026-07-28, "was" 조회): cxs 포인터 entry 자체는 hwi.prs 도 fl 도
+        // 없다(`{"hwi":{"hw":"was"}}` 뿐) — cxsToSense 가 만든 sense 에 품사도 발음도
+        // 항상 비어 있었다. 품사는 가리키는 대상 단어(cxt, 예: "be")에서 가져와도 안전
+        // 하다("was"도 문법적으로 동사이긴 하니까) — 하지만 **발음은 절대 빌려오면 안
+        // 된다**: "was"(불규칙 활용, wesan에서 유래)와 "be"는 실제 발음이 완전히 다른
+        // 단어라(/wʌz/ vs /biː/), be의 발음을 그대로 붙이면 "was"가 "be"처럼 발음된다는
+        // 틀린 정보가 된다. 품사만 빌리고 발음은 계속 비워둔다.
+        const target = entry.cxs[0]?.cxtis?.[0]?.cxt
+        const targetPos = target ? (await fetchHeadwordInfo(target, apiKey)).pos : undefined
+        if (targetPos) sense.pos = targetPos
+        readings.push({ senses: [sense] })
+        continue
+      }
+    }
+
+    const reading = entryToReading(entry, word, lastPronunciations)
+    if (reading) {
+      isCxsOnly = false
+      readings.push(reading)
+      if (reading.pronunciations?.length) lastPronunciations = reading.pronunciations
+    }
+  }
+
+  if (!readings.length) return null
+
+  // 실측 확인(2026-07-28, "banked"/"bank" 직접 호출): MW 는 같은 headword 의 hom 중
+  // **가장 먼저 오는 hom(대개 hom=1)에만 hwi.prs 를 채우고 나머지 hom 은 전부 생략**한다
+  // — 활용형(예: "banked")으로 직접 조회하면 그 활용형에 대응하는 hom(예: hom=2/4 동사)만
+  // 응답에 오는데, 정작 발음을 가진 hom=1은 이 응답에 아예 없어서 위 entry 간 상속으로도
+  // 못 채운다. 이 경우에만 원래 headword로 한 번 더 조회해 발음을 가져와 채운다(비용은
+  // 발음이 진짜 하나도 없을 때만 발생 — 대부분의 직접 조회는 이 분기를 안 탄다).
+  if (!lastPronunciations && headword.toLowerCase() !== word.toLowerCase()) {
+    const baseInfo = await fetchHeadwordInfo(headword, apiKey)
+    if (baseInfo.pronunciations) {
+      for (const r of readings) if (!r.pronunciations?.length) r.pronunciations = baseInfo.pronunciations
+    }
+  }
+
+  return {
+    entry: {
+      language: 'en',
+      headword: [headword],
+      isIdiom: isIdiom || undefined,
+      readings,
+      source: 'merriam-webster',
+    },
+    isCxsOnly,
+  }
+}
+
+/** 두 가지 폴백이 공유하는 헬퍼 — headword 를 다시 조회해 hwi.prs/fl 이 있는 첫 entry의
+ *  품사·발음을 가져온다: (1) hom=1 발음 생략 문제(headword 로 재조회), (2) cxs 포인터
+ *  entry(품사·발음이 원래 없음, cxs 의 대상 단어로 조회). 실패해도(네트워크 오류 등)
+ *  조용히 빈 객체 반환 — 부가 정보라 이것 때문에 전체 조회를 실패시키지 않는다. */
+async function fetchHeadwordInfo(
+  headword: string,
+  apiKey: string,
+): Promise<{ pos?: CanonicalPos<'en'>[]; pronunciations?: DictionaryReading<'en'>['pronunciations'] }> {
+  try {
+    const res = await fetch(`${MERRIAM_WEBSTER_ENDPOINT}/${encodeURIComponent(headword)}?key=${apiKey}`)
+    if (!res.ok) return {}
+    const raw = (await res.json()) as MerriamWebsterRaw[]
+    for (const entry of raw) {
+      if (typeof entry === 'string') continue
+      const pos = flToPos(entry.fl)
+      const values = entry.hwi.prs?.map((p) => p.mw).filter((v): v is string => !!v)
+      const pronunciations = values?.length ? values.map((value) => ({ value })) : undefined
+      if (pos || pronunciations) return { pos, pronunciations }
+    }
+  } catch {
+    /* 폴백 실패는 무시 — 나머지 사전 정보는 이미 확보돼 있음 */
+  }
+  return {}
+}

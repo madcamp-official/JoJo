@@ -1,0 +1,58 @@
+{
+  "name": "nuance",
+  "version": "0.0.1",
+  "description": "Nuance - 외국어 콘텐츠 소비 보조 프로그램",
+  "main": "./out/main/index.js",
+  "author": "madcamp 26s-w4-c3-07 JoJo",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/resign-electron.mjs",
+    "kill": "bash scripts/kill-nuance.sh",
+    "predev": "bash scripts/kill-nuance.sh && bash scripts/ensure-resources.sh",
+    "dev": "electron-vite dev",
+    "prebuild": "bash scripts/ensure-resources.sh",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --ext .ts,.tsx",
+    "build:ext": "node scripts/build-extension.mjs",
+    "watch:ext": "node scripts/build-extension.mjs --watch",
+    "pack:dir": "npm run build && electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux"
+  },
+  "dependencies": {
+    "@node-rs/jieba": "^2.0.1",
+    "chinese-tokenizer": "^2.4.0",
+    "eld": "^2.0.3",
+    "electron-context-menu": "^4.1.2",
+    "epubjs": "^0.3.93",
+    "lindera-wasm-nodejs-ipadic": "^2.0.0",
+    "lucide-react": "^1.27.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tesseract.js": "^7.0.0",
+    "ws": "^8.21.1"
+  },
+  "optionalDependencies": {
+    "koffi": "^3.1.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.3.0",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.5.0",
+    "vite": "^5.3.0"
+  }
+}

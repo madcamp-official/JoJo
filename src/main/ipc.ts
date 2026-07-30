@@ -1,0 +1,428 @@
+import { BrowserWindow, clipboard, dialog, ipcMain, screen } from 'electron'
+import { readFile } from 'node:fs/promises'
+import { basename, extname } from 'node:path'
+import { IPC } from '@shared/channels'
+import type {
+  AnyLanguage,
+  ApiKeyId,
+  AppSettings,
+  CaptureSource,
+  DictionarySourceOption,
+  ExtractedSelection,
+  Language,
+  LlmProvider,
+  ProviderValidation,
+  QuestionRequest,
+  Rect,
+  SelectionContext,
+  ViewerWordHit,
+} from '@shared/types'
+import { runSelectionPipeline } from './selection'
+import { runQuestion } from './question'
+import { listAvailableDictionarySources } from './question/dictionary/registry'
+import { startChangeWatcher } from './selection/changeWatcher'
+import {
+  getSelectedWindowId,
+  listWindows,
+  setSelectedWindowId,
+  setSelectedWindowName,
+} from './selection/capture'
+import {
+  alignRectToOverlay,
+  clearExtractionHistory,
+  invalidateExtractionCache,
+  refreshExtractionCache,
+} from './selection/extractionCache'
+import { clearRegion, getRegion, submitRegionFromOverlay } from './selection/regionSelection'
+import { ensureCjkEngineWarm } from './selection/warmup'
+import { onViewerWordClicked } from './selection/viewerSource'
+import {
+  createPopupWindow,
+  createViewerWindow,
+  getMainWindow,
+  getOverlayMode,
+  getPopupContext,
+  getPopupBounds,
+  getViewerFile,
+  isViewerWindow,
+  openSettingsWindow,
+  sendRegionInfo,
+  showMainWindowAtRoute,
+  showMacSelectionOverlay,
+  setMainWindowRoute,
+  setOverlayInteractive,
+  signalPopupContentReady,
+  trackSelectionOverlay,
+  type MainRoute,
+} from './windows'
+import {
+  clearRegionEscapeShortcut,
+  resetToNormalMode,
+  updateModeShortcut,
+  updateNamedShortcut,
+} from './selection/shortcut'
+import { getDefaultSettings, getSettings, setSettings } from './settingsStore'
+import { getFrequent, setFrequent } from './frequentStore'
+import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
+import { setActiveProvider } from './question/llm/adapter'
+import { validateProvider, testModel } from './question/llm/validate'
+import { googleImageUrl, googlePronunciationUrl } from './question/google'
+import { naverDictionaryUrl } from './question/naver'
+import { openUrlInNewWindow } from './question/browser'
+import { JA_ENGINE, tokenizeJapanese } from './nlp/japanese'
+import { segmentChineseWords } from './nlp/chinese'
+import { segmentCjkText } from './nlp/segmentCjk'
+import { resolveCjkLanguage } from '@shared/languageDetect'
+
+// IPC 허브 (공동) — A→B 연결점.
+// 렌더러는 preload 를 통해서만 이 채널들에 접근한다.
+export function registerIpc(): void {
+  // 담당 A: 창 목록 조회
+  ipcMain.handle(IPC.WINDOW_LIST, async (): Promise<CaptureSource[]> => {
+    return listWindows()
+  })
+
+  // 담당 A: 현재 선택된 창 id 조회 (재선택 시 목록에서 표시용)
+  ipcMain.handle(IPC.GET_SELECTED_WINDOW_ID, async (): Promise<string | null> => {
+    return getSelectedWindowId()
+  })
+
+  // 메인/피커/설정 전환 — 렌더러가 이미 해시를 바꿨으므로 창 크기만 맞춘다(navigate.ts: goto()).
+  ipcMain.handle(IPC.WINDOW_SET_ROUTE, async (_e, route: MainRoute): Promise<void> => {
+    setMainWindowRoute(route)
+  })
+
+  ipcMain.handle(IPC.WINDOW_HIDE, async (): Promise<void> => {
+    getMainWindow()?.hide()
+  })
+
+  ipcMain.handle(IPC.SELECT_WINDOW, async (_e, source: CaptureSource) => {
+    setSelectedWindowId(source.id)
+    setSelectedWindowName(source.name)
+    invalidateExtractionCache() // 이전 창(재선택 포함)의 캐시가 새 창으로 넘어가지 않게
+    clearExtractionHistory() // 창을 전환했으니 직전 회차 문맥도 함께 비운다
+    clearRegion() // 이전 창 기준 좌표라 새 창에 그대로 쓰면 안 맞음
+    resetToNormalMode() // 재선택 시 선택 모드였다면 일반 모드로 — 새 창엔 아직 캐시된 단어가 없음
+    getMainWindow()?.webContents.send(IPC.WINDOW_SELECTED, source)
+
+    // 대상 창을 맨 앞으로 올리고(가려진 채 선택되면 테두리와 실제 화면이 어긋나 보임)
+    // 선택 오버레이 테두리를 정렬한다. 메인 창을 숨기기 전에 먼저 처리한다.
+    if (process.platform === 'win32') {
+      const hwnd = BigInt(source.id)
+      // win32Capture 는 koffi 로 DLL 을 로드하므로 Windows 경로에서만 동적 import.
+      const { bringWindowToForeground } = await import('./selection/win32Capture')
+      bringWindowToForeground(hwnd)
+      await trackSelectionOverlay(hwnd) // 대상 창 이동/리사이즈를 따라 오버레이도 갱신
+    } else {
+      // macOS: desktopCapturer 소스 id("window:12345:0")의 CGWindowID 로 대상 창을 앞으로
+      // 올리고 그 위치에 테두리 오버레이를 띄운다(CoreGraphics, selection/macWindow.ts).
+      const windowId = Number(/^window:(\d+)/.exec(source.id)?.[1])
+      if (Number.isFinite(windowId)) await showMacSelectionOverlay(windowId)
+    }
+
+    // PLAN.md §4: 창 선택 → 백그라운드 실행. 메인 창은 X 가 아니라 여기서 숨기고,
+    // 트레이 메뉴(선택 해제/재선택/설정/종료)로만 다시 꺼낸다(windows.ts, tray.ts).
+    getMainWindow()?.hide()
+  })
+
+  ipcMain.handle(IPC.GET_MODE, async () => getOverlayMode())
+
+  ipcMain.handle(
+    IPC.OVERLAY_SET_INTERACTIVE,
+    async (_e, interactive: boolean, cursor: 'pointer' | 'crosshair' | null = null) => {
+      setOverlayInteractive(interactive, cursor)
+    },
+  )
+
+  // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → 팝업(담당 B) 오픈 + 전달
+  // (자막 경로는 이 핸들러를 타지 않는다 — 확장이 페이지 안에서 직접 클릭을 처리해
+  // subtitleSource.ts 가 자체적으로 팝업을 연다)
+  ipcMain.handle(IPC.SELECTION_EXTRACTED, async (_e, point: { x: number; y: number }) => {
+    const extracted: ExtractedSelection = await runSelectionPipeline(point)
+    // 임시 진단 로그(2026-07-31, 사용자 제보 — "자동 탐지에서 클릭해도 팝업 안 뜸").
+    console.log(
+      `[ipc] SELECTION_EXTRACTED point=(${point.x},${point.y}) text.length=${extracted.text.length} anchor=${extracted.anchor.start}-${extracted.anchor.end}`,
+    )
+    // 빈 곳 클릭(자막 단어를 못 짚음)이면 빈 팝업을 띄우지 않는다.
+    if (extracted.text.trim()) createPopupWindow(extracted)
+    return extracted
+  })
+
+  // 담당 A: 오버레이에서 드래그로 그린 OCR 대상 영역을 저장하고, 바로 그 영역으로 추출 시작
+  ipcMain.handle(IPC.SUBMIT_REGION, async (_e, rect: Rect) => {
+    await submitRegionFromOverlay(rect)
+    // 담당 A — 영역 밖 반투명 회색 표시(2026-07-31, 사용자 요청 "영역 수동 선택 -> 유저가
+    // 선택한 영역 외의 부분을 반투명 회색 처리"). 실제 OCR(추출)이 끝나기를 기다리지 않고
+    // 드래그 제출 직후 바로 보여준다 — refreshExtractionCache 는 1~3초 걸릴 수 있어서
+    // 그 뒤로 미루면 드래그가 끝난 순간과 회색 표시가 뜨는 순간 사이에 눈에 띄는 공백이 생긴다.
+    const region = getRegion()
+    if (region) {
+      const aligned = await alignRectToOverlay(region)
+      if (aligned) sendRegionInfo(aligned)
+    }
+    refreshExtractionCache()
+    startChangeWatcher() // 영역이 확정됐으니 이 영역 안 내용 변화 감지를 시작(changeWatcher.ts)
+    clearRegionEscapeShortcut() // 드래그로 영역을 확정했으니 Esc 임시 단축키(shortcut.ts)도 해제
+  })
+
+  // 담당 B: 질문 요청 (스트리밍은 QUESTION_STREAM 이벤트로 전송)
+  ipcMain.handle(
+    IPC.QUESTION_REQUEST,
+    async (e, ctx: SelectionContext, req: QuestionRequest) => {
+      return runQuestion(ctx, req, (chunk) => {
+        e.sender.send(IPC.QUESTION_STREAM, chunk)
+      })
+    },
+  )
+
+  // 사전 어댑터 병렬 구현 디버깅용 임시 채널 — 이 언어에 실제로 구현된(파일이 존재하는)
+  // 소스 목록을 폴백 순위대로 내려준다(registry.ts).
+  ipcMain.handle(
+    IPC.DICTIONARY_SOURCES_GET,
+    async (_e, language: Language): Promise<DictionarySourceOption[]> => {
+      return listAvailableDictionarySources(language)
+    },
+  )
+
+  // 담당 B: 설정 조회/변경
+  ipcMain.handle(IPC.SETTINGS_GET, async (): Promise<AppSettings> => {
+    return getSettings()
+  })
+
+  ipcMain.handle(IPC.SETTINGS_GET_DEFAULTS, async (): Promise<AppSettings> => {
+    return getDefaultSettings()
+  })
+
+  ipcMain.handle(IPC.SETTINGS_SET, async (_e, patch: Partial<AppSettings>): Promise<AppSettings> => {
+    const next = setSettings(patch)
+    if (patch.llm) setActiveProvider(patch.llm)
+    if (patch.modeShortcut !== undefined) updateModeShortcut(patch.modeShortcut)
+    if (patch.windowSelectShortcut !== undefined) updateNamedShortcut('windowSelect', patch.windowSelectShortcut)
+    if (patch.windowDeselectShortcut !== undefined)
+      updateNamedShortcut('windowDeselect', patch.windowDeselectShortcut)
+    if (patch.manualRegionShortcut !== undefined) updateNamedShortcut('manualRegion', patch.manualRegionShortcut)
+    if (patch.forceOcrShortcut !== undefined) updateNamedShortcut('forceOcr', patch.forceOcrShortcut)
+    // 설정에서 일본어/중국어로 수동 고정하는 순간 바로 그 CJK 엔진 예열을 시작한다
+    // (사용자 요청, 2026-07-31) — 선택 모드에 처음 들어갈 때까지 기다리지 않는다.
+    if (patch.language === 'ja' || patch.language === 'zh-Hans' || patch.language === 'zh-Hant') {
+      void ensureCjkEngineWarm(patch.language)
+    }
+    // settingsShortcut 은 더 이상 메인 프로세스에 등록할 게 없다 — 각 렌더러가 로컬
+    // keydown 으로 직접 판정하며, 매 keydown 마다 window.nuance.getSettings() 로 최신
+    // 값을 그때그때 조회하므로(App.tsx) 저장만 해두면 된다.
+    return next
+  })
+
+  // 담당 B: 자주 쓰는 질문 조회/저장 (userData/frequent.json, frequentStore.ts)
+  ipcMain.handle(IPC.FREQUENT_GET, async (): Promise<string[]> => {
+    return getFrequent()
+  })
+
+  ipcMain.handle(IPC.FREQUENT_SET, async (_e, list: string[]): Promise<string[]> => {
+    return setFrequent(list)
+  })
+
+  // 담당 B: API 키 조회/저장/삭제 (safeStorage 암호화, keyStore.ts) — LLM 3종 + MW 사전 키
+  ipcMain.handle(IPC.APIKEY_GET, async (_e, id: ApiKeyId): Promise<string | null> => {
+    return getApiKey(id)
+  })
+
+  ipcMain.handle(IPC.APIKEY_SET, async (_e, id: ApiKeyId, key: string): Promise<void> => {
+    setApiKey(id, key)
+  })
+
+  ipcMain.handle(IPC.APIKEY_DELETE, async (_e, id: ApiKeyId): Promise<void> => {
+    deleteApiKey(id)
+  })
+
+  // 담당 B: provider 키 검증 + 사용 가능 모델 조회 (무과금 GET, validate.ts)
+  ipcMain.handle(
+    IPC.PROVIDER_VALIDATE,
+    async (_e, provider: LlmProvider, apiKey: string): Promise<ProviderValidation> => {
+      return validateProvider(provider, apiKey)
+    },
+  )
+
+  // 담당 B: 모델 드롭다운에서 특정 모델을 고를 때 실제 호출 1회로 동작 여부 검증(validate.ts)
+  ipcMain.handle(
+    IPC.PROVIDER_TEST_MODEL,
+    async (_e, provider: LlmProvider, apiKey: string, model: string) => {
+      return testModel(provider, apiKey, model)
+    },
+  )
+
+  // 담당 B: 팝업 열기 (데모용 — ctx 없이 열면 렌더러가 목업으로 fallback)
+  // 담당 A 통합 시엔 선택 파이프라인이 createPopupWindow(ctx) 를 직접 호출한다.
+  ipcMain.handle(IPC.OPEN_POPUP, async (_e, demo?: string) => {
+    createPopupWindow(null, demo)
+  })
+
+  // "설정 화면 열기" 단축키 — 각 렌더러(App.tsx)가 로컬 keydown으로 직접 판정한 뒤
+  // 여기엔 그냥 열어달라고만 요청한다(2026-07-29, shortcut.ts 주석 참고 — globalShortcut
+  // 이 Cmd+, 같은 흔한 조합을 OS 레벨에서 통째로 가로채 다른 앱에서 같은 단축키가
+  // 먹통이 되는 문제가 있어 전역 후킹을 걷어냈다).
+  ipcMain.handle(IPC.OPEN_SETTINGS, async () => {
+    openSettingsWindow()
+  })
+
+  // 담당 B: 팝업 렌더러가 마운트 시 현재 ExtractedSelection 을 조회
+  ipcMain.handle(IPC.POPUP_GET_CONTEXT, async (): Promise<ExtractedSelection | null> => {
+    const ctx = getPopupContext()
+    // 임시 진단 로그(2026-07-29, "가끔 빈 팝업이 뜬다" 제보 확인용).
+    console.log(`[ipc] POPUP_GET_CONTEXT -> ${ctx ? `len=${ctx.text.length} source=${ctx.source.kind}` : 'null'}`)
+    return ctx
+  })
+
+  // 팝업이 실제 내용을 그리고 첫 페인트까지 끝냈을 때 통지 — 그때까지 숨겨뒀던 창을 보여준다.
+  ipcMain.on(IPC.POPUP_CONTENT_READY, () => {
+    signalPopupContentReady()
+  })
+
+  // macOS 전용 — 오버레이가 클릭을 받으려고 비-클릭스루 상태가 되는 동안 스크롤 휠까지
+  // 막혀버리는 문제 우회(사용자 요청, 2026-07-30). 렌더러가 자신이 가로챈 wheel 이벤트의
+  // 델타를 넘기면, 선택된 창의 소유 프로세스로 합성 스크롤을 재전달한다(macScroll.ts).
+  ipcMain.on(IPC.OVERLAY_FORWARD_SCROLL, (_e, payload: { deltaX: number; deltaY: number }) => {
+    if (process.platform !== 'darwin') return
+    const id = getSelectedWindowId()
+    void import('./selection/macWindow').then(async ({ parseMacWindowId, getMacWindowOwnerPid }) => {
+      const wid = parseMacWindowId(id ?? '')
+      if (wid === null) {
+        // 임시 진단 로그(2026-07-31, 사용자 제보 — 스크롤 우회가 여전히 안 됨). 이
+        // 가드에서 조용히 멈추면 애초에 스크롤 전달 자체를 시도조차 안 한 것이라
+        // macScroll.ts 쪽을 볼 필요가 없다는 뜻 — 실사용 로그로 어디서 끊기는지 확인.
+        console.warn('[forwardScroll] windowId 파싱 실패, id=', id)
+        return
+      }
+      const pid = getMacWindowOwnerPid(wid)
+      if (pid === null) {
+        console.warn('[forwardScroll] owner pid 조회 실패, windowId=', wid)
+        return
+      }
+      const { postScrollToPid } = await import('./selection/macScroll')
+      const point = screen.getCursorScreenPoint()
+      console.log(
+        `[forwardScroll] pid=${pid} point=(${point.x},${point.y}) delta=(${payload.deltaX},${payload.deltaY})`,
+      )
+      postScrollToPid(pid, point, payload.deltaX, payload.deltaY)
+    })
+  })
+
+  // 담당 B: 구글 발음/이미지 검색 — 기본 브라우저의 새 창으로(팝업과 같은 위치·크기) 연다(google.ts)
+  ipcMain.handle(
+    IPC.OPEN_GOOGLE,
+    async (_e, payload: { mode: 'pron' | 'image'; text: string; lang: AnyLanguage }) => {
+      const url =
+        payload.mode === 'pron'
+          ? googlePronunciationUrl(payload.text, payload.lang)
+          : googleImageUrl(payload.text)
+      await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
+    },
+  )
+
+  // 담당 B: 네이버 사전 — 언어별 서브도메인 사전을 기본 브라우저의 새 창으로 연다(naver.ts).
+  // tier2-B는 url이 null(네이버 사전 자체가 없음) — 팝업 UI가 애초에 이 언어에서 네이버
+  // 버튼을 안 보여주므로 정상 경로로는 안 오지만, 방어적으로 그때는 새 창을 열지 않는다.
+  ipcMain.handle(
+    IPC.OPEN_NAVER_DICT,
+    async (_e, payload: { text: string; lang: AnyLanguage }) => {
+      const url = naverDictionaryUrl(payload.text, payload.lang)
+      if (!url) return
+      await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
+    },
+  )
+
+  // 담당 B: 채팅창 마크다운 링크(사전 출처 등, senseSelect.ts formatDictionaryAnswer가
+  // 만든 완성된 URL) — 구글/네이버와 똑같이 기본 브라우저 새 창으로 연다. 렌더러가 이미
+  // 완성된 URL을 그대로 넘기므로(위 둘처럼 여기서 URL을 조립하지 않음) payload는 문자열 하나.
+  ipcMain.handle(IPC.OPEN_EXTERNAL_LINK, async (_e, url: string) => {
+    await openUrlInNewWindow(url, getPopupBounds() ?? undefined)
+  })
+
+  // 담당 B: 선택 표현 자동 복사 — navigator.clipboard 는 문서 포커스가 필요해 팝업이
+  // 숨겨진 채 뜨는 초기 시점엔 실패했다(채널 주석 참고). Electron clipboard 는 포커스 무관.
+  ipcMain.handle(IPC.CLIPBOARD_COPY, async (_e, text: string) => {
+    clipboard.writeText(text)
+  })
+
+  // 담당 B: 팝업 원문 문맥의 가나 조각 병합용 일본어 형태소 분석 (nlp/japanese.ts).
+  // 렌더러가 병합 함수를 고를 수 있도록 engine 태그를 같이 내려준다.
+  ipcMain.handle(IPC.TOKENIZE_JA, async (_e, text: string) => {
+    return { engine: JA_ENGINE, tokens: await tokenizeJapanese(text) }
+  })
+
+  // 담당 B: 팝업 원문 문맥의 중국어 단어 atom 구성용 형태소 분석 (nlp/chinese.ts —
+  // zh-Hans 는 jieba 고정, zh-Hant 는 ZH_HANT_ENGINE 스위치)
+  ipcMain.handle(IPC.TOKENIZE_ZH, async (_e, text: string, language: 'zh-Hans' | 'zh-Hant') => {
+    return segmentChineseWords(text, language)
+  })
+
+  // ── 자체 문서 뷰어(pdf/epub/txt) ─────────────────────────────────────────
+  // 메인 화면 "파일 열기" — 확장자를 셋으로 제한한 다이얼로그를 띄우고, 고르면 그 파일을
+  // 담은 뷰어 창을 연다. 취소하면 아무 일도 없다(false 반환).
+  ipcMain.handle(IPC.VIEWER_OPEN_FILE_DIALOG, async () => {
+    const parent = getMainWindow()
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: '문서', extensions: ['pdf', 'epub', 'txt'] }],
+      ...(parent ? { parent } : {}),
+    })
+    const filePath = filePaths[0]
+    if (canceled || !filePath) return false
+
+    const ext = extname(filePath).slice(1).toLowerCase()
+    if (ext !== 'pdf' && ext !== 'epub' && ext !== 'txt') return false
+    createViewerWindow({ path: filePath, name: basename(filePath), kind: ext })
+    // 창 선택과 같은 규칙(위 SELECT_WINDOW 참고) — 대상이 정해졌으면 메인 창은 물러난다.
+    // 뷰어 뒤로가기(VIEWER_BACK)나 트레이 메뉴로 다시 꺼낸다.
+    getMainWindow()?.hide()
+    return true
+  })
+
+  // 뷰어 렌더러가 자기 창에 열린 파일을 pull 한다 — contextIsolation 을 유지하려고 렌더러가
+  // fs 에 직접 접근하지 않고 메인이 읽어서 넘긴다. txt 는 문자열, pdf/epub 는 바이너리라
+  // Uint8Array 로 넘긴다(구조적 복제로 그대로 전달됨).
+  ipcMain.handle(IPC.VIEWER_GET_FILE, async (e) => {
+    const file = getViewerFile(e.sender.id)
+    if (!file) return null
+    if (file.kind === 'txt') {
+      return { ...file, text: await readFile(file.path, 'utf8') }
+    }
+    const buf = await readFile(file.path)
+    return { ...file, bytes: new Uint8Array(buf) }
+  })
+
+  // 뷰어 뒤로가기 — 이 뷰어 창을 닫고 메인 창을 다시 띄운다.
+  ipcMain.handle(IPC.VIEWER_BACK, async (e) => {
+    showMainWindowAtRoute('main')
+    BrowserWindow.fromWebContents(e.sender)?.close()
+  })
+
+  // 뷰어에서 단어 클릭 — 확장의 pageClick 과 같은 역할(viewerSource.ts 가 팝업을 띄운다).
+  ipcMain.handle(IPC.VIEWER_WORD_CLICKED, async (e, hit: ViewerWordHit) => {
+    onViewerWordClicked(hit, BrowserWindow.fromWebContents(e.sender))
+  })
+
+  // 보기 설정 변경을 다른 뷰어 창들에 그대로 전달한다 — 읽기 방식·넘김 효과·테마는
+  // 파일 종류와 무관하게 모든 뷰어가 같은 값을 쓴다(사용자 지정). 보낸 창 자신은 이미
+  // 반영돼 있으므로 제외한다(되돌려 받으면 조작 중에 값이 튄다).
+  ipcMain.handle(IPC.VIEWER_PREFS_CHANGED, async (e, prefs: unknown) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed() || win.webContents.id === e.sender.id) continue
+      if (!isViewerWindow(win)) continue
+      win.webContents.send(IPC.VIEWER_PREFS_SYNC, prefs)
+    }
+  })
+
+  // 뷰어 문단의 CJK 형태소 분할 — 확장이 WebSocket 으로 하던 것과 같은 함수를 IPC 로
+  // 연결한다(segmentCjk.ts 를 확장 bridge 와 공유). CJK 가 아니면 빈 배열(공백 분리로 충분).
+  ipcMain.handle(IPC.VIEWER_SEGMENT, async (_e, text: string) => {
+    const lang = resolveCjkLanguage(text)
+    if (!lang) return []
+    try {
+      return await segmentCjkText(text, lang)
+    } catch (err) {
+      console.warn('[viewer] 세그멘테이션 실패:', (err as Error)?.message)
+      return []
+    }
+  })
+}

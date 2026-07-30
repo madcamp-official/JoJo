@@ -1,0 +1,66 @@
+// 크롬 확장(MV3) 번들러 — extension/src/*.ts → extension/dist/*.js + manifest 복사.
+// content script 는 ES module 이 될 수 없고 background 도 단일 파일로 자립하므로 둘 다 IIFE 로 번들한다.
+import { build, context } from 'esbuild'
+import { mkdirSync, copyFileSync, rmSync, readdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const srcDir = resolve(root, 'extension/src')
+const outDir = resolve(root, 'extension/dist')
+const watch = process.argv.includes('--watch')
+
+const entries = ['background', 'content', 'networkHook', 'netflixNetworkHook']
+
+const buildOptions = {
+  entryPoints: entries.map((name) => resolve(srcDir, `${name}.ts`)),
+  outdir: outDir,
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  target: 'chrome110',
+  sourcemap: watch,
+  logLevel: 'info',
+  // main/확장이 공유하는 프로토콜(src/shared/extension.ts)을 @shared 로 참조한다.
+  alias: { '@shared': resolve(root, 'src/shared') },
+}
+
+function copyManifest() {
+  copyFileSync(resolve(root, 'extension/manifest.json'), resolve(outDir, 'manifest.json'))
+}
+
+function copyIcons() {
+  const iconsSrcDir = resolve(root, 'extension/icons')
+  const iconsOutDir = resolve(outDir, 'icons')
+  mkdirSync(iconsOutDir, { recursive: true })
+  for (const file of readdirSync(iconsSrcDir)) {
+    copyFileSync(resolve(iconsSrcDir, file), resolve(iconsOutDir, file))
+  }
+}
+
+rmSync(outDir, { recursive: true, force: true })
+mkdirSync(outDir, { recursive: true })
+
+if (watch) {
+  const ctx = await context({
+    ...buildOptions,
+    plugins: [
+      {
+        name: 'copy-manifest',
+        setup(b) {
+          b.onEnd(() => {
+            copyManifest()
+            copyIcons()
+          })
+        },
+      },
+    ],
+  })
+  await ctx.watch()
+  console.log('[build-extension] watching extension/src → extension/dist')
+} else {
+  await build(buildOptions)
+  copyManifest()
+  copyIcons()
+  console.log('[build-extension] built extension/dist')
+}

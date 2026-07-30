@@ -1,0 +1,11 @@
+# 공용 venv(python/.venv) 용 — layout_detect.py / ocr_paddle.py / ocr_yomitoku.py /
+# sudachi_tokenize.py 가 쓴다. NDLOCR-Lite(ocr_ndlocr.py)는 의존성이 충돌해서 여기
+# 없고, 별도 venv + requirements-ndlocr.txt 로 분리돼 있다(README.md 참고).
+doclayout_yolo
+huggingface_hub
+pillow
+paddleocr
+paddlepaddle
+sudachipy
+sudachidict_core
+yomitoku

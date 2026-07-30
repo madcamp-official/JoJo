@@ -1,0 +1,173 @@
+// 공동 소유 — 선택 근방 문맥 범위 계산 (PLAN.md §4 '문맥 범위(Byte)')
+//
+// 선택 영역을 기준으로 앞/뒤 각각 byteBudget 바이트만큼 문맥을 포함하되,
+// 순수 바이트 경계에서 문장이 잘리지 않도록 가장 가까운 문장 경계까지 바깥으로
+// 확장한다. LLM 프롬프트 구성과 설정 화면 미리보기가 동일 로직을 공유한다.
+// 문장 경계 판단은 Mr./e.g./3.14 같은 약어·소수점의 '.'을 문장 끝과 혼동하지
+// 않도록 isAbbreviationDot 으로 걸러낸다(라틴 문자권 한정, CJK 종결부호는 무관).
+
+/** UTF-8 바이트 길이 (영어=1B/자, 한·중·일=3B/자 등) */
+export function byteLength(s: string): number {
+  return new TextEncoder().encode(s).length
+}
+
+// 문장 종결부호(라틴 + CJK)
+const SENTENCE_ENDERS = /[.!?。！？…]/
+// 종결부호 뒤에 붙어 문장에 포함되는 닫는 따옴표·괄호
+const TRAILING = /["'”’」』）)\]]/
+
+// 마침표로 끝나는 흔한 영어 약어 — 이 뒤의 '.'는 문장 끝으로 보지 않는다(대소문자 무시)
+const ABBREVIATIONS = new Set([
+  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'mt', 'vs',
+  'etc', 'al', 'approx', 'no', 'ca', 'dept', 'univ', 'assn',
+  'corp', 'co', 'inc', 'ltd', 'ave', 'blvd',
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
+])
+
+/**
+ * text[i] 의 '.'이 실제 문장 끝이 아니라 약어·이니셜·소수점·줄임표의 일부인지 판단.
+ * CJK 종결부호(。！？…)는 대상이 아니므로 즉시 false — 라틴 문자권에만 적용된다.
+ */
+function isAbbreviationDot(text: string, i: number): boolean {
+  if (text[i] !== '.') return false
+
+  const prev = text[i - 1] ?? ''
+  const next = text[i + 1] ?? ''
+
+  if (/\d/.test(prev) && /\d/.test(next)) return true // 소수점: 3.14
+  if (next === '.') return true // 줄임표(...) 진행 중 — 마지막 마침표만 후보로 본다
+
+  let j = i
+  while (j > 0 && /[A-Za-z]/.test(text[j - 1])) j -= 1
+  const word = text.slice(j, i)
+  if (!word) return false
+
+  // 한 글자 토큰: 이니셜(J. K. Rowling)이나 점으로 이어지는 약어(e.g. / i.e. / a.m. / U.S.)의 조각
+  if (word.length === 1) return true
+
+  return ABBREVIATIONS.has(word.toLowerCase())
+}
+
+function isSentenceEnder(text: string, i: number): boolean {
+  return SENTENCE_ENDERS.test(text[i]) && !isAbbreviationDot(text, i)
+}
+
+// text 안 어디에든 문장 종결부호가 하나라도 있는지(약어 등 예외 없이 대충 훑어보는 용도).
+// 자막 전체에 문장부호가 아예 없으면(구두점 없는 자동 생성 자막 등) 문장 경계로 줄바꿈을
+// 판단할 방법이 없으므로, 그런 경우 판단 자체를 포기하고 다른 기준(자막 큐 단위)으로
+// 폴백하라는 신호로 쓴다.
+export function hasSentenceEnder(text: string): boolean {
+  return SENTENCE_ENDERS.test(text)
+}
+
+// 닫는 따옴표/괄호(TRAILING)까지 포함해 text 가 문장이 끝나는 지점에서 끝나는지 본다
+// (예: 자막 큐 이어붙이기 — 자막 유틸이 여러 곳에서 재사용).
+export function endsWithSentenceEnder(text: string): boolean {
+  let i = text.length - 1
+  while (i >= 0 && TRAILING.test(text[i])) i -= 1
+  return i >= 0 && isSentenceEnder(text, i)
+}
+
+/** from 에서 뒤로(왼쪽) byteBudget 바이트만큼 이동한 문자 인덱스 (문자 경계 유지) */
+function stepBack(text: string, from: number, byteBudget: number): number {
+  let i = from
+  let used = 0
+  while (i > 0) {
+    const b = byteLength(text[i - 1])
+    if (used + b > byteBudget) break
+    used += b
+    i -= 1
+  }
+  return i
+}
+
+/** from 에서 앞으로(오른쪽) byteBudget 바이트만큼 이동한 문자 인덱스 */
+function stepForward(text: string, from: number, byteBudget: number): number {
+  let i = from
+  let used = 0
+  while (i < text.length) {
+    const b = byteLength(text[i])
+    if (used + b > byteBudget) break
+    used += b
+    i += 1
+  }
+  return i
+}
+
+// sentenceStart/sentenceEnd 가 확장을 멈춰야 하는 지점 — 문장 종결부호뿐 아니라
+// 줄바꿈('\n')도 경계로 본다. 구두점이 아예 없는 자동 생성 자막처럼(한 줄 = 한 문맥
+// 단위, 문장 종결부호 자체가 없는 텍스트) 종결부호만 찾으면 다음 종결부호가 나올 때까지
+// (문서 끝까지도) 끝없이 확장돼버리는 문제가 있었다(실사용 확인, 2026-07-29 — 구두점
+// 없는 유튜브 자막에서 선택 범위가 영상 첫 줄까지 통째로 확장됨). '\n'은 이미 문단/자막
+// 큐 경계라 그 자체로 안전한 정지 지점 — 종결부호가 없으면 최소한 그 줄만큼만 확장된다.
+function isSentenceBoundaryStop(text: string, i: number): boolean {
+  return text[i] === '\n' || isSentenceEnder(text, i)
+}
+
+/** p 를 포함하는 문장의 시작 인덱스 (직전 종결부호 또는 줄바꿈 다음, 선행 공백 스킵) */
+export function sentenceStart(text: string, p: number): number {
+  let i = p
+  while (i > 0 && !isSentenceBoundaryStop(text, i - 1)) i -= 1
+  while (i < p && /\s/.test(text[i])) i += 1
+  return i
+}
+
+/** p 를 포함하는 문장의 끝 인덱스 (다음 종결부호 + 뒤따르는 닫는 따옴표 포함, 또는
+ *  종결부호 없이 줄바꿈을 먼저 만나면 그 줄바꿈 앞까지) */
+export function sentenceEnd(text: string, p: number): number {
+  let i = p
+  while (i < text.length && !isSentenceBoundaryStop(text, i)) i += 1
+  if (i < text.length && text[i] !== '\n') {
+    i += 1 // 종결부호 포함
+    while (i < text.length && TRAILING.test(text[i])) i += 1
+  }
+  return i
+}
+
+/** p가 이미 문장 시작 지점이면 그대로 두고, 문장 중간이면 그 문장을 통째로 버리고 다음
+ *  문장 시작까지 건너뛴다 — sentenceStart(뒤로 확장해 문장을 포함)와 반대로 창을 키우는
+ *  대신 줄이는 쪽. 한 문장이 여러 줄에 걸치는 산문에서 "N줄 전" 위치가 문장 중간에 걸리면
+ *  그 문장 전체를 뒤로 끌어와 문맥 창이 예상보다 훨씬 커지는 문제가 있어 도입했다
+ *  (2026-07-30, PopupScreen.tsx가 문맥 표시 시작 경계에 소스 구분 없이 공통으로 씀 — p가
+ *  이미 문장 시작이면 그대로 반환하므로 줄이 이미 문장에 가까운 OCR/자막에는 사실상 no-op). */
+export function skipPartialSentenceForward(text: string, p: number): number {
+  const back = sentenceStart(text, p)
+  if (back === p) return p
+  let i = sentenceEnd(text, p)
+  while (i < text.length && /\s/.test(text[i])) i += 1
+  return i
+}
+
+/** 문자 인덱스로 표현한 문맥 범위 경계 */
+export interface ContextRange {
+  extStart: number // 경계까지 확장된 시작(가장 바깥)
+  byteStart: number // 바이트 예산 경계 시작
+  selStart: number
+  selEnd: number
+  byteEnd: number // 바이트 예산 경계 끝
+  extEnd: number // 경계까지 확장된 끝(가장 바깥)
+}
+
+/**
+ * text 안에서 [selStart, selEnd) 선택을 기준으로 앞 byteBefore / 뒤 byteAfter 바이트
+ * 문맥 + 문장 경계 확장까지의 범위를 계산한다(앞·뒤 예산 분리). LLM 프롬프트 구성과
+ * 설정 화면 미리보기가 사용(§'문맥 범위(Byte)').
+ */
+export function computeContextRange(
+  text: string,
+  selStart: number,
+  selEnd: number,
+  byteBefore: number,
+  byteAfter: number,
+): ContextRange {
+  const byteStart = stepBack(text, selStart, byteBefore)
+  const byteEnd = stepForward(text, selEnd, byteAfter)
+  return {
+    extStart: sentenceStart(text, byteStart),
+    byteStart,
+    selStart,
+    selEnd,
+    byteEnd,
+    extEnd: sentenceEnd(text, byteEnd),
+  }
+}

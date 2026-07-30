@@ -1,0 +1,86 @@
+import type { ExtractedSelection, Word } from '@shared/types'
+import { findWordAtPoint } from '@shared/wordMapping'
+import { getExtraction, mergeWithPreviousContext } from './extractionCache'
+
+// ============================================================================
+// 담당 A — 선택 준비 & 추출 파이프라인 (PLAN.md §5.1 / §9) — 팝업 전까지
+// 선택 모드 진입 시 미리 캡처+추출해둔 캐시(extractionCache.ts)에서 클릭 좌표에
+// 해당하는 단어를 찾아 → ExtractedSelection 생성 (B 로 전달, 최종 선택 확정은 B가 팝업에서)
+//
+// 자막 경로(유튜브/넷플릭스)는 이 파이프라인을 타지 않는다 — 확장이 페이지 안에서 직접
+// hover/클릭을 처리해(extension/src/highlight.ts) 자체적으로 팝업을 연다(subtitleSource.ts).
+// ============================================================================
+
+export async function runSelectionPipeline(point: {
+  x: number
+  y: number
+}): Promise<ExtractedSelection> {
+  const extracted = await getExtraction()
+
+  const word = findWordAtPoint(extracted.words, point)
+  const anchor = word ? findLineSpan(extracted.words, extracted.words.indexOf(word)) : { start: 0, end: 0 }
+
+  if (process.env.DEBUG_OCR_DUMP) {
+    console.log(
+      `[selectionDebug] point=(${point.x.toFixed(1)},${point.y.toFixed(1)}) hitWord=${JSON.stringify(word?.text)} hitBbox=${JSON.stringify(word?.bbox)} anchorText=${JSON.stringify(extracted.text.slice(anchor.start, anchor.end))}`,
+    )
+  }
+
+  // 클릭한 줄 기준으로 직전 회차 캐시에 더 넓은 문맥이 있으면 병합한다(extractionCache.ts:
+  // mergeWithPreviousContext) — 못 찾으면 원본 그대로 반환되므로 항상 안전하다.
+  const merged = mergeWithPreviousContext(extracted.text, anchor.start, anchor.end)
+  if (process.env.DEBUG_OCR_DUMP) {
+    console.log(
+      `[selectionDebug] after merge: anchor=[${merged.anchorStart},${merged.anchorEnd}) anchorText=${JSON.stringify(merged.text.slice(merged.anchorStart, merged.anchorEnd))} textChanged=${merged.text !== extracted.text} textLenDelta=${merged.text.length - extracted.text.length}`,
+    )
+  }
+
+  return {
+    text: merged.text,
+    anchor: { start: merged.anchorStart, end: merged.anchorEnd },
+    words: extracted.words,
+    language: extracted.language,
+    source: extracted.source,
+    extraction: extracted.extraction,
+  }
+}
+
+/**
+ * words[targetIdx] 가 extracted.text 안에서 실제로 위치한 [start, end) 오프셋을
+ * 찾는다. extracted.text 는 항상 `words.map(w => w.text).join('')`(ocr.ts)로 만들어져
+ * words 배열과 정확히 같은 순서 · 같은 문자들이므로, targetIdx 이전 단어들의 글자 수를
+ * 그대로 누적하면 오프셋이 나온다 — 텍스트 검색이 전혀 필요 없다.
+ *
+ * 예전엔 text.indexOf 로 targetIdx 이전에 같은 텍스트가 몇 번 나왔는지 세어 그 순번째
+ * occurrence 를 찾는 방식이었는데, "な" 처럼 흔한 한두 글자가 "そんな" 같은 더 긴 단어의
+ * 부분 문자열로도 등장하면 개수가 안 맞았다(단어 배열 기준 개수 ≠ 텍스트 문자열 기준
+ * 부분 문자열 등장 횟수) — 실측 확인: 클릭한 위치와 다른, 훨씬 앞쪽의 엉뚱한 단어에
+ * 매핑됨. 누적 길이 방식은 애초에 같은 순서로 이어붙인 결과라 이런 모호함 자체가 없다.
+ */
+function findWordSpan(words: Word[], targetIdx: number): { start: number; end: number } {
+  if (targetIdx < 0 || targetIdx >= words.length) return { start: 0, end: 0 }
+  let start = 0
+  for (let i = 0; i < targetIdx; i++) start += words[i]!.text.length
+  return { start, end: start + words[targetIdx]!.text.length }
+}
+
+/**
+ * words[targetIdx] 가 속한 줄(같은 lineId, ocrNdlocr.ts/ocrPaddle.ts/ocr.ts 가 각 줄
+ * 단위로 붙여둔 식별자) 전체가 extracted.text 안에서 차지하는 [start, end) 오프셋을
+ * 찾는다 — 단어 하나가 아니라 줄 전체를 팝업 초기 선택으로 삼기로 한 결정(2026-07-28).
+ * 같은 줄의 단어들은 항상 words 배열에서 연속 구간을 이룬다(줄 단위로 만들어져
+ * 이어붙여지므로) — findWordSpan 과 같은 누적 길이 방식을 그 구간 전체에 적용한다.
+ * lineId 가 없으면(direct 추출 등 줄 정보를 안 주는 경로) 단어 하나만의 범위로 폴백한다.
+ */
+function findLineSpan(words: Word[], targetIdx: number): { start: number; end: number } {
+  if (targetIdx < 0 || targetIdx >= words.length) return { start: 0, end: 0 }
+  const lineId = words[targetIdx]!.lineId
+  if (!lineId) return findWordSpan(words, targetIdx)
+  let first = targetIdx
+  while (first > 0 && words[first - 1]!.lineId === lineId) first--
+  let last = targetIdx
+  while (last < words.length - 1 && words[last + 1]!.lineId === lineId) last++
+  const { start } = findWordSpan(words, first)
+  const { end } = findWordSpan(words, last)
+  return { start, end }
+}
