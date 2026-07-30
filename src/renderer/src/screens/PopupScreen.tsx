@@ -99,6 +99,22 @@ function emptyExtraction(): ExtractedSelection {
 export function PopupScreen() {
   const [baseCtx, setBaseCtx] = useState<ExtractedSelection>(emptyExtraction)
 
+  // 헤더에 "영어(자동 판별)"/"영어(사용자 지정)"처럼 언어가 어떻게 정해졌는지 보여주기 위한
+  // 값 — 언어 판별 자체(OCR/자막/웹 5개 지점, `getLanguageOverride() ?? detect...()` 패턴)에
+  // source 필드를 추가로 꿰는 대신, 이 설정이 전역이라 "지금 설정값이 auto가 아니면 이 팝업의
+  // language도 그걸로 정해졌다"고 봐도 안전하다는 점을 이용해 팝업이 뜰 때 설정을 한 번만
+  // 조회한다(2026-07-30, 사용자 요청 — 자동판별인지 수동 지정인지 분간이 안 간다는 피드백).
+  const [languageOverridden, setLanguageOverridden] = useState(false)
+  useEffect(() => {
+    let active = true
+    window.nuance.getSettings().then((s) => {
+      if (active) setLanguageOverridden(s.language !== 'auto')
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
   // main 에서 실제 컨텍스트를 받으면 교체(초기 조회 + 창 재사용 시 갱신 통지). 초기 조회가
   // null 이어도 demo 쿼리가 없으면(=실사용) 목업으로 fallback 하지 않는다 — demo 쿼리가
   // 있을 때(MainScreen 미리보기 버튼)만 그 목업으로 확정한다. 위 모듈 주석 참고.
@@ -486,7 +502,7 @@ export function PopupScreen() {
     <div className="screen popup-screen">
       <header className="popup-header">
         <span className="src">
-          {sourceLabel(baseCtx)} · {getLanguageName(baseCtx.language)}
+          {sourceLabel(baseCtx)} · {getLanguageName(baseCtx.language)}({languageSourceLabel(languageOverridden)})
         </span>
         <span className="esc-hint">ESC</span>
         <button className="icon-btn close" title="닫기" onClick={() => window.close()}>
@@ -575,6 +591,10 @@ function sourceLabel(ex: ExtractedSelection): string {
   const fixed = SOURCE_KIND_LABEL[ex.source.kind]
   const raw = fixed ?? ex.source.appName ?? ex.source.url ?? ex.source.kind
   return raw.length > SOURCE_LABEL_MAX_LENGTH ? `${raw.slice(0, SOURCE_LABEL_MAX_LENGTH)}...` : raw
+}
+
+function languageSourceLabel(isManual: boolean): string {
+  return isManual ? '사용자 지정' : '자동 판별'
 }
 
 // ja/zh-Hans/zh-Hant만 "글자 단위" 토글이 있다 — 형태소 분석(jaResult/zhWords)으로 만든

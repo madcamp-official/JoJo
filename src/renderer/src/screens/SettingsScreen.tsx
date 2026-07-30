@@ -845,7 +845,7 @@ export function SettingsScreen() {
               onChange={() => void patch({ language: LANGUAGE_ORDER[0] })}
             />
             <div>
-              <div className="title">언어 선택</div>
+              <div className="title">사용자 지정</div>
               <div className="desc">
                 자동 판별을 끄고 항상 선택한 언어 하나로 고정합니다.
               </div>
