@@ -25,6 +25,31 @@ py -3.12 -m venv .venv   # Windows, 3.12 가 여러 개 설치돼있으면 경�
 .venv/bin/pip install -r requirements.txt
 ```
 
+## NDLOCR-Lite(일본어 특화 인식) — 별도 venv 필수
+
+일본어 경로(`ocr_ndlocr.py`)가 쓰는 NDLOCR-Lite 는 **공용 venv 에 설치하면 안 된다** —
+numpy/opencv/onnxruntime 을 낮은 버전으로 못박아 끌어내려서 PaddleOCR/Yomitoku 가
+요구하는 버전과 충돌한다(실제로 한 번 공용 환경이 깨진 적 있음). 그래서 `.venv` 와
+완전히 분리된 `.venv-ndlocr-test` 에 `requirements-ndlocr.txt` 만 설치한다:
+
+```bash
+cd python
+python3 -m venv .venv-ndlocr-test          # Windows: py -3.12 -m venv .venv-ndlocr-test
+# Windows
+.venv-ndlocr-test\Scripts\pip install -r requirements-ndlocr.txt
+# macOS/Linux
+.venv-ndlocr-test/bin/pip install -r requirements-ndlocr.txt
+```
+
+모델 가중치(deim/parseq, 약 160MB)는 저장소에 동봉돼 있어 설치 시 함께 들어온다 —
+별도 다운로드 단계가 없다. `pythonServer.ts: NDLOCR_PYTHON_BIN` 이 이 venv 의
+인터프리터를 직접 스폰하고, `ocr_ndlocr.py` 는 자기 인터프리터의 site-packages 를
+`sysconfig` 로 찾아 sys.path 에 넣으므로 플랫폼별 경로 차이는 신경 쓸 필요 없다.
+
+이 venv 가 없으면 `ocrNdlocr.ts` 가 조용히 `null` 을 반환해 PaddleOCR 경로로
+폴백한다 — 앱은 정상 동작하고 일본어 인식 품질만 떨어진다(검출은 Yomitoku 가
+계속 담당).
+
 첫 실행 시 각 스크립트가 Hugging Face Hub/PaddleX 허브에서 모델 가중치를 자동
 다운로드해 캐시한다(인터넷 필요, 이후 재실행은 캐시 사용). PaddleOCR 는 언어별로
 det/rec 모델을 따로 받아서 첫 인식 때 조금 오래 걸릴 수 있다.

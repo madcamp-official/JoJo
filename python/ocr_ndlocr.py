@@ -32,6 +32,7 @@ PaddleOCR/Yomitoku가 요구하는 버전과 충돌한다(실제로 한 번 이 
 import json
 import os
 import sys
+import sysconfig
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -46,8 +47,17 @@ import cv2
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-_default_site_packages = Path(__file__).resolve().parent / ".venv-ndlocr-test" / "Lib" / "site-packages"
-_site_packages = os.environ.get("NDLOCR_SITE_PACKAGES", str(_default_site_packages))
+# 격리 venv(.venv-ndlocr-test)의 site-packages 를 sys.path 에 넣는다. 원래는
+# `.venv-ndlocr-test/Lib/site-packages` 로 하드코딩돼 있었는데(Windows 레이아웃),
+# macOS/Linux 는 `lib/python3.x/site-packages` 라 그 경로가 존재하지 않아 여기서
+# import 가 그대로 실패했다(실측 확인, 2026-07-31 — macOS 에서 NDLOCR 경로가 항상
+# null 로 폴백되고 있었음). 이 스크립트는 애초에 그 venv 의 인터프리터로 스폰되므로
+# (pythonServer.ts: NDLOCR_PYTHON_BIN) 자기 자신의 site-packages 를 sysconfig 로
+# 물어보면 플랫폼과 무관하게 정확하다 — 하드코딩 대신 그걸 기본값으로 쓴다.
+# NDLOCR_SITE_PACKAGES 환경변수 오버라이드는 그대로 남겨둔다(다른 인터프리터로
+# 이 스크립트를 직접 돌려볼 때의 탈출구).
+_default_site_packages = sysconfig.get_paths()["purelib"]
+_site_packages = os.environ.get("NDLOCR_SITE_PACKAGES", _default_site_packages)
 sys.path.insert(0, _site_packages)
 
 import ocr as ndlocr  # noqa: E402  (패키지 저자가 공개 API로 보장하지 않는 내부 모듈)
