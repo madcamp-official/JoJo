@@ -11,7 +11,7 @@ import type {
 } from '@shared/types'
 import { sentenceEnd, skipPartialSentenceForward } from '@shared/context'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
-import { getNativeLanguageName, hasNaverDict, isFullLanguage, isRtlLanguage } from '@shared/languages'
+import { getLanguageName, hasNaverDict, isFullLanguage, isRtlLanguage } from '@shared/languages'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
@@ -486,7 +486,7 @@ export function PopupScreen() {
     <div className="screen popup-screen">
       <header className="popup-header">
         <span className="src">
-          {sourceLabel(baseCtx)} · {getNativeLanguageName(baseCtx.language)}
+          {sourceLabel(baseCtx)} · {getLanguageName(baseCtx.language)}
         </span>
         <span className="esc-hint">ESC</span>
         <button className="icon-btn close" title="닫기" onClick={() => window.close()}>
