@@ -208,6 +208,7 @@ export function refreshExtractionCache(): Promise<void> {
       if (inFlight === promise) {
         inFlight = null
         sendOverlayWords([]) // 실패해도 "생성 중" 표시가 안 멈추지 않게 빈 결과로 통지
+        sendDebugBlocks([]) // 실패한 회차의 옛 자동 탐지 블록이 화면에 남아있지 않게
       }
     })
 }
@@ -231,6 +232,7 @@ export function invalidateExtractionCache(): void {
   cached = null
   inFlight = null
   sendOverlayWords([]) // 이전 창의 단어 박스가 오버레이에 남아있지 않게
+  sendDebugBlocks([]) // 이전 창의 자동 탐지 블록도 같이
 }
 
 /** 직전 회차 추출 결과 조회 — 다음 추출의 문맥 재사용 등에 쓴다. 없으면(첫 회차 등) null. */
