@@ -27,7 +27,7 @@ export const DEFAULT_STYLE: ViewerStyle = {
   letterSpacing: 0,
   lineHeight: 1.8,
   margin: 72,
-  textAlign: 'left',
+  textAlign: 'justify',
 }
 
 // 마지막으로 쓴 보기 설정을 기억한다 — 문서를 열 때마다 다시 맞추게 하지 않으려는 것.
@@ -183,7 +183,7 @@ export function ViewerSettings({
               없음
             </button>
             <button className={transition === 'slide' ? 'on' : ''} onClick={() => onTransitionChange('slide')}>
-              슬라이딩
+              슬라이드
             </button>
           </div>
         </div>
