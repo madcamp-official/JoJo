@@ -174,6 +174,24 @@ export function ViewerScreen() {
     }
   }, [])
 
+  // Esc 로 목차를 닫는다(사용자 요청) — 설정 패널·검색은 각자 안에서 이미 처리한다.
+  // 목차는 epub 본문(iframe) 안에 포커스가 있을 수도 있어 그 문서에도 리스너를 단다.
+  useEffect(() => {
+    if (!tocOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setTocOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    const docs = Array.from(document.querySelectorAll<HTMLIFrameElement>('.viewer-body iframe'))
+      .map((f) => f.contentDocument)
+      .filter((d): d is Document => !!d)
+    for (const d of docs) d.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      for (const d of docs) d.removeEventListener('keydown', onKey)
+    }
+  }, [tocOpen])
+
   const barVisible = barShown || styleOpen || tocOpen || searchOpen
 
   const goPage = useCallback((dir: 'next' | 'prev') => {
@@ -234,7 +252,7 @@ export function ViewerScreen() {
   return (
     // 테마는 파일 종류를 안 가린다(사용자 지정) — PDF 도 페이지 둘레(배경·툴바)가 같이
     // 어두워진다. 페이지 그림 자체는 원본이라 색이 바뀌지 않는다.
-    <div className={`screen viewer-screen${dark ? ' dark' : ''}`}>
+    <div className={`screen viewer-screen${dark ? ' dark' : ''}${mode === 'scroll' ? ' mode-scroll' : ''}`}>
       <header ref={barRef} className={`viewer-toolbar${barVisible ? '' : ' hidden'}`}>
         <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
           <ArrowLeftIcon />
