@@ -8,7 +8,7 @@ import {
 } from '../windows'
 import { getSettings } from '../settingsStore'
 import { startChangeWatcher, stopChangeWatcher } from './changeWatcher'
-import { invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
+import { abandonInFlightExtraction, invalidateExtractionCache, refreshExtractionCache } from './extractionCache'
 import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSelection'
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
@@ -154,6 +154,12 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     // 자막 경로 — OCR 영역 선택/캡처/변화감지를 전부 중단하고 확장 자막을 쓴다.
     stopWebMode()
     stopChangeWatcher()
+    // 첫 판정이 일시적으로 OCR 로 잘못 났다가(확장 활성 탭 보고 도착 전) 이번 재판정으로
+    // 넘어온 경우, 그 판정이 이미 시작한 OCR 인식이 백그라운드에서 계속 돌다가 완료
+    // 시점에 결과를 커밋(sendOverlayWords 등)해 direct 추출과 OCR 이 동시에 도는 것처럼
+    // 보이는 문제(2026-07-30 사용자 제보) — 진행 중인 추출을 폐기해 커밋 가드가 결과를
+    // 버리게 한다(changeWatcher 복귀 판정과 동일한 메커니즘).
+    abandonInFlightExtraction()
     startSubtitleMode()
     return
   }
@@ -171,6 +177,7 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     stopSubtitleMode()
     stopWebMode()
     stopChangeWatcher()
+    abandonInFlightExtraction() // subtitle 분기와 동일 — 낡은 OCR 판정이 시작한 진행 중 인식 폐기
     startWebMode(() => {
       if (wasDirectExtraction) exitSelectMode()
       else startOcrFallback(epoch)
