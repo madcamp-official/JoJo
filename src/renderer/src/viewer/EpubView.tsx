@@ -30,6 +30,8 @@ function fontCss(st: ViewerStyle): string {
       letter-spacing: ${st.letterSpacing}px !important;
       line-height: ${st.lineHeight} !important;
     }
+    /* 정렬은 본문 블록에만 — 제목까지 끌려가면 가운데 맞춘 표제가 틀어진다. */
+    p, li, dd, blockquote { text-align: ${st.textAlign} !important; }
     h1 { font-size: 1.9rem !important; }
     h2 { font-size: 1.6rem !important; }
     h3 { font-size: 1.35rem !important; }

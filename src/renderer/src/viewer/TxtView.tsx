@@ -23,7 +23,7 @@ export function TxtView({
   pagerRef: RefObject<PagerHandle | null>
   onPageState: (s: PageState) => void
 }) {
-  const { fontSize, margin, letterSpacing, lineHeight } = style
+  const { fontSize, margin, letterSpacing, lineHeight, textAlign } = style
   const paragraphs = (file.text ?? '').split(/\n{2,}/).filter((p) => p.trim())
   const scrollRef = useRef<HTMLDivElement>(null)
   const articleRef = useRef<HTMLElement>(null)
@@ -68,7 +68,7 @@ export function TxtView({
       window.clearTimeout(id)
       window.removeEventListener('resize', measure)
     }
-  }, [mode, fontSize, margin, letterSpacing, lineHeight, file, measure])
+  }, [mode, fontSize, margin, letterSpacing, lineHeight, textAlign, file, measure])
 
   // 2단계 — 열 너비가 **실제 레이아웃에 반영된 뒤**에 페이지 수를 セン다. 한 프레임 뒤에
   // 재는 게 핵심이다: 같은 렌더에서 바로 재면 아직 이전(또는 초기 0) 열 너비 기준이라
@@ -86,7 +86,7 @@ export function TxtView({
       setTotal(Math.max(1, Math.ceil((art.scrollWidth - 1) / advance)))
     })
     return () => cancelAnimationFrame(id)
-  }, [mode, colWidth, advance, fontSize, margin, letterSpacing, lineHeight, file])
+  }, [mode, colWidth, advance, fontSize, margin, letterSpacing, lineHeight, textAlign, file])
 
   // 폰트/여백이 바뀌어 전체 장수가 줄면 지금 페이지가 범위를 벗어날 수 있다.
   useEffect(() => {
@@ -118,13 +118,14 @@ export function TxtView({
                 fontSize,
                 letterSpacing,
                 lineHeight,
+                textAlign,
                 paddingLeft: margin,
                 paddingRight: margin,
                 columnWidth: colWidth,
                 columnGap: margin * 2,
                 transform: `translateX(${-page * advance}px)`,
               }
-            : { fontSize, letterSpacing, lineHeight, paddingLeft: margin, paddingRight: margin }
+            : { fontSize, letterSpacing, lineHeight, textAlign, paddingLeft: margin, paddingRight: margin }
         }
       >
         {paragraphs.map((p, i) => (

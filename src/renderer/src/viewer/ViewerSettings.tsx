@@ -1,14 +1,18 @@
 import { useEffect, useRef } from 'react'
+import { AlignJustify, AlignLeft, AlignRight } from 'lucide-react'
 import type { PageTransition, ViewerMode } from './pager'
 
 // 읽기 스타일 설정 패널 — 툴바에 슬라이더를 늘어놓으면 메뉴바가 금방 지저분해져서
 // (글자 크기/자간/줄 간격/여백/넘김 효과) 버튼 하나 뒤로 접어두고, 누를 때만 카드로 띄운다.
+
+export type TextAlign = 'left' | 'justify' | 'right'
 
 export interface ViewerStyle {
   fontSize: number
   letterSpacing: number
   lineHeight: number
   margin: number
+  textAlign: TextAlign
 }
 
 export const STYLE_LIMITS = {
@@ -23,6 +27,7 @@ export const DEFAULT_STYLE: ViewerStyle = {
   letterSpacing: 0,
   lineHeight: 1.8,
   margin: 72,
+  textAlign: 'left',
 }
 
 // 마지막으로 쓴 보기 설정을 기억한다 — 문서를 열 때마다 다시 맞추게 하지 않으려는 것.
@@ -69,7 +74,17 @@ export function saveViewerPrefs(prefs: ViewerPrefs): void {
   }
 }
 
-const ROWS: { key: keyof ViewerStyle; label: string; digits: number }[] = [
+// 정렬 — 아이콘만으로 충분히 읽히는 선택지라 라벨 없이 아이콘 버튼 세 개로 둔다.
+const ALIGNS: { value: TextAlign; label: string; Icon: typeof AlignLeft }[] = [
+  { value: 'left', label: '왼쪽 정렬', Icon: AlignLeft },
+  { value: 'justify', label: '양쪽 정렬', Icon: AlignJustify },
+  { value: 'right', label: '오른쪽 정렬', Icon: AlignRight },
+]
+
+/** 슬라이더로 다루는 항목만 — 정렬은 값이 숫자가 아니라 위 ALIGNS 로 따로 그린다. */
+type SliderKey = 'fontSize' | 'letterSpacing' | 'lineHeight' | 'margin'
+
+const ROWS: { key: SliderKey; label: string; digits: number }[] = [
   { key: 'fontSize', label: '글자 크기', digits: 0 },
   { key: 'letterSpacing', label: '자간', digits: 1 },
   { key: 'lineHeight', label: '행간', digits: 2 },
@@ -211,6 +226,25 @@ export function ViewerSettings({
             </label>
           )
         })}
+
+      {showTextStyle && (
+        <div className="style-row">
+          <span className="style-label">정렬</span>
+          <div className="style-toggle align">
+            {ALIGNS.map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                className={style.textAlign === value ? 'on' : ''}
+                title={label}
+                aria-label={label}
+                onClick={() => onChange({ ...style, textAlign: value })}
+              >
+                <Icon size={15} strokeWidth={2} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!showTextStyle && (
         <p className="style-note">PDF는 원본 레이아웃을 그대로 보여줘서 글자 설정이 없어요.</p>
