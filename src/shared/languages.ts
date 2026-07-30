@@ -146,8 +146,13 @@ export const LINK_LANGUAGES: Record<LinkLanguage, LinkLanguageInfo> = {
   // 한국어 자체를 넣을 대상이 마땅치 않아 구글만 연결(2026-07-30, 사용자 결정 — 지금은
   // 화자 확장 가능성을 대비해 tier2로 포함해둠).
   ko: { koName: '한국어', nativeName: '한국어', googleSearchSuffix: '발음', pronunciationNotation: '국제음성기호(IPA)', ocrLang: 'kor' },
-  // 쿠르드어: Tesseract엔 쿠르만지 방언(kmr, 라틴 문자)만 있고 소라니(아랍 문자) 팩은 없음.
-  ku: { koName: '쿠르드어', nativeName: 'Kurdî', googleSearchSuffix: 'bilêvkirin', pronunciationNotation: '국제음성기호(IPA)', ocrLang: 'kmr' },
+  // 쿠르드어(ku)는 2026-07-30 tier2 도입 때 등록했다가 전수조사(2026-07-30) 후 제외했다 —
+  // Tesseract 팩은 쿠르만지 방언(kmr, 라틴 문자)뿐인데 eld의 'ku' 모델은 소라니 방언(아랍
+  // 문자, node_modules/eld/README.md "Kurdish (Arabic)")을 학습한 것이라, 같은 코드가 OCR과
+  // 자동판별에서 서로 다른 방언/문자체계를 가리켜 화면 캡처(OCR) 경로에서 구조적으로 자동판별이
+  // 안 된다(스크립트 후보 배열에 추가해도 eld가 라틴 문자 텍스트를 'ku'로 반환할 일이 없어
+  // 무의미). tier3(미지원)로 되돌림 — 언어팩·API 재조사로 아랍 문자 소라니 OCR 지원이 붙거나
+  // eld가 방언을 분리하게 되면 재검토.
   lt: { koName: '리투아니아어', nativeName: 'Lietuvių', googleSearchSuffix: 'tarimas', pronunciationNotation: '국제음성기호(IPA)', ocrLang: 'lit' },
   lv: { koName: '라트비아어', nativeName: 'Latviešu', googleSearchSuffix: 'izruna', pronunciationNotation: '국제음성기호(IPA)', ocrLang: 'lav' },
   ml: { koName: '말라얄람어', nativeName: 'മലയാളം', googleSearchSuffix: 'ഉച്ചാരണം', pronunciationNotation: '국제음성기호(IPA)', ocrLang: 'mal' },

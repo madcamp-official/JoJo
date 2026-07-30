@@ -110,7 +110,11 @@ const SCRIPT_TO_LANGUAGE: Record<string, AnyLanguage | 'zh' | AnyLanguage[]> = {
   Telugu: 'te',
   Ethiopic: 'am',
   // 대표(폴백)를 맨 앞에 — 라틴 문자는 영어를 기본값으로 유지(tier1 우선순위 존중).
-  Latin: ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'tr', 'vi', 'ro', 'cs', 'hu', 'sv', 'da', 'no', 'fi', 'hr', 'sq', 'tl', 'az', 'ca', 'et', 'eu', 'lt', 'lv', 'ms', 'sk', 'sl'],
+  // 'is'(아이슬란드어)는 2026-07-30 tier2 도입 때 이 배열에서 누락돼 항상 en으로 오판되던
+  // 버그를 전수조사로 발견해 추가함 — eld/Tesseract 둘 다 라틴 문자 기준으로 일치해 정상 동작.
+  // 'ku'(쿠르드어)는 의도적으로 여기 없음: eld의 ku 모델은 소라니(아랍 문자)라 이 배열(라틴)에
+  // 넣어도 eld가 절대 'ku'를 반환하지 않는다 — tier3로 되돌림(languages.ts 참고).
+  Latin: ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'tr', 'vi', 'ro', 'cs', 'hu', 'sv', 'da', 'no', 'fi', 'hr', 'sq', 'tl', 'az', 'ca', 'et', 'eu', 'is', 'lt', 'lv', 'ms', 'sk', 'sl'],
   Cyrillic: ['ru', 'uk', 'bg', 'be', 'sr'],
   Arabic: ['ar', 'fa', 'ur'],
   Devanagari: ['hi', 'mr'],
