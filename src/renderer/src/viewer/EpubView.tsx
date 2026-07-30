@@ -22,8 +22,11 @@ const FONT_STYLE_ID = 'nuance-epub-font'
 // 본문은 그대로고 상대 단위(em)로 잡힌 제목만 커졌다 작아졌다 한다(2026-07-31 사용자 제보).
 // 그래서 본문 요소에 rem 기준 크기를 직접 덮어씌운다 — 기준점인 html 의 font-size 만
 // 슬라이더 값으로 바꾸면 제목/본문 비율은 아래 표대로 유지된 채 전체가 같이 커진다.
-function fontCss(st: ViewerStyle): string {
+// inset: 좌우 여백을 iframe **안쪽**에 줄지 여부. 스크롤 모드에서는 iframe 이 창 폭을
+// 다 차지해야 스크롤바가 창 오른쪽 끝에 붙으므로, 여백을 바깥 padding 이 아니라 여기서 준다.
+function fontCss(st: ViewerStyle, inset: boolean): string {
   return `
+    ${inset ? `body { padding-left: ${st.margin}px !important; padding-right: ${st.margin}px !important; box-sizing: border-box !important; }` : ''}
     html { font-size: ${st.fontSize}px !important; }
     body, p, div, span, li, dd, dt, td, th, blockquote, a, em, strong, i, b, small {
       font-size: 1rem !important;
@@ -40,7 +43,7 @@ function fontCss(st: ViewerStyle): string {
   `
 }
 
-function applyFontSize(doc: Document | null | undefined, st: ViewerStyle): void {
+function applyFontSize(doc: Document | null | undefined, st: ViewerStyle, inset: boolean): void {
   if (!doc?.head) return
   let el = doc.getElementById(FONT_STYLE_ID)
   if (!el) {
@@ -48,7 +51,7 @@ function applyFontSize(doc: Document | null | undefined, st: ViewerStyle): void 
     el.id = FONT_STYLE_ID
     doc.head.appendChild(el)
   }
-  el.textContent = fontCss(st)
+  el.textContent = fontCss(st, inset)
 }
 
 /** 챕터 연타 이동 방지용 잠금 — 휠 핸들러 여러 개(iframe 문서 + 호스트)가 공유한다. */
@@ -158,7 +161,7 @@ export function EpubView({
     // 스크롤 모드면 휠을 바깥 스크롤 컨테이너로 넘겨준다(바로 아래 주석).
     rendition.hooks.content.register((contents: { document: Document }) => {
       const doc = contents.document
-      applyFontSize(doc, styleRef.current)
+      applyFontSize(doc, styleRef.current, mode === 'scroll')
       if (mode !== 'scroll') return
 
       doc.addEventListener('wheel', makeWheelHandler(host, rendition, lock), { passive: false })
@@ -229,7 +232,7 @@ export function EpubView({
   useEffect(() => {
     // 타입 정의는 Contents 하나를 반환한다고 돼 있지만 실제 구현은 배열을 준다.
     const contents = renditionRef.current?.getContents() as unknown as { document: Document }[] | undefined
-    for (const c of contents ?? []) applyFontSize(c?.document, style)
+    for (const c of contents ?? []) applyFontSize(c?.document, style, mode === 'scroll')
   }, [style, mode])
 
   useEffect(() => {
@@ -253,7 +256,9 @@ export function EpubView({
     const apply = (): void => {
       if (!readyRef.current) return
       try {
-        renditionRef.current?.resize(Math.max(1, host.clientWidth - style.margin * 2), host.clientHeight)
+        // 스크롤 모드는 iframe 이 창 폭을 그대로 쓴다(여백은 iframe 안쪽 padding).
+        const w = mode === 'scroll' ? host.clientWidth : host.clientWidth - style.margin * 2
+        renditionRef.current?.resize(Math.max(1, w), host.clientHeight)
       } catch {
         // 재배치 실패는 치명적이지 않다(다음 페이지 이동 때 어차피 다시 잡힌다).
       }
@@ -271,13 +276,16 @@ export function EpubView({
   return (
     <>
       {error && <p className="hint">epub을 열지 못했습니다: {error}</p>}
-      {/* 여백은 iframe 바깥(호스트)의 padding 으로 준다 — epubjs 가 iframe 을 호스트 크기에
-          맞추므로 그만큼 본문 폭이 줄어 줄바꿈이 여백 기준으로 다시 잡힌다.
-          **주의**: 스크롤바를 창 오른쪽 끝에 붙이려고 여백을 스크롤러(.epub-container)나
-          안쪽 뷰(.epub-view)로 옮겨봤지만 셋 다 epubjs 가 resize 로 잡는 폭과 어긋나 조판이
-          깨졌다(실측: 스크롤러 padding → iframe 12096px·내부 넘침 11309px, 뷰 margin →
-          iframe 폭 68px). 스크롤바가 여백만큼 안쪽에 그려지는 건 그래서 남겨둔 상태다. */}
-      <div className="epub-host" ref={hostRef} style={{ paddingLeft: style.margin, paddingRight: style.margin }} />
+      {/* 페이지 모드의 여백은 iframe 바깥(호스트)의 padding 으로 준다 — epubjs 가 iframe 을
+          호스트 크기에 맞추므로 그만큼 본문 폭이 줄어 줄바꿈이 여백 기준으로 다시 잡힌다.
+          스크롤 모드는 반대로 여백을 iframe 안쪽(body padding, fontCss)으로 넣는다: 여백을
+          바깥에 두면 iframe 이 그만큼 좁아지고 스크롤바도 같이 안쪽으로 밀려 들어와, 창
+          오른쪽 끝에 붙지 않는다(사용자 요청). 조판 폭은 어느 쪽이든 resize() 로 맞춘다. */}
+      <div
+        className="epub-host"
+        ref={hostRef}
+        style={mode === 'scroll' ? undefined : { paddingLeft: style.margin, paddingRight: style.margin }}
+      />
     </>
   )
 }
