@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LlmProvider } from '@shared/types'
-import { Pencil, Trash2, Settings, FolderOpen, BookOpen, HelpCircle, ArrowLeft, Sun, Moon, ScrollText, Copy, List } from 'lucide-react'
+import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, Sun, Moon, ScrollText, Copy, List } from 'lucide-react'
 
 // 담당 B — UI 아이콘 세트 (이모지 대체용, 인라인 SVG)
 // 액션 아이콘은 currentColor 라인 스타일(Feather 계열)로 통일해 텍스트 색을 따라간다.
@@ -60,9 +60,10 @@ export function GearIcon({ size = 16 }: { size?: number }) {
   return <Settings size={size} strokeWidth={2} aria-hidden="true" />
 }
 
-// 메인 화면 버튼용 — 창 선택(폴더)/자체 문서 뷰어(책)/사용 설명서(물음표).
+// 메인 화면 버튼용 — 창 선택(겹친 사각형, 사용자 제공 아이콘 참고)/자체 문서 뷰어(책)/
+// 사용 설명서(물음표). Copy 아이콘은 뷰어 툴바 PageIcon 과 같은 lucide 아이콘을 공유한다.
 export function FolderIcon({ size = 20 }: { size?: number }) {
-  return <FolderOpen size={size} strokeWidth={2} aria-hidden="true" />
+  return <Copy size={size} strokeWidth={2} aria-hidden="true" />
 }
 
 export function BookIcon({ size = 20 }: { size?: number }) {

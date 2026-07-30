@@ -87,6 +87,10 @@ button:disabled { cursor: not-allowed; }
 .main-screen .action.primary { color: var(--theme-text); background: var(--theme); }
 .main-screen .action.secondary { color: var(--theme); background: transparent; }
 .main-screen .action.secondary:hover { background: var(--theme-weak); }
+/* 책 아이콘(BookIcon)이 옆 텍스트보다 살짝 위에 붙어 보인다는 피드백(2026-07-31)으로
+   미세 보정 — manual-link 의 물음표 아이콘과 같은 이유(align-items: center 만으론 아이콘
+   자체의 시각적 무게중심과 텍스트 베이스라인이 안 맞음). */
+.main-screen .action.secondary svg { position: relative; top: 2px; }
 .main-screen .action:disabled { opacity: 0.5; cursor: default; }
 
 .main-screen .hint { color: #94a3b8; margin: 20px 0 0; }
@@ -97,6 +101,10 @@ button:disabled { cursor: not-allowed; }
   font: inherit; font-size: 15px; color: var(--theme);
 }
 .main-screen .manual-link:hover { text-decoration: underline; }
+/* 물음표 아이콘이 옆 텍스트보다 살짝 위에 붙어 보인다는 피드백(2026-07-31)으로 미세
+   보정 — align-items: center 만으로는 아이콘 자체의 시각적 무게중심과 텍스트 베이스라인이
+   완전히 안 맞아서 1px 정도 위로 떠 보였다. */
+.main-screen .manual-link svg { position: relative; top: 1px; }
 
 .overlay-root {
   position: fixed; inset: 0; width: 100vw; height: 100vh;
