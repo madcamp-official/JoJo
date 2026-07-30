@@ -16,3 +16,9 @@ bash scripts/fetch-oewn.sh      # OEWN (Open English WordNet)
 bash scripts/fetch-jmdict.sh    # JMdict
 bash scripts/fetch-cedict.sh    # CC-CEDICT
 ```
+
+## 폰트
+
+한중일영 통일 폰트(Noto Sans KR/JP/SC/TC, `src/renderer/src/assets/fonts/`, 총 ~50MB)도
+같은 이유로 커밋하지 않는다 — `ensure-resources.sh`가 자동으로 받아오며, 수동으로 다시
+받고 싶을 때는 `bash scripts/fetch-fonts.sh`.

@@ -42,6 +42,10 @@ python/__pycache__/
 # "사전 데이터 준비" 참고).
 resources/
 
+# 한중일영 통일 폰트(Noto Sans KR/JP/SC/TC 가변 폰트, 총 ~50MB) — 위 resources/ 와 같은
+# 이유로 커밋하지 않고 scripts/fetch-fonts.sh 로 재생성한다(ensure-resources.sh 가 자동 호출).
+src/renderer/src/assets/fonts/
+
 # 실험용 브랜치(experiment/ndlocr-lite) — NDLOCR-Lite 격리 venv(공용 venv와 numpy/
 # opencv/onnxruntime 버전 충돌 있음, ocrNdlocr.ts 상단 주석 참고). 위와 같은 이유로
 # 커밋하지 않는다.

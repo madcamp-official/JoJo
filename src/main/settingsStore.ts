@@ -50,6 +50,12 @@ export function getSettings(): AppSettings {
   return cached ?? loadSettings()
 }
 
+/** 설정 화면의 "기본값으로 초기화" 버튼용 — 단축키/문맥 범위 등 섹션별로 이 값들로
+ *  되돌린다. 사본을 반환해 호출부가 실수로 DEFAULT_SETTINGS 원본을 변형하지 못하게 한다. */
+export function getDefaultSettings(): AppSettings {
+  return { ...DEFAULT_SETTINGS }
+}
+
 export function setSettings(patch: Partial<AppSettings>): AppSettings {
   const next = { ...getSettings(), ...patch }
   cached = next

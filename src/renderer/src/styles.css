@@ -1,3 +1,38 @@
+/* 한중일영 통일 폰트(2026-07-30, 사용자 요청) — Windows/macOS가 각자 다른 시스템 고딕
+   (San Francisco / Segoe UI, 일본어는 Meiryo·유고딕/히라기노, 중국어는 야헤이·젠헤이/
+   핑팡)을 쓰던 걸 그만두고, 앱이 직접 들고 다니는 Noto Sans 패밀리로 OS 상관없이 항상
+   같은 자형이 그려지게 한다. 파일은 src/renderer/src/assets/fonts/(gitignore 처리, 커밋
+   안 함) — 없으면 scripts/fetch-fonts.sh 가 npm run dev/build 전에 자동으로 받아온다
+   (scripts/ensure-resources.sh 참고). 가변 폰트(wght 100~900 한 파일)라 400/500/600/700
+   등 이 앱이 실제 쓰는 굵기를 전부 이 파일 하나로 커버한다.
+   tier2 언어(아랍어·러시아어·태국어 등, LINK_LANGUAGES)는 여기 포함하지 않는다 — Noto Sans
+   KR/JP/SC/TC에 해당 문자 글리프가 없으니 자동으로 아래 시스템 폰트 폴백으로 넘어가
+   지금처럼 OS가 알아서 맞는 폰트를 골라준다(요청 범위 밖, 사용자 확인됨). */
+@font-face {
+  font-family: 'Noto Sans KR';
+  font-weight: 100 900;
+  font-style: normal;
+  src: url('./assets/fonts/NotoSansKR-Variable.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-weight: 100 900;
+  font-style: normal;
+  src: url('./assets/fonts/NotoSansJP-Variable.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Noto Sans SC';
+  font-weight: 100 900;
+  font-style: normal;
+  src: url('./assets/fonts/NotoSansSC-Variable.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Noto Sans TC';
+  font-weight: 100 900;
+  font-style: normal;
+  src: url('./assets/fonts/NotoSansTC-Variable.ttf') format('truetype');
+}
+
 :root {
   /* 앱 전체 테마 색 — 버튼/강조색 등 일반 UI 액센트. 여기 값만 바꾸면 한 번에 전체 반영됨. */
   --theme: #7c3aed;
@@ -8,7 +43,10 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+/* 'Noto Sans KR'이 한글뿐 아니라 라틴 문자(영문/숫자)도 Noto 계열 공통 디자인으로
+   포함하고 있어, 한국어(UI 전체)와 영어(tier1 팝업 본문)를 이 폰트 하나로 같이
+   커버한다 — 별도로 영문 전용 Noto 폰트를 더 받을 필요가 없다. */
+body { margin: 0; font-family: 'Noto Sans KR', system-ui, -apple-system, 'Segoe UI', sans-serif; }
 
 /* 클릭 가능한 요소 위에서 커서 모양 변경(전역) — 개별 지정 누락분까지 커버.
    텍스트 입력(input[type=text]/textarea)은 제외되어 기존 텍스트 커서 유지. */
@@ -204,6 +242,16 @@ button:disabled { cursor: not-allowed; }
 }
 .settings-section h2 { font-size: 15px; margin: 0 0 2px; }
 .settings-section .desc { font-size: 12px; color: #8b93a1; margin: 0 0 14px; text-align: justify; }
+/* 섹션 제목 옆 "기본값으로 초기화" 버튼(단축키/문맥 범위 섹션, 2026-07-30) — h2 자체 마진은
+   그대로 두고 이 줄에서만 좌우 정렬한다. */
+.settings-section .section-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.settings-section .section-header h2 { margin: 0; }
+.reset-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 12px; color: #8b93a1; padding: 0; flex-shrink: 0;
+}
+.reset-btn:hover:not(:disabled) { color: var(--theme); }
+.reset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .provider-cards { display: flex; gap: 12px; }
 .provider-card {
@@ -297,10 +345,9 @@ button:disabled { cursor: not-allowed; }
 
 .byte-preview-legend { display: flex; gap: 16px; align-items: center; font-size: 11px; color: #6b7280; margin: 14px 0 8px; }
 .byte-preview-legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
-.swatch.excluded { background: #e5e7eb; }
 .swatch.selected { background: var(--theme); }
-.swatch.range { background: var(--theme-weak); border: 1px solid var(--theme); }
-.swatch.extend { background: color-mix(in srgb, #2f6bff 20%, white); border: 1px solid #2f6bff; }
+.swatch.range { background: var(--theme-weak); }
+.swatch.extend { background: color-mix(in srgb, #2f6bff 20%, white); }
 .byte-preview {
   position: relative; /* selected-span offsetTop 기준(스크롤 자동 이동) */
   border: 1px solid #e6e8ec; border-radius: 8px; padding: 14px 16px; font-size: 13px;
@@ -394,22 +441,10 @@ button:disabled { cursor: not-allowed; }
      ContextView.tsx 가 dir="rtl" 을 붙임, PopupScreen.tsx isRtlLanguage)도 우측정렬이
      아니라 양쪽정렬로 보이고, dir="rtl" 만으로 문단의 시작(=오른쪽)에 텍스트가 붙어
      자연스러운 방향으로 읽힌다(2026-07-30 사용자 요청) — 별도 규칙 불필요. */
-  /* 언어 불문 통일값(2026-07-30, 사용자 요청) — 예전엔 en 만 1.7/자간 없음, ja/zh 만
-     2/0.05em 이라 같은 팝업 안에서도 언어에 따라 줄 간격이 들쭉날쭉해 보였다. CJK 쪽
-     값(글자가 빽빽해 보이지 않게 조정됐던 값)을 그대로 기준으로 모든 언어에 적용해
-     통일감을 준다 — 라틴 문자에 0.05em 자간은 다소 넓어 보일 수 있지만, 좁아서
-     빽빽해 보이는 것보다 안전한 방향이라 이쪽으로 통일했다.
-     폰트는 언어별로 통일하지 않음(요청 범위 밖) — body 의 system-ui/-apple-system/
-     Segoe UI 스택이 Win/Mac 둘 다에서 이미 깔끔한 고딕(산세리프) 계열이고, tier2
-     55개 언어(아랍어·태국어·데바나가리 등)는 OS가 스크립트별로 알아서 적절한 기본
-     폰트로 자동 대체해준다(Windows: Segoe UI가 못 그리는 글자는 Nirmala UI/Leelawadee
-     UI 등으로, macOS는 Geeza Pro/Kohinoor 등으로 자동 폴백) — 이 자동 대체가 이미
-     충분히 깔끔해서 손대지 않았다. CJK(ja/zh)만 폰트를 명시하는 이유는 위 .lang-ja
-     주석 참고 — Chromium 이 한 문단 안에서 문자마다 다른 폴백 폰트를 섞어 쓰는 특유의
-     문제라 다른 스크립트엔 해당 없음. 모든 언어를 커버하는 폰트 하나로 번들링하는
-     방안(예: Noto Sans 전체)도 검토했으나, 이미 잘 동작하는 OS 기본 폴백을 대체하려고
-     수십 MB 폰트를 앱에 포함시킬 실익이 없어 보류. */
-  line-height: 2; letter-spacing: 0.05em;
+  /* line-height/letter-spacing은 예전엔 OS 기본 폴백 폰트(특히 Windows Yu Gothic UI)의
+     빽빽함을 보정하려고 넉넉하게(2 / 0.05em) 강제했었다 — Noto Sans를 직접 번들링하는
+     지금은 그 폰트 자체가 이미 자기 지표에 맞는 여백을 갖고 있어 더 이상 보정이 필요
+     없다(2026-07-30, 사용자 요청으로 Noto 기본값에 맡기도록 되돌림). */
   white-space: pre-line; text-align: justify;
   cursor: text; color: #4b5563;
   /* 좌우·하단 여백을 .context 가 아니라 여기서 갖는다 — 그래야 이 여백도 ctx-text
@@ -418,35 +453,24 @@ button:disabled { cursor: not-allowed; }
      자연히 적용된다(단어 사이에서만 I자 커서가 보이던 문제 해결). */
   padding: 0 12px 12px;
 }
-/* 일본어 팝업 본문 전용 폰트 — 기본 font-family(system-ui 등)로는 Chromium 이 글자마다
-   커버하는 폰트가 다른 CJK 문자를 서로 다른 폴백 폰트로 그려서 글자체가 들쭉날쭉해
-   보였다(실사용 중 확인, Windows 에서 재현). Windows(메이리오/유고딕)·macOS(히라기노
-   각고딕) 각 OS 기본 탑재 일본어 폰트를 앞세워 전체 문단이 하나의 일관된 서체로
-   그려지게 한다 — 각 폰트 이름은 그 폰트가 없는 OS에서는 자동으로 다음 폴백으로
-   넘어가므로(Windows 이름은 macOS에 없고, 히라기노는 Windows에 없음), 플랫폼 분기
-   없이 이 font-family 목록 하나로 "OS별로 알맞은 폰트 적용"이 자연히 성립한다.
-   Windows 는 Meiryo 를 Yu Gothic 보다 앞에 둔다 — Yu Gothic(UI)은 글자 사이 간격이
-   빡빡해서 실사용 중 "너무 몰려 보인다"는 피드백이 있었고, Meiryo 는 자간이 더 여유
-   있어 본문 가독성이 낫다. 다만 Meiryo 는 Windows 에 기본 포함이긴 해도 모든 설치에
-   있는 건 아니다(실측 확인: 이 개발 기기엔 Meiryo 가 설치돼 있지 않아 자동으로 Yu
-   Gothic UI 로 떨어짐 — 다른 사용자 기기엔 있을 수 있어 폴백 우선순위는 그대로 둔다).
-   그래서 폰트 자체의 여유만 믿지 않고 letter-spacing/line-height 를 넉넉하게 더해서
-   Meiryo 가 없는 기기(Yu Gothic 계열로 떨어지는 경우)에서도 "몰려 보인다"는 느낌이
-   확실히 나아지게 한다. macOS 는 10.11(El Capitan) 이후 시스템 일본어 폰트가 히라기노
-   산스(Hiragino Sans, 그 이전 이름은 Hiragino Kaku Gothic ProN)로 바뀌었는데, 예전
-   macOS 를 위해 구 이름도 폴백으로 남겨둔다. .lang-ja 는 PopupScreen.tsx 가
-   language === 'ja' 일 때만 붙인다(다른 언어 팝업은 기본 폰트 그대로). letter-spacing/
-   line-height 는 이제 위 .ctx-text 기본값으로 통일돼 있어 여기선 폰트만 바꾼다. */
-.ctx-text.lang-ja {
-  font-family: Meiryo, 'Yu Gothic UI', 'Yu Gothic', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+/* 일본어/중국어 팝업 본문 폰트 — 위 body 기본값(Noto Sans KR)엔 가나/한자 글리프가
+   없어서(정확히는 KR 서브셋엔 CJK 확장 한자가 없음) 그대로 두면 다시 OS 폴백으로
+   넘어가 버린다. 언어별 전용 Noto Sans(JP/SC/TC)로 명시해서 항상 앱이 번들링한
+   폰트로 그려지게 한다(2026-07-30). 중국어는 간체(zh-Hans)/번체(zh-Hant)가 같은
+   유니코드 코드포인트라도 자형이 다르게 그려져야 해서(한자통합) 클래스와 폰트를
+   둘로 나눈다 — PopupScreen.tsx의 langFontClassName()이 baseCtx.language에 따라
+   lang-ja/lang-zh-hans/lang-zh-hant 중 하나를 붙인다. **채팅(.chat)도 원문 문맥
+   (.ctx-text)과 같은 클래스를 공유한다(2026-07-30 추가)** — 처음엔 .ctx-text에만
+   적용했다가, LLM 응답 안 일본어/중국어 단어가 OS 시스템 폰트로 떨어져 같은 팝업 안에서
+   원문과 자형이 달라 보인다는 사용자 지적으로 채팅에도 확장. */
+.ctx-text.lang-ja, .chat.lang-ja {
+  font-family: 'Noto Sans JP', sans-serif;
 }
-/* 중국어(zh-Hans/zh-Hant, PopupScreen.tsx)도 위 .lang-ja 와 똑같은 근거로 폰트를 지정한다
-   — system-ui 기본 폴백만 쓰면 OS·문자마다 커버하는 폰트가 갈려 글자체가 들쭉날쭉해진다.
-   macOS 간체/번체(핑팡)·Windows 간체/번체(마이크로소프트 야헤이/젠헤이)를 모두 나열해
-   어느 스크립트로 조회하든(간체/번체 구분 없이 이 클래스 하나를 공유) 그 OS에서 실제로
-   설치돼 있는 것으로 자연히 떨어지게 한다. */
-.ctx-text.lang-zh {
-  font-family: 'PingFang SC', 'PingFang TC', 'Microsoft YaHei', 'Microsoft JhengHei', 'Heiti SC', 'Heiti TC', sans-serif;
+.ctx-text.lang-zh-hans, .chat.lang-zh-hans {
+  font-family: 'Noto Sans SC', sans-serif;
+}
+.ctx-text.lang-zh-hant, .chat.lang-zh-hant {
+  font-family: 'Noto Sans TC', sans-serif;
 }
 /* .ctx-text 어디에도 user-select: none 을 두지 않는다 — Chromium 은 user-select: none
    인 요소의 텍스트를 프로그램상 선택(Selection.addRange, ContextView.tsx
@@ -463,16 +487,12 @@ button:disabled { cursor: not-allowed; }
    0으로 없앴는데, 단어 단위에 남은 padding과 비교되면서 전환 시 차이가 여전히 보였음).
    양쪽 모드 모두 padding 을 없애 원문과 자간이 완전히 같게 통일한다. */
 .ctx-text .atom { border-radius: 4px; padding: 0; cursor: pointer; }
-/* hover(연보라 예고)와 .sel(선택 결과, 아래) 박스 크기를 통일한다(2026-07-29 사용자
-   요청) — 예전엔 hover 는 그냥 background 만 칠해서 글자 자체의 폭(padding:0)만큼만
-   차지했는데, .sel 은 box-shadow 로 상하좌우를 1.5px 씩 넓혀서 서로 크기가 달라
-   보였다. hover 도 같은 box-shadow 오프셋 기법(색만 연보라)으로 동일하게 확장한다 —
-   레이아웃에 관여하지 않는 box-shadow 라 자간에 영향 없음(.sel 과 같은 이유). */
+/* hover(연보라 예고)/.sel(선택 결과, 아래) 모두 box-shadow 확장을 없애고 background만
+   남긴다(2026-07-30 사용자 요청) — 위 .atom의 padding:0 박스 그대로, 글자 자체를
+   간신히 감싸기만 하고 주변으로 안 퍼지게 한다(예전엔 box-shadow로 상하좌우를 살짝
+   넓혀 "패딩처럼" 보이게 했었으나 그 여백 자체를 없애 달라는 요청). */
 .ctx-text .atom:hover {
   background: var(--theme-weak);
-  box-shadow:
-    0 -1.5px 0 0 var(--theme-weak), 0 1.5px 0 0 var(--theme-weak),
-    -1.5px 0 0 0 var(--theme-weak), 1.5px 0 0 0 var(--theme-weak);
 }
 /* ja/zh "글자 단위" 모드(2026-07-28)는 글자 하나하나가 다 atom 이라 "단어를 고른다"는
    감각이 아니라 그냥 텍스트를 드래그하는 감각에 가깝다 — hover 마다 연보라 배경이 반짝이고
@@ -507,25 +527,22 @@ button:disabled { cursor: not-allowed; }
    이었으므로, 레이어 하나만 쓰면 서브픽셀 어긋남 없이 깔끔하면서 레이아웃도 그대로다
    (1x/2x/3x 배율 모두 헤드리스 크롬으로 재확인). 위/아래는 모든 선택 세그먼트 공통,
    좌/우 + 둥근 모서리는 선택 범위의 맨 처음(`.sel-start`)·맨 끝(`.sel-end`) 세그먼트에만
-   둬서 중간은 이어지게 한다(ContextView.tsx 가 렌더링 시 계산). */
+   둬서 중간은 이어지게 한다(ContextView.tsx 가 렌더링 시 계산).
+   **2026-07-30 정정**: 위 box-shadow 확장(상하좌우로 살짝 넓혀 "패딩처럼" 보이게 하던
+   것) 자체를 없애 달라는 사용자 요청 — hover와 마찬가지로 background(+시작/끝 모서리만
+   border-radius)만 남기고, .atom의 padding:0 박스 그대로 글자를 간신히 감싸도록 되돌림. */
 .ctx-text .atom.sel, .ctx-text .gap.sel {
   background: var(--theme);
   color: var(--theme-text);
-  box-shadow: 0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple);
   border-radius: 0;
 }
 .ctx-text .sel.sel-start {
-  box-shadow: 0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple), -1.5px 0 0 0 var(--purple);
   border-radius: 4px 0 0 4px;
 }
 .ctx-text .sel.sel-end {
-  box-shadow: 0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
   border-radius: 0 4px 4px 0;
 }
 .ctx-text .sel.sel-start.sel-end {
-  box-shadow:
-    0 -1.5px 0 0 var(--purple), 0 1.5px 0 0 var(--purple),
-    -1.5px 0 0 0 var(--purple), 1.5px 0 0 0 var(--purple);
   border-radius: 4px;
 }
 /* 툴바 */
@@ -688,7 +705,7 @@ button:disabled { cursor: not-allowed; }
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 26px; background: none; border: none; cursor: pointer; color: #6b7280;
 }
-.edg-btn:hover:not(:disabled) { background: #f4f6fa; color: #1e2230; }
+.edg-btn:hover:not(:disabled) { background: var(--theme-weak); color: var(--theme); }
 .edg-btn.danger:hover:not(:disabled) { background: #fdf1f1; color: #dc2626; }
 .edg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .edg-divider { width: 1px; background: #dbe0e6; }

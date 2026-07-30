@@ -27,6 +27,14 @@ if [ ! -s resources/jmdict/words.json ] || [ ! -s resources/jmdict/index.json ] 
   need_fetch=1
 fi
 
+FONT_DIR="src/renderer/src/assets/fonts"
+if [ ! -s "$FONT_DIR/NotoSansKR-Variable.ttf" ] || [ ! -s "$FONT_DIR/NotoSansJP-Variable.ttf" ] ||
+   [ ! -s "$FONT_DIR/NotoSansSC-Variable.ttf" ] || [ ! -s "$FONT_DIR/NotoSansTC-Variable.ttf" ]; then
+  echo "$FONT_DIR/*.ttf 없음 — 한중일영 통일 폰트(Noto Sans) 다운로드"
+  bash scripts/fetch-fonts.sh
+  need_fetch=1
+fi
+
 if [ "$need_fetch" -eq 0 ]; then
   echo "resources/ 이미 준비됨 — 건너뜀"
 fi

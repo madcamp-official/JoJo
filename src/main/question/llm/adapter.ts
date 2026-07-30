@@ -148,6 +148,11 @@ export async function streamLlm(
   } catch (err) {
     // API 키 무효, 사용 한도(크레딧) 소진, 요청 과다, 네트워크 오류 등을 UI가 구분할 수 있는
     // QuestionErrorCode 로 분류해 반환한다. 예외를 그대로 흘려보내 IPC 를 실패시키지 않는다.
+    // classifyLlmError가 'unknown'(원인불명)으로 분류하는 에러는 UI엔 뭉뚱그려 보여도
+    // 콘솔엔 실제 원인을 남겨야 진단이 가능하다(2026-07-30, 실제로 이 로그가 없어서
+    // Claude의 "temperature is deprecated for this model" 400 에러가 크레딧 문제처럼
+    // 보였던 적이 있었음 — claude.ts 참고). 상시 유지.
+    console.error(`[llm] streamLlm(${kind}) 호출 실패:`, err)
     const result = buildErrorResult(kind, classifyLlmError(err), provider)
     onChunk(result)
     return result

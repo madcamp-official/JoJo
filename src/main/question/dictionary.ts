@@ -398,6 +398,10 @@ async function judgeAndFormat(args: JudgeAndFormatArgs): Promise<JudgeAndFormatR
       () => {},
     )
   } catch (err) {
+    // classifyLlmError가 'unknown'(원인불명)으로 분류하는 에러는 UI엔 뭉뚱그려 보여도
+    // 콘솔엔 실제 원인을 남겨야 진단이 가능하다(2026-07-30, llm/adapter.ts streamLlm과
+    // 동일 근거 — Claude "temperature is deprecated" 400 에러가 이 로그 덕에 잡혔음).
+    console.error('[dictionary] judgeAndFormat LLM 호출 실패:', err)
     return { ok: false, error: err }
   }
 

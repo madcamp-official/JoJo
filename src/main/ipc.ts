@@ -47,7 +47,7 @@ import {
   updateModeShortcut,
   updateNamedShortcut,
 } from './selection/shortcut'
-import { getSettings, setSettings } from './settingsStore'
+import { getDefaultSettings, getSettings, setSettings } from './settingsStore'
 import { getFrequent, setFrequent } from './frequentStore'
 import { deleteApiKey, getApiKey, setApiKey } from './keyStore'
 import { setActiveProvider } from './question/llm/adapter'
@@ -158,6 +158,10 @@ export function registerIpc(): void {
   // 담당 B: 설정 조회/변경
   ipcMain.handle(IPC.SETTINGS_GET, async (): Promise<AppSettings> => {
     return getSettings()
+  })
+
+  ipcMain.handle(IPC.SETTINGS_GET_DEFAULTS, async (): Promise<AppSettings> => {
+    return getDefaultSettings()
   })
 
   ipcMain.handle(IPC.SETTINGS_SET, async (_e, patch: Partial<AppSettings>): Promise<AppSettings> => {

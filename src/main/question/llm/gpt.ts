@@ -31,8 +31,9 @@ export function createGptClient(config: LlmConfig): LlmClient {
       let res = await requestChatCompletion(true)
       if (!res.ok && res.status === 400) {
         const detail = await res.clone().text()
-        // 실측 확인(2026-07-28, "gpt-5.6-sol"): 추론형(reasoning) 모델은 temperature 를
-        // 기본값(1) 외로 못 받는다 — "Unsupported value: 'temperature' does not support
+        // 실측 확인(2026-07-28 "gpt-5.6-sol", 2026-07-30 재확인 — terra/luna도 동일):
+        // 추론형(sol)뿐 아니라 지금은 GPT 5.6 세대 전체(terra/luna 포함)가 temperature
+        // 기본값(1) 외를 거부한다 — "Unsupported value: 'temperature' does not support
         // 0.2 with this model." 이 경우에만 temperature 없이 한 번 더 시도한다.
         if (detail.includes('temperature') && detail.includes('unsupported_value')) {
           res = await requestChatCompletion(false)

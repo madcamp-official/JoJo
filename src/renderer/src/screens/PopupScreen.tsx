@@ -12,6 +12,7 @@ import type {
 import { sentenceEnd, skipPartialSentenceForward } from '@shared/context'
 import { DICTIONARY_QUESTION, PRONUNCIATION_QUESTION } from '@shared/questionText'
 import { getLanguageName, hasNaverDict, isFullLanguage, isRtlLanguage } from '@shared/languages'
+import { DEFAULT_MODELS } from '@shared/providers'
 import { ContextView } from './popup/ContextView'
 import { Toolbar } from './popup/Toolbar'
 import { Chat } from './popup/Chat'
@@ -98,6 +99,30 @@ function emptyExtraction(): ExtractedSelection {
 
 export function PopupScreen() {
   const [baseCtx, setBaseCtx] = useState<ExtractedSelection>(emptyExtraction)
+
+  // 헤더에 "영어(자동 판별)"/"영어(사용자 지정)"처럼 언어가 어떻게 정해졌는지 보여주기 위한
+  // 값 — 언어 판별 자체(OCR/자막/웹 5개 지점, `getLanguageOverride() ?? detect...()` 패턴)에
+  // source 필드를 추가로 꿰는 대신, 이 설정이 전역이라 "지금 설정값이 auto가 아니면 이 팝업의
+  // language도 그걸로 정해졌다"고 봐도 안전하다는 점을 이용해 팝업이 뜰 때 설정을 한 번만
+  // 조회한다(2026-07-30, 사용자 요청 — 자동판별인지 수동 지정인지 분간이 안 간다는 피드백).
+  const [languageOverridden, setLanguageOverridden] = useState(false)
+  // 툴바 "AI" 배지 옆에 지금 실제로 호출되는 모델을 보여주기 위한 값(2026-07-30, 사용자
+  // 요청) — llm/adapter.ts의 `settings.models[provider] || DEFAULT_MODELS[provider]`와
+  // 동일한 계산을 그대로 재사용해, 사용자가 모델을 직접 고르지 않았을 때도(기본값 적용)
+  // 실제 호출되는 모델명이 어긋나지 않게 한다. provider 를 아직 안 골랐으면(llm === null)
+  // null — Toolbar 가 이 경우 "AI"만 보여주고 괄호를 생략한다.
+  const [currentModel, setCurrentModel] = useState<string | null>(null)
+  useEffect(() => {
+    let active = true
+    window.nuance.getSettings().then((s) => {
+      if (!active) return
+      setLanguageOverridden(s.language !== 'auto')
+      setCurrentModel(s.llm ? s.models[s.llm] || DEFAULT_MODELS[s.llm] : null)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   // main 에서 실제 컨텍스트를 받으면 교체(초기 조회 + 창 재사용 시 갱신 통지). 초기 조회가
   // null 이어도 demo 쿼리가 없으면(=실사용) 목업으로 fallback 하지 않는다 — demo 쿼리가
@@ -486,7 +511,7 @@ export function PopupScreen() {
     <div className="screen popup-screen">
       <header className="popup-header">
         <span className="src">
-          {sourceLabel(baseCtx)} · {getLanguageName(baseCtx.language)}
+          {sourceLabel(baseCtx)} · {getLanguageName(baseCtx.language)}({languageSourceLabel(languageOverridden)})
         </span>
         <span className="esc-hint">ESC</span>
         <button className="icon-btn close" title="닫기" onClick={() => window.close()}>
@@ -519,13 +544,7 @@ export function PopupScreen() {
             onChange={(from, to) => updateRange(from, to)}
             charLevel={charLevel}
             dir={isRtlLanguage(baseCtx.language) ? 'rtl' : 'ltr'}
-            className={
-              baseCtx.language === 'ja'
-                ? 'lang-ja'
-                : baseCtx.language === 'zh-Hans' || baseCtx.language === 'zh-Hant'
-                  ? 'lang-zh'
-                  : undefined
-            }
+            className={langFontClassName(baseCtx.language)}
           />
         </section>
 
@@ -535,6 +554,7 @@ export function PopupScreen() {
           onGoogle={google}
           onNaverDict={naverDict}
           disabled={busy}
+          currentModel={currentModel}
           showNaverDict={hasNaverDict(baseCtx.language)}
           showAiDictionary={isFullLanguage(baseCtx.language)}
           dictSources={dictSources}
@@ -544,7 +564,7 @@ export function PopupScreen() {
           onToggleForceSource={setForceSource}
         />
 
-        <Chat messages={messages} onSend={ask} busy={busy} />
+        <Chat messages={messages} onSend={ask} busy={busy} className={langFontClassName(baseCtx.language)} />
 
         <FrequentQuestions items={frequent} onAsk={ask} onChange={updateFrequent} disabled={busy} />
       </div>
@@ -577,10 +597,31 @@ function sourceLabel(ex: ExtractedSelection): string {
   return raw.length > SOURCE_LABEL_MAX_LENGTH ? `${raw.slice(0, SOURCE_LABEL_MAX_LENGTH)}...` : raw
 }
 
+function languageSourceLabel(isManual: boolean): string {
+  return isManual ? '사용자 지정' : '자동 판별'
+}
+
 // ja/zh-Hans/zh-Hant만 "글자 단위" 토글이 있다 — 형태소 분석(jaResult/zhWords)으로 만든
 // 단어 단위 atom이 있어야 그걸 글자 단위로 재분할하는 토글이 의미가 있다. 태국어/라오어
 // (공백 없는 tier2 언어)는 애초에 단어 단위 옵션 자체가 없어(형태소 분석기 미지원,
 // 2026-07-30 결정) 토글 없이 항상 글자 단위다 — buildSelectionModel/selection.ts 참고.
 function isCjkLikeLanguage(lang: ExtractedSelection['language']): boolean {
   return lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant'
+}
+
+// 일본어/중국어는 body 기본 폰트(Noto Sans KR)에 가나/한자 글리프가 없어 OS 시스템 폰트로
+// 폴백되는데, 원문 문맥(ContextView)만 이 클래스로 번들 Noto Sans JP/SC/TC를 명시하고
+// 채팅(LLM 응답)은 빠져 있어 같은 팝업 안에서 자형이 서로 달라 보이는 문제가 있었다
+// (2026-07-30 사용자 지적) — 채팅에도 같은 클래스를 적용해 통일한다.
+function langFontClassName(lang: ExtractedSelection['language']): string | undefined {
+  switch (lang) {
+    case 'ja':
+      return 'lang-ja'
+    case 'zh-Hans':
+      return 'lang-zh-hans'
+    case 'zh-Hant':
+      return 'lang-zh-hant'
+    default:
+      return undefined
+  }
 }
