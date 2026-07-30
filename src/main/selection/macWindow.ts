@@ -1,13 +1,18 @@
 import koffi from 'koffi'
+import { execFile } from 'node:child_process'
 
 // 담당 A(보완) — macOS 창 좌표/앞으로 올리기 (PLAN.md §4)
 //
-// Windows 의 win32Capture 에 대응하는 mac 경로. osascript(System Events 자동화)는
-// unsigned dev 앱에서 권한 프롬프트가 안 뜨고 조용히 거부되는 문제가 있어, 대신
-// CoreGraphics `CGWindowListCopyWindowInfo` 를 koffi 로 직접 호출한다:
+// Windows 의 win32Capture 에 대응하는 mac 경로. osascript로 **System Events 자동화**
+// (다른 앱 UI 를 클릭 등으로 조작)는 unsigned dev 앱에서 권한 프롬프트가 안 뜨고
+// 조용히 거부되는 문제가 있어(Accessibility 권한 필요), 대신 CoreGraphics
+// `CGWindowListCopyWindowInfo` 를 koffi 로 직접 호출한다:
 //  - 창 bounds: desktopCapturer 가 주는 window number 로 즉시 조회(추가 권한 프롬프트 없음.
 //    창 목록 표시에 이미 화면기록 권한을 받았고, 창 geometry 조회 자체는 권한이 필요 없다).
-//  - 앞으로 올리기: 창의 owner PID → NSRunningApplication(objc) activate.
+//  - 앞으로 올리기: 창의 owner PID → 번들 ID 조회 → `osascript`로 그 앱에 `activate`
+//    Apple Event 를 직접 보낸다(activateApp() 주석 참고 — 이건 System Events UI 조작과
+//    달리 권한 문제 없이 잘 된다. `NSRunningApplication.activateWithOptions:`가 최근
+//    macOS 에서 더 이상 안 먹혀서 이 방식으로 교체함, 2026-07-31).
 // 좌표는 CGWindow 전역 디스플레이 포인트(좌상단 원점) = Electron DIP 와 동일 좌표계.
 //
 // PID 만으로는 "어느 창"이 key window 가 될지 특정할 수 없는 경우(예: 크롬 개발자도구가
@@ -307,9 +312,11 @@ let objcReady = false
 let objcOk = false
 let msgSendPid: KFn | null = null
 let msgSendActivate: KFn | null = null
+let msgSendGetBundleId: KFn | null = null
 let clsNSRunningApplication: unknown = null
 let selRunningAppForPid: unknown = null
 let selActivate: unknown = null
+let selBundleIdentifier: unknown = null
 
 function ensureObjc(): boolean {
   if (objcReady) return objcOk
@@ -324,9 +331,11 @@ function ensureObjc(): boolean {
     // objc_msgSend 는 호출 시그니처별로 따로 바인딩한다(같은 심볼, 다른 프로토타입).
     msgSendPid = objc.func('objc_msgSend', 'void*', ['void*', 'void*', 'int'])
     msgSendActivate = objc.func('objc_msgSend', 'bool', ['void*', 'void*', 'unsigned long'])
+    msgSendGetBundleId = objc.func('objc_msgSend', 'void*', ['void*', 'void*'])
     clsNSRunningApplication = objc_getClass('NSRunningApplication')
     selRunningAppForPid = sel_registerName('runningApplicationWithProcessIdentifier:')
     selActivate = sel_registerName('activateWithOptions:')
+    selBundleIdentifier = sel_registerName('bundleIdentifier')
     objcOk = !!clsNSRunningApplication
   } catch {
     objcOk = false
@@ -337,12 +346,39 @@ function ensureObjc(): boolean {
 // NSApplicationActivateAllWindows(1) | NSApplicationActivateIgnoringOtherApps(2)
 const ACTIVATE_OPTIONS = 3
 
-/** owner PID 의 앱을 앞으로 올린다(그 앱의 창들이 함께 전면으로). 실패 시 false. */
+// 번들 ID 는 역DNS 형식(예: com.apple.Preview)만 나온다 — AppleScript 소스 문자열에
+// 그대로 끼워 넣기 전에 이 형식만 통과시켜 인젝션 여지를 없앤다.
+const BUNDLE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9.-]*$/
+
+/**
+ * owner PID 의 앱을 앞으로 올린다(그 앱의 창들이 함께 전면으로). 실패 시 false.
+ *
+ * **`NSRunningApplication.activateWithOptions:`는 더 이상 안 먹힌다**(2026-07-31 실측,
+ * 사용자 제보 — "선택한 창이 자동으로 맨 위로 안 올라온다"). 옵션 조합(0/1/2/3)을 전부
+ * 시도해봐도 반환값이 항상 false — 최근 macOS 가 백그라운드 프로세스의 임의 타 앱
+ * 활성화를 이 API 선에서 더 엄격히 막는 것으로 보인다(자기 자신을 활성화하는 것과
+ * 달리, 제3의 앱을 강제로 앞세우는 동작이라 더 제한되는 듯). 대신 그 앱에 `activate`
+ * Apple Event 를 직접 보내면(=AppleScript `tell application id "..." to activate`)
+ * 여전히 잘 된다(같은 환경에서 실측 확인) — `osascript` 를 자식 프로세스로 스폰해서
+ * 보낸다. 이 파일 맨 위 주석의 "osascript(System Events 자동화)는 권한이 조용히
+ * 거부된다"는 경고는 **System Events로 다른 앱 UI를 조작하는 것**(Accessibility 권한
+ * 필요) 얘기고, 여기서 쓰는 건 그거와 달리 대상 앱에 직접 보내는 단순 `activate`
+ * 커맨드라 같은 제약을 안 받는 것으로 보인다.
+ */
 function activateApp(pid: number): boolean {
   if (!ensureObjc()) return false
   try {
     const app = msgSendPid!(clsNSRunningApplication, selRunningAppForPid, pid)
     if (!app) return false
+    const bundleId = cfStringToJs(msgSendGetBundleId!(app, selBundleIdentifier))
+    if (bundleId && BUNDLE_ID_RE.test(bundleId)) {
+      // 결과를 기다리지 않는다 — 실패해도(예: 그 사이 앱이 종료됨) 무해하고, 호출부는
+      // 이미 이 함수가 true 를 반환한 뒤 다음 일을 진행하므로 막을 이유가 없다.
+      execFile('osascript', ['-e', `tell application id "${bundleId}" to activate`], () => {})
+      return true
+    }
+    // 번들 ID를 못 얻은 드문 경우에만 예전 방식으로 최후 폴백(위 주석 참고 — 대부분
+    // 실패하지만 아무것도 안 하는 것보단 낫다).
     msgSendActivate!(app, selActivate, ACTIVATE_OPTIONS)
     return true
   } catch {
