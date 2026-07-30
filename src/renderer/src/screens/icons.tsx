@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LlmProvider } from '@shared/types'
-import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, List, SlidersHorizontal, Copy } from 'lucide-react'
+import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, List, SlidersHorizontal, Copy, Minus, Plus } from 'lucide-react'
 
 // 담당 B — UI 아이콘 세트 (이모지 대체용, 인라인 SVG)
 // 액션 아이콘은 currentColor 라인 스타일(Feather 계열)로 통일해 텍스트 색을 따라간다.
@@ -87,6 +87,16 @@ export function ListIcon({ size = 18 }: { size?: number }) {
 // 뷰어 보기 설정(글자 크기·자간·줄 간격·여백·넘김 효과) 패널 열기.
 export function SlidersIcon({ size = 18 }: { size?: number }) {
   return <SlidersHorizontal size={size} strokeWidth={2} aria-hidden="true" />
+}
+
+// PDF 확대/축소 — 문자(−, ＋)는 폰트마다 세로 메트릭이 달라 버튼 안에서 위아래로
+// 어긋나 보인다(사용자 지적). 아이콘으로 두면 항상 정중앙에 온다.
+export function MinusIcon({ size = 14 }: { size?: number }) {
+  return <Minus size={size} strokeWidth={2.5} aria-hidden="true" />
+}
+
+export function PlusIcon({ size = 14 }: { size?: number }) {
+  return <Plus size={size} strokeWidth={2.5} aria-hidden="true" />
 }
 
 export function CheckIcon({ size = 14 }: { size?: number }) {

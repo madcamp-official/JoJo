@@ -8,6 +8,8 @@
 export interface PagerHandle {
   next(): void
   prev(): void
+  /** 번호로 바로 이동 — 쪽수를 아는 포맷(PDF)만 제공한다. */
+  goTo?(index: number): void
 }
 
 /** 화살표 버튼 활성/비활성과 "3 / 284" 표시에 쓰는 현재 상태. */

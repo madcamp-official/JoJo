@@ -788,17 +788,26 @@ button:disabled { cursor: not-allowed; }
 .edg-divider { width: 1px; background: #dbe0e6; }
 
 /* ── 자체 문서 뷰어(pdf/epub/txt) ─────────────────────────────────────────── */
-.viewer-screen { display: flex; flex-direction: column; }
+/* 100vw 는 세로 스크롤바 너비까지 포함한 값이라, 스크롤바가 생기면 내용이 그만큼 넓어져
+   **가짜 가로 스크롤바**가 창 아래에 깔린다(사용자 제보로 확인: scrollWidth 1008 vs
+   clientWidth 993 = 딱 스크롤바 15px 차이). 뷰어는 부모를 꽉 채우면 되므로 100% 를 쓴다. */
+.viewer-screen { display: flex; flex-direction: column; width: 100%; overflow: hidden; }
 
 .viewer-toolbar {
   display: flex; align-items: center; gap: 16px;
-  padding: 10px 16px; border-bottom: 1px solid #e2e8f0; flex: none;
+  padding: 10px 16px; border-bottom: 1px solid #e2e8f0;
+  /* 본문 위에 겹쳐 띄운다 — 자리를 차지하면 숨겼을 때도 위쪽에 빈 띠가 남는다
+     (사용자 지적). 겹쳐두면 숨을 때 그 공간이 그대로 본문이 되고, 나타날 때도
+     본문이 밀리지 않는다. */
+  position: absolute; top: 0; left: 0; right: 0; z-index: 25;
+  background: #fff;
   transition: opacity 0.18s, transform 0.18s;
 }
+.viewer-screen.dark .viewer-toolbar { background: #1f2430; }
 /* 읽는 동안 화면을 가리지 않게 평소엔 숨긴다 — 커서를 창 위쪽으로 가져가면 다시 뜬다
    (ViewerScreen: TOOLBAR_REVEAL_PX). 자리를 계속 차지하도록 visibility 로만 감춰서,
    나타났다 사라질 때 본문이 위아래로 밀리지 않는다. */
-.viewer-toolbar.hidden { opacity: 0; visibility: hidden; transform: translateY(-6px); }
+.viewer-toolbar.hidden { opacity: 0; visibility: hidden; transform: translateY(-6px); pointer-events: none; }
 .viewer-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .viewer-back, .viewer-theme {
   display: inline-flex; align-items: center; justify-content: center;
@@ -808,7 +817,9 @@ button:disabled { cursor: not-allowed; }
 .viewer-controls { display: flex; align-items: center; gap: 10px; margin-left: auto; position: relative; }
 .viewer-font-value { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
 
-.viewer-body { flex: 1; overflow: auto; position: relative; }
+/* 세로만 스크롤한다 — 페이지는 가운데 정렬이라 가로로 넘길 일이 없는데, 확대 등으로
+   잠깐 넘치면 아래쪽에 쓸데없는 가로 스크롤바가 생긴다(사용자 지적). */
+.viewer-body { flex: 1; overflow-x: hidden; overflow-y: auto; position: relative; }
 
 /* txt/epub 본문 — 읽기 좋은 폭으로 가운데 정렬. font-size 는 인라인으로 주입된다. */
 /* 아래는 위보다 넉넉히 — 진도 표시가 깔리는 자리이기도 하고, 위아래가 같으면
@@ -930,7 +941,6 @@ button:disabled { cursor: not-allowed; }
 .style-row { display: grid; grid-template-columns: 58px 1fr 46px; align-items: center; gap: 10px; }
 .style-label { font-size: 12.5px; color: #6b7280; white-space: nowrap; }
 .style-value { font-size: 12px; color: #9ca3af; text-align: right; font-variant-numeric: tabular-nums; }
-.style-note { margin: 0; font-size: 12.5px; color: #9ca3af; line-height: 1.5; }
 .style-divider { height: 1px; background: #eef0f4; margin: 2px 0; }
 
 /* 선택지가 둘뿐이라 드롭다운 대신 좌우로 붙은 토글. */
@@ -980,3 +990,22 @@ button:disabled { cursor: not-allowed; }
 }
 .viewer-screen.dark .viewer-progress-bar { background: rgba(255, 255, 255, 0.12); }
 .viewer-screen.dark .viewer-progress-text { color: #8b93a1; }
+
+/* 메뉴바에 그대로 노출되는 토글(일반/선택, 확대/축소) — 설정 패널 토글보다 작게. */
+.bar-toggle { flex: none; }
+/* 아이콘이 들어가는 칸도 있어 전부 flex 중앙 정렬로 통일한다. */
+.bar-toggle button { display: flex; align-items: center; justify-content: center; padding: 5px 10px; font-size: 12px; }
+
+.viewer-zoom-value { font-size: 12px; color: #9ca3af; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* PDF 쪽 번호 직접 입력 */
+.page-jump { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #9ca3af; }
+.page-jump input {
+  width: 46px; padding: 3px 6px; text-align: right;
+  font: inherit; font-size: 12px; color: inherit;
+  background: transparent; border: 1px solid #e2e5ea; border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.page-jump input:focus { outline: none; border-color: var(--theme); color: var(--theme); }
+.page-jump-total { font-variant-numeric: tabular-nums; }
+.viewer-screen.dark .page-jump input { border-color: #454d5c; }

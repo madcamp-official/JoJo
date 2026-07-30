@@ -246,10 +246,6 @@ export function ViewerSettings({
         </div>
       )}
 
-      {!showTextStyle && (
-        <p className="style-note">PDF는 원본 레이아웃을 그대로 보여줘서 글자 설정이 없어요.</p>
-      )}
-
     </div>
   )
 }

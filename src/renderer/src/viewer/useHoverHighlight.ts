@@ -30,16 +30,19 @@ export function useHoverHighlight({
   file,
   containerRef,
   requestSegments,
+  enabled,
   deps,
 }: {
   file: ViewerFilePayload | null
   containerRef: React.RefObject<HTMLElement | null>
   requestSegments: (text: string) => void
+  /** 선택 모드일 때만 호버박스·클릭을 켠다(일반 모드에서는 그냥 읽기만 한다). */
+  enabled: boolean
   deps: unknown[]
 }): void {
   useEffect(() => {
     const root = containerRef.current
-    if (!file || !root) return
+    if (!enabled || !file || !root) return
 
     const selector = PARAGRAPH_SELECTOR[file.kind]
     let stop: (() => void) | null = null
@@ -78,5 +81,5 @@ export function useHoverHighlight({
     }
     // deps 에 폰트 크기 등이 들어온다 — 레이아웃이 바뀌면 문단 오프셋/좌표를 다시 잡아야 한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file, requestSegments, ...deps])
+  }, [file, requestSegments, enabled, ...deps])
 }
