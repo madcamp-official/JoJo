@@ -182,9 +182,19 @@ export function Overlay() {
 
   // 실제 줄 bbox 위에 있는 동안만, 또는 영역을 드래그로 그리는 동안은 통째로
   // 클릭스루를 꺼서(windows.ts: setOverlayInteractive) 오버레이가 입력을 받게 한다.
+  // interactive 의 참/거짓 값이 실제로 바뀔 때만 호출한다(2026-07-30, mac 실사용
+  // 버그 수정) — hoveredLine 은 findLineWordsAtPoint 가 매 mousemove 마다 새 배열을
+  // 반환해서, 같은 단어 위에 커서가 계속 머물러도 이 값의 참조가 매번 바뀌어 이
+  // effect 가 매 mousemove 마다(초당 수십 번) 다시 실행됐다 — bool 값 자체는 안
+  // 바뀌었는데도 네이티브 setIgnoreMouseEvents 를 반복 호출한 셈이라, mac에서 커서
+  // 모양이 안 바뀌고 클릭이 가끔 밑 창으로 새는 증상으로 이어졌다(사용자 제보).
+  const interactive = needsRegion || hoveredLine.length > 0
+  const lastInteractiveRef = useRef<boolean | null>(null)
   useEffect(() => {
-    window.nuance.setOverlayInteractive(needsRegion || hoveredLine.length > 0)
-  }, [needsRegion, hoveredLine])
+    if (lastInteractiveRef.current === interactive) return
+    lastInteractiveRef.current = interactive
+    window.nuance.setOverlayInteractive(interactive)
+  }, [interactive])
 
   async function onOverlayClick(e: React.MouseEvent) {
     if (justSubmittedRegionRef.current) {
