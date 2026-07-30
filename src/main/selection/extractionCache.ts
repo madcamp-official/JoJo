@@ -294,6 +294,12 @@ export function abandonInFlightExtraction(): void {
  * 돌려준다. 찾으면 앞/뒤 각각 이전 회차 쪽이 더 길 때만(스크롤 등으로 지금은 안 보이지만
  * 이전엔 보였던 부분이 있을 때만) 그쪽 텍스트로 교체한다 — 현재가 더 길면 그대로 둔다.
  */
+// 담당 A — 상한 추가(2026-07-31, 사용자 제보 — "재추출 시 이전 문맥 병합이 잘 안 되는
+// 것 같다"). 이 상수 미만이면 기존처럼 '\n' 경계로 확장한 줄을 정렬 기준으로 쓴다(영어
+// 처럼 anchor가 단어 하나뿐인 소스는 그 단어가 이전 텍스트에 여러 번 나타날 수 있어
+// 정렬 기준으로 못 쓰므로 이 확장이 필요) — 아래 함수 본문 주석 참고.
+const MAX_ANCHOR_LINE_LENGTH = 300
+
 export function mergeWithPreviousContext(
   text: string,
   anchorStart: number,
@@ -305,7 +311,17 @@ export function mergeWithPreviousContext(
   const lineStart = text.lastIndexOf('\n', anchorStart - 1) + 1
   const nextBreak = text.indexOf('\n', anchorEnd)
   const lineEnd = nextBreak === -1 ? text.length : nextBreak
-  const anchorLine = text.slice(lineStart, lineEnd)
+  // 담당 A — 문단 단위로만 '\n'이 들어가는 CJK 경로(alignColumnStarts/detectRowParagraphStarts,
+  // 2026-07-30~31 도입) 이후로, 이 '\n' 경계 확장이 이제 "한 줄"이 아니라 "문단 전체"
+  // (수백 자)를 가리킬 수 있게 됐다 — 그렇게 긴 문자열은 직전 회차 텍스트와 한 글자만
+  // 달라져도(재추출마다 OCR 결과가 살짝 다를 수 있음, 흔함) 정확 일치 검색이 실패해서
+  // 병합이 거의 항상 조용히 비활성화된다(실사용 제보로 발견). 확장 결과가 비정상적으로
+  // 크면 문단 단위로 걸린 것으로 보고, 대신 원래 넘겨받은 anchor(클릭된 줄, findLineSpan
+  // 이 이미 lineId 기준으로 정확한 단위를 계산해둔 값) 그대로를 정렬 기준으로 쓴다.
+  const useRawAnchor = lineEnd - lineStart > MAX_ANCHOR_LINE_LENGTH
+  const effStart = useRawAnchor ? anchorStart : lineStart
+  const effEnd = useRawAnchor ? anchorEnd : lineEnd
+  const anchorLine = text.slice(effStart, effEnd)
   if (!anchorLine.trim()) return { text, anchorStart, anchorEnd }
 
   const prevIdx = prev.text.indexOf(anchorLine)
@@ -313,8 +329,8 @@ export function mergeWithPreviousContext(
     return { text, anchorStart, anchorEnd }
   }
 
-  const before = text.slice(0, lineStart)
-  const after = text.slice(lineEnd)
+  const before = text.slice(0, effStart)
+  const after = text.slice(effEnd)
   const prevBefore = prev.text.slice(0, prevIdx)
   const prevAfter = prev.text.slice(prevIdx + anchorLine.length)
 
@@ -324,8 +340,8 @@ export function mergeWithPreviousContext(
 
   return {
     text: mergedBefore + anchorLine + mergedAfter,
-    anchorStart: mergedBefore.length + (anchorStart - lineStart),
-    anchorEnd: mergedBefore.length + (anchorEnd - lineStart),
+    anchorStart: mergedBefore.length + (anchorStart - effStart),
+    anchorEnd: mergedBefore.length + (anchorEnd - effStart),
   }
 }
 

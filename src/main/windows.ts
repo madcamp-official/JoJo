@@ -341,7 +341,18 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     resizable: false,
     movable: false,
     show: false,
-    webPreferences: { preload, sandbox: false },
+    // 담당 A — backgroundThrottling 끄기(2026-07-31, 사용자 제보 — "재추출이 끝나도
+    // 배너/빨간 영역/텍스트 박스가 화면에 안 나타나다가, 다른 앱을 클릭하거나 모드를
+    // 토글하면 한꺼번에 나타남"). 렌더 상태 로그로 React state 는 제때 바뀌는데 화면만
+    // 안 그려지는 것을 확인 — Chromium 은 창이 다른 창에 가려졌다고(occluded) 판단하면
+    // 렌더러를 백그라운드 취급해 페인트를 중단하는데, 이 오버레이(투명·클릭스루·포커스
+    // 불가)는 Windows 의 네이티브 occlusion 추적이 "가려짐"으로 오판하기 쉬운 전형적인
+    // 케이스다(특히 대상 앱이 전체화면·최대화 상태인 모니터에서 — Kindle 실사용으로
+    // 재현 확인). 포커스 전환 시 occlusion 재계산이 일어나며 그때서야 밀린 페인트가
+    // 한꺼번에 반영되는 증상과 정확히 일치한다. invalidate()/setBounds 재적용 등 페인트
+    // 강제 시도로는 안 고쳐졌다(렌더러 자체가 hidden 취급이라) — 스로틀을 원천 차단한다.
+    // main/index.ts 의 CalculateNativeWinOcclusion 비활성화 스위치와 한 쌍.
+    webPreferences: { preload, sandbox: false, backgroundThrottling: false },
   })
   win.setIgnoreMouseEvents(true, { forward: true }) // 완전 클릭스루 — 테두리만 그리고 조작엔 개입 안 함
   if (process.platform === 'darwin') {
@@ -352,6 +363,16 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     if (overlayWindow === win) overlayWindow = null
     syncMacCursorPolling() // 창이 사라졌으니 mac 커서 폴링도 정지(darwin 외에선 no-op)
   })
+  // 담당 A — 오버레이 콘솔 로그 중계(2026-07-31). 오버레이는 완전 클릭스루
+  // (setIgnoreMouseEvents)+focusable:false 라서 우클릭이 대상 창(Kindle 등)으로 그대로
+  // 전달돼 개발자 도구를 열 방법이 없다 — 렌더러 console.log 를 메인 프로세스 콘솔로
+  // 그대로 중계해서 DEBUG_OCR_DUMP 켠 상태에서 터미널로 확인할 수 있게 한다("재추출
+  // 배너가 안 뜸" 버그 조사 중 개발자 도구 접근 불가 문제를 해결하려고 도입).
+  if (process.env.DEBUG_OCR_DUMP) {
+    win.webContents.on('console-message', (_event, _level, message) => {
+      console.log(`[overlay-console] ${message}`)
+    })
+  }
   // Windows 에서 transparent+frameless 창은 생성 시 지정한 크기로 처음 보일 때 렌더링이
   // 정확히 맞물리지 않는 경우가 있다(최초 1회만) — 실제로 화면에 보인 직후 같은 bounds 를
   // 한 번 더 적용해 강제로 재배치시켜 어긋남을 없앤다.

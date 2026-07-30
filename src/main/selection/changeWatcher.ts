@@ -45,6 +45,27 @@ async function getLastInputTime(): Promise<number> {
 }
 
 /**
+ * 담당 A — 대상 창이 지금 실제로 포커스돼(전경) 있는지(2026-07-31, 사용자 제보 —
+ * "모니터의 Kindle 에서 추출 완료 후 페이지를 넘기고, 노트북 화면(다른 창)을 클릭했더니
+ * 재추출이 시작됨"). `captureFocusedWindow`(이름과 달리 처음 선택한 HWND를 고정 캡처)
+ * 자체는 포커스와 무관하지만, 대상 창이 포커스를 잃으면 비활성 상태로 살짝 다르게
+ * 렌더링되는 경우가 있다(선택 하이라이트 색 변화, 커서 깜빡임 정지, 툴바 자동 숨김 등)
+ * — 그 정도 변화만으로도 DIFF_RATIO_THRESHOLD 를 넘을 수 있다. 게다가 "노트북 화면을
+ * 클릭"하는 행위 자체가 저수준 입력 후크엔 시스템 전역 "최근 입력"으로 잡혀서, 그 diff가
+ * 대상 창과 무관한 오탐이어도 INPUT_FRESHNESS_MS 게이트를 그냥 통과해버린다 — 대상 창이
+ * 지금 전경인지까지 같이 확인해야 진짜 걸러진다. win32 만 지원(다른 플랫폼은 게이트 없이
+ * 항상 통과 — 기존 동작 유지, mac 은 대응하는 API 확인 후 추가 필요).
+ */
+async function isTargetWindowForeground(): Promise<boolean> {
+  if (process.platform !== 'win32') return true
+  const { getSelectedWindowId } = await import('./capture')
+  const { isWindowForeground } = await import('./win32Capture')
+  const id = getSelectedWindowId()
+  if (!id) return true // 선택된 창을 모르면(이론상 도달 안 함) 게이트 없이 통과
+  return isWindowForeground(BigInt(id))
+}
+
+/**
  * 담당 A — 왼쪽 마우스 버튼이 지금 눌려 있는지(드래그 진행 중, 2026-07-30). 드래그를
  * 잡고 있는 동안은 화면이 1초 이상 "안정"돼 보여도(선택 하이라이트가 정지 상태) 손을
  * 떼는 순간 다시 바뀔 가능성이 높다 — 실사용 확인: 드래그 중의 일시적 화면으로 추출이
@@ -330,6 +351,16 @@ async function poll(): Promise<void> {
       // 메이션 등) 픽셀은 달라졌어도 재추출을 걸지 않는다 — lastBitmap 은 아래에서
       // 어차피 갱신되므로 다음 폴링부터는 이 상태를 기준으로 다시 비교한다.
       if (inputAge > INPUT_FRESHNESS_MS) {
+        lastBitmap = bitmap
+        pollTimer = setTimeout(poll, POLL_INTERVAL_MS)
+        return
+      }
+      // 담당 A — 대상 창 포커스 확인(2026-07-31, isTargetWindowForeground 주석 참고) —
+      // 입력이 최근이어도 그 입력이 대상 창을 향한 게 아니면(다른 모니터의 다른 창
+      // 클릭 등) 이 diff는 대상 창이 포커스를 잃으며 생긴 비활성 렌더링 변화일 뿐일
+      // 수 있다.
+      if (!(await isTargetWindowForeground())) {
+        console.log('[changeWatcher] poll: 대상 창이 포커스 아님 — 오탐(비활성 렌더링 변화)으로 보고 건너뜀')
         lastBitmap = bitmap
         pollTimer = setTimeout(poll, POLL_INTERVAL_MS)
         return

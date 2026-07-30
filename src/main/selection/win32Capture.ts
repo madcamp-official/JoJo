@@ -89,6 +89,7 @@ const CreateWindowExW = user32.func(
 const DestroyWindow = user32.func('int __stdcall DestroyWindow(void *hwnd)')
 const GetSystemMetrics = user32.func('int32_t __stdcall GetSystemMetrics(int32_t nIndex)')
 const SetForegroundWindow = user32.func('int __stdcall SetForegroundWindow(void *hwnd)')
+const GetForegroundWindow = user32.func('void * __stdcall GetForegroundWindow()')
 const ShowWindow = user32.func('int __stdcall ShowWindow(void *hwnd, int32_t nCmdShow)')
 const SetWindowPos = user32.func(
   'int __stdcall SetWindowPos(void *hwnd, void *hwndInsertAfter, int32_t x, int32_t y, int32_t cx, int32_t cy, uint32_t uFlags)',
@@ -327,6 +328,17 @@ const SW_RESTORE = 9
 export function bringWindowToForeground(hwnd: bigint): void {
   if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE)
   SetForegroundWindow(hwnd)
+}
+
+/** 담당 A — changeWatcher.ts 의 오탐 필터용(2026-07-31, 사용자 제보 — "다른 모니터의
+ *  다른 창을 클릭했는데 재추출이 시작됨"). `hwnd` 가 지금 실제로 포커스된(전경) 창인지
+ *  확인한다 — 대상 창이 포커스를 잃으면 비활성 상태 렌더링(선택 하이라이트 색 변화,
+ *  커서 깜빡임 정지, 툴바 자동 숨김 등)만으로도 픽셀 diff 문턱을 넘을 수 있는데, 이때
+ *  사용자가 방금 어딘가(다른 모니터의 무관한 창 포함)를 클릭한 것 자체는 저수준 후크가
+ *  "최근 입력"으로 잡아버려서(INPUT_FRESHNESS_MS 게이트만으로는 못 거름) 대상 창과
+ *  무관한 클릭이 재추출을 잘못 트리거했다. */
+export function isWindowForeground(hwnd: bigint): boolean {
+  return GetForegroundWindow() === hwnd
 }
 
 const SWP_NOMOVE = 0x0002
