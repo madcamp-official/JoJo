@@ -243,10 +243,10 @@ export function EpubView({
   // 기준 페이지 계산이 남아 글이 잘려 보인다).
   // 여백이 바뀌거나 창 크기가 바뀌면 렌더 영역을 다시 알려준다.
   //
-  // 창 크기 변화까지 우리가 챙기는 이유: epubjs 자체 resize 핸들러는 컨테이너의
-  // clientWidth 를 쓰는데 그 값은 **패딩을 포함**해서, 우리가 여백으로 준 패딩만큼
-  // iframe 이 더 넓어져 본문이 오른쪽에서 잘린다(창을 최대화했을 때 실측 확인).
-  // 패딩을 뺀 실제 내용 폭을 명시로 넘겨 그 어긋남을 없앤다.
+  // 넘기는 값은 여백을 뺀 **실제 내용 폭**이다. 스크롤러(.epub-container)는 창 전체 폭을
+  // 유지한 채 padding 으로 내용만 밀기 때문에(스크롤바를 창 끝에 붙이려는 목적), epubjs 에
+  // 전체 폭을 그대로 주면 좁은 상자에 넓은 조판을 해 내용이 크게 넘친다(실측: 여백 240 일 때
+  // iframe 11340px, 내부 넘침 10903px).
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
@@ -271,9 +271,12 @@ export function EpubView({
   return (
     <>
       {error && <p className="hint">epub을 열지 못했습니다: {error}</p>}
-      {/* 여백은 iframe 바깥(호스트)에 준다 — epubjs 가 iframe 을 호스트 크기에 맞추므로
-          그만큼 본문 폭이 줄어 줄바꿈이 여백 기준으로 다시 잡힌다. 안쪽 body 에 padding 을
-          주면 epubjs 자체 페이지네이션 계산과 어긋난다. */}
+      {/* 여백은 iframe 바깥(호스트)의 padding 으로 준다 — epubjs 가 iframe 을 호스트 크기에
+          맞추므로 그만큼 본문 폭이 줄어 줄바꿈이 여백 기준으로 다시 잡힌다.
+          **주의**: 스크롤바를 창 오른쪽 끝에 붙이려고 여백을 스크롤러(.epub-container)나
+          안쪽 뷰(.epub-view)로 옮겨봤지만 셋 다 epubjs 가 resize 로 잡는 폭과 어긋나 조판이
+          깨졌다(실측: 스크롤러 padding → iframe 12096px·내부 넘침 11309px, 뷰 margin →
+          iframe 폭 68px). 스크롤바가 여백만큼 안쪽에 그려지는 건 그래서 남겨둔 상태다. */}
       <div className="epub-host" ref={hostRef} style={{ paddingLeft: style.margin, paddingRight: style.margin }} />
     </>
   )

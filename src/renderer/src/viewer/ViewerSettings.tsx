@@ -25,6 +25,50 @@ export const DEFAULT_STYLE: ViewerStyle = {
   margin: 72,
 }
 
+// 마지막으로 쓴 보기 설정을 기억한다 — 문서를 열 때마다 다시 맞추게 하지 않으려는 것.
+// 뷰어 창의 렌더러 localStorage 에 둔다(userData 폴더에 붙어 있어 앱을 껐다 켜도 남는다).
+// 앱 전역 설정(settingsStore)에 넣지 않은 이유: 이건 순수 화면 취향이라 다른 기능과
+// 공유할 일이 없고, 메인 프로세스를 오갈 이유도 없다.
+const STORE_KEY = 'nuance.viewer.prefs.v1'
+
+export interface ViewerPrefs {
+  style: ViewerStyle
+  mode: ViewerMode
+  transition: PageTransition
+  dark: boolean
+}
+
+export const DEFAULT_PREFS: ViewerPrefs = {
+  style: DEFAULT_STYLE,
+  mode: 'scroll',
+  transition: 'slide',
+  dark: false,
+}
+
+export function loadViewerPrefs(): ViewerPrefs {
+  try {
+    const raw = localStorage.getItem(STORE_KEY)
+    if (!raw) return DEFAULT_PREFS
+    const saved = JSON.parse(raw) as Partial<ViewerPrefs>
+    // 저장된 값이 낡았거나 일부만 있어도 기본값으로 메운다(항목이 늘어날 수 있으므로).
+    return {
+      ...DEFAULT_PREFS,
+      ...saved,
+      style: { ...DEFAULT_STYLE, ...(saved.style ?? {}) },
+    }
+  } catch {
+    return DEFAULT_PREFS
+  }
+}
+
+export function saveViewerPrefs(prefs: ViewerPrefs): void {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(prefs))
+  } catch {
+    // 저장 실패는 기능을 막을 이유가 아니다(용량 초과 등) — 이번 세션만 기억 못 할 뿐.
+  }
+}
+
 const ROWS: { key: keyof ViewerStyle; label: string; digits: number }[] = [
   { key: 'fontSize', label: '글자 크기', digits: 0 },
   { key: 'letterSpacing', label: '자간', digits: 1 },
@@ -103,20 +147,6 @@ export function ViewerSettings({
         </div>
       </div>
 
-      {showTheme && (
-        <div className="style-row">
-          <span className="style-label">테마</span>
-          <div className="style-toggle">
-            <button className={!dark ? 'on' : ''} onClick={() => onDarkChange(false)}>
-              라이트
-            </button>
-            <button className={dark ? 'on' : ''} onClick={() => onDarkChange(true)}>
-              다크
-            </button>
-          </div>
-        </div>
-      )}
-
       {showTransition && (
         <div className="style-row">
           <span className="style-label">넘김 효과</span>
@@ -127,6 +157,20 @@ export function ViewerSettings({
             </button>
             <button className={transition === 'slide' ? 'on' : ''} onClick={() => onTransitionChange('slide')}>
               슬라이딩
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showTheme && (
+        <div className="style-row">
+          <span className="style-label">테마</span>
+          <div className="style-toggle">
+            <button className={!dark ? 'on' : ''} onClick={() => onDarkChange(false)}>
+              라이트
+            </button>
+            <button className={dark ? 'on' : ''} onClick={() => onDarkChange(true)}>
+              다크
             </button>
           </div>
         </div>

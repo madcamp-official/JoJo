@@ -18,7 +18,12 @@ import {
   type PagerHandle,
   type ViewerMode,
 } from '../viewer/pager'
-import { DEFAULT_STYLE, ViewerSettings, type ViewerStyle } from '../viewer/ViewerSettings'
+import {
+  loadViewerPrefs,
+  saveViewerPrefs,
+  ViewerSettings,
+  type ViewerStyle,
+} from '../viewer/ViewerSettings'
 import { SlidersIcon } from './icons'
 
 // 자체 문서 뷰어(pdf/epub/txt) — 외부 뷰어(크롬 내장 PDF 뷰어·Kindle 등)는 텍스트나 좌표를
@@ -27,20 +32,25 @@ import { SlidersIcon } from './icons'
 // 접근성 API 도 OCR 도 필요 없고 mac/Windows 가 동일하게 동작한다.
 
 
+/** 커서가 창 위쪽 이 범위 안에 들어오면 툴바를 보여준다. */
+const TOOLBAR_REVEAL_PX = 90
+
 export function ViewerScreen() {
   const [file, setFile] = useState<ViewerFilePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   // 글자 크기/자간/줄 간격/여백을 한 덩어리로 — 툴바의 "보기 설정" 버튼 뒤 패널에서 만진다.
-  const [style, setStyle] = useState<ViewerStyle>(DEFAULT_STYLE)
+  // 마지막에 쓰던 설정으로 시작한다(ViewerSettings.loadViewerPrefs — localStorage).
+  const [prefs0] = useState(loadViewerPrefs)
+  const [style, setStyle] = useState<ViewerStyle>(prefs0.style)
   const [styleOpen, setStyleOpen] = useState(false)
-  const [dark, setDark] = useState(false)
-  const [mode, setMode] = useState<ViewerMode>('scroll')
+  const [dark, setDark] = useState(prefs0.dark)
+  const [mode, setMode] = useState<ViewerMode>(prefs0.mode)
   const [pageState, setPageState] = useState<PageState>(EMPTY_PAGE_STATE)
   const containerRef = useRef<HTMLDivElement>(null)
   // 각 뷰(pdf/epub/txt)가 자기 방식대로 채워 넣는 "넘기기" 핸들 — 넘기는 방법은 포맷마다
   // 다르지만(pager.ts 주석) 화살표 버튼·방향키는 이 핸들 하나만 부른다.
   const pagerRef = useRef<PagerHandle | null>(null)
-  const [transition, setTransition] = useState<PageTransition>('slide')
+  const [transition, setTransition] = useState<PageTransition>(prefs0.transition)
   const animRef = useRef<HTMLDivElement>(null)
   // 목차 — 문서에 들어 있을 때만 채워진다(PDF 아웃라인 / epub navigation). 비어 있으면
   // 버튼 자체를 띄우지 않는다.
@@ -58,6 +68,20 @@ export function ViewerScreen() {
     if (!frames) return
     animRef.current?.animate(frames, PAGE_TURN_TIMING)
   }, [turn, transition])
+
+  useEffect(() => {
+    saveViewerPrefs({ style, mode, transition, dark })
+  }, [style, mode, transition, dark])
+
+  // 툴바 자동 숨김 — 읽는 동안 화면을 가리지 않게 평소엔 숨기고, 커서를 창 위쪽으로
+  // 가져가면 나타난다. 설정 패널이 열려 있는 동안은 계속 띄워둔다(조작 중에 사라지면
+  // 안 되므로).
+  const [barShown, setBarShown] = useState(true)
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => setBarShown(e.clientY <= TOOLBAR_REVEAL_PX)
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [])
 
   const goPage = useCallback((dir: 'next' | 'prev') => {
     setTurn((t) => ({ dir, tick: t.tick + 1 }))
@@ -116,7 +140,7 @@ export function ViewerScreen() {
 
   return (
     <div className={`screen viewer-screen${dark && isReflowable ? ' dark' : ''}`}>
-      <header className="viewer-toolbar">
+      <header className={`viewer-toolbar${barShown || styleOpen || tocOpen ? '' : ' hidden'}`}>
         <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
           <ArrowLeftIcon />
         </button>

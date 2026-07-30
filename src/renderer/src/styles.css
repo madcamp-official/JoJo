@@ -757,7 +757,12 @@ button:disabled { cursor: not-allowed; }
 .viewer-toolbar {
   display: flex; align-items: center; gap: 16px;
   padding: 10px 16px; border-bottom: 1px solid #e2e8f0; flex: none;
+  transition: opacity 0.18s, transform 0.18s;
 }
+/* 읽는 동안 화면을 가리지 않게 평소엔 숨긴다 — 커서를 창 위쪽으로 가져가면 다시 뜬다
+   (ViewerScreen: TOOLBAR_REVEAL_PX). 자리를 계속 차지하도록 visibility 로만 감춰서,
+   나타났다 사라질 때 본문이 위아래로 밀리지 않는다. */
+.viewer-toolbar.hidden { opacity: 0; visibility: hidden; transform: translateY(-6px); }
 .viewer-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .viewer-back, .viewer-theme {
   display: inline-flex; align-items: center; justify-content: center;
@@ -788,6 +793,7 @@ button:disabled { cursor: not-allowed; }
 }
 
 .epub-host { width: 100%; height: 100%; }
+
 
 /* 다크 모드 — txt/epub 전용(PDF 는 원본 레이아웃을 그대로 보여주는 게 목적이라 제외).
    epub 은 내용이 iframe 안이라 바깥 CSS 가 안 닿아서 epubjs 테마로 따로 주입한다
