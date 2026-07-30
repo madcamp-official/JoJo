@@ -5,10 +5,14 @@ import { TxtView } from '../viewer/TxtView'
 import { PdfView } from '../viewer/PdfView'
 import { EpubView } from '../viewer/EpubView'
 import { useHoverHighlight } from '../viewer/useHoverHighlight'
-import { ArrowLeftIcon, MinusIcon, PlusIcon } from './icons'
+import { ArrowLeftIcon, MinusIcon, PlusIcon, SearchIcon } from './icons'
 import { PageNav } from '../viewer/PageNav'
 import { Progress } from '../viewer/Progress'
 import { PageJump } from '../viewer/PageJump'
+import { SearchPanel } from '../viewer/SearchPanel'
+import { searchEpub, searchPdf, searchTxt } from '../viewer/searchProviders'
+import type { SearchHit } from '../viewer/search'
+import type { Book } from 'epubjs'
 import { Toc, type TocEntry } from '../viewer/Toc'
 import { ListIcon } from './icons'
 import {
@@ -63,6 +67,21 @@ export function ViewerScreen() {
   // 버튼 자체를 띄우지 않는다.
   const [toc, setToc] = useState<TocEntry[]>([])
   const [tocOpen, setTocOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  // epub 만 책 전체 검색에 book 객체가 필요하다(나머지는 DOM 만으로 찾는다).
+  const epubSearchRef = useRef<{ book: Book; display: (href: string) => Promise<unknown>; host: () => HTMLElement | null } | null>(null)
+
+  const runSearch = useCallback(
+    async (q: string): Promise<SearchHit[]> => {
+      const root = containerRef.current
+      if (file?.kind === 'txt') return searchTxt(root, q)
+      if (file?.kind === 'pdf') return searchPdf(root, q)
+      const e = epubSearchRef.current
+      if (file?.kind === 'epub' && e) return searchEpub(e.book, e.display, e.host, q)
+      return []
+    },
+    [file],
+  )
   // 넘김 방향과 "몇 번째 넘김인지".
   // key 로 리마운트시키는 방법은 쓰면 안 된다 — PDF/epub 뷰가 통째로 다시 그려진다.
   const [turn, setTurn] = useState({ dir: 'next' as 'next' | 'prev', tick: 0 })
@@ -171,7 +190,7 @@ export function ViewerScreen() {
 
   return (
     <div className={`screen viewer-screen${dark && isReflowable ? ' dark' : ''}`}>
-      <header className={`viewer-toolbar${barShown || styleOpen || tocOpen ? '' : ' hidden'}`}>
+      <header className={`viewer-toolbar${barShown || styleOpen || tocOpen || searchOpen ? '' : ' hidden'}`}>
         <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
           <ArrowLeftIcon />
         </button>
@@ -184,6 +203,9 @@ export function ViewerScreen() {
           {file?.name ?? '문서'}
         </span>
         <div className="viewer-controls">
+          <button className="viewer-style-btn" title="검색" onClick={() => setSearchOpen((v) => !v)}>
+            <SearchIcon />
+          </button>
           {/* 일반/선택 모드는 읽는 중에 자주 바꾸는 스위치라 설정 패널에 넣지 않고
               메뉴바에 그대로 노출한다(사용자 지정). */}
           <div className="style-toggle bar-toggle">
@@ -255,10 +277,12 @@ export function ViewerScreen() {
             onPageState={setPageState}
             onToc={setToc}
             onTurn={goPage}
+            onSearchable={(v) => (epubSearchRef.current = v)}
           />
         )}
         </div>
         <Toc entries={toc} open={tocOpen} onClose={() => setTocOpen(false)} />
+        <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} onSearch={runSearch} />
         {mode === 'page' && (
           <PageNav state={pageState} onPrev={() => goPage('prev')} onNext={() => goPage('next')} />
         )}

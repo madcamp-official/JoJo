@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LlmProvider } from '@shared/types'
-import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, List, SlidersHorizontal, Copy, Minus, Plus } from 'lucide-react'
+import { Pencil, Trash2, Settings, BookOpen, HelpCircle, ArrowLeft, List, SlidersHorizontal, Copy, Minus, Plus, Search } from 'lucide-react'
 
 // 담당 B — UI 아이콘 세트 (이모지 대체용, 인라인 SVG)
 // 액션 아이콘은 currentColor 라인 스타일(Feather 계열)로 통일해 텍스트 색을 따라간다.
@@ -97,6 +97,11 @@ export function MinusIcon({ size = 14 }: { size?: number }) {
 
 export function PlusIcon({ size = 14 }: { size?: number }) {
   return <Plus size={size} strokeWidth={2.5} aria-hidden="true" />
+}
+
+// 뷰어 본문 검색.
+export function SearchIcon({ size = 17 }: { size?: number }) {
+  return <Search size={size} strokeWidth={2} aria-hidden="true" />
 }
 
 export function CheckIcon({ size = 14 }: { size?: number }) {
