@@ -27,7 +27,13 @@ export function createClaudeClient(config: LlmConfig): LlmClient {
         body: JSON.stringify({
           model: req.model,
           max_tokens: req.maxTokens ?? 1024,
-          temperature: req.temperature,
+          // temperature 는 안 보낸다(2026-07-30) — 현재 모델이 이 파라미터 자체를
+          // "deprecated for this model" 400 에러로 거부한다(실측: pronunciation/
+          // dictionary 처럼 명시적 temperature 를 보내는 요청만 매번 실패, temperature
+          // 를 아예 안 보내는 자유 질문은 정상 동작 — req.temperature 가 undefined 면
+          // JSON.stringify 가 키 자체를 생략하는 걸로 실측 확인). classifyLlmError 가
+          // 이 메시지의 "credit"/"quota" 키워드 부재로 'unknown'(원인불명 오류)으로
+          // 뭉개서 크레딧 문제처럼 보였을 뿐, 실제로는 이 파라미터 문제였다.
           stream: true,
           system,
           messages: req.messages,
