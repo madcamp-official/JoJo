@@ -126,38 +126,33 @@ async function crosscheckLatin(target: Buffer): Promise<AnyLanguage | null> {
  *  스크립트 판정 자체가 틀렸을 가능성을 마지막으로 한 번 더 검토하는 안전망. 그것도
  *  아니면 대표 언어(candidates[0])로 폴백한다 — 화면 캡처는 자막보다 텍스트 표본이
  *  훨씬 짧을 수 있어(단어 하나 등) eld 가 실패할 가능성이 자막 경로보다 높다는 점을
- *  감안한 안전망. */
+ *  감안한 안전망.
+ *
+ *  담당 A — 라틴 교차 확인을 맨 앞으로 이동(2026-07-30, 세 번째 재수정 — 사용자 제보:
+ *  영어가 아랍어→러시아어→다시 아랍어로 계속 오판됨). 직전 시도는 "대표 언어팩으로
+ *  인식한 결과(data.text)의 라틴 문자 비율"로 재검토 여부를 걸렀는데, 이게 애초에
+ *  틀린 신호였다 — 아랍어/러시아어 인식기는 출력 자체가 그 언어의 문자 체계로 제약돼
+ *  있어서, 원본이 진짜 아랍어/러시아어든 오판된 영어든 그 출력엔 라틴 문자가 사실상
+ *  안 나온다(실측 확인: `재판별: ar → ar`로 eld가 그 가짜 아랍어 텍스트를 진짜 아랍어로
+ *  확신 판별함 — 판단 재료 자체가 "라틴 아님"으로 항상 나오니 재검토 조건이 트리거될
+ *  수가 없었음). 유일하게 신뢰할 수 있는 신호는 "영어 팩으로 직접 인식했을 때 실제로
+ *  라틴 문자가 나오는가"뿐이므로, en 이 후보에 없는 스크립트는 대표 언어 재판별을
+ *  시도하기 전에 항상 먼저 이걸로 확인한다(eld 가 뭐라고 판별하든 무관하게 선행). */
 async function resolveAmbiguousScript(target: Buffer, candidates: AnyLanguage[]): Promise<AnyLanguage> {
   const representative = candidates[0]!
+  if (!candidates.includes('en')) {
+    const latin = await crosscheckLatin(target)
+    if (latin) {
+      console.log(`[langDetect] ${representative} 계열 스크립트로 판정됐지만 라틴 교차 확인 성공 — OSD 오판으로 보고 ${latin} 로 재분류`)
+      return latin
+    }
+  }
   try {
     const worker = await getProbeWorker(getOcrLangCode(representative))
     const { data } = await worker.recognize(target)
     const raw = detectRawLanguage(data.text)
     const resolved = candidates.find((c) => c === raw)
     if (resolved) {
-      // 담당 A — eld 성공 시에도 라틴 오판정 재검토(2026-07-30, 사용자 제보 — 영어가
-      // 이번엔 러시아어로 판별됨). 로마자와 키릴 문자는 모양이 같은 글자가 많아(O/A/E
-      // 등), 영어 이미지를 러시아어 언어팩으로 강제 인식시키면 그럴듯한 키릴 문자가
-      // 나오고 eld 가 그걸 진짜 러시아어로 확신 있게 오판할 수 있다 — 이 경우 위에서
-      // `resolved`가 바로 성공해버려서, eld 실패 시에만 도는 아래 라틴 교차 확인까지
-      // 도달을 못 했다. eld 가 성공했어도 그 원문 자체가 라틴 문자 위주면(모양만 비슷한
-      // 가짜 키릴/아랍 문자였을 가능성) 한 번 더 확인한다 — 라틴 후보군(candidates 에
-      // en 포함) 자체는 이 문제와 무관하므로 대상에서 제외.
-      if (!candidates.includes('en')) {
-        const nonSpaceCheck = data.text.replace(/\s/g, '')
-        const latinCount = [...nonSpaceCheck].filter((ch) => LATIN_CHAR_RE.test(ch)).length
-        const looksLatin = nonSpaceCheck.length > 0 && latinCount / nonSpaceCheck.length >= LATIN_CROSSCHECK_RATIO
-        if (looksLatin) {
-          console.log(
-            `[langDetect] eld 재판별 성공(${raw})했지만 원문이 라틴 문자 위주(${latinCount}/${nonSpaceCheck.length}) — 라틴 교차 확인 재검토`,
-          )
-          const latin = await crosscheckLatin(target)
-          if (latin) {
-            console.log(`[langDetect] 라틴 교차 확인 성공 — eld 오판으로 보고 ${latin} 로 재분류`)
-            return latin
-          }
-        }
-      }
       console.log(`[langDetect] 스크립트 내 언어 재판별: ${raw} → ${resolved}`)
       return resolved
     }
@@ -169,15 +164,6 @@ async function resolveAmbiguousScript(target: Buffer, candidates: AnyLanguage[])
         `[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) + 한자 교차 확인(${hanCount}/${nonSpace.length}) — ${variant} 로 재분류`,
       )
       return variant
-    }
-    if (!candidates.includes('en')) {
-      const latin = await crosscheckLatin(target)
-      if (latin) {
-        console.log(
-          `[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) + 라틴 교차 확인 성공 — OSD 오판으로 보고 ${latin} 로 재분류`,
-        )
-        return latin
-      }
     }
     console.log(`[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) — 대표 언어(${representative})로 폴백`)
     return representative
