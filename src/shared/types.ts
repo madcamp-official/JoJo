@@ -22,8 +22,11 @@ export type Language = 'en' | 'ja' | 'zh-Hans' | 'zh-Hant'
  * 2026-07-30 실측 확인, 서브도메인 방식이 아님 주의):
  *   ar cs da de el es fa fi fr he hi hr hu it ka lo nl no pl pt ro ru sq sv th tl tr uk ur vi
  * tier2-B(구글만, eld는 되는데 네이버 사전은 없음):
- *   am az be bg bn ca et eu gu hy is kn ko ku lt lv ml mr ms or pa sk sl sr ta te
- * (요루바 yo는 eld는 감지하나 "발음"에 대응하는 신뢰 가능한 번역을 못 찾아 tier3로 보류) */
+ *   am az be bg bn ca et eu gu hy is kn ko lt lv ml mr ms or pa sk sl sr ta te
+ * (요루바 yo는 eld는 감지하나 "발음"에 대응하는 신뢰 가능한 번역을 못 찾아 tier3로 보류.
+ * 쿠르드어 ku는 eld 모델(소라니/아랍 문자)과 앱의 OCR 팩(쿠르만지/라틴 문자)이 서로 다른
+ * 방언/문자체계를 가리켜 화면 캡처 경로에서 자동판별이 구조적으로 불가능해 2026-07-30
+ * 전수조사 후 tier3로 되돌림 — `shared/languages.ts` LINK_LANGUAGES 주석 참고) */
 export type LinkLanguage =
   | 'ar'
   | 'cs'
@@ -68,7 +71,6 @@ export type LinkLanguage =
   | 'is'
   | 'kn'
   | 'ko'
-  | 'ku'
   | 'lt'
   | 'lv'
   | 'ml'
