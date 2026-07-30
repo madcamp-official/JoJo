@@ -97,20 +97,6 @@ function invalidateCache(): void {
   cachedWords = []
 }
 
-// 문단 텍스트 안에서 각 단어의 문자 오프셋을 순서대로 찾는다(같은 단어가 반복돼도
-// searchFrom 덕에 이전 단어와 안 섞인다) — highlight.ts의 동일 로직과 같은 이유.
-function paragraphOffsets(paragraphText: string, words: SubWord[]): number[] {
-  let searchFrom = 0
-  const offsets: number[] = []
-  for (const w of words) {
-    const found = paragraphText.indexOf(w.text, searchFrom)
-    const off = found >= 0 ? found : searchFrom
-    offsets.push(off)
-    searchFrom = off + w.text.length
-  }
-  return offsets
-}
-
 // CJK(중국어/일본어) 문단은 domWords.ts(wordsInParagraph)가 공백 없이 글자 단위로 쪼갠다
 // — 브라우저는 스스로 단어 경계를 알 방법이 없어서다(자막과 동일한 이유, highlight.ts
 // 참고). 형태소 분석 결과를 요청할지 판단하는 데만 쓰는 가벼운 문자 판정.
@@ -132,20 +118,24 @@ function ensureSegmentsRequested(paragraphText: string): void {
 // idx 번째 단어가 형태소 분석 결과(세그먼트)에 속하면 같은 세그먼트의 글자들을 하나로
 // 묶어 반환한다(rect는 union, text/오프셋은 세그먼트 경계 기준) — highlight.ts의 동일
 // 그룹핑 로직과 같은 이유. 세그먼트가 없으면(분석 전/비CJK) 단어 그대로 반환.
+//
+// words[].start/end 는 domWords.ts extractWordsAndText 가 추출 시점에 이미 계산해 실어
+// 보낸 절대 오프셋이다(2026-07-30 수정 — 예전엔 여기서 paragraphText.indexOf 로 매번
+// 역산했는데, 그 단어 하나의 rect 측정이 실패해 words 배열에서 빠지면 이후 모든 역산
+// 오프셋이 앞쪽 중복 글자로 미끄러져, 문단 뒷부분 단어들이 전부 엉뚱하게 낮은 오프셋으로
+// 계산되고 그 결과 이 아래 그룹핑이 문단 전체를 하나로 묶어버리는 문제가 있었다).
 function groupWordAt(
   paragraphText: string,
   words: SubWord[],
-  offsets: number[],
   idx: number,
 ): { rect: RectPx; text: string; start: number; end: number } {
   const w = words[idx]!
-  const off = offsets[idx]!
   const segments = getWordSegments(paragraphText)
-  const seg = segments?.find((s) => off >= s.start && off < s.end)
-  if (!seg) return { rect: w.rect, text: w.text, start: off, end: off + w.text.length }
+  const seg = segments?.find((s) => w.start >= s.start && w.start < s.end)
+  if (!seg) return { rect: w.rect, text: w.text, start: w.start, end: w.end }
   const groupRects: RectPx[] = []
-  for (let j = 0; j < words.length; j++) {
-    if (offsets[j]! >= seg.start && offsets[j]! < seg.end) groupRects.push(words[j]!.rect)
+  for (const other of words) {
+    if (other.start >= seg.start && other.start < seg.end) groupRects.push(other.rect)
   }
   // groupRects 는 항상 최소 1개(idx 자신)를 포함해 non-null.
   return { rect: unionRects(groupRects)!, text: paragraphText.slice(seg.start, seg.end), start: seg.start, end: seg.end }
@@ -183,8 +173,7 @@ function hoverHitAt(x: number, y: number): RectPx | null {
   const idx = findWordIndexAt(cachedWords, x, y)
   if (idx < 0) return null
   const paragraphText = fullTextRef.slice(info.start, info.end)
-  const offsets = paragraphOffsets(paragraphText, cachedWords)
-  return groupWordAt(paragraphText, cachedWords, offsets, idx).rect
+  return groupWordAt(paragraphText, cachedWords, idx).rect
 }
 
 // 클릭 지점의 앵커(본문 전체 텍스트 + 절대 오프셋)를 계산한다. 캡처 시작 시점에 만든
@@ -207,10 +196,9 @@ function resolveClick(x: number, y: number): ArticleWordHit | null {
   const idx = findWordIndexAt(words, x, y)
   if (idx < 0) return null
   const paragraphText = fresh.fullText.slice(info.start, info.end)
-  const offsets = paragraphOffsets(paragraphText, words)
   // 세그먼트가 아직 응답 전이면(드묾 — hover 때 이미 요청해뒀을 확률이 높음) 글자 단위로
   // 폴백한다(highlight.ts와 동일 특성).
-  const grouped = groupWordAt(paragraphText, words, offsets, idx)
+  const grouped = groupWordAt(paragraphText, words, idx)
   return {
     text: grouped.text,
     fullText: fresh.fullText,

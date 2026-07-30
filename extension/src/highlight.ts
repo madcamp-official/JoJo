@@ -102,29 +102,21 @@ function setHoveringCursor(hovering: boolean): void {
 
 function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rect: RectPx }) | null {
   for (const line of lines) {
-    // line.text 는 세그먼트 원문 그대로(youtube.ts) — 단어 사이 간격이 공백 한 칸이라는
-    // 보장이 없다(CJK 는 글자 사이 간격이 0). 각 단어의 실제 위치를 line.text 안에서 순서대로
-    // 찾아 offset 을 구한다(searchFrom 부터 찾아 같은 글자가 반복돼도 이전 단어와 안 섞임).
-    let searchFrom = 0
-    const offsets: number[] = []
-    for (const w of line.words) {
-      const found = line.text.indexOf(w.text, searchFrom)
-      const off = found >= 0 ? found : searchFrom
-      offsets.push(off)
-      searchFrom = off + w.text.length
-    }
+    // line.words[].start/end 는 domWords.ts extractWordsAndText 가 line.text 를 조립하는
+    // 바로 그 순회에서 함께 계산해 실어 보낸 절대 오프셋이다(2026-07-30 수정 — 예전엔
+    // 여기서 line.text.indexOf(w.text, searchFrom) 로 매번 역산했는데, 단어 하나의 rect
+    // 측정이 실패해 words 배열에서 빠지면 그 뒤로 오프셋이 앞쪽 중복 글자로 미끄러지는
+    // 문제가 있었다 — 자세한 사례는 articleHighlight.ts의 동일 수정 주석 참고).
     const segments = getWordSegments(line.text)
-    for (let i = 0; i < line.words.length; i++) {
-      const w = line.words[i]!
+    for (const w of line.words) {
       const r = w.rect
       if (!(x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) continue
-      const off = offsets[i]!
-      const seg = segments?.find((s) => off >= s.start && off < s.end)
-      if (!seg) return { text: w.text, lineText: line.text, wordOffsetInLine: off, rect: r }
+      const seg = segments?.find((s) => w.start >= s.start && w.start < s.end)
+      if (!seg) return { text: w.text, lineText: line.text, wordOffsetInLine: w.start, rect: r }
       // CJK 형태소 분석 결과가 있으면 같은 세그먼트에 속한 글자들의 rect 를 하나로 묶는다.
       const groupRects: RectPx[] = []
-      for (let j = 0; j < line.words.length; j++) {
-        if (offsets[j]! >= seg.start && offsets[j]! < seg.end) groupRects.push(line.words[j]!.rect)
+      for (const other of line.words) {
+        if (other.start >= seg.start && other.start < seg.end) groupRects.push(other.rect)
       }
       return {
         text: line.text.slice(seg.start, seg.end),
