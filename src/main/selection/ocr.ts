@@ -421,8 +421,18 @@ async function recognizeRegion(
       .createFromBuffer(image)
       .crop({ x: offsetX, y: offsetY, width: cropWidth, height: cropHeight })
     const size = cropped.getSize()
+    // 담당 A — quality:'good' 명시(2026-07-30, 사용자 제보 — 다른 영어 가로쓰기 파일에서
+    // em-dash("—")가 거의 인식이 안 됨). Electron `resize()` 기본값이 이미 'best'(가장
+    // 매끄러운 보간)인데, em-dash 처럼 아주 얇은 가로 획은 부드러운 보간으로 확대하면
+    // 대비가 흐려져(주변 배경색과 섞임) Tesseract가 아예 못 보게 될 수 있다 — 굵은
+    // 글자 획엔 도움이 되는 보간이 얇은 단일 획엔 역효과일 수 있다는 가설. 'good'(가장
+    // 거친/덜 매끄러운 보간)으로 낮춰 얇은 획의 대비가 덜 흐려지는지 시도.
     recognizeTarget = cropped
-      .resize({ width: Math.round(size.width * UPSCALE_FACTOR), height: Math.round(size.height * UPSCALE_FACTOR) })
+      .resize({
+        width: Math.round(size.width * UPSCALE_FACTOR),
+        height: Math.round(size.height * UPSCALE_FACTOR),
+        quality: 'good',
+      })
       .toPNG()
     scale = UPSCALE_FACTOR
   }
