@@ -358,13 +358,6 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   if (process.platform === 'darwin') {
     // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
     win.setHiddenInMissionControl(true)
-    // NSTrackingArea 기반 커서 관리 시도(2026-07-31, macCursorTracking.ts 주석 참고) —
-    // 활성 앱 여부와 무관하게 hit-test 로 커서가 반영되게 한다. 실패해도 예외 없이
-    // false 만 반환하고, 기존 폴링(syncMacCursorPolling/macDesiredCursor)이 그대로
-    // 동작하므로 안전망은 유지된다.
-    void import('./selection/macCursorTracking').then(({ attachCursorTracking }) => {
-      if (!win.isDestroyed()) attachCursorTracking(win.getNativeWindowHandle(), () => macDesiredCursor)
-    })
   }
   win.on('closed', () => {
     if (overlayWindow === win) overlayWindow = null
