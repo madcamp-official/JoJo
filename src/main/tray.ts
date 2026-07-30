@@ -77,7 +77,7 @@ function buildTrayMenu(): Menu {
     ...(hasSelection
       ? [
           // 모드 전환(일반 ↔ 선택, 2026-07-29 트레이 노출 요청) — 대상 창이 있어야 뜻이
-          // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+Q)을 그대로 표시.
+          // 있으므로 hasSelection 일 때만 보여준다. 기존 modeShortcut(기본 Opt+`)을 그대로 표시.
           {
             label: '모드 전환',
             accelerator: accel(settings.modeShortcut),

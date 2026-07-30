@@ -65,7 +65,7 @@ export function Overlay() {
   // 애매해서 ref 로 동기적으로 체크). onOverlayClick 맨 앞에서 한 번만 소비한다.
   const justSubmittedRegionRef = useRef(false)
   // changeWatcher.ts(메인 프로세스)의 배경 재추출 콜백은 화면 변화 감지 후 800ms 대기 +
-  // 비동기 영역 재감지를 거치는데, 그 사이에 사용자가 선택 모드를 나가도(Alt+Q)
+  // 비동기 영역 재감지를 거치는데, 그 사이에 사용자가 선택 모드를 나가도(Alt+`)
   // stopChangeWatcher 는 "아직 안 fire 한" 타이머만 취소할 뿐 이미 실행 중인 콜백은
   // 못 막는다 — 그 콜백이 뒤늦게 sendExtractionStarted 를 보내면 일반 모드에서도
   // "텍스트 추출 중…" 배너가 뜨는 레이스가 실측 확인됐다. 이벤트 자체를 막을 수 없으니

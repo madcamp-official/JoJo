@@ -128,7 +128,7 @@
 **설정 화면** (섹션 순서):
 1. **LLM 선택** — GPT / Gemini / Claude 카드형 단일 선택(선택 시 체크 표시).
 2. **API 키 관리** — 선택한 LLM의 키 입력, 보기(눈 아이콘)·수정·삭제. "안전하게 암호화 저장, 외부 미전송" 안내. 키 입력/수정·provider 선택 시 **무과금 GET으로 유효성 검사 + 사용 가능 모델 목록**을 받아, 유효/무효 상태와 **사용 모델 드롭다운**을 함께 표시(미선택 시 기존 기본 모델 사용). 잔액/크레딧은 공개 API 부재로 표시하지 않고, 크레딧 부족은 질문 시 에러로 안내.
-3. **단축키 설정** — 모드 전환(일반 ↔ 선택) 키 지정. 기본 예: `Alt+Q`, 연필(변경)/휴지통(해제) 아이콘 버튼. 표시는 OS에 맞춰 macOS는 `Cmd/Ctrl`·`Opt`, 그 외는 `Ctrl`·`Alt`로 보여주며, macOS에서는 실제로 Cmd/Ctrl 두 키 모두로 동작한다.
+3. **단축키 설정** — 모드 전환(일반 ↔ 선택) 키 지정. 기본 예: `` Alt+` ``, 연필(변경)/휴지통(해제) 아이콘 버튼. 표시는 OS에 맞춰 macOS는 `Cmd/Ctrl`·`Opt`, 그 외는 `Ctrl`·`Alt`로 보여주며, macOS에서는 실제로 Cmd/Ctrl 두 키 모두로 동작한다.
 4. **문맥 범위(Byte)** — 프롬프트 제출 시 함께 넘길 앞뒤 텍스트 범위를 Byte 단위로 지정(자유 지정: 연속 슬라이더 + 숫자 입력, 상한은 고정값이 아니라 설정 화면 미리보기 텍스트 길이 기반으로 동적 계산됨 — `SettingsScreen.tsx` `BYTE_MAX`). 앞/뒤 예산을 분리해 각각 지정하거나 잠금(linked)으로 동일 값 사용. 실제로는 순수 바이트 경계에서 문장이 잘리지 않도록 문장 경계까지 확장된다. 미리보기에 "포함 제외 / 사용자 선택 영역 / 포함될 주변 범위"를 색으로 시각화.
 5. **언어 선택** — 자동 언어 감지 / 직접 선택(영어·일본어·중국어). OCR 언어 설정. 중국어는 간체/번체를 따로 고르지 않고 Tesseract 언어팩을 `chi_sim+chi_tra`로 함께 로드해 자동 판별한다.
 
@@ -403,7 +403,7 @@ JoJo/
 │   │   ├── devSeed.ts           #   [dev] .env(MAIN_VITE_*) API 키 seed
 │   │   ├── selection/          # 🅰️ 선택/추출 (담당 A)
 │   │   │   ├── index.ts         #   선택 파이프라인 오케스트레이터
-│   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Alt+Q, macOS Cmd/Ctrl 이중 등록)
+│   │   │   ├── shortcut.ts      #   모드 전환 전역 단축키(Alt+`, macOS Cmd/Ctrl 이중 등록)
 │   │   │   ├── capture.ts       #   창 목록/캡처 — win32는 네이티브 우선(desktopCapturer 폴백), macOS는 목록에 desktopCapturer·캡처는 screencapture -l + 선택 창 id 보관
 │   │   │   ├── win32Capture.ts  #   Windows 네이티브 창 열거·캡처(koffi FFI, 가려짐/최소화 대응)
 │   │   │   ├── macWindow.ts     #   macOS CoreGraphics/AppKit 바인딩(koffi) — bounds 조회·창 raise

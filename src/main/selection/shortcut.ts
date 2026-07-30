@@ -16,7 +16,7 @@ import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './sub
 import { isWebModeActive, startWebMode, stopWebMode } from './webSource'
 import { getBrowserSource } from '../extension/activeTab'
 
-// 담당 A — 모드 전환 전역 단축키 (PLAN.md §4, 기본 macOS: Option+Q / Windows: Alt+Q)
+// 담당 A — 모드 전환 전역 단축키 (PLAN.md §4, 기본 macOS: Option+` / Windows: Alt+`)
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
 let mode: AppMode = 'normal'
 let currentAccelerators: string[] = []
@@ -327,7 +327,7 @@ function expandAccelerator(accelerator: string): string[] {
   return [accelerator, accelerator.replace('CommandOrControl', 'Control')]
 }
 
-export function registerModeShortcut(accelerator = 'Alt+Q'): void {
+export function registerModeShortcut(accelerator = 'Alt+`'): void {
   if (!accelerator) return // 빈 문자열 = 단축키 해제 상태(등록 안 함)
   const accelerators = expandAccelerator(accelerator)
   accelerators.forEach((a) => globalShortcut.register(a, toggleMode))
