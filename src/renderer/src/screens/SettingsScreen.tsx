@@ -801,7 +801,7 @@ export function SettingsScreen() {
         </p>
         <p className="desc">
           지원 범위는 3단계입니다 — <strong>1단계</strong>(영어·일본어·중국어): 언어 특화
-          OCR·사전 검색·특화된 발음 표기(히라가나/병음 등 그 언어 학습에 맞는 표기)·형태소 분석기까지
+          OCR · 사전 검색 · 특화된 발음 표기(히라가나/병음 등 그 언어 학습에 맞는 표기) · 형태소 분석기까지
           전부 지원합니다. <strong>2단계</strong>: 범용 OCR과 IPA 발음, 구글 발음 검색은 되지만
           사전 검색 기능은 없습니다 — 그중 네이버 사전 연결까지 되는 언어가{' '}
           <strong>2단계(A)</strong>, 안 되는 언어가 <strong>2단계(B)</strong>입니다(아래
@@ -839,21 +839,21 @@ export function SettingsScreen() {
                 disabled={settings.language === 'auto'}
                 onChange={(e) => void patch({ language: e.target.value as AnyLanguage })}
               >
-                <optgroup label="1단계 — 특화 OCR·사전·특화된 발음·형태소 분석기 전부 지원">
+                <optgroup label="1단계 — 특화 OCR · 사전 · 특화된 발음 · 형태소 분석기 전부 지원">
                   {TIER1_CODES_SORTED.map((code) => (
                     <option key={code} value={code}>
                       {languageLabel(code)}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="2단계(A) — 네이버 사전 지원, 범용 OCR·발음(IPA)·구글">
+                <optgroup label="2단계(A) — 네이버 사전 지원, 범용 OCR · 발음(IPA) · 구글">
                   {TIER2_A_CODES.map((code) => (
                     <option key={code} value={code}>
                       {languageLabel(code)}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="2단계(B) — 네이버 사전 미지원, 범용 OCR·발음(IPA)·구글">
+                <optgroup label="2단계(B) — 네이버 사전 미지원, 범용 OCR · 발음(IPA) · 구글">
                   {TIER2_B_CODES.map((code) => (
                     <option key={code} value={code}>
                       {languageLabel(code)}
