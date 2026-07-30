@@ -451,19 +451,30 @@ export function clusterHorizontalLinesIntoColumns<T extends Rect>(lines: T[]): T
 // 검출된 줄 bbox 를 여백 없이 그대로 크롭하면 글자 획이 경계에 살짝 걸려 잘리는 경우가
 // 있다(실측 확인: 실제 페이지에서 폭 22~27px 짜리 좁은 줄 중 하나가 완전히 다른 글자로
 // 오인식됐고, 특히 아주 짧은 줄 "だが。"(높이 56px, 글자 2개)는 "なっ"로 잘못 읽혔다).
-// 가로 여백은 0으로 둔다 — 실측해보니 3px만 줘도 세로쓰기 열끼리 간격이 좁은 곳(몇 px
-// 밖에 안 되는 경우도 있음)에서 옆 열 글자 일부가 크롭에 섞여 들어와 오히려 다른 오류를
-// 만들었다(레이피아→레레이피아처럼 옆 글자 중복/탈락, 문장 앞부분 잘림). 세로는 그 위험이
-// 적어서(열 위/아래는 보통 여백이 있음) 여백을 유지한다.
-const LINE_PADDING_X = 0
-const LINE_PADDING_Y = 6
+// **줄 쌓임 방향(세로쓰기는 가로, 가로쓰기는 세로)** 여백은 0으로 둔다 — 실측해보니
+// 3px만 줘도 세로쓰기 열끼리 간격이 좁은 곳(몇 px 밖에 안 되는 경우도 있음)에서 옆 열
+// 글자 일부가 크롭에 섞여 들어와 오히려 다른 오류를 만들었다(레이피아→레레이피아처럼
+// 옆 글자 중복/탈락, 문장 앞부분 잘림). **읽기 진행 방향**(세로쓰기는 세로, 가로쓰기는
+// 가로)은 그 위험이 적어서(줄의 시작/끝 쪽은 보통 여백이 있음) 여백을 유지한다.
+//
+// 담당 A — 방향 인식 추가(2026-07-30, 사용자 제보 — "가로쓰기 줄 끝에 다른 줄의
+// 일부분이 붙어서 나옴"). 원래 이 여백은 세로쓰기 전용으로 설계돼(위 주석 원문이
+// "세로 여백"/"가로쓰기" 라는 표현을 그대로 썼었음) Y축(위/아래)에만 여백을 줬는데,
+// 가로쓰기 줄은 방향이 90도 돌아가 있어 Y축이 오히려 "줄 쌓임 방향"(위/아래 인접 줄과
+// 붙어 있는 방향, 줄간격이 좁으면 6px 여백이 옆 줄을 침범)이다 — 정확히 세로쓰기에서
+// X축 여백을 0으로 둔 것과 같은 이유로 가로쓰기도 Y축 여백을 0으로 둬야 한다. 축만
+// vertical 여부에 따라 바꾸고 로직/수치는 그대로.
+const LINE_PADDING_ACROSS = 0 // 줄 쌓임 방향(인접 줄/열 오염 위험) — 항상 0
+const LINE_PADDING_ALONG = 6 // 읽기 진행 방향(줄의 시작/끝) — 위험 적어 여백 유지
 
-export function padLine(line: Rect): Rect {
+export function padLine(line: Rect, vertical: boolean): Rect {
+  const paddingX = vertical ? LINE_PADDING_ACROSS : LINE_PADDING_ALONG
+  const paddingY = vertical ? LINE_PADDING_ALONG : LINE_PADDING_ACROSS
   return {
-    x: line.x - LINE_PADDING_X,
-    y: line.y - LINE_PADDING_Y,
-    width: line.width + LINE_PADDING_X * 2,
-    height: line.height + LINE_PADDING_Y * 2,
+    x: line.x - paddingX,
+    y: line.y - paddingY,
+    width: line.width + paddingX * 2,
+    height: line.height + paddingY * 2,
   }
 }
 
@@ -575,6 +586,18 @@ const HALF_WIDTH_DIGIT_WEIGHT = 0.5
 const LINE_EDGE_PUNCTUATION_RE = /[、。・！？…]/
 const LINE_EDGE_PUNCTUATION_WEIGHT = 0.4
 
+// 담당 A — 반각 ASCII 문장부호/공백 폭 보정 추가(2026-07-30, 사용자 제보 — "1. 科学边界"
+// 처럼 반각 숫자+마침표+공백 접두어가 있는 줄에서 뒤이은 한자("科")의 시작 위치가 실제
+// 잉크보다 한참 오른쪽으로 추정됨). 마침표(.)/공백은 전각 한자 한 칸보다 훨씬 좁게
+// 찍히는데, 기존엔 줄 양 끝(첫/마지막 글자)의 CJK 문장부호(LINE_EDGE_PUNCTUATION_RE)만
+// 좁게 잡고 반각 ASCII 문장부호/공백은 어디에 있든(줄 중간 포함) 그냥 전각 한 칸(1)으로
+// 계산했다 — "1. " 같은 접두어의 실제 폭을 과대추정해서, 그 뒤에 오는 진짜 글자의 그리드
+// 추정 시작 위치가 통째로 오른쪽으로 밀렸다(그 오차가 이후 잉크 스냅 검색 반경 밖까지
+// 벗어나면 엉뚱한 잉크 경계에 스냅되는 2차 피해로 이어짐). 위치 무관하게(줄 어디에
+// 있든) 항상 좁게 잡도록 별도 반각 전용 정규식/가중치를 추가.
+const NARROW_ASCII_RE = /[\s.,;:!?'"()[\]{}\-]/
+const NARROW_ASCII_WEIGHT = 0.4
+
 /** computeSlotWeights 의 가로쓰기 버전 — 세로쓰기 전용 함수는 그대로 두고 별도로 둔다. */
 export function computeSlotWeightsHorizontal(codepoints: string[]): number[] {
   const weights = new Array(codepoints.length).fill(1)
@@ -583,6 +606,10 @@ export function computeSlotWeightsHorizontal(codepoints: string[]): number[] {
     const ch = codepoints[i]!
     if (DIGIT_RE.test(ch)) {
       weights[i] = HALF_WIDTH_DIGIT_WEIGHT
+      continue
+    }
+    if (NARROW_ASCII_RE.test(ch)) {
+      weights[i] = NARROW_ASCII_WEIGHT
       continue
     }
     if ((i === 0 || i === lastIndex) && LINE_EDGE_PUNCTUATION_RE.test(ch)) {
@@ -826,7 +853,7 @@ async function recognizeOrderedLines(
     orderedLines.map(async (line) => {
       const lineStart = Date.now()
       try {
-        return await recognizeWithPaddle(image, language, padLine(line), recModel)
+        return await recognizeWithPaddle(image, language, padLine(line, vertical), recModel)
       } finally {
         perLineTimings.push(Date.now() - lineStart)
       }
@@ -913,6 +940,14 @@ async function recognizeOrderedLines(
   const gridStart = Date.now()
   const grouped = await Promise.all(
     orderedLines.map(async (line, i) => {
+      // 담당 A — 잉크 스냅 재활성화(2026-07-30, 재수정). 한 번 껐다가(반각 ASCII
+      // 문장부호/공백 가중치 버그 — "科"의 그리드 추정 시작 위치 자체가 크게 틀려서
+      // 잉크 스냅 검색 반경 밖 엉뚱한 경계에 스냅됐던 것) 다시 켜보니 그 줄은 살짝
+      // 나아졌지만 오히려 다른 여러 줄의 박스가 짧아지는 회귀가 생겼다(사용자 확인) —
+      // 잉크 스냅이 대부분의 정상 줄에서는 그리드 추정치를 실제 잉크에 맞춰 보정해주는
+      // 순기능이 있었던 것으로 보임. 근본 원인(위 NARROW_ASCII_RE/NARROW_ASCII_WEIGHT)을
+      // 고쳤으니 "科"의 그리드 추정 자체가 훨씬 정확해져 잉크 스냅이 엉뚱한 경계에
+      // 걸릴 가능성도 같이 줄었을 것으로 보고 다시 켠다.
       const words = await groupCjkCharsGrid(line, finalTexts[i]!, language, vertical, typicalCellSize, vertical ? null : image)
       // 담당 A — 가로쓰기 단어 단위 hover 를 시도했었는데(2026-07-29), 잉크 위치 기반
       // 박스 계산이 아직 튜닝 중이라 우선 세로쓰기와 동일하게 줄 단위로 되돌린다(사용자

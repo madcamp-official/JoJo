@@ -235,7 +235,7 @@ async function fillInterLineGaps(
     if (gapHeight < typicalCellSize * MIN_SUSPICIOUS_GAP_RATIO) continue // 정상적인 줄 사이 여백 수준
     const gapRect: Rect = { x: cur.x, y: gapTop, width: cur.width, height: gapHeight }
     if (!hasInkInRegion(image, gapRect)) continue
-    const rawWords = await recognizeWithPaddle(image, 'ja', padLine(gapRect))
+    const rawWords = await recognizeWithPaddle(image, 'ja', padLine(gapRect, true))
     const units = rawWords?.filter((w) => w.bbox) ?? []
     // PaddleOCR 로 재인식한 텍스트는 NDLOCR 원본과 달리 normalizeDashes 를 아직 안 거쳤다
     // (실측 확인: PaddleOCR 은 다시(―) 를 "--" 가 아니라 반각 하이픈 "-" 한 글자로 인식
@@ -472,7 +472,7 @@ async function resolveSuspiciousLines(
   return Promise.all(
     lines.map(async (line): Promise<LineCandidate> => {
       if (!line.suspicious) return line
-      const rawWords = await recognizeWithPaddle(image, 'ja', padLine(line))
+      const rawWords = await recognizeWithPaddle(image, 'ja', padLine(line, true))
       const units = rawWords?.filter((w) => w.bbox) ?? []
       // normalizeDashes 주석 참고 — PaddleOCR 텍스트는 아직 정규화 전이라 여기서 거친다.
       const paddleText = normalizeDashes(units.map((u) => u.text).join(''))

@@ -92,7 +92,18 @@ const LATIN_CHAR_RE = /[A-Za-z]/
 const LATIN_CANDIDATES: AnyLanguage[] = ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'tr', 'vi', 'ro', 'cs', 'hu', 'sv', 'da', 'no', 'fi', 'hr', 'sq', 'tl', 'az', 'ca', 'et', 'eu', 'is', 'lt', 'lv', 'ms', 'sk', 'sl']
 
 /** 비라틴 후보군에서 재판별이 실패했을 때, 실은 라틴 스크립트였는지 영어 언어팩으로
- *  교차 확인한다. 라틴이 맞으면 그 언어를, 아니면 null 을 반환한다. */
+ *  교차 확인한다. 라틴이 맞으면 그 언어를, 아니면 null 을 반환한다.
+ *
+ *  담당 A — eld 통과 요구 제거(2026-07-30, 재수정 — 사용자 제보 "기울임체 영어가 여전히
+ *  아랍어로 판별됨"). 예전엔 문자 비율(라틴 70% 이상) 조건을 통과해도 eld 가 그 텍스트를
+ *  LATIN_CANDIDATES 중 하나로 콕 집어 맞혀야만 재분류했는데, 이 안전망이 정확히 필요한
+ *  상황(화면 캡처는 자막보다 표본이 짧아 단어 몇 개뿐인 경우 등)에서 eld 가 확신 있게
+ *  판별을 못 해 그 요구 조건에서 걸려 안전망 자체가 무력화됐다 — 이 함수의 목적은
+ *  "구체적으로 어떤 라틴 언어인지"가 아니라 "OSD 의 스크립트 판정 자체가 틀렸는지"만
+ *  확인하면 충분하므로, eld 가 성공하면 그 세부 언어를 쓰고 실패해도 문자 비율만으로
+ *  이미 충분한 근거이니 대표 언어(LATIN_CANDIDATES[0], en)로 확정한다 — 더 이상 null 을
+ *  반환하지 않는다(비율 임계값 자체를 못 넘긴 경우만 null).
+ */
 async function crosscheckLatin(target: Buffer): Promise<AnyLanguage | null> {
   try {
     const worker = await getProbeWorker(getOcrLangCode('en'))
@@ -101,7 +112,7 @@ async function crosscheckLatin(target: Buffer): Promise<AnyLanguage | null> {
     const latinCount = [...nonSpace].filter((ch) => LATIN_CHAR_RE.test(ch)).length
     if (nonSpace.length === 0 || latinCount / nonSpace.length < LATIN_CROSSCHECK_RATIO) return null
     const raw = detectRawLanguage(data.text)
-    return LATIN_CANDIDATES.find((c) => c === raw) ?? null
+    return LATIN_CANDIDATES.find((c) => c === raw) ?? LATIN_CANDIDATES[0]!
   } catch (err) {
     console.error('[langDetect] 라틴 교차 확인 오류 — 건너뜀:', err)
     return null
@@ -124,6 +135,29 @@ async function resolveAmbiguousScript(target: Buffer, candidates: AnyLanguage[])
     const raw = detectRawLanguage(data.text)
     const resolved = candidates.find((c) => c === raw)
     if (resolved) {
+      // 담당 A — eld 성공 시에도 라틴 오판정 재검토(2026-07-30, 사용자 제보 — 영어가
+      // 이번엔 러시아어로 판별됨). 로마자와 키릴 문자는 모양이 같은 글자가 많아(O/A/E
+      // 등), 영어 이미지를 러시아어 언어팩으로 강제 인식시키면 그럴듯한 키릴 문자가
+      // 나오고 eld 가 그걸 진짜 러시아어로 확신 있게 오판할 수 있다 — 이 경우 위에서
+      // `resolved`가 바로 성공해버려서, eld 실패 시에만 도는 아래 라틴 교차 확인까지
+      // 도달을 못 했다. eld 가 성공했어도 그 원문 자체가 라틴 문자 위주면(모양만 비슷한
+      // 가짜 키릴/아랍 문자였을 가능성) 한 번 더 확인한다 — 라틴 후보군(candidates 에
+      // en 포함) 자체는 이 문제와 무관하므로 대상에서 제외.
+      if (!candidates.includes('en')) {
+        const nonSpaceCheck = data.text.replace(/\s/g, '')
+        const latinCount = [...nonSpaceCheck].filter((ch) => LATIN_CHAR_RE.test(ch)).length
+        const looksLatin = nonSpaceCheck.length > 0 && latinCount / nonSpaceCheck.length >= LATIN_CROSSCHECK_RATIO
+        if (looksLatin) {
+          console.log(
+            `[langDetect] eld 재판별 성공(${raw})했지만 원문이 라틴 문자 위주(${latinCount}/${nonSpaceCheck.length}) — 라틴 교차 확인 재검토`,
+          )
+          const latin = await crosscheckLatin(target)
+          if (latin) {
+            console.log(`[langDetect] 라틴 교차 확인 성공 — eld 오판으로 보고 ${latin} 로 재분류`)
+            return latin
+          }
+        }
+      }
       console.log(`[langDetect] 스크립트 내 언어 재판별: ${raw} → ${resolved}`)
       return resolved
     }
