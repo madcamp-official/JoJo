@@ -1,7 +1,7 @@
 import { nativeImage } from 'electron'
 import { createWorker, OEM, type Worker } from 'tesseract.js'
 import type { AnyLanguage, Rect } from '@shared/types'
-import { detectHanziVariant, detectRawLanguage } from '@shared/languageDetect'
+import { detectHanziVariant, detectRawLanguage, HAN_CHAR_RE } from '@shared/languageDetect'
 import { getOcrLangCode } from '@shared/languages'
 import { getLanguageOverride } from '../settingsStore'
 
@@ -61,11 +61,23 @@ async function detectChineseScript(target: Buffer): Promise<'zh-Hans' | 'zh-Hant
   }
 }
 
+// 담당 A — 라틴 계열 오판정에 대한 한자 교차 확인 임계값(2026-07-30, 사용자 제보 —
+// 중국어 세로쓰기 화면에 애매한 글자 하나(×/X 등)가 섞여 있으면 OSD가 전체를 Latin
+// 스크립트로 오판하고, 그 뒤 대표 언어(영어)로 대충 인식해봐도 실제 텍스트가 거의 없어
+// eld 재판별도 엉뚱한 결과를 내거나 실패해 결국 영어로 폴백됐다). 대표 언어 확률용 rough
+// 인식 결과에 한자가 이 비율 이상 섞여 있으면(원래 한자 위주 화면인데 애매한 글자 하나에
+// OSD 가 낚인 경우) 라틴 계열이 아니라 중국어로 재분류한다 — 과반(0.5)으로 잡아서, 진짜
+// 라틴 문자권 텍스트에 어쩌다 한자 하나가 섞인 정상적인 경우까지 오검출하지 않게 한다.
+const HAN_CROSSCHECK_RATIO = 0.5
+
 /** 한 스크립트를 공유하는 언어가 여럿일 때(예: 라틴 문자), 첫 번째 후보를 "러프 인식용
  *  대표 언어팩"으로 써서 텍스트를 뽑고, eld로 그 텍스트의 실제 언어를 재판별한다. eld가
- *  이 스크립트 후보 목록 밖의 언어를 감지하거나 실패하면 대표 언어(candidates[0])로
- *  폴백한다 — 화면 캡처는 자막보다 텍스트 표본이 훨씬 짧을 수 있어(단어 하나 등) eld가
- *  실패할 가능성이 자막 경로보다 높다는 점을 감안한 안전망. */
+ *  이 스크립트 후보 목록 밖의 언어를 감지하거나 실패하면, 그 rough 인식 결과 자체에
+ *  한자가 실제로 상당수 섞여 있는지 교차 확인한다(HAN_CROSSCHECK_RATIO) — OSD 의 최초
+ *  스크립트 판정 자체가 틀렸을 가능성을 마지막으로 한 번 더 검토하는 안전망. 그것도
+ *  아니면 대표 언어(candidates[0])로 폴백한다 — 화면 캡처는 자막보다 텍스트 표본이
+ *  훨씬 짧을 수 있어(단어 하나 등) eld 가 실패할 가능성이 자막 경로보다 높다는 점을
+ *  감안한 안전망. */
 async function resolveAmbiguousScript(target: Buffer, candidates: AnyLanguage[]): Promise<AnyLanguage> {
   const representative = candidates[0]!
   try {
@@ -76,6 +88,15 @@ async function resolveAmbiguousScript(target: Buffer, candidates: AnyLanguage[])
     if (resolved) {
       console.log(`[langDetect] 스크립트 내 언어 재판별: ${raw} → ${resolved}`)
       return resolved
+    }
+    const nonSpace = data.text.replace(/\s/g, '')
+    const hanCount = [...nonSpace].filter((ch) => HAN_CHAR_RE.test(ch)).length
+    if (nonSpace.length > 0 && hanCount / nonSpace.length >= HAN_CROSSCHECK_RATIO) {
+      const variant = await detectChineseScript(target)
+      console.log(
+        `[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) + 한자 교차 확인(${hanCount}/${nonSpace.length}) — ${variant} 로 재분류`,
+      )
+      return variant
     }
     console.log(`[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) — 대표 언어(${representative})로 폴백`)
     return representative

@@ -41,12 +41,18 @@ const WH_MOUSE_LL = 14
 const WM_KEYDOWN = 0x0100
 const WM_SYSKEYDOWN = 0x0104
 const WM_LBUTTONDOWN = 0x0201
+const WM_LBUTTONUP = 0x0202
 const WM_RBUTTONDOWN = 0x0204
 const WM_MBUTTONDOWN = 0x0207
 const WM_MOUSEWHEEL = 0x020a
 const WM_MOUSEHWHEEL = 0x020e // 가로 스크롤(트랙패드 등)
 
 let lastQualifyingInputAt = 0
+// 담당 A — 왼쪽 버튼이 지금 눌려 있는지(드래그 진행 중 판정, 2026-07-30). changeWatcher 가
+// "드래그를 잡고 있는 동안"의 화면(선택 하이라이트 등 일시적 상태)으로 추출을 시작하지
+// 않게 게이트로 쓴다 — 드래그 중엔 화면이 1초 이상 안정돼 보여도 손을 떼면 다시 바뀔
+// 가능성이 높다(사용자 보고: 드래그하다 취소했더니 드래그 화면으로 추출이 돌았음).
+let primaryButtonDown = false
 let keyboardHook: unknown = null
 let mouseHook: unknown = null
 let started = false
@@ -62,6 +68,11 @@ function markInput(): void {
  */
 export function getLastQualifyingInputTime(): number {
   return lastQualifyingInputAt
+}
+
+/** 왼쪽 마우스 버튼이 현재 눌려 있는지(드래그 진행 중 여부) — 훅이 없으면 항상 false. */
+export function isPrimaryButtonDown(): boolean {
+  return primaryButtonDown
 }
 
 /** 앱 시작 시(index.ts) 한 번 호출 — 이미 설치돼 있으면 무시(idempotent). Windows 전용. */
@@ -81,15 +92,18 @@ export function startInputHook(): void {
 
     const mouseProc = koffi.register(
       (nCode: number, wParam: number, lParam: unknown) => {
-        if (
-          nCode === 0 &&
-          (wParam === WM_LBUTTONDOWN ||
+        if (nCode === 0) {
+          if (
+            wParam === WM_LBUTTONDOWN ||
             wParam === WM_RBUTTONDOWN ||
             wParam === WM_MBUTTONDOWN ||
             wParam === WM_MOUSEWHEEL ||
-            wParam === WM_MOUSEHWHEEL)
-        ) {
-          markInput()
+            wParam === WM_MOUSEHWHEEL
+          ) {
+            markInput()
+          }
+          if (wParam === WM_LBUTTONDOWN) primaryButtonDown = true
+          else if (wParam === WM_LBUTTONUP) primaryButtonDown = false
         }
         return CallNextHookEx(null, nCode, wParam, lParam)
       },
@@ -116,5 +130,6 @@ export function stopInputHook(): void {
     UnhookWindowsHookEx(mouseHook)
     mouseHook = null
   }
+  primaryButtonDown = false
   started = false
 }

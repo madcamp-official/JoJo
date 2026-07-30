@@ -24,6 +24,12 @@ export interface CachedExtraction {
   language: AnyLanguage
   source: SelectionSource
   extraction: 'direct' | 'ocr'
+  /** 자동 탐지 블록 시각화용(오버레이 DIP 정렬 완료) — 표시 조건에 안 걸리면 빈 배열.
+   *  담당 A(2026-07-30): 예전엔 runExtraction 안에서 바로 sendDebugBlocks 했는데, 그러면
+   *  폐기된(abandonInFlightExtraction) 추출도 커밋 가드와 무관하게 오염된 화면 기준
+   *  블록을 오버레이에 쏴버렸다 — 결과에 담아 커밋 시점(가드 안)에만 보내고, 캐시
+   *  복원(changeWatcher 복귀 판정) 때도 같이 복원할 수 있게 한다. */
+  debugBlocks: Rect[]
 }
 
 let cached: CachedExtraction | null = null
@@ -72,10 +78,11 @@ async function runExtraction(): Promise<CachedExtraction> {
   // 보내(디버깅 편의), words 와 같은 좌표 보정(물리 픽셀 → 오버레이 DIP)이 필요해서
   // alignWordsToOverlay 를 그대로 재사용한다(Rect 를 텍스트 없는 가짜 Word 로 감싸서
   // 넘기고 bbox 만 다시 뺌).
+  let debugBlocks: Rect[] = []
   if (import.meta.env.DEV || (getSettings().autoDetectRegion && getRegionSource() === 'auto')) {
     const blocks = getLastExtractionBlocks()
     const aligned = await alignWordsToOverlay(blocks.map((bbox) => ({ text: '', bbox })))
-    sendDebugBlocks(aligned.map((w) => w.bbox).filter((b): b is Rect => b !== undefined))
+    debugBlocks = aligned.map((w) => w.bbox).filter((b): b is Rect => b !== undefined)
   }
 
   const alignedWords = await alignWordsToOverlay(extracted.words)
@@ -101,6 +108,7 @@ async function runExtraction(): Promise<CachedExtraction> {
     language: extracted.language,
     source: { kind: 'ocr' },
     extraction: 'ocr',
+    debugBlocks,
   }
 }
 
@@ -192,6 +200,7 @@ export function refreshExtractionCache(): Promise<void> {
         cached = result
         inFlight = null
         sendOverlayWords(result.words) // 오버레이가 실제 단어 bbox 로 hover/클릭 판정하게 통지
+        sendDebugBlocks(result.debugBlocks) // 자동 탐지 블록 시각화도 커밋 가드 안에서만(CachedExtraction.debugBlocks 주석)
       }
     })
     .catch((err) => {
@@ -227,6 +236,28 @@ export function invalidateExtractionCache(): void {
 /** 직전 회차 추출 결과 조회 — 다음 추출의 문맥 재사용 등에 쓴다. 없으면(첫 회차 등) null. */
 export function getPreviousExtraction(): CachedExtraction | null {
   return previousExtraction
+}
+
+/** 담당 A — 현재 캐시를 부작용 없이 들여다본다(2026-07-30). getExtraction() 과 달리
+ *  cached/inFlight 가 둘 다 없어도 새 추출을 트리거하지 않는다 — changeWatcher.ts 가
+ *  "재추출 없이 캐시 복원만" 하려는 지점에서 getExtraction() 을 썼다가, 아직 캐시가
+ *  없는 타이밍에 걸리면 changeWatcher 의 regionRefreshInFlight 잠금과 무관하게 별도
+ *  추출이 하나 더 시작돼 워커 풀에 요청이 겹치는(실측: 정상 대비 몇 배 느려짐) 문제가
+ *  있었다. */
+export function peekCachedExtraction(): CachedExtraction | null {
+  return cached
+}
+
+/** 담당 A — 진행 중인 추출을 "폐기" 처리한다(2026-07-30, 사용자 제보 — 드래그 하이라이트가
+ *  덮인 화면으로 시작된 추출이, 드래그 취소로 화면이 원상복구된 뒤에도 계속 돌아서 (a)
+ *  그 사이 클릭하면 getExtraction() 이 이 진행 중 Promise 를 반환해 팝업이 최대 1분씩
+ *  대기했고 (b) 완료되면 오염된(하이라이트가 텍스트를 가린) 결과가 멀쩡한 캐시와
+ *  오버레이를 덮어썼다). 이미 시작된 비동기 작업 자체는 끊을 수 없지만, inFlight 참조만
+ *  비우면 refreshExtractionCache 의 커밋 가드(`if (inFlight === promise)`)가 결과를
+ *  버린다 — "더 새 호출로 덮어써서 이전 결과를 무시"하는 기존 메커니즘과 동일한 원리로,
+ *  새 추출 없이 폐기만 하는 버전. 기존 cached 는 그대로 남아 클릭이 즉시 처리된다. */
+export function abandonInFlightExtraction(): void {
+  inFlight = null
 }
 
 /**

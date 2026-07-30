@@ -15,6 +15,7 @@ type KFn = (...args: unknown[]) => unknown
 
 let cg: ReturnType<typeof koffi.load> | null = null
 let CGEventSourceSecondsSinceLastEventType: KFn | null = null
+let CGEventSourceButtonState: KFn | null = null
 
 const kCGEventSourceStateCombinedSessionState = 0
 
@@ -39,6 +40,9 @@ function ensureCoreGraphics(): boolean {
     cg = koffi.load('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
     CGEventSourceSecondsSinceLastEventType = cg.func(
       'double CGEventSourceSecondsSinceLastEventType(int32_t stateID, uint32_t eventType)',
+    )
+    CGEventSourceButtonState = cg.func(
+      'bool CGEventSourceButtonState(int32_t stateID, uint32_t button)',
     )
     return true
   } catch {
@@ -68,5 +72,22 @@ export function getMacLastQualifyingInputTime(): number {
     return Date.now() - minSeconds * 1000
   } catch {
     return 0
+  }
+}
+
+const kCGMouseButtonLeft = 0
+
+/**
+ * 왼쪽 마우스 버튼이 현재 눌려 있는지(드래그 진행 중 여부) — inputHook.ts 의
+ * isPrimaryButtonDown 과 동일한 게이트의 mac 구현(2026-07-30). 훅/이벤트 탭 없이
+ * 현재 버튼 상태만 질의하는 공개 API(CGEventSourceButtonState)라 권한이 필요 없다.
+ * 조회 실패 시 false(게이트 없이 동작 — win32 쪽과 동일한 실패 계약).
+ */
+export function isMacPrimaryButtonDown(): boolean {
+  if (process.platform !== 'darwin' || !ensureCoreGraphics()) return false
+  try {
+    return Boolean(CGEventSourceButtonState!(kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft))
+  } catch {
+    return false
   }
 }
