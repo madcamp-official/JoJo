@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react'
-import ePub, { type Rendition } from 'epubjs'
+import ePub, { type Book, type Rendition } from 'epubjs'
 import type { ViewerFilePayload } from '@shared/types'
 import type { PageState, PagerHandle, ViewerMode } from './pager'
 import type { TocEntry } from './Toc'
@@ -99,6 +99,7 @@ export function EpubView({
   onPageState,
   onToc,
   onTurn,
+  onSearchable,
 }: {
   file: ViewerFilePayload
   style: ViewerStyle
@@ -109,6 +110,8 @@ export function EpubView({
   onToc: (entries: TocEntry[]) => void
   /** 방향키로 넘기기 — iframe 안에서 누른 키는 부모 창까지 안 오므로 여기서 직접 전달한다. */
   onTurn: (dir: 'next' | 'prev') => void
+  /** 책 전체 검색에 필요한 것들을 화면에 넘겨준다(EpubView 만 book 을 들고 있다). */
+  onSearchable: (s: { book: Book; display: (href: string) => Promise<unknown>; host: () => HTMLElement | null } | null) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const renditionRef = useRef<Rendition | null>(null)
@@ -145,6 +148,11 @@ export function EpubView({
       flow: mode === 'page' ? 'paginated' : 'scrolled-doc',
     })
     renditionRef.current = rendition
+    onSearchable({
+      book,
+      display: (href) => rendition.display(href) as Promise<unknown>,
+      host: () => hostRef.current,
+    })
 
     // 챕터(섹션)가 iframe 에 실릴 때마다 불린다 — 새 문서에도 글자 크기를 입히고,
     // 스크롤 모드면 휠을 바깥 스크롤 컨테이너로 넘겨준다(바로 아래 주석).
@@ -223,7 +231,7 @@ export function EpubView({
       rendition.destroy()
       book.destroy()
     }
-  }, [file, mode, onPageState, onToc])
+  }, [file, mode, onPageState, onToc, onSearchable])
 
   // 글자 크기·배색 — epubjs 는 내용이 iframe 안에 있어 바깥 CSS 가 안 닿는다. 직접
   // 주입해야 한다(글자 크기는 위 fontCss 주석 참고 — themes.fontSize() 는 책 CSS 에

@@ -992,6 +992,12 @@ button:disabled { cursor: not-allowed; }
 .viewer-screen.dark .style-divider { background: #39414f; }
 .viewer-screen.dark .style-toggle { border-color: #454d5c; }
 .viewer-screen.dark .style-toggle button { background: #2a3140; color: #9aa3b2; }
+/* 선택 상태는 다크에서도 칠해야 한다 — 위 다크 규칙(.viewer-screen.dark .style-toggle
+   button)이 라이트의 `.style-toggle button.on` 보다 특이도가 높아 선택 색을 덮어버렸다
+   (다크에서 어떤 버튼이 켜져 있는지 안 보이던 원인). 같은 특이도로 다시 지정한다. */
+.viewer-screen.dark .style-toggle button.on { background: var(--theme); color: #fff; }
+.viewer-screen.dark .style-toggle button:hover { background: rgba(124, 58, 237, 0.22); }
+.viewer-screen.dark .style-toggle button.on:hover { background: var(--theme); }
 .viewer-screen.dark .style-toggle button + button { border-left-color: #454d5c; }
 .viewer-screen.dark .viewer-style-panel input[type='range'] { background: #414a59; }
 .viewer-screen.dark .viewer-style-btn { color: #9aa3b2; }
@@ -1029,3 +1035,33 @@ button:disabled { cursor: not-allowed; }
 .page-jump input:focus { outline: none; border-color: var(--theme); color: var(--theme); }
 .page-jump-total { font-variant-numeric: tabular-nums; }
 .viewer-screen.dark .page-jump input { border-color: #454d5c; }
+
+/* ── 본문 검색 패널 ─────────────────────────────────────────────────────────
+   목차와 같은 자리·같은 껍데기(.viewer-toc)를 쓰고, 안쪽 구성만 다르다. */
+.search-input-row { padding: 10px 14px 8px; flex: none; }
+.search-input-row input {
+  width: 100%; padding: 7px 10px; font: inherit; font-size: 13px; color: inherit;
+  background: transparent; border: 1px solid #e2e5ea; border-radius: 8px;
+}
+.search-input-row input:focus { outline: none; border-color: var(--theme); }
+.search-status { padding: 0 14px 8px; font-size: 11.5px; color: #9ca3af; flex: none; }
+
+.search-hit {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  font: inherit; color: inherit; cursor: pointer; padding: 9px 14px; line-height: 1.45;
+  border-bottom: 1px solid #f1f2f5;
+}
+.search-hit:hover { background: rgba(124, 58, 237, 0.07); }
+.search-hit-loc { display: block; font-size: 11px; color: #9ca3af; margin-bottom: 3px; }
+.search-hit-text { display: block; font-size: 12.5px; color: #4b5563; }
+.search-hit-text mark { background: rgba(124, 58, 237, 0.22); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+/* 결과를 누르면 그 문단/줄을 잠깐 밝혀준다 — 매치 글자에 태그를 씌우면 본문 DOM 이
+   바뀌어 호버 좌표(offset 기준)가 흔들리므로 클래스만 얹는다(search.ts 주석). */
+@keyframes search-flash-fade { from { background: rgba(124, 58, 237, 0.28); } to { background: transparent; } }
+.search-flash { animation: search-flash-fade 1.6s ease-out; border-radius: 3px; }
+
+.viewer-screen.dark .search-input-row input { border-color: #454d5c; }
+.viewer-screen.dark .search-hit { border-bottom-color: #333a47; }
+.viewer-screen.dark .search-hit-text { color: #c3c9d4; }
+.viewer-screen.dark .search-hit:hover { background: rgba(124, 58, 237, 0.2); }

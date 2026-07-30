@@ -226,20 +226,23 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     })
     return
   }
-  // 자막(미디어)/웹(텍스트 위주) 페이지였다가 그 외 페이지로 바뀐 경우(예: 유튜브 영상을
-  // 보다가 채널/홈으로 이동, 또는 브라우저 창 인식 자체가 안 되는 경우) — OCR 로 자동
-  // 전환하지 않고 선택 모드 자체를 끈다. 그 페이지를 벗어난 건 "이 페이지도 계속
-  // 선택하고 싶다"는 의도가 아닐 가능성이 커서, 엉뚱한 페이지에 OCR 영역 지정 드래그가
-  // 뜨는 것보다 조용히 꺼지는 쪽이 낫다고 판단.
-  if (wasDirectExtraction) {
-    exitSelectMode()
-    return
-  }
   // macOS 미리보기 PDF — 접근성(AX) 직접 추출 경로(pdfAxSource.ts). 캡처·OCR·영역 지정이
   // 전부 필요 없어서 배너도 띄우지 않는다. 텍스트가 안 나오면(스캔본 PDF, 접근성 권한
   // 없음) 콜백으로 알려주므로 web 분기와 동일하게 처리한다 — direct 추출 상태에서
   // 넘어온 것이면 조용히 선택 모드를 끄고, 방금 진입한 것이면 OCR 로 폴백한다.
+  //
+  // **이 분기는 반드시 아래 `wasDirectExtraction → exitSelectMode` 보다 먼저 와야 한다**
+  // (2026-07-31, 실사용 제보 — "내가 띄우면 호버박스가 이상한데 너가 띄우면 멀쩡하다"의
+  // 원인): `wasDirectExtraction` 에는 `isPdfAxModeActive()` 도 포함돼 있어서, PDF 모드가
+  // 이미 켜져 있는 상태로 재판정이 돌면(확장이 붙어 있으면 배경 브라우저의 탭 변화마다
+  // reevaluate.ts 가 이 함수를 다시 부른다 — 선택한 창이 Preview 여도 호출된다) 판정
+  // 결과가 여전히 direct/pdf 인데도 아래 분기에 먼저 걸려 선택 모드가 통째로 꺼졌다.
+  // 확장이 연결 안 된 환경에서는 재판정 자체가 안 돌아 증상이 안 나타난다.
   if (decision.mode === 'direct' && decision.source.kind === 'pdf') {
+    // 이미 PDF 모드로 잘 돌고 있는데 같은 판정이 또 온 것뿐이면(위 재판정 경로) 아무것도
+    // 하지 않는다 — 껐다 켜면 그때마다 오버레이 단어가 비워졌다 다시 채워져 호버박스가
+    // 깜빡이고, 재추출이 겹쳐 낡은 좌표가 잠깐 남는다.
+    if (isPdfAxModeActive()) return
     stopSubtitleMode()
     stopWebMode()
     stopPdfAxMode()
@@ -249,6 +252,15 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
       if (wasDirectExtraction) exitSelectMode()
       else startOcrFallback(epoch)
     })
+    return
+  }
+  // 자막(미디어)/웹(텍스트 위주) 페이지였다가 그 외 페이지로 바뀐 경우(예: 유튜브 영상을
+  // 보다가 채널/홈으로 이동, 또는 브라우저 창 인식 자체가 안 되는 경우) — OCR 로 자동
+  // 전환하지 않고 선택 모드 자체를 끈다. 그 페이지를 벗어난 건 "이 페이지도 계속
+  // 선택하고 싶다"는 의도가 아닐 가능성이 커서, 엉뚱한 페이지에 OCR 영역 지정 드래그가
+  // 뜨는 것보다 조용히 꺼지는 쪽이 낫다고 판단.
+  if (wasDirectExtraction) {
+    exitSelectMode()
     return
   }
   // OCR/direct 경로(자막/웹 모드였던 적이 없는 일반 진입) — 기존 영역/OCR 흐름으로.
