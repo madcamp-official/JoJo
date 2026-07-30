@@ -4,9 +4,9 @@
 // 살짝만 움직여도 hover/클릭이 어긋났다 — 페이지 안에서 직접 그리면 지연이 없고, 뷰포트
 // 좌표를 그대로 쓸 수 있어 브라우저 크롬 오프셋 보정도 필요 없다. 스타일은
 // shared/highlightStyle.ts(오버레이와 동일 소스)를 그대로 읽어 인라인 스타일로 적용한다.
-import { WORD_BOX_STYLE } from '@shared/highlightStyle'
 import type { RectPx, SubLine } from '@shared/extension'
 import { groupRectsByLine } from '@shared/wordMapping'
+import { hideHoverBox, showHoverBoxesAt } from './hoverBox'
 import { getWordSegments } from './wordSegments'
 
 export interface WordHit {
@@ -20,96 +20,11 @@ export interface WordHit {
 // 받으면(content.ts 경유, wordSegments.ts 에 캐시) hover 히트테스트 시 같은 세그먼트에
 // 속한 글자들의 rect 를 하나로 묶어 보여준다. 아직 분석 결과가 없는 줄은 글자 단위로
 // 폴백한다.
-
-// 화면 줄바꿈에 걸친 세그먼트는 박스 하나가 아니라 줄 개수만큼 필요하다(wordAtPoint의
-// rects 참고) — 풀로 관리해 매번 만들고 지우지 않는다.
-let boxes: HTMLDivElement[] = []
-
-// 전체화면 API는 전체화면으로 전환된 엘리먼트(보통 플레이어 div, <html> 전체가 아님)와 그
-// 자손만 "top layer"에 그린다 — 박스가 document.documentElement 에 그대로 붙어있으면 그
-// top layer 바깥이라 전체화면 중엔 안 보인다(실사용 확인). 지금 전체화면 엘리먼트가 있으면
-// 그 안에, 없으면 documentElement 에 붙인다.
-function boxParent(): HTMLElement {
-  return (document.fullscreenElement as HTMLElement | null) ?? document.documentElement
-}
-
-function createBox(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.className = 'nuance-word-highlight'
-  Object.assign(el.style, {
-    position: 'fixed',
-    boxSizing: 'border-box',
-    border: `${WORD_BOX_STYLE.borderWidth}px solid ${WORD_BOX_STYLE.borderColor}`,
-    background: WORD_BOX_STYLE.background,
-    borderRadius: `${WORD_BOX_STYLE.borderRadius}px`,
-    pointerEvents: 'none',
-    zIndex: '2147483647',
-    display: 'none',
-  })
-  boxParent().appendChild(el)
-  return el
-}
-
-function ensureBoxes(count: number): HTMLDivElement[] {
-  while (boxes.length < count) boxes.push(createBox())
-  return boxes
-}
-
-// 전체화면 진입/해제 시 박스를 새 top layer 대상 안으로 옮긴다(appendChild 는 이미 자식인
-// 노드를 다시 넣으면 같은 부모 안에서 이동만 하므로 항상 안전하게 재부착된다).
-function onFullscreenChange(): void {
-  for (const el of boxes) boxParent().appendChild(el)
-}
-
-function hideBox(): void {
-  for (const el of boxes) el.style.display = 'none'
-  setHoveringCursor(false)
-}
-
-// rects 는 줄마다 하나씩(groupRectsByLine 결과) — 화면 줄바꿈에 걸친 세그먼트는 배열
-// 길이가 2 이상이 된다.
-function showBoxesAt(rects: RectPx[]): void {
-  const els = ensureBoxes(rects.length)
-  const p = WORD_BOX_STYLE.padding
-  rects.forEach((rect, i) => {
-    const el = els[i]!
-    el.style.left = `${rect.x - p}px`
-    el.style.top = `${rect.y - p}px`
-    el.style.width = `${rect.width + p * 2}px`
-    el.style.height = `${rect.height + p * 2}px`
-    el.style.display = 'block'
-  })
-  for (let i = rects.length; i < els.length; i++) els[i]!.style.display = 'none'
-  setHoveringCursor(rects.length > 0)
-}
-
-// 박스 자신은 pointerEvents:none 이라 실제 마우스는 유튜브 자막 DOM(밑에 깔린 요소)이
-// 받는다 — 그래서 박스에 cursor 를 줘도 반영이 안 되고, 대신 문서 전체 cursor 를 강제해야
-// 한다. 처음엔 `document.documentElement.style.setProperty('cursor', 'pointer', 'important')`
-// 로 했으나 실사용 확인 결과 안 먹혔다(유튜브는 진행바 드래그용 grab, 넷플릭스는 자체
-// 커서를 자막 컨테이너/조상에 인라인으로 직접 지정해둔 경우가 있어서) — CSS 상속은 "그
-// 요소 자신에게 지정된 값이 하나도 없을 때만" 일어나므로, 조상(html)의 인라인
-// `!important` 값이 있어도 자손 요소 자신에게 어떤 값이든(비-important 라도) 지정돼
-// 있으면 그게 그대로 이기고 상속 자체가 발생하지 않는다 — 조상의 !important 는 자손의
-// "값 없음" 상태를 이길 대상이 없어 아무 효과가 없다. 대신 `*` 전체 선택자에 `!important`
-// 를 건 스타일시트 규칙을 주입하면, 그 규칙이 각 자손 요소에 직접 매치돼(상속이 아니라
-// 매치) 자손의 비-important 인라인 스타일까지 이긴다.
-let cursorOverridden = false
-let cursorStyleEl: HTMLStyleElement | null = null
-function ensureCursorStyle(): HTMLStyleElement {
-  if (cursorStyleEl) return cursorStyleEl
-  const el = document.createElement('style')
-  el.textContent = 'html.nuance-hover-pointer, html.nuance-hover-pointer * { cursor: pointer !important; }'
-  document.documentElement.appendChild(el)
-  cursorStyleEl = el
-  return el
-}
-function setHoveringCursor(hovering: boolean): void {
-  if (hovering === cursorOverridden) return
-  cursorOverridden = hovering
-  ensureCursorStyle()
-  document.documentElement.classList.toggle('nuance-hover-pointer', hovering)
-}
+//
+// hover 박스 렌더링(줄바꿈에 걸치면 줄마다 따로 그리는 박스 풀)/커서 오버라이드/전체화면
+// 재부착은 웹 문단(articleHighlight.ts)과 공유하는 hoverBox.ts 로 옮겼다 — 자막/웹 모드가
+// 각자 복제해 갖고 있었을 때 한쪽만 고쳐지고 다른 쪽이 뒤처지는 드리프트가 실제로
+// 있었다(2026-07-30).
 
 function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rects: RectPx[] }) | null {
   for (const line of lines) {
@@ -147,8 +62,8 @@ let onWordClick: ((hit: WordHit) => void) | null = null
 
 function onMouseMove(e: MouseEvent): void {
   const hit = wordAtPoint(getLines?.() ?? [], e.clientX, e.clientY)
-  if (hit) showBoxesAt(hit.rects)
-  else hideBox()
+  if (hit) showHoverBoxesAt(hit.rects)
+  else hideHoverBox()
 }
 
 // capture 단계에서 유튜브 자체 클릭 핸들러(재생/일시정지 토글 등)보다 먼저 가로채 막는다.
@@ -158,7 +73,18 @@ function onClick(e: MouseEvent): void {
   e.preventDefault()
   e.stopImmediatePropagation()
   e.stopPropagation()
+  // 클릭 즉시 박스를 지운다 — articleHighlight.ts와 동일한 이유(클릭 후 팝업이 뜨는 동안
+  // 이전 hover 위치의 박스가 그대로 남아있으면 안 된다, 2026-07-30 로직 통합).
+  hideHoverBox()
   onWordClick?.(hit)
+}
+
+// 스크롤/리사이즈되면 자막 위치가 바뀌므로, 화면 고정 좌표(position:fixed)로 떠 있는
+// 박스를 즉시 숨긴다 — articleHighlight.ts와 동일한 이유(다음 mousemove가 올 때까지
+// 이전 위치에 박스가 남아있던 문제, 2026-07-30 로직 통합). 다음 mousemove 가 오면
+// wordAtPoint 가 새 위치를 다시 계산해 필요하면 다시 보여준다.
+function onViewportChange(): void {
+  hideHoverBox()
 }
 
 export function startHighlight(getLinesFn: () => SubLine[], onClickFn: (hit: WordHit) => void): () => void {
@@ -166,12 +92,14 @@ export function startHighlight(getLinesFn: () => SubLine[], onClickFn: (hit: Wor
   onWordClick = onClickFn
   window.addEventListener('mousemove', onMouseMove, true)
   window.addEventListener('click', onClick, true)
-  document.addEventListener('fullscreenchange', onFullscreenChange)
+  window.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
+  window.addEventListener('resize', onViewportChange, { passive: true })
   return () => {
     window.removeEventListener('mousemove', onMouseMove, true)
     window.removeEventListener('click', onClick, true)
-    document.removeEventListener('fullscreenchange', onFullscreenChange)
-    hideBox()
+    window.removeEventListener('scroll', onViewportChange, { capture: true } as EventListenerOptions)
+    window.removeEventListener('resize', onViewportChange)
+    hideHoverBox()
     getLines = null
     onWordClick = null
   }
