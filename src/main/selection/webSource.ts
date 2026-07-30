@@ -97,12 +97,6 @@ function notifyUnsupportedLanguage(): void {
 }
 
 function onPageClick(hit: PageClickHit): void {
-  // TEMP DEBUG(2026-07-30) — 호버박스 vs 팝업 선택 불일치 원인 진단용. 원인 확인되면 제거.
-  console.log('[hover-debug] onPageClick 수신', {
-    anchorStart: hit.anchorStart,
-    anchorEnd: hit.anchorEnd,
-    anchorText: hit.text.slice(hit.anchorStart, hit.anchorEnd),
-  })
   const selection = buildSelection(hit)
   if (selection === null) {
     notifyUnsupportedLanguage()
