@@ -27,11 +27,11 @@ export function startSubtitleMode(): void {
   active = true
   extensionBridge.setSubtitleCapture(true)
   // 자막 경로는 OCR처럼 시간이 걸리지 않는다(확장이 이미 화면에 있는 자막을 즉시 씀) —
-  // hover 하이라이트도 확장이 페이지 안에서 직접 그린다. 그런데 오버레이(Overlay.tsx)는
-  // 선택 모드 진입 시 기본으로 "텍스트 추출 중…" 배너를 켜고 EXTRACTION_WORDS 가 와야
-  // 끄는 구조라, 자막 경로에선 그 신호를 안 보내 배너가 계속 떠 있었다 — 빈 배열을 보내
-  // 기존 배선을 그대로 재사용해 배너를 즉시 끈다(오버레이가 자체 하이라이트를 그리지
-  // 않게 되는 효과도 겸함 — 자막은 확장이 그리므로 의도한 동작).
+  // hover 하이라이트도 확장이 페이지 안에서 직접 그린다. "텍스트 추출 중…" 배너는
+  // 2026-07-30부터 OCR 경로가 확정될 때만 메인이 명시적으로 켜므로(shortcut.ts:
+  // startOcrFallback) 자막 경로에선 애초에 뜨지 않지만, onExtractionWords 핸들러가
+  // words/needsRegion 상태도 같이 정리하므로 빈 배열을 그대로 보내 그 배선을 재사용한다
+  // (오버레이가 자체 하이라이트를 그리지 않게 되는 효과도 겸함 — 자막은 확장이 그림).
   sendOverlayWords([])
   const handler = (hit: SubtitleClickHit): void => void onSubtitleClick(hit)
   extensionBridge.on('subtitleClick', handler)

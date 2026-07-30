@@ -44,13 +44,15 @@ export function Overlay() {
   // 배열로 남는다(onDebugBlocks 자체는 등록해도 무해 — 그냥 아무 이벤트도 안 옴).
   const [debugBlocks, setDebugBlocks] = useState<Rect[]>([])
   const [resolving, setResolving] = useState(false)
-  // 선택 모드 진입 시 메인이 백그라운드로 캡처+OCR 을 시작한다(extractionCache.ts:
-  // refreshExtractionCache, shortcut.ts 가 모드 전환 즉시 호출) — 그 사이(1~3초) 동안
-  // 아무 표시도 없으면 멈춘 것처럼 보여서, 모드 진입 즉시 켜고 onExtractionWords 로
-  // 결과(성공/실패 모두 빈 배열이라도)가 오면 끈다.
+  // 메인이 OCR 경로가 실제로 확정된 뒤(shortcut.ts: startOcrFallback, changeWatcher.ts
+  // 재추출 등)에만 onExtractionStarted 를 보내 이 배너를 켠다 — 모드 진입 즉시(판정 전)
+  // 켜지 않는다(2026-07-30, 사용자 제보 — 크롬 창을 선택하면 decideExtraction() 의 활성
+  // 탭 대기(최대 1.2초) 동안, 최종적으론 subtitle/web 으로 판정될 페이지에서도 이 OCR
+  // 전용 문구가 먼저 잠깐 떴었다). onExtractionWords 로 결과(성공/실패 모두 빈 배열이라도)
+  // 가 오면 끈다.
   const [extracting, setExtracting] = useState(false)
   // 추출 중 배너를 2단계로 나눠 보여준다(사용자 요청, 2026-07-29) — extracting 이 켜지는
-  // 시점(모드 진입/화면 변화 감지)엔 아직 "언어 감지 & 텍스트 영역 탐지" 단계이고,
+  // 시점(OCR 확정 직후/화면 변화 감지)엔 아직 "언어 감지 & 텍스트 영역 탐지" 단계이고,
   // extractionCache.ts 가 언어 감지를 끝내고 실제 OCR 을 시작하면(onExtractionOcrStarted)
   // "텍스트 추출" 단계로 넘어간다.
   const [extractionPhase, setExtractionPhase] = useState<'detect' | 'ocr'>('detect')
@@ -152,12 +154,10 @@ export function Overlay() {
     return () => clearTimeout(timer)
   }, [notice])
 
-  // 모드를 나가면 이전 단어 목록/hover/영역 선택 상태를 비운다.
+  // 모드를 나가면 이전 단어 목록/hover/영역 선택 상태를 비운다. select 진입 시엔 아무것도
+  // 미리 켜지 않는다 — 배너는 onExtractionStarted(OCR 확정 시 메인이 보냄)가 담당한다.
   useEffect(() => {
-    if (mode === 'select') {
-      setExtracting(true) // onRegionSelectionNeeded 가 뒤이어 오면 바로 false 로 정정됨
-      setExtractionPhase('detect')
-    } else {
+    if (mode !== 'select') {
       setWords([])
       setHoveredLine([])
       setDebugBlocks([])
