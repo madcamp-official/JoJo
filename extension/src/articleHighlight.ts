@@ -8,7 +8,7 @@
 // document.elementFromPoint()로 먼저 "어느 문단이냐"만 싸게 알아낸 뒤, 그 문단 하나에
 // 대해서만 wordsInParagraph()를 지연 계산 + 캐시한다(다른 문단으로 옮길 때만 재계산).
 import type { RectPx, SubWord } from '@shared/extension'
-import { groupRectsByLine } from '@shared/wordMapping'
+import { groupSegmentAt } from '@shared/wordMapping'
 import { hideHoverBox, showHoverBoxesAt } from './hoverBox'
 import type { ArticleExtraction, ArticleParagraph } from './webArticle'
 import { extractArticleText, wordsInParagraph } from './webArticle'
@@ -59,8 +59,9 @@ function ensureSegmentsRequested(paragraphText: string): void {
 }
 
 // idx 번째 단어가 형태소 분석 결과(세그먼트)에 속하면 같은 세그먼트의 글자들을 하나로
-// 묶어 반환한다(rect는 union, text/오프셋은 세그먼트 경계 기준) — highlight.ts의 동일
-// 그룹핑 로직과 같은 이유. 세그먼트가 없으면(분석 전/비CJK) 단어 그대로 반환.
+// 묶어 반환한다(rect는 union, text/오프셋은 세그먼트 경계 기준) — highlight.ts와 같은
+// 이유로 shared/wordMapping.ts의 groupSegmentAt 으로 통합했다(2026-07-30, 자막/웹 각자
+// 복제해 갖고 있던 드리프트 정리). 세그먼트가 없으면(분석 전/비CJK) 단어 그대로 반환.
 //
 // words[].start/end 는 domWords.ts extractWordsAndText 가 추출 시점에 이미 계산해 실어
 // 보낸 절대 오프셋이다(2026-07-30 수정 — 예전엔 여기서 paragraphText.indexOf 로 매번
@@ -72,18 +73,7 @@ function groupWordAt(
   words: SubWord[],
   idx: number,
 ): { rects: RectPx[]; text: string; start: number; end: number } {
-  const w = words[idx]!
-  const segments = getWordSegments(paragraphText)
-  const seg = segments?.find((s) => w.start >= s.start && w.start < s.end)
-  if (!seg) return { rects: [w.rect], text: w.text, start: w.start, end: w.end }
-  const groupRects: RectPx[] = []
-  for (const other of words) {
-    if (other.start >= seg.start && other.start < seg.end) groupRects.push(other.rect)
-  }
-  // 세그먼트가 화면 줄바꿈에 걸치면(예: "当地政府") 줄마다 따로 묶어야 두 줄 전체를
-  // 덮는 박스가 안 생긴다(groupRectsByLine 주석 참고) — groupRects 는 항상 최소 1개
-  // (idx 자신)를 포함해 결과 배열도 항상 비지 않는다.
-  return { rects: groupRectsByLine(groupRects), text: paragraphText.slice(seg.start, seg.end), start: seg.start, end: seg.end }
+  return groupSegmentAt(paragraphText, words, words[idx]!, getWordSegments(paragraphText))
 }
 
 // hover 박스가 어떤 문단을 대상으로 할지 판정하는 데만 쓴다(캡처 시작 시점 스냅샷 —
