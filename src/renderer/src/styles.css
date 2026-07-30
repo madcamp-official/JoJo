@@ -85,6 +85,7 @@ button:disabled { cursor: not-allowed; }
   border-radius: 14px; cursor: pointer; border: 2px solid var(--theme);
 }
 .main-screen .action.primary { color: var(--theme-text); background: var(--theme); }
+.main-screen .action.primary:hover { background: color-mix(in srgb, var(--theme) 85%, black); }
 .main-screen .action.secondary { color: var(--theme); background: transparent; }
 .main-screen .action.secondary:hover { background: var(--theme-weak); }
 /* 책 아이콘(BookIcon)이 옆 텍스트보다 살짝 위에 붙어 보인다는 피드백(2026-07-31)으로
