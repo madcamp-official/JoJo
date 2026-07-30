@@ -145,9 +145,20 @@ function isFuriganaText(node: Text): boolean {
 // 확인, 2026-07-30) extractWordsAndText 에서 걷러낸다.
 const NON_TEXT_ELEMENT_RE = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/
 
-function isHidden(el: Element): boolean {
+// display:none/visibility:hidden뿐 아니라, 스크린리더 전용("sr-only") 요소도 숨김으로
+// 본다 — video.js 같은 비디오 플레이어가 JS로 주입하는 접근성 안내문("Video Player is
+// loading.", "This is a modal window." 등, 클래스 vjs-control-text)이 대표적인 예:
+// width:1px/height:1px + overflow:hidden 으로 "기술적으로는 보이는" 상태를 유지한 채
+// 시각적으로만 숨긴다(실사용 확인, 2026-07-30 — 인민망 기사 첫 <p>에 영상 플레이어가
+// 주입한 이 문구들이 진짜 본문 앞에 끼어들어, 그 문구 안에 섞인 개행 문자가 팝업 문맥
+// 맨 위 빈 줄로 나타났다). 1×1px 이하로 접힌 요소는 사실상 화면에 아무 것도 그리지
+// 않으므로 display/visibility 판정과 동일하게 취급해도 진짜 콘텐츠를 오탐할 위험이
+// 낮다(Readability.js 등 다른 본문 추출기도 쓰는 흔한 휴리스틱).
+export function isHidden(el: Element): boolean {
   const style = getComputedStyle(el)
-  return style.display === 'none' || style.visibility === 'hidden'
+  if (style.display === 'none' || style.visibility === 'hidden') return true
+  const rect = el.getBoundingClientRect()
+  return rect.width <= 1 && rect.height <= 1
 }
 
 // root(문단/줄 컨테이너) 안에서 node 까지 올라가며 숨김 조상이 있는지 확인한다 —
