@@ -103,7 +103,6 @@ export function ViewerSettings({
   onTransitionChange,
   mode,
   onModeChange,
-  showTheme,
   dark,
   onDarkChange,
 }: {
@@ -117,8 +116,6 @@ export function ViewerSettings({
   onTransitionChange: (t: PageTransition) => void
   mode: ViewerMode
   onModeChange: (m: ViewerMode) => void
-  /** 다크 모드는 리플로우 포맷에서만 — PDF 는 원본 레이아웃을 그대로 보여준다. */
-  showTheme: boolean
   dark: boolean
   onDarkChange: (v: boolean) => void
 }) {
@@ -189,19 +186,20 @@ export function ViewerSettings({
         </div>
       )}
 
-      {showTheme && (
-        <div className="style-row">
-          <span className="style-label">테마</span>
-          <div className="style-toggle">
-            <button className={!dark ? 'on' : ''} onClick={() => onDarkChange(false)}>
-              라이트
-            </button>
-            <button className={dark ? 'on' : ''} onClick={() => onDarkChange(true)}>
-              다크
-            </button>
-          </div>
+      {/* 테마는 파일 종류를 가리지 않는다(사용자 지정) — PDF 는 페이지 자체가 원본
+          이미지라 색이 안 바뀌지만, 그 주변(배경·툴바)이 같이 어두워지는 것만으로도
+          다른 뷰어와 같은 화면을 유지하는 값어치가 있다. */}
+      <div className="style-row">
+        <span className="style-label">테마</span>
+        <div className="style-toggle">
+          <button className={!dark ? 'on' : ''} onClick={() => onDarkChange(false)}>
+            라이트
+          </button>
+          <button className={dark ? 'on' : ''} onClick={() => onDarkChange(true)}>
+            다크
+          </button>
         </div>
-      )}
+      </div>
 
       {/* 구분선은 뒤에 실제로 나올 내용(글자 설정)이 있을 때만 — PDF 는 글자 설정이
           없어서 선만 덩그러니 남았다(사용자 지적). */}

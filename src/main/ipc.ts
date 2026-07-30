@@ -44,6 +44,7 @@ import {
   getPopupContext,
   getPopupBounds,
   getViewerFile,
+  isViewerWindow,
   openSettingsWindow,
   sendRegionInfo,
   showMainWindowAtRoute,
@@ -399,6 +400,17 @@ export function registerIpc(): void {
   // 뷰어에서 단어 클릭 — 확장의 pageClick 과 같은 역할(viewerSource.ts 가 팝업을 띄운다).
   ipcMain.handle(IPC.VIEWER_WORD_CLICKED, async (e, hit: ViewerWordHit) => {
     onViewerWordClicked(hit, BrowserWindow.fromWebContents(e.sender))
+  })
+
+  // 보기 설정 변경을 다른 뷰어 창들에 그대로 전달한다 — 읽기 방식·넘김 효과·테마는
+  // 파일 종류와 무관하게 모든 뷰어가 같은 값을 쓴다(사용자 지정). 보낸 창 자신은 이미
+  // 반영돼 있으므로 제외한다(되돌려 받으면 조작 중에 값이 튄다).
+  ipcMain.handle(IPC.VIEWER_PREFS_CHANGED, async (e, prefs: unknown) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed() || win.webContents.id === e.sender.id) continue
+      if (!isViewerWindow(win)) continue
+      win.webContents.send(IPC.VIEWER_PREFS_SYNC, prefs)
+    }
   })
 
   // 뷰어 문단의 CJK 형태소 분할 — 확장이 WebSocket 으로 하던 것과 같은 함수를 IPC 로

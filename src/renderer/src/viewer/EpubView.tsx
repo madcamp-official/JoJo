@@ -279,16 +279,20 @@ export function EpubView({
   return (
     <>
       {error && <p className="hint">epub을 열지 못했습니다: {error}</p>}
-      {/* 페이지 모드의 여백은 iframe 바깥(호스트)의 padding 으로 준다 — epubjs 가 iframe 을
-          호스트 크기에 맞추므로 그만큼 본문 폭이 줄어 줄바꿈이 여백 기준으로 다시 잡힌다.
-          스크롤 모드는 반대로 여백을 iframe 안쪽(body padding, fontCss)으로 넣는다: 여백을
-          바깥에 두면 iframe 이 그만큼 좁아지고 스크롤바도 같이 안쪽으로 밀려 들어와, 창
-          오른쪽 끝에 붙지 않는다(사용자 요청). 조판 폭은 어느 쪽이든 resize() 로 맞춘다. */}
+      {/* 여백은 **호스트 자신이 아니라 한 겹 바깥**이 갖는다. epubjs 는 창 크기가 바뀌면
+          자체 핸들러로 호스트의 바깥 크기(getBoundingClientRect — padding 포함)를 재서
+          조판 영역을 잡는데, 호스트에 padding 이 있으면 그 값이 실제 내용 영역보다 커져
+          여백만큼 넘치고 창 전체에 세로 스크롤이 생긴다(2026-07-31 사용자 제보: 전체화면으로
+          키우니 세로 스크롤). 호스트를 padding 없는 순수한 상자로 두면 epubjs 가 어느
+          경로로 크기를 재든 실제 조판 영역과 항상 일치한다.
+          좌우 여백은 페이지 모드에서만 바깥에 준다 — 스크롤 모드는 iframe 이 창 폭을 다
+          써야 스크롤바가 창 오른쪽 끝에 붙으므로 여백을 iframe 안쪽(fontCss)에 넣는다. */}
       <div
-        className="epub-host"
-        ref={hostRef}
+        className="epub-frame"
         style={mode === 'scroll' ? undefined : { paddingLeft: style.margin, paddingRight: style.margin }}
-      />
+      >
+        <div className="epub-host" ref={hostRef} />
+      </div>
     </>
   )
 }
