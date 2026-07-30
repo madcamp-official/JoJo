@@ -14,7 +14,7 @@ import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSel
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
 import { isWebModeActive, startWebMode, stopWebMode } from './webSource'
-import { isPdfAxModeActive, startPdfAxMode, stopPdfAxMode } from './pdfAxSource'
+import { isPdfAxModeActive, isPreviewWindowSelected, startPdfAxMode, stopPdfAxMode } from './pdfAxSource'
 import { getBrowserSource } from '../extension/activeTab'
 
 // 담당 A — 모드 전환 전역 단축키 (PLAN.md §4, 기본 macOS: Option+` / Windows: Alt+`)
@@ -114,9 +114,19 @@ let forceOcrUrl: string | null = null
  * 트레이 "OCR로 전환"(기본 Alt+4) 클릭/단축키 시 호출 — 자막이든 웹 DOM 텍스트든, 텍스트를
  * 직접 추출하는 모든 경로에서 그 결과가 마음에 안 들 때 강제로 OCR로 전환한다(2026-07-30
  * 사용자 요청). 브라우저 페이지가 아니면(direct 추출 자체가 없으면) 뜻이 없어 무시한다.
+ *
+ * PDF(Preview)는 별도 분기다(사용자 요청, 2026-07-30) — URL이 없어 forceOcrUrl 방식을
+ * 못 쓰고, 무엇보다 웹/자막과 달리 **양방향** 토글이 필요하다(같은 단축키로 OCR↔텍스트
+ * 추출을 오간다) — pdfAxSource.ts의 문서당 1회 판정 정책(스크롤로는 재판정 안 함) 때문에
+ * 첫 판정이 삽화/표지 페이지 등으로 잘못 스캔본 취급됐을 때 사용자가 직접 되돌릴 방법이
+ * 필요해서다.
  */
 export function requestForceOcr(): void {
   if (mode !== 'select') return
+  if (isPreviewWindowSelected()) {
+    requestTogglePdfExtraction()
+    return
+  }
   const url = getBrowserSource()?.source.url
   if (!url) return
   forceOcrUrl = url
@@ -126,6 +136,29 @@ export function requestForceOcr(): void {
   stopPdfAxMode()
   stopChangeWatcher()
   startOcrFallback(epoch)
+}
+
+/**
+ * PDF(Preview) 전용 양방향 토글. 지금 direct(AX)로 읽고 있으면 OCR로, OCR로 읽고
+ * 있으면(초기 스캔본 판정 또는 이전 토글 결과) 다시 direct 시도로 전환한다. 트레이 라벨
+ * (tray.ts)은 isPdfAxModeActive()로 현재 상태를 보고 "OCR로 전환"/"텍스트 추출로 전환"
+ * 중 하나를 고르므로, 별도 상태를 여기서 export 할 필요가 없다.
+ */
+function requestTogglePdfExtraction(): void {
+  const epoch = ++decisionEpoch
+  stopChangeWatcher()
+  invalidateExtractionCache() // 전환 직후 낡은 호버박스가 잠깐 남지 않게 먼저 비운다
+  if (isPdfAxModeActive()) {
+    stopPdfAxMode()
+    startOcrFallback(epoch)
+    return
+  }
+  abandonInFlightExtraction()
+  startPdfAxMode(() => {
+    // 되돌아간 화면에도 마침 텍스트가 없으면(예: 삽화 페이지에서 눌렀다면) 조용히 다시
+    // OCR로 — webSource.ts onInsufficientText 와 동일한 "실패하면 원래대로" 원칙.
+    startOcrFallback(epoch)
+  })
 }
 
 /**

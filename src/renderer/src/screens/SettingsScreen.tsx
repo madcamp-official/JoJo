@@ -718,7 +718,7 @@ export function SettingsScreen() {
           </div>
         </div>
         <div className="shortcut-row">
-          <span className="label">OCR로 전환</span>
+          <span className="label">OCR ↔ 텍스트 추출 전환</span>
           <div className="shortcut-control">
             <span className={`shortcut-keys${recordingField === 'forceOcrShortcut' ? ' recording' : ''}`}>
               {recordingField === 'forceOcrShortcut'
