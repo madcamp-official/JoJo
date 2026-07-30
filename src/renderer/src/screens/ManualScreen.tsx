@@ -88,8 +88,8 @@ export function ManualScreen() {
         </p>
         <p className="desc">
           <strong>① 직접 텍스트 추출</strong>(화면을 캡처하지 않고 원문을 그대로 읽어옴 — 더
-          정확하고 빠름): 유튜브·넷플릭스 자막, 일반 웹페이지·웹소설·웹툰, macOS 미리보기로 연
-          PDF(텍스트 레이어가 있는 경우).
+          정확하고 빠름): 유튜브·넷플릭스 자막, 뉴스 기사·웹소설처럼 텍스트 양이 많은
+          웹페이지, macOS 미리보기로 연 PDF(텍스트 레이어가 있는 경우).
         </p>
         <p className="desc">
           <strong>② OCR(화면 캡처 인식)</strong>: 스캔본 소설처럼 애초에 이미지뿐인 콘텐츠,
