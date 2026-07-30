@@ -15,6 +15,7 @@ import {
   median,
   MIN_BODY_LINE_HEIGHT,
   padLine,
+  PARAGRAPH_LEADING_MARK_RE,
   recognizeWithPaddle,
   UNKNOWN_GAP_PLACEHOLDER,
 } from './ocrPaddle'
@@ -149,8 +150,8 @@ function hasGapMarker(text: string): boolean {
 
 // 담당 A — 대사/독백 줄 시작 기호로 문단 판정 보강(2026-07-30). 세로쓰기/가로쓰기
 // 공용(축과 무관한 텍스트 신호라 그대로 재사용) — alignColumnStarts(세로)와
-// detectRowParagraphStarts(가로) 둘 다에서 참조하도록 모듈 스코프로 뺐다.
-const PARAGRAPH_LEADING_MARK_RE = /^[「『―—]/
+// detectRowParagraphStarts(가로) 둘 다에서 참조한다. 2026-07-31: 중국어(recognizeOrderedLines,
+// ocrPaddle.ts)도 이 신호를 쓰게 되면서 그쪽으로 정의를 옮기고 여기서는 import 해서 쓴다.
 
 interface AlignedLine extends LineCandidate {
   // 스페이스 마커가 있거나(위 주석) 줄 길이 계산상 미검출 구간이 의심되는 줄 —

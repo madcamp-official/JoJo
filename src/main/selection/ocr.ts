@@ -188,19 +188,26 @@ export async function runOcr(image: Buffer, language: AnyLanguage, region?: Rect
     // 예전엔 "언어가 ja/zh 면 무조건 세로쓰기로 가정"하는 블라인드 폴백을 썼는데, 대신
     // PaddleOCR 로 줄을 직접 찾아(어차피 다음 단계에서도 필요한 호출) 그 모양(h/w 비율)
     // 으로 실측 판별한다(isVerticalByLineShape) — 진짜로 보고 판단하는 쪽이 더 정확하다.
-    const blocksFound = blocks.length > 0
-    let vertical = shapeVertical
-    let precomputedLines: Rect[] | undefined
-    if (!blocksFound) {
-      // fallbackLines 가 이미 있으면(캐시에서 왔음) 재검출 안 하고 그대로 쓴다 — 없으면
-      // (캐시 자체가 없는 경우, 예: 수동 드래그 영역) 지금 새로 찾는다.
-      const lines = fallbackLines ?? (await detectLinesWithPaddle(image, region ?? fullImageRect(image)))
-      vertical = lines ? isVerticalByLineShape(lines) : false
-      precomputedLines = lines ?? undefined
-      console.log(
-        `[timing] 세로/가로 실측 판별${fallbackLines ? '(캐시 재사용)' : '(새로 검출)'}: vertical=${vertical} (lines=${lines?.length ?? 'null'})`,
-      )
-    }
+    //
+    // 담당 A — blocksFound 조건 제거(2026-07-31, 사용자 제보 — "세로쓰기 뉴스 이미지인데
+    // 열 순서가 뒤죽박죽"). 실측(DEBUG_OCR_DUMP) 확인 결과 DocLayout이 겹치는 중복
+    // 블록(신뢰도 0.32짜리 거대 블록 하나가 신뢰도 0.84~0.89인 진짜 블록 3개를 통째로
+    // 뒤덮음, blocks-*.json로 확인)을 내놓으면서 자체 `vertical` 판정까지 같이 잘못
+    // 냈다(`[layoutDetect] vertical=false, blocks=6` 로그로 확인 — 실제로는 세로쓰기).
+    // 예전엔 blocks.length>0(=blocksFound)이면 이 실측 재검증 자체를 건너뛰고 DocLayout의
+    // block-level 판정을 그대로 믿었는데, DocLayout 블록 경계·라벨을 못 믿는다는 원칙(이
+    // 세션 내내 확인된 원칙 — table 오분류, 열 뒤섞임, 중복 블록 등)이 vertical/horizontal
+    // 판정에는 예외로 빠져 있었던 셈이다 — blocks 유무와 무관하게 항상 실제 검출된 줄의
+    // 모양으로 재검증한다. blocksFound일 때 이 검출 결과는 세로쓰기 경로(runVerticalOcr)
+    // 로 갈 경우 precomputedLines 로 그대로 재사용돼(내부 재검출 생략) 추가 비용이 없고,
+    // 가로쓰기 다단(columns>1)으로 갈 경우에만 열별로 다시 검출하는 정도의 비용이 든다 —
+    // 뒤섞인 순서로 완전히 잘못된 결과가 나오는 것보다 이 정도 비용이 훨씬 낫다.
+    const lines = fallbackLines ?? (await detectLinesWithPaddle(image, region ?? fullImageRect(image)))
+    const vertical = lines ? isVerticalByLineShape(lines) : shapeVertical
+    const precomputedLines: Rect[] | undefined = lines ?? undefined
+    console.log(
+      `[timing] 세로/가로 실측 판별${fallbackLines ? '(캐시 재사용)' : '(새로 검출)'}: vertical=${vertical} (lines=${lines?.length ?? 'null'}, DocLayout 판정=${shapeVertical})`,
+    )
     const nonTessStart = Date.now()
     const result = vertical
       ? await runVerticalOcr(image, language, region, precomputedLines)
