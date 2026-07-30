@@ -162,13 +162,13 @@ export function EpubView({
     rendition.hooks.content.register((contents: { document: Document }) => {
       const doc = contents.document
       applyFontSize(doc, styleRef.current, mode === 'scroll')
-      if (mode !== 'scroll') return
-
-      doc.addEventListener('wheel', makeWheelHandler(host, rendition, lock), { passive: false })
 
       // 좌우 방향키 — 커서가 본문(iframe) 안에 있으면 keydown 이 그 문서에서 끝나고 부모
       // 창까지 오지 않아서, ViewerScreen 의 전역 리스너로는 안 잡힌다(2026-07-31 사용자
       // 제보: "방향키로 페이지 넘기는 게 안 먹힘"). 여기서 직접 받아 넘겨준다.
+      // **모드와 무관하게 등록한다** — 예전엔 아래 스크롤 전용 블록 안에 있어서 정작
+      // 페이지 모드에서는 달리지 않았고, 그래서 화살표 버튼을 한 번 눌러 포커스를 부모
+      // 문서로 옮기기 전까지 방향키가 통째로 죽어 있었다(2026-07-31 사용자 제보).
       doc.addEventListener('keydown', (e: KeyboardEvent) => {
         if (modeRef.current !== 'page') return
         if (e.key === 'ArrowRight') {
@@ -179,6 +179,9 @@ export function EpubView({
           onTurnRef.current('prev')
         }
       })
+
+      if (mode !== 'scroll') return
+      doc.addEventListener('wheel', makeWheelHandler(host, rendition, lock), { passive: false })
     })
 
     // 페이지 총 개수는 epubjs 가 locations 를 다 계산해야 나오는데(책 전체 훑기라 느리다)
