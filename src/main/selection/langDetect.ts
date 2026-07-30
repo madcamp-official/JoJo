@@ -71,6 +71,43 @@ async function detectChineseScript(target: Buffer): Promise<'zh-Hans' | 'zh-Hant
 // 라틴 문자권 텍스트에 어쩌다 한자 하나가 섞인 정상적인 경우까지 오검출하지 않게 한다.
 const HAN_CROSSCHECK_RATIO = 0.5
 
+// 담당 A — 비라틴 스크립트 오판정에 대한 라틴 교차 확인(2026-07-30, 사용자 제보 — 크고
+// 선명한 영어 문단도 기울임(oblique/italic) 폰트면 OSD가 Arabic 스크립트로 오판하는 사례.
+// 아랍 문자는 획이 기울고 이어지는 특성이 있어, 기울임 라틴 문자와 획 방향 통계가 비슷하게
+// 잡히는 것이 Tesseract OSD의 알려진 약점이다). HAN_CROSSCHECK_RATIO 와 대칭인 안전망:
+// Arabic/Cyrillic/Devanagari 후보군에서 eld 재판별이 실패하면 영어 언어팩으로 한 번 더
+// 러프 인식해보고, 결과가 대부분 ASCII 라틴 문자이면서 eld 가 라틴 후보 중 하나로
+// 판별되면 OSD 스크립트 판정 자체가 틀렸다고 보고 그쪽으로 재분류한다. 비율을 한자
+// 교차 확인(0.5)보다 높게 잡은 이유: 진짜 아랍/키릴 텍스트를 영어 모델로 인식해도 깨진
+// 라틴 문자가 어느 정도 나오므로, "거의 전부 라틴 글자"일 때만 뒤집게 보수적으로 둔다.
+const LATIN_CROSSCHECK_RATIO = 0.7
+const LATIN_CHAR_RE = /[A-Za-z]/
+
+// Latin 스크립트 공유 후보 목록 — SCRIPT_TO_LANGUAGE.Latin 과 라틴 교차 확인이 공유한다.
+// 대표(폴백)를 맨 앞에 — 라틴 문자는 영어를 기본값으로 유지(tier1 우선순위 존중).
+// 'is'(아이슬란드어)는 2026-07-30 tier2 도입 때 이 배열에서 누락돼 항상 en으로 오판되던
+// 버그를 전수조사로 발견해 추가함 — eld/Tesseract 둘 다 라틴 문자 기준으로 일치해 정상 동작.
+// 'ku'(쿠르드어)는 의도적으로 여기 없음: eld의 ku 모델은 소라니(아랍 문자)라 이 배열(라틴)에
+// 넣어도 eld가 절대 'ku'를 반환하지 않는다 — tier3로 되돌림(languages.ts 참고).
+const LATIN_CANDIDATES: AnyLanguage[] = ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'tr', 'vi', 'ro', 'cs', 'hu', 'sv', 'da', 'no', 'fi', 'hr', 'sq', 'tl', 'az', 'ca', 'et', 'eu', 'is', 'lt', 'lv', 'ms', 'sk', 'sl']
+
+/** 비라틴 후보군에서 재판별이 실패했을 때, 실은 라틴 스크립트였는지 영어 언어팩으로
+ *  교차 확인한다. 라틴이 맞으면 그 언어를, 아니면 null 을 반환한다. */
+async function crosscheckLatin(target: Buffer): Promise<AnyLanguage | null> {
+  try {
+    const worker = await getProbeWorker(getOcrLangCode('en'))
+    const { data } = await worker.recognize(target)
+    const nonSpace = data.text.replace(/\s/g, '')
+    const latinCount = [...nonSpace].filter((ch) => LATIN_CHAR_RE.test(ch)).length
+    if (nonSpace.length === 0 || latinCount / nonSpace.length < LATIN_CROSSCHECK_RATIO) return null
+    const raw = detectRawLanguage(data.text)
+    return LATIN_CANDIDATES.find((c) => c === raw) ?? null
+  } catch (err) {
+    console.error('[langDetect] 라틴 교차 확인 오류 — 건너뜀:', err)
+    return null
+  }
+}
+
 /** 한 스크립트를 공유하는 언어가 여럿일 때(예: 라틴 문자), 첫 번째 후보를 "러프 인식용
  *  대표 언어팩"으로 써서 텍스트를 뽑고, eld로 그 텍스트의 실제 언어를 재판별한다. eld가
  *  이 스크립트 후보 목록 밖의 언어를 감지하거나 실패하면, 그 rough 인식 결과 자체에
@@ -98,6 +135,15 @@ async function resolveAmbiguousScript(target: Buffer, candidates: AnyLanguage[])
         `[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) + 한자 교차 확인(${hanCount}/${nonSpace.length}) — ${variant} 로 재분류`,
       )
       return variant
+    }
+    if (!candidates.includes('en')) {
+      const latin = await crosscheckLatin(target)
+      if (latin) {
+        console.log(
+          `[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) + 라틴 교차 확인 성공 — OSD 오판으로 보고 ${latin} 로 재분류`,
+        )
+        return latin
+      }
     }
     console.log(`[langDetect] 스크립트 내 언어 재판별 실패(raw=${raw ?? 'null'}) — 대표 언어(${representative})로 폴백`)
     return representative
@@ -131,12 +177,7 @@ const SCRIPT_TO_LANGUAGE: Record<string, AnyLanguage | 'zh' | AnyLanguage[]> = {
   Tamil: 'ta',
   Telugu: 'te',
   Ethiopic: 'am',
-  // 대표(폴백)를 맨 앞에 — 라틴 문자는 영어를 기본값으로 유지(tier1 우선순위 존중).
-  // 'is'(아이슬란드어)는 2026-07-30 tier2 도입 때 이 배열에서 누락돼 항상 en으로 오판되던
-  // 버그를 전수조사로 발견해 추가함 — eld/Tesseract 둘 다 라틴 문자 기준으로 일치해 정상 동작.
-  // 'ku'(쿠르드어)는 의도적으로 여기 없음: eld의 ku 모델은 소라니(아랍 문자)라 이 배열(라틴)에
-  // 넣어도 eld가 절대 'ku'를 반환하지 않는다 — tier3로 되돌림(languages.ts 참고).
-  Latin: ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'tr', 'vi', 'ro', 'cs', 'hu', 'sv', 'da', 'no', 'fi', 'hr', 'sq', 'tl', 'az', 'ca', 'et', 'eu', 'is', 'lt', 'lv', 'ms', 'sk', 'sl'],
+  Latin: LATIN_CANDIDATES,
   Cyrillic: ['ru', 'uk', 'bg', 'be', 'sr'],
   Arabic: ['ar', 'fa', 'ur'],
   Devanagari: ['hi', 'mr'],
