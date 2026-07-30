@@ -10,11 +10,13 @@ import { startArticleHighlight, type ArticleWordHit } from '@shared/hover/articl
 //    DOM 이라 이미 알고 있다.
 //  - 문단 선택자: txt/epub 은 <p>(기본), PDF 는 pdf.js 텍스트 레이어가 만드는 span.
 
-/** PDF 는 pdf.js 텍스트 레이어의 span 이 한 줄(텍스트 런) 단위라 그게 곧 문단이 된다. */
+/** PDF 는 화면상 한 줄이 문단 단위가 된다(AX PDF 경로가 줄을 단위로 삼는 것과 같은 결). */
 const PARAGRAPH_SELECTOR: Record<ViewerKind, string> = {
   txt: 'p',
   epub: 'p',
-  pdf: '.textLayer span',
+  // PdfView 가 span 들을 화면상 한 줄씩 `.pdf-line` 으로 묶어둔다(단어가 span 경계에서
+  // 쪼개지는 문제 해결 — PdfView.groupSpansIntoLines 주석 참고).
+  pdf: '.pdf-line',
 }
 
 /** epub 은 epubjs 가 내용을 iframe 안에 띄운다 — 그 iframe 문서의 body 가 진짜 컨테이너다. */

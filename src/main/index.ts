@@ -24,6 +24,20 @@ import { registerRejudgeOnTabChange, reevaluator } from './extension/reevaluate'
 // 인스턴스는 그대로 남아 "안 꺼지는 것처럼" 보인다(실사용 중 확인: dev 세션을 여러 번
 // 켜서 고아 인스턴스가 남아있었음). 락을 못 얻으면(이미 인스턴스가 떠있으면) 새 인스턴스는
 // 바로 종료하고, 기존 인스턴스는 두 번째 실행 시도를 감지해 메인 창을 앞으로 가져온다.
+// 담당 A — Windows 네이티브 창 가림(occlusion) 계산 비활성화(2026-07-31, 사용자 제보 —
+// Kindle 뷰어에서 재추출이 끝나도 오버레이의 배너/영역/텍스트 박스가 화면에 안 나타나다가
+// 다른 앱 클릭/모드 토글 순간 한꺼번에 나타남). Chromium 은 Windows 에서 창이 다른 창에
+// 가려졌는지를 자체 계산(CalculateNativeWinOcclusion)해서 가려진 창의 렌더러를 페인트
+// 중단 상태로 보내는데, 우리 오버레이(투명·클릭스루)는 이 계산이 "가려짐"으로 오판하기
+// 쉬운 전형적 케이스다 — 렌더 상태 로그로 React state 는 제때 바뀌는데 화면만 안 그려짐을
+// 확인했고, invalidate()/setBounds 재적용 같은 페인트 강제로는 안 고쳐졌다(렌더러 자체가
+// hidden 취급이라). 오버레이 창의 backgroundThrottling:false(windows.ts)와 한 쌍의 수정.
+// app ready 전에 설정해야 적용된다. **Windows 전용 스위치**(macOS 는 이 기능 자체가 없음
+// — 무해하지만 명시적으로 win32 에서만 건다).
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {

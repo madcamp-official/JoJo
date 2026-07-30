@@ -1,7 +1,6 @@
 import type { AnyLanguage, Rect, Word } from '@shared/types'
 import { detectSupportedLanguage, resolveCjkLanguage } from '@shared/languageDetect'
-import { segmentChineseWords } from '../nlp/chinese'
-import { segmentJapaneseWords } from '../nlp/japanese'
+import { segmentCjkText } from '../nlp/segmentCjk'
 import { getLanguageOverride } from '../settingsStore'
 import { getSelectedWindowId, getSelectedWindowName } from './capture'
 import { commitDirectExtraction } from './extractionCache'
@@ -15,9 +14,9 @@ import { parseMacWindowId } from './macWindow'
 //
 // 단어를 어디서 끊을지(=hover 박스 하나의 단위)는 확장(브라우저) 경로와 같은 기준을 쓴다
 // (사용자 요청, 2026-07-30): 라틴 문자는 공백 기준, CJK 는 형태소 분석 결과 기준. 확장은
-// bridge.ts 가 같은 분석기(segmentJapaneseWords/segmentChineseWords)를 호출해 그 경계를
-// 넘겨주는데, 이 경로는 앱 안이라 중간 전달 없이 직접 부른다 — 분석기가 같으므로 경계도
-// 같고, 팝업의 atom 경계와도 일치한다(bridge.ts segmentAndSend 주석 참고).
+// bridge.ts 가 그 경계를 계산해 넘겨주고, 이 경로는 앱 안이라 중간 전달 없이 직접 부른다 —
+// 분할기 자체는 `nlp/segmentCjk.ts` 하나를 확장 bridge·자체 뷰어와 함께 쓰므로 경계가
+// 갈릴 일이 없고, 팝업의 atom 경계와도 일치한다(segmentCjk.ts 주석 참고).
 
 /** 이 미만이면 "쓸만한 텍스트를 못 얻었다"고 보고 OCR 로 폴백한다(스캔본 PDF 등 —
  *  텍스트 레이어가 없으면 AX 트리에 AXImage 만 나와 텍스트가 거의 안 잡힌다). */
@@ -94,10 +93,9 @@ function splitBySpace(line: string): Token[] {
 /** CJK — 형태소 분석 경계로 자른다. 분석기가 못 덮은 구간(공백/기호 등)은 그대로 남겨
  *  역시 불변조건을 지킨다. */
 async function splitByMorpheme(line: string, lang: 'ja' | 'zh-Hans' | 'zh-Hant'): Promise<Token[]> {
-  const segments =
-    lang === 'ja'
-      ? (await segmentJapaneseWords(line)).map((t) => ({ start: t.start, end: t.end }))
-      : (await segmentChineseWords(line, lang)).map((w) => ({ start: w.start, end: w.end }))
+  // 분할 자체는 확장(자막·웹 문단)·자체 뷰어와 같은 소스를 쓴다 — 경로마다 다른 기준으로
+  // 쪼개면 같은 문장인데 호버로 묶이는 단위가 갈린다(segmentCjk.ts 주석 참고).
+  const segments = await segmentCjkText(line, lang)
   const sorted = segments.filter((s) => s.end > s.start).sort((a, b) => a.start - b.start)
   const tokens: Token[] = []
   let cursor = 0
