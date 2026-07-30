@@ -85,6 +85,10 @@ export const IPC = {
   // 채팅창 마크다운 안의 링크(사전 출처 등)를 구글/네이버 버튼과 동일한 방식(기본
   // 브라우저의 새 창, 팝업과 같은 위치·크기)으로 연다 — 이미 완성된 URL을 그대로 받는다.
   OPEN_EXTERNAL_LINK: 'popup:openExternalLink',
+  // 선택 표현 자동 복사(2026-07-30) — navigator.clipboard 는 문서가 포커스돼 있어야
+  // 동작해서, 숨겨진 채로 만들어지는 팝업의 "뜬 직후" 초기 복사가 조용히 실패했다.
+  // 포커스와 무관한 메인 프로세스 Electron clipboard 로 대신 쓴다.
+  CLIPBOARD_COPY: 'popup:clipboardCopy',
   // 팝업 원문 문맥의 가나 atom 병합용 — 일본어 형태소 분석(main/nlp/japanese.ts)
   TOKENIZE_JA: 'popup:tokenizeJa',
   // 팝업 원문 문맥의 중국어 단어 atom 구성용 — 형태소 분석(main/nlp/chinese.ts, zh-Hans/zh-Hant 별 엔진)

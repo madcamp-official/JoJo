@@ -199,6 +199,9 @@ const api = {
   // 채팅창 마크다운 링크(사전 출처 등) 클릭 시 구글/네이버와 동일한 방식으로 열기
   openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_EXTERNAL_LINK, url),
 
+  // 선택 표현 자동 복사 — navigator.clipboard 와 달리 문서 포커스가 필요 없다(채널 주석 참고).
+  copyToClipboard: (text: string): Promise<void> => ipcRenderer.invoke(IPC.CLIPBOARD_COPY, text),
+
   // 팝업 원문 문맥의 가나 atom 병합용 일본어 형태소 분석 요청(엔진은 JA_ENGINE 설정값)
   tokenizeJapanese: (text: string): Promise<JaTokenizeResult> =>
     ipcRenderer.invoke(IPC.TOKENIZE_JA, text),
