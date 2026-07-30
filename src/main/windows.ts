@@ -676,6 +676,9 @@ const MAC_CURSOR_POLL_MS = 33
 let macCursorTimer: NodeJS.Timeout | null = null
 let macDesiredCursor: 'pointer' | 'crosshair' | null = null
 let macWindowModule: typeof import('./selection/macWindow') | null = null
+// 커서가 마지막 틱에 오버레이(대상 창) 영역 안에 있었는지 — 밖으로 나가는 순간을
+// 잡아서 딱 한 번만 arrow 로 되돌리기 위한 상태(아래 주석 참고).
+let macCursorWasInside = false
 
 function syncMacCursorPolling(): void {
   if (process.platform !== 'darwin') return
@@ -688,13 +691,28 @@ function syncMacCursorPolling(): void {
       if (!overlayWindow || overlayWindow.isDestroyed() || !overlayVisible) return
       const p = screen.getCursorScreenPoint()
       const b = overlayWindow.getBounds()
-      overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
-      macWindowModule?.setMacCursor(macDesiredCursor ?? 'arrow')
+      const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
+      if (inside) {
+        overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
+        macWindowModule?.setMacCursor(macDesiredCursor ?? 'arrow')
+        macCursorWasInside = true
+      } else if (macCursorWasInside) {
+        // 방금 대상 창(오버레이) 영역을 벗어났다 — 선택 모드를 유지한 채 마우스를
+        // Nuance 자기 화면(메인/설정 등)으로 옮긴 경우가 대표적. 매 틱 무조건
+        // NSCursor 를 강제하면 그 창 위에서도 계속 arrow/crosshair 로 덮어써져,
+        // 그 창 자신의(Chromium 표준) 커서 렌더링(예: 버튼 hover 시 pointer)이 아예
+        // 못 먹는 문제가 있었다(2026-07-31 사용자 제보 — "버튼에 커서 올려도 모양이
+        // 안 바뀜"). 벗어나는 순간 딱 한 번만 arrow 로 되돌려 고정 상태를 풀고, 그
+        // 뒤로는 손을 떼서 그 창이 자기 커서를 알아서 관리하게 둔다.
+        macWindowModule?.setMacCursor('arrow')
+        macCursorWasInside = false
+      }
     }, MAC_CURSOR_POLL_MS)
   } else if (!shouldRun && macCursorTimer) {
     clearInterval(macCursorTimer)
     macCursorTimer = null
     macDesiredCursor = null
+    macCursorWasInside = false
     macWindowModule?.setMacCursor('arrow') // 폴링을 멈추기 전에 마지막으로 한 번 복원
   }
 }
