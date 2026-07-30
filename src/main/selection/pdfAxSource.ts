@@ -1,5 +1,6 @@
 import type { AnyLanguage, Word } from '@shared/types'
 import { detectSupportedLanguage, resolveCjkLanguage } from '@shared/languageDetect'
+import { unionRects } from '@shared/wordMapping'
 import { segmentChineseWords } from '../nlp/chinese'
 import { segmentJapaneseWords } from '../nlp/japanese'
 import { getLanguageOverride } from '../settingsStore'
@@ -150,17 +151,51 @@ async function extractOnce(windowId: number): Promise<AxExtraction | null> {
     for (const [pageIdx, page] of result.pages.entries()) {
       if (pageIdx > 0) words.push({ text: '\n' }) // 페이지 경계
       for (const paragraph of page.paragraphs) {
-        for (const line of paragraph) {
+        for (const [li, line] of paragraph.entries()) {
           const lineWords = await wordsOfLine(line)
           if (lineWords.length === 0) continue
-          words.push(...lineWords)
-          // 줄 끝에 항상 개행을 넣는다 — 팝업 문맥(앞뒤 N줄)이 '\n' 을 줄 경계로 쓰므로
-          // (popup/selection.ts computeLineContextRange), 이게 없으면 페이지 전체가 한
-          // 줄이 돼 문맥 범위가 통째로 잡힌다.
-          if (!/\n$/.test(lineWords[lineWords.length - 1]!.text)) words.push({ text: '\n' })
+          // 이 줄이 직전 줄과 공백 없이 바로 이어지면(=AX 가 보고한 줄 경계가 단어 중간에서
+          // 끊긴 것 — 실사용 확인, 2026-07-30: "pantries"가 "pantrie"/"s"로, "another"가
+          // "a"/"nother"로 서로 다른 호버박스 단어로 쪼개짐) 줄 단위로 각각 토큰화하면
+          // 그 단어가 두 개의 별개 단어로 갈라진다. 직전 줄의 마지막 실제 글자와 이 줄의
+          // 첫 글자가 둘 다 공백이 아니면 같은 단어가 쪼개진 것으로 보고, 개행을 넣는 대신
+          // 직전에 쌓아둔 마지막 토큰과 이 줄의 첫 토큰을 하나로 합친다(좌표는 두 줄에
+          // 걸치므로 합집합 — 흔치 않은 경우라 완벽한 두 줄 박스보다 이 근사로 충분하다).
+          // **판정 순서가 중요하다**: 개행을 "이번 줄 끝에" 넣으면 다음 줄이 이어지는지
+          // 알기 전에 이미 넣어버려 병합 조건(prevWord가 실제 단어)이 항상 거짓이 된다 —
+          // 그래서 개행은 "이번 줄 시작 전에, 직전 줄과의 관계를 보고" 넣는 방식으로 바꿨다.
+          const prevLine = li > 0 ? paragraph[li - 1] : null
+          const isWordSplit =
+            prevLine !== null &&
+            prevLine.text.length > 0 &&
+            line.text.length > 0 &&
+            !/\s/.test(prevLine.text.slice(-1)) &&
+            !/\s/.test(line.text[0]!)
+          const prevWord = words[words.length - 1]
+          if (isWordSplit && prevWord && prevWord.text.trim() && lineWords[0]!.text.trim()) {
+            words.pop()
+            const first = lineWords[0]!
+            words.push({
+              text: prevWord.text + first.text,
+              bbox:
+                prevWord.bbox && first.bbox
+                  ? (unionRects([prevWord.bbox, first.bbox]) ?? undefined)
+                  : (prevWord.bbox ?? first.bbox),
+            })
+            words.push(...lineWords.slice(1))
+          } else {
+            // 병합 대상이 아니면(진짜 줄 경계) 직전 내용과 이 줄 사이에 개행을 넣는다 —
+            // 문서/페이지 맨 처음이거나 이미 개행으로 끝난 경우(페이지 경계 등)는 중복
+            // 삽입을 막는다.
+            if (prevWord && prevWord.text !== '\n') words.push({ text: '\n' })
+            words.push(...lineWords)
+          }
         }
       }
     }
+    // 문서 끝에도 개행을 남겨둔다(다음 페이지가 이어질 수도, 여기서 끝일 수도 있지만
+    // 어느 쪽이든 무해) — 기존에 매 줄 끝마다 개행을 넣던 동작과 맞춘다.
+    if (words.length > 0 && words[words.length - 1]!.text !== '\n') words.push({ text: '\n' })
 
     const text = words.map((w) => w.text).join('')
     if (!text.trim()) return null // 글자가 전혀 없음(순수 삽화 페이지 등) — 진짜 빈 결과
