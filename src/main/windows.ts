@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, shell } from 'electron'
 import { join } from 'path'
 import { IPC } from '@shared/channels'
 import type { AppMode, ExtractedSelection, Rect, Word } from '@shared/types'
@@ -794,6 +794,9 @@ export function sendOverlayNotice(text: string): void {
 //    하지 않는다(PopupScreen.tsx 참고, 2026-07-29 수정).
 let popupWindow: BrowserWindow | null = null
 let popupContext: ExtractedSelection | null = null
+/** 팝업이 떠 있는 동안만 Esc 를 globalShortcut 으로 등록했는지 — createPopupWindow 아래
+ *  주석 참고. */
+let popupEscapeRegistered = false
 // 현재 팝업 창이 "내용 준비 완료" 신호를 기다리는 중이면 그 신호를 처리할 콜백 —
 // ipc.ts 의 POPUP_CONTENT_READY 핸들러가 호출한다(createPopupWindow 참고).
 let popupShowSignal: (() => void) | null = null
@@ -920,8 +923,28 @@ export function createPopupWindow(
   win.webContents.on('before-input-event', (_e, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && !win.isDestroyed()) win.close()
   })
+  // 담당 milleion — Esc 를 globalShortcut 으로도 등록한다(2026-07-31, 사용자 제보 — "포커싱
+  // 안 된 상태에서 처음 호버박스 클릭해서 팝업이 뜨면 Esc 를 두 번 눌러야 닫힌다"). 팝업은
+  // forceWindowToFront(app.focus({steal:true}) + win.focus())로 앞에 올리지만, macOS 의
+  // 실제 OS 레벨 키보드 포커스 전환은 그 호출이 반환된 뒤에도 비동기로 마무리된다 — 그
+  // 틈에 사용자가 Esc 를 누르면 아직 포커스를 안 넘겨받은 이 창의 위 before-input-event 가
+  // 아예 못 받고(그 keydown 은 여전히 이전까지 포커스였던 다른 앱으로 감), 그다음 눌러야
+  // (그때는 포커스 전환이 끝나 있어) 비로소 닫힌다 — "두 번 눌러야 닫힘"과 정확히 일치.
+  // globalShortcut 은 OS 입력 후킹 단계에서 가로채 어느 창이 키 포커스인지와 무관하게
+  // 항상 반영된다 — region-drag 배너의 Esc 처리(shortcut.ts: requestRegionSelection)와
+  // 같은 패턴. 팝업이 떠 있는 좁은 구간에만 등록·해제해 다른 앱의 Esc 사용과 충돌하지
+  // 않는다.
+  if (!popupEscapeRegistered) {
+    popupEscapeRegistered = globalShortcut.register('Escape', () => {
+      if (popupWindow && !popupWindow.isDestroyed()) popupWindow.close()
+    })
+  }
   win.on('closed', () => {
     clearTimeout(fallbackTimer)
+    if (popupEscapeRegistered) {
+      globalShortcut.unregister('Escape')
+      popupEscapeRegistered = false
+    }
     if (popupShowSignal === showOnce) popupShowSignal = null
     // popupWindow/popupContext 가 이미 "이 창 다음에 새로 열린 창" 것으로 바뀌어 있을 수
     // 있다(이 창이 닫히는 도중 거의 동시에 다음 클릭이 들어와 createPopupWindow 가 다시
