@@ -54,6 +54,30 @@ function centerOnCursorDisplay(width: number, height: number): { x: number; y: n
   }
 }
 
+/**
+ * 담당 milleion — Chromium은 페이지 줌 레벨을 개별 창이 아니라 **origin(host) 단위로
+ * 프로필에 영구 저장**한다(2026-07-31 실사용 확인 — 오버레이 창의 `devicePixelRatio`가
+ * 레티나에서 당연히 2 여야 하는데 1.8257 로 나와서 호버박스 좌표 계산이 전부 어긋나
+ * 있었다. 원인 추적 결과 `~/Library/Application Support/nuance/Preferences` 의
+ * `per_host_zoom_levels`에 `localhost`(dev 서버 origin) 줄 레벨 `-0.5`가 저장돼
+ * 있었다 — `1.2^-0.5 × 2 = 1.8257`로 정확히 일치. 아마 메인 창에서 트랙패드 핀치줌이나
+ * Cmd+마이너스를 실수로 건드린 결과로 보인다). dev 모드에선 main/overlay/popup/viewer
+ * 창이 전부 같은 origin(`http://localhost:5173`)을 쓰기 때문에, 사용자 눈에 안 보이는
+ * 오버레이 창까지 그 줌을 그대로 상속받아 좌표 계산이 깨졌다 — PDF 직접 추출이든 OCR
+ * 이든 오버레이 자체의 문제라 추출 방식과 무관하게 똑같이 어긋났었다.
+ *
+ * 오버레이는 픽셀 단위 좌표 계산이 정확성에 직결되므로 origin에 저장된 값과 무관하게
+ * 항상 줌 1.0(레벨 0)으로 고정한다 — 나머지 창들도 같은 origin 을 공유해 나중에 또
+ * 새는 걸 막기 위해 전부 적용한다. `did-finish-load` 마다 다시 적용하는 이유: 탐색
+ * (경로 전환·파일 로드 등) 직후 Chromium 이 그 origin 에 저장된 줌 레벨을 다시 읽어와
+ * 덮어쓰기 때문에, 생성 시점 1회 설정만으로는 다음 탐색에서 다시 새어 들어온다.
+ */
+function forceZoomLevelZero(win: BrowserWindow): void {
+  const apply = () => win.webContents.setZoomLevel(0)
+  win.webContents.on('did-finish-load', apply)
+  apply()
+}
+
 export function createMainWindow(): BrowserWindow {
   const { x, y } = centerOnCursorDisplay(760, 460) // 실행 시 커서가 있는 모니터에 뜨도록
   const win = new BrowserWindow({
@@ -70,6 +94,7 @@ export function createMainWindow(): BrowserWindow {
     shell.openExternal(url)
     return { action: 'deny' }
   })
+  forceZoomLevelZero(win)
   loadRoute(win, 'main')
   mainWindow = win
   // X 버튼 = 트레이로 숨기기. 실제 종료는 트레이 메뉴 "종료"(app.quit, isQuitting=true)로만.
@@ -356,6 +381,7 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     webPreferences: { preload, sandbox: false, backgroundThrottling: false },
   })
   win.setIgnoreMouseEvents(true, { forward: true }) // 완전 클릭스루 — 테두리만 그리고 조작엔 개입 안 함
+  forceZoomLevelZero(win) // 호버박스 좌표 계산이 줌에 어긋나지 않도록(위 주석 참고) — 가장 중요한 창
   if (process.platform === 'darwin') {
     // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
     win.setHiddenInMissionControl(true)
@@ -892,6 +918,7 @@ export function createPopupWindow(
     shell.openExternal(url)
     return { action: 'deny' }
   })
+  forceZoomLevelZero(win)
   if (process.platform === 'darwin') {
     // 넷플릭스/유튜브를 전체화면(자기 전용 Space)으로 보다가 자막을 눌러 팝업을 여는
     // 경우(2026-07-29 재수정) — 예전엔 팝업 창을 재사용해서(destroy 없이 내용만 갱신)
@@ -1006,6 +1033,7 @@ export function createViewerWindow(file: ViewerFile): BrowserWindow {
   const wcId = win.webContents.id
   viewerFiles.set(wcId, file)
   win.on('closed', () => viewerFiles.delete(wcId))
+  forceZoomLevelZero(win) // 뷰어도 DOM 기반 호버박스 좌표 계산을 하므로 줌 새는 걸 막는다(위 주석 참고)
   loadRoute(win, 'viewer')
   return win
 }
