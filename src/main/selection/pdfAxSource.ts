@@ -48,6 +48,23 @@ export function isPreviewWindowSelected(): boolean {
   return /^(preview|미리보기)\b/i.test(name)
 }
 
+/**
+ * 선택된 Preview 창 제목에서 PDF 파일명만 뽑아낸다(사용자 요청, 2026-07-31 — 팝업 상단에
+ * "PDF" 라벨과 함께 파일명도 보여달라). 창 이름은 `capture.ts: withOwnerName`이 만든
+ * "Preview - <제목>" 형태이고, Preview의 창 제목 자체는 실측(TODO.md 참고)으로 확인된
+ * "The Hobbit.pdf – Page 31 of 286" 처럼 "<파일명> – Page N of M"(en dash) 형태다 —
+ * 앞의 소유 앱 접두사와 뒤의 페이지 표시를 벗겨내면 파일명만 남는다. 형식이 안 맞으면
+ * (다른 언어 macOS 등 페이지 표시 문구가 다를 가능성) null — 호출부가 라벨 없이 "PDF"만
+ * 쓰는 것으로 안전하게 폴백한다.
+ */
+function previewFileName(): string | null {
+  const name = getSelectedWindowName()
+  if (!name) return null
+  const withoutOwner = name.replace(/^(preview|미리보기)\s*-\s*/i, '')
+  const withoutPageSuffix = withoutOwner.replace(/\s*[–-]\s*Page\s+\d+\s+of\s+\d+\s*$/i, '')
+  return withoutPageSuffix.trim() || null
+}
+
 /** 선택된 창의 CGWindowID — AX 진입점을 만들 때 쓴다(mac 의 desktopCapturer id 는
  *  "window:7805:0" 형태라 숫자만 뽑아야 한다). */
 function selectedWindowId(): number | null {
@@ -254,6 +271,10 @@ async function refresh(myEpoch: number, windowId: number, isInitialDecision: boo
   try {
     const result = await extractOnce(windowId)
     if (myEpoch !== epoch) return false // 그 사이 모드가 꺼졌거나 재시작됨 — 결과 폐기
+    // 팝업 상단에 "PDF"와 함께 파일명을 보여주려고 창 제목에서 뽑는다(사용자 요청,
+    // 2026-07-31). 못 뽑아도(형식이 안 맞는 등) undefined 로 두면 PopupScreen.tsx 가
+    // 파일명 없이 "PDF"만 보여주므로 안전하다.
+    const fileName = previewFileName() ?? undefined
     // MIN_AX_TEXT_LENGTH 는 "이 문서를 통째로 direct 로 볼지"를 정하는 최초 판정에서만
     // 쓴다 — 페이지 번호 한둘처럼 짧은 텍스트만 있어도 이미 direct 모드로 들어온 뒤라면
     // (isInitialDecision=false) 그 적은 텍스트 그대로 호버박스를 띄운다(사용자 요청,
@@ -266,7 +287,7 @@ async function refresh(myEpoch: number, windowId: number, isInitialDecision: boo
         text: '',
         words: [],
         language: getLanguageOverride() ?? 'en',
-        source: { kind: 'pdf' },
+        source: { kind: 'pdf', appName: fileName },
         extraction: 'direct',
         debugBlocks: [],
       })
@@ -279,7 +300,7 @@ async function refresh(myEpoch: number, windowId: number, isInitialDecision: boo
       text: result.text,
       words: result.words,
       language: result.language,
-      source: { kind: 'pdf' },
+      source: { kind: 'pdf', appName: fileName },
       extraction: 'direct',
       debugBlocks: [],
     })
