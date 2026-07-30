@@ -20,9 +20,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   windowDeselectShortcut: 'Alt+2',
   manualRegionShortcut: 'Alt+3',
   forceOcrShortcut: 'Alt+4',
-  contextBytesBefore: 1024,
-  contextBytesAfter: 1024,
-  contextBytesLinked: true,
+  // 앞뒤 비대칭 기본값(2026-07-30, 사용자 요청 — 앞 700 / 뒤 300) — 값 자체가 다르므로
+  // contextBytesLinked 기본값도 false 로 함께 바꿔야 앞뒤가 실제로 다르다는 걸 UI가
+  // 일관되게 보여준다(linked=true 면 "앞·뒤 공통" 단일 컨트롤로 합쳐 보여주는데, 그 상태로
+  // 서로 다른 700/300을 들고 있으면 화면엔 700만 보이고 실제 뒤 값(300)은 안 보이는
+  // 모순이 생김).
+  contextBytesBefore: 700,
+  contextBytesAfter: 300,
+  contextBytesLinked: false,
   models: {},
   autoDetectRegion: false,
 }

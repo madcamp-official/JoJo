@@ -244,7 +244,7 @@ button:disabled { cursor: not-allowed; }
 .settings-section .desc { font-size: 12px; color: #8b93a1; margin: 0 0 14px; text-align: justify; }
 /* 섹션 제목 옆 "기본값으로 초기화" 버튼(단축키/문맥 범위 섹션, 2026-07-30) — h2 자체 마진은
    그대로 두고 이 줄에서만 좌우 정렬한다. */
-.settings-section .section-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.settings-section .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .settings-section .section-header h2 { margin: 0; }
 .reset-btn {
   background: #fff; border: 1px solid #dbe0e6; border-radius: 6px; cursor: pointer;
