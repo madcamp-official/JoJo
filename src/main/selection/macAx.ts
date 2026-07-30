@@ -1,0 +1,448 @@
+import koffi from 'koffi'
+import type { Rect } from '@shared/types'
+import { getMacWindowBounds, getMacWindowOwnerPid } from './macWindow'
+
+// 담당 milleion — macOS 접근성(AX) API 로 미리보기(Preview.app)가 화면에 그린 PDF 텍스트와
+// 그 좌표를 OCR 없이 직접 읽는다(TODO.md "브라우저 밖 PDF" 항목, 사전 검증은
+// feat/mac-ax-pdf 스파이크에서 완료).
+//
+// 구조(실측): AXWindow / AXSplitGroup / AXScrollArea / AXGroup(AXSharedDocumentContainer)
+//             / AXPage × 페이지수 / AXGroup… / AXStaticText(문단 단위)
+// 텍스트 노드는 파라미터 속성(AXRangeForLine / AXStringForRange / AXBoundsForRange)을
+// 지원해서, 문자 범위만 지정하면 그 범위만 감싸는 정확한 CGRect 를 돌려준다 — 이 좌표가
+// 곧 hover 박스가 된다.
+//
+// 구현 시 함정 두 가지(스파이크에서 실제로 겪음, TODO.md 에도 기록):
+//  1) 파라미터 속성 이름은 상수 심볼명(kAXBoundsForRangeParameterizedAttribute)이 아니라
+//     실제 문자열 값("AXBoundsForRange")이다. 틀리면 -25213(파라미터 속성 미지원)으로
+//     조용히 실패하는데, 노드는 지원 목록에 그 이름을 광고하고 있어서 오진하기 쉽다.
+//  2) koffi 에 CFRange/CGRect 같은 구조체를 넘길 때는 JS 객체가 아니라 Buffer 로 인코딩해야
+//     한다(객체를 넘기면 "Unexpected Object value, expected void *" 로 크래시).
+
+const APPLICATION_SERVICES =
+  '/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices'
+const CORE_FOUNDATION = '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation'
+
+type KFn = (...args: unknown[]) => unknown
+
+const CGRectS = koffi.struct('AxCGRect', { x: 'double', y: 'double', width: 'double', height: 'double' })
+const CGPointS = koffi.struct('AxCGPoint', { x: 'double', y: 'double' })
+const CGSizeS = koffi.struct('AxCGSize', { width: 'double', height: 'double' })
+const CFRangeS = koffi.struct('AxCFRange', { location: 'int64', length: 'int64' })
+
+const kAXValueCGPointType = 1
+const kAXValueCGSizeType = 2
+const kAXValueCGRectType = 3
+const kAXValueCFRangeType = 4
+const kCFNumberLongType = 10
+const kCFStringEncodingUTF8 = 0x08000100
+/** 파라미터 속성이 아예 없는 노드(그룹 등)에서 나는 오류 — 정상 흐름이라 로그도 남기지 않는다. */
+const kAXErrorParameterizedAttributeUnsupported = -25213
+
+let loaded = false
+let AXUIElementCreateApplication: KFn | null = null
+let AXUIElementCopyAttributeValue: KFn | null = null
+let AXUIElementCopyParameterizedAttributeValue: KFn | null = null
+let AXValueGetValue: KFn | null = null
+let AXValueCreate: KFn | null = null
+let CFStringCreateWithCString: KFn | null = null
+let CFStringGetCString: KFn | null = null
+let CFNumberCreate: KFn | null = null
+let CFGetTypeID: KFn | null = null
+let CFStringGetTypeID: KFn | null = null
+let CFArrayGetTypeID: KFn | null = null
+let CFArrayGetCount: KFn | null = null
+let CFArrayGetValueAtIndex: KFn | null = null
+let CFRelease: KFn | null = null
+
+function ensureAx(): boolean {
+  if (loaded) return AXUIElementCreateApplication !== null
+  loaded = true
+  if (process.platform !== 'darwin') return false
+  try {
+    const as = koffi.load(APPLICATION_SERVICES)
+    const cf = koffi.load(CORE_FOUNDATION)
+    AXUIElementCreateApplication = as.func('void* AXUIElementCreateApplication(int pid)')
+    AXUIElementCopyAttributeValue = as.func(
+      'int AXUIElementCopyAttributeValue(void* el, void* attr, _Out_ void** value)',
+    )
+    AXUIElementCopyParameterizedAttributeValue = as.func(
+      'int AXUIElementCopyParameterizedAttributeValue(void* el, void* attr, void* param, _Out_ void** value)',
+    )
+    AXValueGetValue = as.func('bool AXValueGetValue(void* value, uint32_t type, void* out)')
+    AXValueCreate = as.func('void* AXValueCreate(uint32_t type, void* ptr)')
+    CFStringCreateWithCString = cf.func('void* CFStringCreateWithCString(void* alloc, const char* s, uint32_t enc)')
+    CFStringGetCString = cf.func('bool CFStringGetCString(void* s, _Out_ char* buf, long size, uint32_t enc)')
+    CFNumberCreate = cf.func('void* CFNumberCreate(void* alloc, long type, void* valuePtr)')
+    CFGetTypeID = cf.func('unsigned long CFGetTypeID(void* cf)')
+    CFStringGetTypeID = cf.func('unsigned long CFStringGetTypeID()')
+    CFArrayGetTypeID = cf.func('unsigned long CFArrayGetTypeID()')
+    CFArrayGetCount = cf.func('long CFArrayGetCount(void* arr)')
+    CFArrayGetValueAtIndex = cf.func('void* CFArrayGetValueAtIndex(void* arr, long idx)')
+    CFRelease = cf.func('void CFRelease(void* cf)')
+    return true
+  } catch (err) {
+    console.warn('[macAx] 접근성 프레임워크 로드 실패:', (err as Error)?.message)
+    AXUIElementCreateApplication = null
+    return false
+  }
+}
+
+// 속성 이름 CFString 은 호출마다 새로 만들지 않고 캐시한다(호출 횟수가 단어 수만큼 많다).
+const cfStringCache = new Map<string, unknown>()
+function cfstr(s: string): unknown {
+  let ref = cfStringCache.get(s)
+  if (ref === undefined) {
+    ref = CFStringCreateWithCString!(null, s, kCFStringEncodingUTF8)
+    cfStringCache.set(s, ref)
+  }
+  return ref
+}
+
+function release(ref: unknown): void {
+  if (!ref) return
+  try {
+    CFRelease!(ref)
+  } catch {
+    /* 무시 */
+  }
+}
+
+function cfStringToJs(ref: unknown): string | null {
+  if (!ref) return null
+  // CFStringGetLength 는 UTF-16 길이라 UTF-8 최악(문자당 4바이트) + 종단을 잡아준다.
+  const buf = Buffer.alloc(1024 * 1024)
+  if (!CFStringGetCString!(ref, buf, buf.length, kCFStringEncodingUTF8)) return null
+  const end = buf.indexOf(0)
+  return buf.toString('utf8', 0, end < 0 ? buf.length : end)
+}
+
+/** 속성 하나 읽기 — 반환된 CF 객체는 호출부가 release() 해야 한다(+1 retained). */
+function copyAttribute(el: unknown, name: string): unknown {
+  const out = [null]
+  const err = AXUIElementCopyAttributeValue!(el, cfstr(name), out) as number
+  if (err !== 0) return null
+  return out[0]
+}
+
+function attributeString(el: unknown, name: string): string | null {
+  const value = copyAttribute(el, name)
+  if (!value) return null
+  try {
+    if (CFGetTypeID!(value) !== CFStringGetTypeID!()) return null
+    return cfStringToJs(value)
+  } finally {
+    release(value)
+  }
+}
+
+function decodeAxValue(value: unknown, type: number, size: number, struct: unknown): Record<string, number> | null {
+  const buf = Buffer.alloc(size)
+  if (!AXValueGetValue!(value, type, buf)) return null
+  return koffi.decode(buf, struct as never) as Record<string, number>
+}
+
+function attributePoint(el: unknown, name: string): { x: number; y: number } | null {
+  const value = copyAttribute(el, name)
+  if (!value) return null
+  try {
+    const p = decodeAxValue(value, kAXValueCGPointType, 16, CGPointS)
+    return p ? { x: p.x!, y: p.y! } : null
+  } finally {
+    release(value)
+  }
+}
+
+function attributeSize(el: unknown, name: string): { width: number; height: number } | null {
+  const value = copyAttribute(el, name)
+  if (!value) return null
+  try {
+    const s = decodeAxValue(value, kAXValueCGSizeType, 16, CGSizeS)
+    return s ? { width: s.width!, height: s.height! } : null
+  } finally {
+    release(value)
+  }
+}
+
+/** 자식 요소들을 순회한다 — 요소 포인터는 부모 배열이 살아있는 동안만 유효하므로,
+ *  콜백 안에서 필요한 값을 다 뽑아 쓰고 배열은 순회가 끝나면 바로 해제한다(포인터를
+ *  배열 밖으로 들고 나가면 해제 뒤 무효 포인터가 된다). */
+function forEachChild(el: unknown, fn: (child: unknown) => void): void {
+  const array = copyAttribute(el, 'AXChildren')
+  if (!array) return
+  try {
+    if (CFGetTypeID!(array) !== CFArrayGetTypeID!()) return
+    const count = Number(CFArrayGetCount!(array))
+    for (let i = 0; i < count; i++) {
+      const child = CFArrayGetValueAtIndex!(array, i)
+      if (child) fn(child)
+    }
+  } finally {
+    release(array)
+  }
+}
+
+function copyParameterized(el: unknown, name: string, param: unknown): unknown {
+  const out = [null]
+  const err = AXUIElementCopyParameterizedAttributeValue!(el, cfstr(name), param, out) as number
+  if (err !== 0) {
+    if (err !== kAXErrorParameterizedAttributeUnsupported && process.env.DEBUG_AX) {
+      console.warn(`[macAx] ${name} err=${err}`)
+    }
+    return null
+  }
+  return out[0]
+}
+
+function rangeBuffer(location: number, length: number): Buffer {
+  const buf = Buffer.alloc(16)
+  buf.writeBigInt64LE(BigInt(location), 0)
+  buf.writeBigInt64LE(BigInt(length), 8)
+  return buf
+}
+
+/** 문자 범위 [location, location+length) 를 감싸는 화면 사각형(스크린 전역 좌표, 포인트). */
+function boundsForRange(el: unknown, location: number, length: number): Rect | null {
+  const param = AXValueCreate!(kAXValueCFRangeType, rangeBuffer(location, length))
+  if (!param) return null
+  const value = copyParameterized(el, 'AXBoundsForRange', param)
+  release(param)
+  if (!value) return null
+  try {
+    const r = decodeAxValue(value, kAXValueCGRectType, 32, CGRectS)
+    if (!r || !(r.width! > 0 && r.height! > 0)) return null
+    return { x: r.x!, y: r.y!, width: r.width!, height: r.height! }
+  } finally {
+    release(value)
+  }
+}
+
+function stringForRange(el: unknown, location: number, length: number): string | null {
+  const param = AXValueCreate!(kAXValueCFRangeType, rangeBuffer(location, length))
+  if (!param) return null
+  const value = copyParameterized(el, 'AXStringForRange', param)
+  release(param)
+  if (!value) return null
+  try {
+    return cfStringToJs(value)
+  } finally {
+    release(value)
+  }
+}
+
+/** line 번째 화면 줄이 차지하는 문자 범위 — 문단 노드를 실제 표시된 줄로 쪼개는 데 쓴다.
+ *  파라미터가 CFRange 가 아니라 CFNumber(줄 번호)라는 점이 다른 파라미터 속성과 다르다. */
+function rangeForLine(el: unknown, line: number): { location: number; length: number } | null {
+  const numBuf = Buffer.alloc(8)
+  numBuf.writeBigInt64LE(BigInt(line))
+  const num = CFNumberCreate!(null, kCFNumberLongType, numBuf)
+  if (!num) return null
+  const value = copyParameterized(el, 'AXRangeForLine', num)
+  release(num)
+  if (!value) return null
+  try {
+    const r = decodeAxValue(value, kAXValueCFRangeType, 16, CFRangeS)
+    if (!r) return null
+    return { location: Number(r.location), length: Number(r.length) }
+  } finally {
+    release(value)
+  }
+}
+
+// ---- 페이지/줄 추출 ---------------------------------------------------------
+
+/** 한 화면 줄 — 텍스트와, 그 줄 안에서 문자 범위를 다시 조회할 수 있는 정보. */
+export interface AxLine {
+  text: string
+  /** 이 줄을 담고 있는 텍스트 노드(문단) 안에서의 시작 오프셋 */
+  location: number
+  /** 줄 전체를 감싸는 사각형(창 좌상단 기준 DIP) — 단어 rect 가 하나도 안 나올 때의 폴백 */
+  bbox: Rect | null
+  /** 줄 안의 문자 범위 → 사각형(창 기준 DIP). 단어 분리는 호출부가 정한다. */
+  boundsOf: (start: number, length: number) => Rect | null
+}
+
+const MAX_LINES_PER_NODE = 4000
+
+/** 텍스트 노드(문단) 하나를 화면에 표시된 줄들로 쪼갠다. */
+function linesOfTextNode(node: unknown, origin: { x: number; y: number }): AxLine[] {
+  const value = attributeString(node, 'AXValue')
+  if (!value) return []
+  const toWindow = (r: Rect | null): Rect | null =>
+    r ? { x: r.x - origin.x, y: r.y - origin.y, width: r.width, height: r.height } : null
+
+  const lines: AxLine[] = []
+  let covered = 0
+  for (let i = 0; i < MAX_LINES_PER_NODE && covered < value.length; i++) {
+    const range = rangeForLine(node, i)
+    if (!range || range.length <= 0) break
+    // 줄 번호가 실제 진행하지 않으면(같은 범위 반복) 무한 루프를 막는다.
+    if (range.location + range.length <= covered) break
+    covered = range.location + range.length
+    const text = stringForRange(node, range.location, range.length) ?? value.slice(range.location, covered)
+    lines.push({
+      text,
+      location: range.location,
+      bbox: toWindow(boundsForRange(node, range.location, range.length)),
+      boundsOf: (start, length) => toWindow(boundsForRange(node, range.location + start, length)),
+    })
+  }
+  // 줄 정보를 못 얻는 노드(파라미터 속성 미지원 등)는 노드 전체를 한 줄로 취급한다.
+  if (lines.length === 0) {
+    lines.push({
+      text: value,
+      location: 0,
+      bbox: toWindow(boundsForRange(node, 0, value.length)),
+      boundsOf: (start, length) => toWindow(boundsForRange(node, start, length)),
+    })
+  }
+  return lines
+}
+
+/** 한 페이지 = 화면에 보이는 문단(텍스트 노드)들의 줄 목록. */
+export interface AxPage {
+  /** 페이지 사각형(창 기준 DIP) — 스크롤 위치 변화 감지에 쓴다. */
+  bbox: Rect
+  paragraphs: AxLine[][]
+}
+
+const MAX_TREE_DEPTH = 16
+
+/** el 아래에서 AXPage 노드를 찾아 콜백한다(페이지 자체는 더 내려가지 않는다). */
+function forEachPage(el: unknown, depth: number, fn: (page: unknown) => void): void {
+  if (depth > MAX_TREE_DEPTH) return
+  forEachChild(el, (child) => {
+    if (attributeString(child, 'AXRole') === 'AXPage') fn(child)
+    else forEachPage(child, depth + 1, fn)
+  })
+}
+
+/** page 아래의 텍스트 노드(AXStaticText)를 찾아 콜백한다. */
+function forEachTextNode(el: unknown, depth: number, fn: (node: unknown) => void): void {
+  if (depth > MAX_TREE_DEPTH) return
+  forEachChild(el, (child) => {
+    if (attributeString(child, 'AXRole') === 'AXStaticText') fn(child)
+    else forEachTextNode(child, depth + 1, fn)
+  })
+}
+
+function intersects(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+}
+
+/**
+ * windowId(=CGWindowID) 가 가리키는 창의 AX 요소를 찾는다 — AX 는 창 id 를 노출하지 않으므로
+ * 소유 앱의 AXWindows 중 위치·크기가 CGWindow bounds 와 일치하는 것을 고른다(제목 비교는
+ * 같은 문서를 여러 창으로 열면 모호해진다). 콜백 안에서만 유효한 포인터를 넘긴다.
+ */
+function withWindowElement<T>(windowId: number, fn: (win: unknown, bounds: Rect) => T | null): T | null {
+  const bounds = getMacWindowBounds(windowId)
+  const pid = getMacWindowOwnerPid(windowId)
+  if (!bounds || pid === null) return null
+  const appEl = AXUIElementCreateApplication!(pid)
+  if (!appEl) return null
+  const windows = copyAttribute(appEl, 'AXWindows')
+  if (!windows) {
+    release(appEl)
+    return null
+  }
+  try {
+    if (CFGetTypeID!(windows) !== CFArrayGetTypeID!()) return null
+    const count = Number(CFArrayGetCount!(windows))
+    let fallback: unknown = null
+    for (let i = 0; i < count; i++) {
+      const win = CFArrayGetValueAtIndex!(windows, i)
+      if (!win) continue
+      if (fallback === null) fallback = win
+      const pos = attributePoint(win, 'AXPosition')
+      const size = attributeSize(win, 'AXSize')
+      if (!pos || !size) continue
+      const near = Math.abs(pos.x - bounds.x) < 4 && Math.abs(pos.y - bounds.y) < 4
+      const sameSize = Math.abs(size.width - bounds.width) < 8 && Math.abs(size.height - bounds.height) < 8
+      if (near && sameSize) return fn(win, bounds)
+    }
+    // 일치하는 창을 못 찾으면(전체화면 전환 직후 등) 첫 창으로 폴백한다.
+    return fallback ? fn(fallback, bounds) : null
+  } finally {
+    release(windows)
+    release(appEl)
+  }
+}
+
+/**
+ * 선택된 창(미리보기)에서 지금 화면에 보이는 페이지들의 텍스트+좌표를 읽는다.
+ * 좌표는 전부 창 좌상단 기준 DIP(포인트) — 오버레이가 창에 맞춰 떠 있으므로 그대로 쓸 수
+ * 있다. OCR 경로(물리 픽셀)와 달리 배율 보정이 필요 없다(extractionCache.ts
+ * alignWordsToOverlay 를 타지 않는 이유).
+ */
+export function readVisiblePages(windowId: number): AxPage[] | null {
+  if (!ensureAx()) return null
+  try {
+    return withWindowElement(windowId, (win, bounds) => {
+      const origin = { x: bounds.x, y: bounds.y }
+      const windowRect: Rect = { x: 0, y: 0, width: bounds.width, height: bounds.height }
+      const pages: AxPage[] = []
+      forEachPage(win, 0, (page) => {
+        const pos = attributePoint(page, 'AXPosition')
+        const size = attributeSize(page, 'AXSize')
+        if (!pos || !size) return
+        const bbox: Rect = {
+          x: pos.x - origin.x,
+          y: pos.y - origin.y,
+          width: size.width,
+          height: size.height,
+        }
+        // 화면 밖 페이지(연속 스크롤이라 문서 전체가 트리에 있다)는 건너뛴다 — 페이지당
+        // 텍스트 노드 순회 비용이 있어서, 안 보이는 285 페이지까지 읽으면 감당이 안 된다.
+        if (!intersects(bbox, windowRect)) return
+        const paragraphs: AxLine[][] = []
+        forEachTextNode(page, 0, (node) => {
+          const lines = linesOfTextNode(node, origin)
+          if (lines.length > 0) paragraphs.push(lines)
+        })
+        if (paragraphs.length > 0) pages.push({ bbox, paragraphs })
+      })
+      pages.sort((a, b) => a.bbox.y - b.bbox.y)
+      return pages
+    })
+  } catch (err) {
+    console.warn('[macAx] 페이지 읽기 실패:', (err as Error)?.message)
+    return null
+  }
+}
+
+/**
+ * 스크롤 위치 지문 — 화면에 보이는 페이지들의 좌표만 싸게 읽어 만든다(텍스트 노드는 안
+ * 건드림). 이 값이 바뀌면 스크롤/확대/창 이동으로 좌표가 전부 무효가 됐다는 뜻이라
+ * 재추출이 필요하다. 전체 재추출보다 훨씬 가벼워 폴링에 쓸 수 있다.
+ */
+export function readScrollSignature(windowId: number): string | null {
+  if (!ensureAx()) return null
+  try {
+    return withWindowElement(windowId, (win, bounds) => {
+      const windowRect: Rect = { x: 0, y: 0, width: bounds.width, height: bounds.height }
+      const parts: string[] = [`${Math.round(bounds.width)}x${Math.round(bounds.height)}`]
+      forEachPage(win, 0, (page) => {
+        const pos = attributePoint(page, 'AXPosition')
+        const size = attributeSize(page, 'AXSize')
+        if (!pos || !size) return
+        const bbox: Rect = {
+          x: pos.x - bounds.x,
+          y: pos.y - bounds.y,
+          width: size.width,
+          height: size.height,
+        }
+        if (!intersects(bbox, windowRect)) return
+        parts.push(`${Math.round(bbox.x)},${Math.round(bbox.y)},${Math.round(bbox.width)}`)
+      })
+      return parts.join('|')
+    })
+  } catch {
+    return null
+  }
+}
+
+/** 접근성 권한이 없으면 AX 호출이 전부 실패한다 — 호출부가 OCR 로 폴백할지 판단하는 데 쓴다. */
+export function isAxAvailable(): boolean {
+  return ensureAx()
+}

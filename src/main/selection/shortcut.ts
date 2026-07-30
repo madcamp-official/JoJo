@@ -14,6 +14,7 @@ import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSel
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
 import { isWebModeActive, startWebMode, stopWebMode } from './webSource'
+import { isPdfAxModeActive, startPdfAxMode, stopPdfAxMode } from './pdfAxSource'
 import { getBrowserSource } from '../extension/activeTab'
 
 // 담당 A — 모드 전환 전역 단축키 (PLAN.md §4, 기본 macOS: Option+` / Windows: Alt+`)
@@ -72,6 +73,7 @@ function exitSelectMode(): void {
   stopChangeWatcher()
   stopSubtitleMode()
   stopWebMode()
+  stopPdfAxMode()
   forceOcrUrl = null // 강제 OCR 상태도 선택 모드 이탈 시 리셋(2026-07-30 사용자 결정 — 다시 들어가면 자동판정부터)
   clearRegionEscapeShortcut()
 }
@@ -121,6 +123,7 @@ export function requestForceOcr(): void {
   const epoch = ++decisionEpoch
   stopSubtitleMode()
   stopWebMode()
+  stopPdfAxMode()
   stopChangeWatcher()
   startOcrFallback(epoch)
 }
@@ -139,6 +142,7 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
       // 강제 OCR 유지 중인 바로 그 페이지 — subtitle/web 판정과 무관하게 OCR 유지.
       stopSubtitleMode()
       stopWebMode()
+      stopPdfAxMode()
       stopChangeWatcher()
       startOcrFallback(epoch)
       return
@@ -150,10 +154,11 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
   // OCR 이 필요한 곳으로 넘어가면 사용자에게 영역 지정을 요구하지 않고 선택 모드 자체를
   // 끈다(사용자 요청, 2026-07-29 자막 최초 도입 + 2026-07-30 web 케이스까지 명시적으로
   // 확장). 아래에서 stopSubtitleMode/stopWebMode 를 부르기 전에 미리 잡아둬야 한다.
-  const wasDirectExtraction = isSubtitleModeActive() || isWebModeActive()
+  const wasDirectExtraction = isSubtitleModeActive() || isWebModeActive() || isPdfAxModeActive()
   if (decision.mode === 'subtitle') {
     // 자막 경로 — OCR 영역 선택/캡처/변화감지를 전부 중단하고 확장 자막을 쓴다.
     stopWebMode()
+    stopPdfAxMode()
     stopChangeWatcher()
     // 첫 판정이 일시적으로 OCR 로 잘못 났다가(확장 활성 탭 보고 도착 전) 이번 재판정으로
     // 넘어온 경우, 그 판정이 이미 시작한 OCR 인식이 백그라운드에서 계속 돌다가 완료
@@ -177,6 +182,7 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     // 페이지의 pageReady 를 다시 기다리지 않고 조용히 아무 일도 안 하게 된다.
     stopSubtitleMode()
     stopWebMode()
+    stopPdfAxMode()
     stopChangeWatcher()
     abandonInFlightExtraction() // subtitle 분기와 동일 — 낡은 OCR 판정이 시작한 진행 중 인식 폐기
     startWebMode(() => {
@@ -194,9 +200,26 @@ export function applyExtractionDecision(decision: ExtractionDecision): void {
     exitSelectMode()
     return
   }
+  // macOS 미리보기 PDF — 접근성(AX) 직접 추출 경로(pdfAxSource.ts). 캡처·OCR·영역 지정이
+  // 전부 필요 없어서 배너도 띄우지 않는다. 텍스트가 안 나오면(스캔본 PDF, 접근성 권한
+  // 없음) 콜백으로 알려주므로 web 분기와 동일하게 처리한다 — direct 추출 상태에서
+  // 넘어온 것이면 조용히 선택 모드를 끄고, 방금 진입한 것이면 OCR 로 폴백한다.
+  if (decision.mode === 'direct' && decision.source.kind === 'pdf') {
+    stopSubtitleMode()
+    stopWebMode()
+    stopPdfAxMode()
+    stopChangeWatcher()
+    abandonInFlightExtraction()
+    startPdfAxMode(() => {
+      if (wasDirectExtraction) exitSelectMode()
+      else startOcrFallback(epoch)
+    })
+    return
+  }
   // OCR/direct 경로(자막/웹 모드였던 적이 없는 일반 진입) — 기존 영역/OCR 흐름으로.
   stopSubtitleMode()
   stopWebMode()
+  stopPdfAxMode()
   startOcrFallback(epoch)
 }
 
@@ -408,6 +431,7 @@ export function resetToNormalMode(): void {
   // 안 꺼짐).
   stopSubtitleMode()
   stopWebMode()
+  stopPdfAxMode()
   forceOcrUrl = null
   clearRegionEscapeShortcut()
 }

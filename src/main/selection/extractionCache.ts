@@ -214,6 +214,24 @@ export function refreshExtractionCache(): Promise<void> {
 }
 
 /**
+ * 캡처+OCR 을 거치지 않고 이미 완성된 추출 결과를 캐시에 넣는다 — macOS 미리보기의
+ * 접근성(AX) 직접 추출(pdfAxSource.ts) 처럼 텍스트와 좌표를 자기가 다 만들어오는 경로용.
+ * runExtraction 이 하던 뒷정리(회차 히스토리 밀기, 오버레이 통지)를 동일하게 수행해서,
+ * 이후 클릭/팝업 흐름이 OCR 경로와 완전히 같아지게 한다.
+ *
+ * bbox 는 이미 오버레이 기준(창 좌상단 DIP)으로 들어온다 — alignWordsToOverlay 를 태우지
+ * 않는다. OCR 은 캡처 이미지(물리 픽셀) 기준이라 배율 보정이 필요하지만, AX 는 처음부터
+ * 포인트 단위 화면 좌표를 주기 때문에 보정하면 오히려 어긋난다.
+ */
+export function commitDirectExtraction(result: CachedExtraction): void {
+  inFlight = null // 진행 중이던 OCR 이 있으면 커밋 가드에 걸려 스스로 폐기된다
+  previousExtraction = cached
+  cached = result
+  sendOverlayWords(result.words)
+  sendDebugBlocks([])
+}
+
+/**
  * 클릭 시 호출 — 준비된 캐시가 있으면 즉시, 진행 중인 refresh 가 있으면 그걸 기다려서,
  * 둘 다 없으면(정상적으론 안 일어나야 함 — 방어용) 그 자리에서 새로 추출해서 반환한다.
  */

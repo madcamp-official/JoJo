@@ -2,6 +2,7 @@ import type { AnyLanguage, SelectionSource } from '@shared/types'
 import { readWindowText } from './accessibility'
 import { getSelectedWindowId, getSelectedWindowName } from './capture'
 import { detectLanguage } from './langDetect'
+import { isPreviewWindowSelected } from './pdfAxSource'
 import { activeTabTracker, getBrowserSource, type BrowserSource } from '../extension/activeTab'
 import { extensionBridge } from '../extension/bridge'
 
@@ -85,6 +86,14 @@ export async function decideExtraction(): Promise<ExtractionDecision> {
     // 일반 웹페이지: 확장의 범용 본문 탐지로 direct 추출을 우선 시도한다(낙관적 판정).
     // 실제 텍스트가 부족하면 webSource.ts가 스스로 OCR 경로로 넘어간다(shortcut.ts 참고).
     return { mode: 'web', source: browser.source, language }
+  }
+
+  // macOS 미리보기(Preview.app)로 연 PDF — 접근성(AX) API 로 텍스트와 좌표를 둘 다 직접
+  // 얻을 수 있어 OCR 이 필요 없다(pdfAxSource.ts). 여기서는 창 이름만 보고 낙관적으로
+  // 판정하고, 실제로 텍스트가 나오는지(스캔본이면 안 나온다)는 startPdfAxMode 가 확인해
+  // 부족하면 스스로 OCR 로 넘어간다 — web 경로(위)와 같은 방식이다.
+  if (isPreviewWindowSelected()) {
+    return { mode: 'direct', source: { kind: 'pdf' }, language }
   }
 
   // 표준 텍스트 컨트롤(메모장 등)이면 OCR 없이 바로 정확한 텍스트를 얻을 수 있다 —
