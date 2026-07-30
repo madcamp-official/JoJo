@@ -348,7 +348,7 @@ button:disabled { cursor: not-allowed; }
 .byte-preview .excluded { color: #b3b9c2; }
 .byte-preview .context-span { background: var(--theme-weak); }
 .byte-preview .extend-span { background: color-mix(in srgb, #2f6bff 18%, white); }
-.byte-preview .selected-span { background: var(--theme); color: var(--theme-text); border-radius: 3px; padding: 0 2px; }
+.byte-preview .selected-span { background: var(--theme); color: var(--theme-text); border-radius: 0; padding: 0 2px; }
 
 .lang-options { display: flex; flex-direction: column; gap: 10px; }
 .lang-option {
