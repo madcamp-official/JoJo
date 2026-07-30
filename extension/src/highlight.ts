@@ -5,7 +5,7 @@
 // 좌표를 그대로 쓸 수 있어 브라우저 크롬 오프셋 보정도 필요 없다. 스타일은
 // shared/highlightStyle.ts(오버레이와 동일 소스)를 그대로 읽어 인라인 스타일로 적용한다.
 import type { RectPx, SubLine } from '@shared/extension'
-import { groupRectsByLine } from '@shared/wordMapping'
+import { groupSegmentAt } from '@shared/wordMapping'
 import { hideHoverBox, showHoverBoxesAt } from './hoverBox'
 import { getWordSegments } from './wordSegments'
 
@@ -24,7 +24,8 @@ export interface WordHit {
 // hover 박스 렌더링(줄바꿈에 걸치면 줄마다 따로 그리는 박스 풀)/커서 오버라이드/전체화면
 // 재부착은 웹 문단(articleHighlight.ts)과 공유하는 hoverBox.ts 로 옮겼다 — 자막/웹 모드가
 // 각자 복제해 갖고 있었을 때 한쪽만 고쳐지고 다른 쪽이 뒤처지는 드리프트가 실제로
-// 있었다(2026-07-30).
+// 있었다(2026-07-30). 세그먼트 그룹핑 자체도 같은 이유로 shared/wordMapping.ts의
+// groupSegmentAt 으로 통합했다.
 
 function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rects: RectPx[] }) | null {
   for (const line of lines) {
@@ -37,21 +38,8 @@ function wordAtPoint(lines: SubLine[], x: number, y: number): (WordHit & { rects
     for (const w of line.words) {
       const r = w.rect
       if (!(x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) continue
-      const seg = segments?.find((s) => w.start >= s.start && w.start < s.end)
-      if (!seg) return { text: w.text, lineText: line.text, wordOffsetInLine: w.start, rects: [r] }
-      // CJK 형태소 분석 결과가 있으면 같은 세그먼트에 속한 글자들의 rect 를 하나로 묶는다.
-      const groupRects: RectPx[] = []
-      for (const other of line.words) {
-        if (other.start >= seg.start && other.start < seg.end) groupRects.push(other.rect)
-      }
-      return {
-        text: line.text.slice(seg.start, seg.end),
-        lineText: line.text,
-        wordOffsetInLine: seg.start,
-        // 세그먼트가 화면 줄바꿈에 걸치면(articleHighlight.ts의 동일 수정 주석 참고)
-        // 줄마다 따로 묶는다 — groupRects 는 항상 최소 1개(현재 단어 자신)를 포함.
-        rects: groupRectsByLine(groupRects),
-      }
+      const grouped = groupSegmentAt(line.text, line.words, w, segments)
+      return { text: grouped.text, lineText: line.text, wordOffsetInLine: grouped.start, rects: grouped.rects }
     }
   }
   return null

@@ -1,4 +1,5 @@
 import type { DictionaryEntry, DictionaryReading, DictionarySense } from '@shared/types'
+import { BROWSER_USER_AGENT } from './httpConfig'
 
 // 담당 ja — daijisen(デジタル大辞泉, kotobank.jp 경유) 어댑터 (PLAN.md §6 ja-1)
 // 실측 근거는 DICTIONARY_SOURCES.md "daijisen" 절 참고.
@@ -52,9 +53,6 @@ import type { DictionaryEntry, DictionaryReading, DictionarySense } from '@share
 
 const KOTOBANK_WORD_ENDPOINT = 'https://kotobank.jp/word'
 const KOTOBANK_SEARCH_ENDPOINT = 'https://kotobank.jp/search'
-
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 
 export class DaijisenHttpError extends Error {
   constructor(
@@ -407,7 +405,7 @@ async function searchFallback(word: string): Promise<DaijisenLookupResult> {
  *  같거나 오쿠리가나 생략 변형(isOkuriganaOmittedVariant)인 것만 순서 유지로 돌려준다. */
 async function searchKotobankCandidatePaths(word: string): Promise<string[]> {
   const res = await fetch(`${KOTOBANK_SEARCH_ENDPOINT}?q=${encodeURIComponent(word)}`, {
-    headers: { 'User-Agent': USER_AGENT },
+    headers: { 'User-Agent': BROWSER_USER_AGENT },
   })
   if (!res.ok) {
     throw new DaijisenHttpError(res.status, `daijisen(kotobank.jp) 검색 실패: HTTP ${res.status}`)
@@ -451,7 +449,7 @@ function isOkuriganaOmittedVariant(slug: string, word: string): boolean {
 /** 표제어 페이지 하나를 내려받아 daijisen entry 로 파싱한다 — 직접 URL 경로와 검색 폴백
  *  경로가 공유. HTTP 404 만 'not-found' 로 구분해 돌려준다(검색 폴백을 탈지 판단용). */
 async function fetchDaijisenPage(url: string, word: string): Promise<DaijisenLookupResult | 'not-found'> {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
+  const res = await fetch(url, { headers: { 'User-Agent': BROWSER_USER_AGENT } })
   if (res.status === 404) return 'not-found'
   if (!res.ok) {
     throw new DaijisenHttpError(res.status, `daijisen(kotobank.jp) 요청 실패: HTTP ${res.status}`)

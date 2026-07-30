@@ -1,6 +1,7 @@
 // 공동 소유 — 커서 좌표 ↔ 단어 매핑 (PLAN.md §5.1 "선택 · 좌표 매핑")
 // 입력 words 는 어떤 추출 경로(직접 추출/OCR)로 왔든 동일한 Word[] 형태이므로,
 // 이 매핑 로직은 추출 방식과 무관하게 재사용된다.
+import type { SubWord } from './extension'
 import type { Point, Rect, Word } from './types'
 
 function containsPoint(bbox: NonNullable<Word['bbox']>, point: Point): boolean {
@@ -87,4 +88,25 @@ export function groupRectsByLine(rects: { x: number; y: number; width: number; h
     else lines.push([r])
   }
   return lines.map((group) => unionRects(group)!)
+}
+
+/** 확장(extension)의 자막(highlight.ts)/웹 문단(articleHighlight.ts) hover 히트테스트가
+ *  공유하는 그룹핑 로직 — CJK 형태소 분석 결과(segments)가 있으면 seed 단어가 속한
+ *  세그먼트 전체의 rect 를 줄 단위로 묶어 반환하고, 없으면(비CJK/분석 전) seed 하나만
+ *  반환한다. 두 파일이 입력 형태(SubLine[] vs SubWord[]+idx)만 다르게 이 로직을 각자
+ *  복제해 갖고 있어 한쪽만 고쳐지고 다른 쪽이 뒤처지는 드리프트가 실제로 있었다
+ *  (2026-07-30) — 여기로 통합한다. */
+export function groupSegmentAt(
+  text: string,
+  words: SubWord[],
+  seed: SubWord,
+  segments: { start: number; end: number }[] | undefined,
+): { rects: Rect[]; text: string; start: number; end: number } {
+  const seg = segments?.find((s) => seed.start >= s.start && seed.start < s.end)
+  if (!seg) return { rects: [seed.rect], text: seed.text, start: seed.start, end: seed.end }
+  const groupRects: Rect[] = []
+  for (const other of words) {
+    if (other.start >= seg.start && other.start < seg.end) groupRects.push(other.rect)
+  }
+  return { rects: groupRectsByLine(groupRects), text: text.slice(seg.start, seg.end), start: seg.start, end: seg.end }
 }

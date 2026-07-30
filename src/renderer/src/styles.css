@@ -48,6 +48,13 @@
    커버한다 — 별도로 영문 전용 Noto 폰트를 더 받을 필요가 없다. */
 body { margin: 0; font-family: 'Noto Sans KR', system-ui, -apple-system, 'Segoe UI', sans-serif; }
 
+/* button/input/select/textarea 는 브라우저 기본값이 body 의 font-family 를 상속하지 않고
+   OS 네이티브 컨트롤 폰트를 쓴다(모든 CSS 리셋이 이 규칙을 넣는 이유와 동일) — 이대로
+   두면 폼 컨트롤 텍스트만 Noto Sans KR 이 아니라 OS별 시스템 폰트로 남아, 위에서 들인
+   "OS 상관없이 항상 같은 자형" 목표가 버튼/입력창 텍스트에는 적용이 안 된다(2026-07-30
+   검사로 발견). */
+button, input, select, textarea { font-family: inherit; }
+
 /* 클릭 가능한 요소 위에서 커서 모양 변경(전역) — 개별 지정 누락분까지 커버.
    텍스트 입력(input[type=text]/textarea)은 제외되어 기존 텍스트 커서 유지. */
 button:not(:disabled), select, a,

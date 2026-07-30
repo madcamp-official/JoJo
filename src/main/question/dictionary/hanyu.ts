@@ -1,4 +1,5 @@
 import type { CanonicalPos, DictionaryEntry, DictionaryReading, DictionarySense, Language } from '@shared/types'
+import { BROWSER_USER_AGENT } from './httpConfig'
 
 // 담당 C — 汉典(zdic.net) 어댑터 (PLAN.md §6, zh-Hans 1순위 / zh-Hant 2순위(萌典 실패시) 폴백)
 // 실측 근거는 DICTIONARY_SOURCES.md "汉典 (zh-Hans)" 절 참고.
@@ -30,9 +31,6 @@ export const ZDIC_LANG_PATH: Record<'zh-Hans' | 'zh-Hant', string> = {
   'zh-Hans': 'hans',
   'zh-Hant': 'hant',
 }
-
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 
 export class HanyuHttpError extends Error {
   constructor(
@@ -334,7 +332,7 @@ export interface HanyuLookupResult<L extends Language = Language> {
 export async function fetchHanyuEntry<L extends ZhLanguage>(word: string, language: L): Promise<HanyuLookupResult<L>> {
   const path = ZDIC_LANG_PATH[language]
   const url = `${ZDIC_BASE}/${path}/${encodeURIComponent(word)}`
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
+  const res = await fetch(url, { headers: { 'User-Agent': BROWSER_USER_AGENT } })
   if (res.status === 404) return {}
   if (!res.ok) {
     throw new HanyuHttpError(res.status, `汉典 요청 실패: HTTP ${res.status}`)
