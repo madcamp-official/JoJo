@@ -87,6 +87,17 @@ if (!app.requestSingleInstanceLock()) {
       void import('./selection/inputHook').then(({ startInputHook }) => startInputHook())
     }
 
+    // 담당 A — 최소화 창 썸네일 상시 캐시(2026-07-31, 사용자 요청 — capture.ts:
+    // startForegroundThumbnailCapture 주석 참고). 창 선택 화면을 열 때만 캡처하면, 어떤
+    // 창을 띄웠다가 목록을 한 번도 안 연 채로 최소화해버린 경우 캐시가 영영 안 생기는
+    // 빈틈이 있어서, 앱이 켜져 있는 동안 항상 포그라운드 전환을 감시해 그 순간을 놓치지
+    // 않는다. **Windows 전용**(win32Capture.ts 와 같은 이유로 동적 import).
+    if (process.platform === 'win32') {
+      void import('./selection/capture').then(({ startForegroundThumbnailCapture }) =>
+        startForegroundThumbnailCapture(),
+      )
+    }
+
     // 담당 A — 예열 시점/방식 재설계(2026-07-31, 사용자 요청 — warmup.ts 상단 주석 참고).
     // DocLayout-YOLO(범용 엔진)는 언어와 무관하게 항상 필요해 앱이 뜨자마자 백그라운드로
     // 예열을 시작한다 — 끝나기를 기다리지 않고 창 선택도 바로 허용한다(예전처럼 버튼을
