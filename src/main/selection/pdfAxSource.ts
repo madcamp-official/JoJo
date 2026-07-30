@@ -157,15 +157,41 @@ async function extractOnce(windowId: number): Promise<AxExtraction | null> {
   return { text, words, language }
 }
 
-/** 추출 → 캐시 커밋(오버레이 통지 포함). 성공하면 true. */
-async function refresh(myEpoch: number, windowId: number): Promise<boolean> {
+/**
+ * 추출 → 캐시 커밋(오버레이 통지 포함).
+ *
+ * isInitialDecision 이 이 함수의 핵심 분기다(사용자 지적, 2026-07-30 — "PDF 파일 하나는
+ * 기준이 하나였으면 좋겠는데, 텍스트 페이지 읽다가 삽화 페이지 나왔다고 OCR로 전환하면
+ * 흐름이 깨진다"). 실측 결과 Preview 는 페이지를 지연 렌더링해서 화면 밖 페이지는
+ * AXStaticText 자체가 없다(ax-try 하네스로 확인, 2026-07-30) — 그래서 "이 문서가
+ * 텍스트 문서인가"를 모드 진입 전에 문서 전체를 미리 훑어 한 번에 결정하는 건 불가능하고,
+ * 지금 눈에 보이는 화면으로만 판단할 수 있다. 이 제약 아래서 "문서당 판정 하나" 요구를
+ * 최대한 만족하는 절충: **최초 진입 시 1회만** "이 화면에 텍스트가 없다"를 "이 문서는
+ * direct 로 못 읽는다(스캔본 등)"로 해석해 OCR 로 폴백한다. **세션 도중(스크롤 등)**에는
+ * 같은 신호("지금 화면에 텍스트 없음")를 "이 페이지는 삽화/표지처럼 원래 텍스트가 없는
+ * 페이지다"로만 해석해, 문서 판정 자체는 바꾸지 않고 화면의 낡은 호버박스만 지운다 —
+ * 텍스트 있는 페이지로 다시 스크롤하면 자연히 다시 채워진다.
+ */
+async function refresh(myEpoch: number, windowId: number, isInitialDecision: boolean): Promise<boolean> {
   if (extracting) return true // 이미 도는 중이면 그 결과를 그대로 쓴다(폴링이 겹치지 않게)
   extracting = true
   const startedAt = Date.now()
   try {
     const result = await extractOnce(windowId)
     if (myEpoch !== epoch) return false // 그 사이 모드가 꺼졌거나 재시작됨 — 결과 폐기
-    if (!result) return false
+    if (!result) {
+      if (isInitialDecision) return false // 호출부가 OCR 폴백 여부를 결정
+      // 세션 도중의 "텍스트 없음"은 문서 재판정이 아니라 이 페이지만의 특성으로 본다.
+      commitDirectExtraction({
+        text: '',
+        words: [],
+        language: getLanguageOverride() ?? 'en',
+        source: { kind: 'pdf' },
+        extraction: 'direct',
+        debugBlocks: [],
+      })
+      return true
+    }
     console.log(
       `[timing] pdf-ax 추출: ${Date.now() - startedAt}ms (${result.words.length} words, ${result.text.length} chars, ${result.language})`,
     )
@@ -180,7 +206,9 @@ async function refresh(myEpoch: number, windowId: number): Promise<boolean> {
     return true
   } catch (err) {
     console.error('[pdfAx] 추출 실패:', err)
-    return false
+    // 예외(AX 호출 자체가 깨짐 등)도 세션 도중이면 문서 판정을 뒤집지 않는다 — 다음 폴링
+    // 때 다시 시도된다. 초기 판정에서는 실패로 보고 호출부가 OCR 로 폴백하게 한다.
+    return !isInitialDecision
   } finally {
     extracting = false
   }
@@ -188,9 +216,11 @@ async function refresh(myEpoch: number, windowId: number): Promise<boolean> {
 
 /**
  * 선택 모드 진입 시 호출 — 미리보기 창의 텍스트를 AX 로 읽어 오버레이에 올린다.
- * 텍스트가 없거나(스캔본 PDF), 접근성 권한이 없어 AX 호출이 실패하면 onUnavailable() 로
- * 호출부(shortcut.ts)가 기존 OCR 경로로 폴백하게 한다 — webSource.ts 의
- * onInsufficientText 와 같은 역할.
+ * 최초 진입에서 텍스트가 없거나(스캔본 PDF), 접근성 권한이 없어 AX 호출이 실패하면
+ * onUnavailable() 로 호출부(shortcut.ts)가 기존 OCR 경로로 폴백하게 한다 — webSource.ts 의
+ * onInsufficientText 와 같은 역할. 이 판정은 문서당 한 번만 내려지고 세션 도중에는
+ * 재판정하지 않는다(위 refresh() 주석 참고) — 삽화 페이지로 스크롤해도 OCR 로 전환되지
+ * 않고, 그 페이지에 호버박스가 없을 뿐 계속 direct 모드로 남는다.
  */
 export function startPdfAxMode(onUnavailable: () => void): void {
   // 이전 세션의 폴링 타이머가 남아있으면(모드를 껐다 바로 다시 켠 경우 등) 먼저 정리한다
@@ -208,32 +238,22 @@ export function startPdfAxMode(onUnavailable: () => void): void {
   }
   active = true
   lastSignature = readScrollSignature(windowId)
-  // 첫 추출 실패든, 세션 도중 스크롤로 스캔본 페이지에 들어가 텍스트를 잃는 경우든 같은
-  // 처리를 한다 — 둘 다 "지금 보이는 화면에서 direct 로 쓸만한 텍스트가 없다"는 같은
-  // 사실이라 OCR 로 넘기는 게 맞다(사용자 확인, 2026-07-30). 이 헬퍼가 없으면 폴링 쪽은
-  // refresh() 실패를 무시해서, 텍스트 PDF 를 보다가 스캔본 페이지로 스크롤해도 오버레이에
-  // 직전 페이지의 낡은 호버박스만 남고 OCR 로 전환되지 않는 문제가 있었다.
-  const onExtractFailure = (): void => {
-    stopPdfAxMode()
-    onUnavailable()
-  }
-  void refresh(myEpoch, windowId).then((ok) => {
+  void refresh(myEpoch, windowId, true).then((ok) => {
     if (myEpoch !== epoch) return
     if (!ok) {
-      onExtractFailure()
+      stopPdfAxMode()
+      onUnavailable()
       return
     }
-    // 스크롤/확대/창 이동으로 좌표가 무효가 되면 다시 읽는다. 변화가 없으면 AX 호출
-    // 몇 번으로 끝나므로 폴링 비용은 무시할 만하다.
+    // 스크롤/확대/창 이동으로 좌표가 무효가 되면 다시 읽는다 — 문서 판정을 다시 하는 게
+    // 아니라 화면에 맞게 단어/좌표만 갱신한다(위 refresh() isInitialDecision=false 분기).
+    // 변화가 없으면 AX 호출 몇 번으로 끝나므로 폴링 비용은 무시할 만하다.
     polling = setInterval(() => {
       if (!active) return
       const signature = readScrollSignature(windowId)
       if (signature === null || signature === lastSignature) return
       lastSignature = signature
-      void refresh(myEpoch, windowId).then((stillOk) => {
-        if (myEpoch !== epoch || !active) return
-        if (!stillOk) onExtractFailure()
-      })
+      void refresh(myEpoch, windowId, false)
     }, SCROLL_POLL_MS)
   })
 }
