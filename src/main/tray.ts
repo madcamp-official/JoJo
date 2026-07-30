@@ -7,9 +7,12 @@ import { getSettings } from './settingsStore'
 import {
   currentMode,
   registerNamedShortcut,
+  requestForceOcr,
   requestManualRegionSelection,
   toggleMode,
 } from './selection/shortcut'
+import { isSubtitleModeActive } from './selection/subtitleSource'
+import { isWebModeActive } from './selection/webSource'
 import {
   getMainWindow,
   hideSelectionOverlay,
@@ -30,6 +33,10 @@ import {
 // 그 결과가 마음에 안 들 때 강제로 드래그 선택으로 덮어쓰는 용도 — shortcut.ts:
 // requestManualRegionSelection. 리사이즈로 인한 영역 재선택은 별도 메뉴 없이 자동으로
 // 처리된다(shortcut.ts: onWindowResized).
+// "OCR로 전환"(자막/웹 direct 추출 중일 때만 노출, 2026-07-30 사용자 요청)은 자동판정
+// 결과가 마음에 안 들 때 강제로 OCR로 덮어쓰는 용도 — shortcut.ts: requestForceOcr.
+// 같은 페이지에서만 유지되고 다른 페이지로 이동하거나 선택 모드를 나갔다 다시 들어가면
+// 자동판정으로 되돌아간다.
 
 let tray: Tray | null = null
 
@@ -62,6 +69,8 @@ function buildTrayMenu(): Menu {
   // 자동 탐지 결과가 마음에 안 들 때 강제로 드래그 선택으로 전환하는 버튼(사용자 요청,
   // 2026-07-29) — 선택 모드가 아닐 때는 뜻이 없어(영역 자체가 아직 안 쓰임) 그때만 보여준다.
   const inSelectMode = currentMode() === 'select'
+  // "OCR로 전환"은 지금 실제로 자막/웹 direct 추출 중일 때만 뜻이 있다(이미 OCR이면 필요 없음).
+  const inDirectExtraction = isSubtitleModeActive() || isWebModeActive()
   const settings = getSettings()
 
   return Menu.buildFromTemplate([
@@ -92,6 +101,15 @@ function buildTrayMenu(): Menu {
             label: '영역 수동 선택',
             accelerator: accel(settings.manualRegionShortcut),
             click: requestManualRegionSelection,
+          },
+        ]
+      : []),
+    ...(inDirectExtraction
+      ? [
+          {
+            label: 'OCR로 전환',
+            accelerator: accel(settings.forceOcrShortcut),
+            click: requestForceOcr,
           },
         ]
       : []),
@@ -132,6 +150,7 @@ export function createTray(): Tray {
   registerNamedShortcut('windowSelect', settings.windowSelectShortcut, openWindowPicker)
   registerNamedShortcut('windowDeselect', settings.windowDeselectShortcut, deselectWindow)
   registerNamedShortcut('manualRegion', settings.manualRegionShortcut, requestManualRegionSelection)
+  registerNamedShortcut('forceOcr', settings.forceOcrShortcut, requestForceOcr)
 
   return tray
 }

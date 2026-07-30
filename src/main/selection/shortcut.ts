@@ -14,6 +14,7 @@ import { autoDetectRegion, clearRegion, getRegion, setRegion } from './regionSel
 import { decideExtraction, type ExtractionDecision } from './decideOcr'
 import { isSubtitleModeActive, startSubtitleMode, stopSubtitleMode } from './subtitleSource'
 import { isWebModeActive, startWebMode, stopWebMode } from './webSource'
+import { getBrowserSource } from '../extension/activeTab'
 
 // 담당 A — 모드 전환 전역 단축키 (PLAN.md §4, 기본 macOS: Option+Q / Windows: Alt+Q)
 // Electron accelerator 의 'Alt' 는 macOS 에서 Option 키로 자동 매핑되므로 플랫폼 분기가 필요 없다.
@@ -71,6 +72,7 @@ function exitSelectMode(): void {
   stopChangeWatcher()
   stopSubtitleMode()
   stopWebMode()
+  forceOcrUrl = null // 강제 OCR 상태도 선택 모드 이탈 시 리셋(2026-07-30 사용자 결정 — 다시 들어가면 자동판정부터)
   clearRegionEscapeShortcut()
 }
 
@@ -96,6 +98,29 @@ async function enterSelectMode(): Promise<void> {
   applyExtractionDecision(decision)
 }
 
+// OCR 강제 전환 상태 — 이 URL과 일치하는 동안만 유지된다. 다른 페이지로 이동하면(다음
+// 재판정에서 decision.source.url 이 달라짐) 자동으로 해제되고, 선택 모드를 나갔다 다시
+// 들어가면 exitSelectMode 가 리셋한다(사용자 결정, 2026-07-30 — "같은 페이지에서만 유지,
+// 선택 모드 나갔다 들어오면 다시 자동판정").
+let forceOcrUrl: string | null = null
+
+/**
+ * 트레이 "OCR로 전환"(기본 Alt+4) 클릭/단축키 시 호출 — 자막이든 웹 DOM 텍스트든, 텍스트를
+ * 직접 추출하는 모든 경로에서 그 결과가 마음에 안 들 때 강제로 OCR로 전환한다(2026-07-30
+ * 사용자 요청). 브라우저 페이지가 아니면(direct 추출 자체가 없으면) 뜻이 없어 무시한다.
+ */
+export function requestForceOcr(): void {
+  if (mode !== 'select') return
+  const url = getBrowserSource()?.source.url
+  if (!url) return
+  forceOcrUrl = url
+  const epoch = ++decisionEpoch
+  stopSubtitleMode()
+  stopWebMode()
+  stopChangeWatcher()
+  startOcrFallback(epoch)
+}
+
 /**
  * 판정 결과를 실제 파이프라인에 적용한다. 선택 모드 진입 시, 그리고 선택 모드를 유지한
  * 채 탭/URL 이 바뀌어 재판정(reevaluate.ts)될 때 호출된다. 매 호출마다 세대를 올려, 이번
@@ -105,6 +130,18 @@ async function enterSelectMode(): Promise<void> {
 export function applyExtractionDecision(decision: ExtractionDecision): void {
   if (mode !== 'select') return
   const epoch = ++decisionEpoch
+  if (forceOcrUrl !== null) {
+    if (decision.source.url === forceOcrUrl) {
+      // 강제 OCR 유지 중인 바로 그 페이지 — subtitle/web 판정과 무관하게 OCR 유지.
+      stopSubtitleMode()
+      stopWebMode()
+      stopChangeWatcher()
+      startOcrFallback(epoch)
+      return
+    }
+    // 다른 페이지로 넘어갔다 — 강제 상태 해제, 아래 정상 판정 재개.
+    forceOcrUrl = null
+  }
   // direct 추출 상태(자막 또는 웹 DOM 텍스트)에서 이번 판정으로 바뀌는지 — 이 상태였다가
   // OCR 이 필요한 곳으로 넘어가면 사용자에게 영역 지정을 요구하지 않고 선택 모드 자체를
   // 끈다(사용자 요청, 2026-07-29 자막 최초 도입 + 2026-07-30 web 케이스까지 명시적으로
@@ -298,11 +335,12 @@ export function currentMode(): AppMode {
 // 항목마다 다른 곳(tray.ts)에 있어, id 별로 콜백을 등록해두고 재사용하는 범용 레지스트리로
 // 둔다. tray.ts 가 createTray() 시 한 번 등록(registerNamedShortcut)하고, 설정 화면에서
 // 단축키를 바꾸면 updateNamedShortcut 으로 재등록한다(updateModeShortcut과 동일 패턴).
-export type NamedShortcutId = 'windowSelect' | 'windowDeselect' | 'manualRegion'
+export type NamedShortcutId = 'windowSelect' | 'windowDeselect' | 'manualRegion' | 'forceOcr'
 const namedAccelerators: Record<NamedShortcutId, string[]> = {
   windowSelect: [],
   windowDeselect: [],
   manualRegion: [],
+  forceOcr: [],
 }
 const namedCallbacks: Partial<Record<NamedShortcutId, () => void>> = {}
 
@@ -352,5 +390,6 @@ export function resetToNormalMode(): void {
   // 안 꺼짐).
   stopSubtitleMode()
   stopWebMode()
+  forceOcrUrl = null
   clearRegionEscapeShortcut()
 }

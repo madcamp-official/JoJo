@@ -168,6 +168,7 @@ export function registerIpc(): void {
     if (patch.windowDeselectShortcut !== undefined)
       updateNamedShortcut('windowDeselect', patch.windowDeselectShortcut)
     if (patch.manualRegionShortcut !== undefined) updateNamedShortcut('manualRegion', patch.manualRegionShortcut)
+    if (patch.forceOcrShortcut !== undefined) updateNamedShortcut('forceOcr', patch.forceOcrShortcut)
     // settingsShortcut 은 더 이상 메인 프로세스에 등록할 게 없다 — 각 렌더러가 로컬
     // keydown 으로 직접 판정하며, 매 keydown 마다 window.nuance.getSettings() 로 최신
     // 값을 그때그때 조회하므로(App.tsx) 저장만 해두면 된다.
