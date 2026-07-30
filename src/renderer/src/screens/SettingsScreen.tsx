@@ -5,7 +5,7 @@ import { MW_DICTIONARY_SIGNUP_URL } from '@shared/dictionaries'
 import { LANGUAGES, LANGUAGE_ORDER, LINK_LANGUAGES } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
 import { goto } from '../navigate'
-import { IS_MAC, toAccelerator } from '../shortcutMatch'
+import { IS_MAC, toAccelerator, unsafeAcceleratorReason } from '../shortcutMatch'
 import {
   ProviderLogo,
   CheckIcon,
@@ -363,6 +363,19 @@ export function SettingsScreen() {
       const accelerator = toAccelerator(e)
       if (!accelerator) return // 유효하지 않은 조합은 무시하고 계속 대기
       const field = recordingField
+      // Shift 하나만 걸고 실제로 입력되는 문자 키를 누르면 그 문자 입력 자체를 가로채고,
+      // OS/다른 앱 필수 단축키(Cmd+Q 등)를 등록하면 그 기능이 시스템 전체에서 먹통이
+      // 된다 — 둘 다 Electron 은 등록을 그냥 허용해버려서(실측 확인) 여기서 막아야 한다.
+      const unsafeReason = unsafeAcceleratorReason(accelerator)
+      if (unsafeReason) {
+        setShortcutError(
+          unsafeReason === 'shift-typing'
+            ? `"${formatAccelerator(accelerator)}"는 Shift로 실제 입력되는 문자 키라 등록할 수 없습니다 — 어디서든 그 문자를 입력할 때마다 방해받게 됩니다.`
+            : `"${formatAccelerator(accelerator)}"는 OS나 다른 앱이 이미 쓰는 필수 단축키라 등록할 수 없습니다.`,
+        )
+        setRecordingField(null)
+        return
+      }
       const current = settingsForRecordingRef.current
       // 다른 단축키가 이미 같은 조합을 쓰고 있으면 저장을 막는다(2026-07-30 사용자 요청) —
       // Electron globalShortcut 은 같은 accelerator 를 두 번 등록하면 나중 것이 앞의 콜백을
@@ -696,9 +709,9 @@ export function SettingsScreen() {
             : 'Ctrl·Alt·Shift 중 최소 하나를 포함한 키 조합, 또는 F1~F12 단독 키를 등록할 수 있습니다.'}
         </p>
         {shortcutError && (
-          <span className="err">
+          <div className="settings-warning">
             <WarnIcon /> {shortcutError}
-          </span>
+          </div>
         )}
         <div className="shortcut-row">
           <span className="label">모드 전환 (일반 ↔ 선택)</span>
