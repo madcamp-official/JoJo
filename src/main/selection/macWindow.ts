@@ -55,6 +55,7 @@ let boundsKey: unknown = null // CFString "kCGWindowBounds" (재사용 위해 �
 let ownerPidKey: unknown = null // CFString "kCGWindowOwnerPID"
 let ownerNameKey: unknown = null // CFString "kCGWindowOwnerName"
 let numberKey: unknown = null // CFString "kCGWindowNumber"
+let nameKey: unknown = null // CFString "kCGWindowName"(창 자체의 제목 — ownerName 은 앱 이름)
 
 const kCGWindowListOptionIncludingWindow = 1 << 3
 const kCGWindowListOptionOnScreenOnly = 1 << 0
@@ -88,6 +89,7 @@ function ensureCoreGraphics(): boolean {
     ownerPidKey = CFStringCreateWithCString(null, 'kCGWindowOwnerPID', kCFStringEncodingUTF8)
     ownerNameKey = CFStringCreateWithCString(null, 'kCGWindowOwnerName', kCFStringEncodingUTF8)
     numberKey = CFStringCreateWithCString(null, 'kCGWindowNumber', kCFStringEncodingUTF8)
+    nameKey = CFStringCreateWithCString(null, 'kCGWindowName', kCFStringEncodingUTF8)
     return true
   } catch {
     cg = cf = null
@@ -98,9 +100,10 @@ function ensureCoreGraphics(): boolean {
 interface WindowInfo {
   bounds: MacWindowRect
   pid: number | null
+  name: string | null
 }
 
-/** windowId(=CGWindowID)로 창의 bounds + owner PID 를 조회한다(실패 시 null). */
+/** windowId(=CGWindowID)로 창의 bounds + owner PID + 창 제목을 조회한다(실패 시 null). */
 function getWindowInfo(windowId: number): WindowInfo | null {
   if (!ensureCoreGraphics()) return null
   let arr: unknown = null
@@ -128,7 +131,8 @@ function getWindowInfo(windowId: number): WindowInfo | null {
         pid = koffi.decode(pidPtr, 'int32_t') as number
       }
     }
-    return { bounds: { x: r.x, y: r.y, width: r.width, height: r.height }, pid }
+    const name = cfStringToJs(CFDictionaryGetValue!(dict, nameKey))
+    return { bounds: { x: r.x, y: r.y, width: r.width, height: r.height }, pid, name }
   } catch {
     return null
   } finally {
@@ -312,11 +316,11 @@ let objcReady = false
 let objcOk = false
 let msgSendPid: KFn | null = null
 let msgSendActivate: KFn | null = null
-let msgSendGetBundleId: KFn | null = null
+let msgSendGetLocalizedName: KFn | null = null
 let clsNSRunningApplication: unknown = null
 let selRunningAppForPid: unknown = null
 let selActivate: unknown = null
-let selBundleIdentifier: unknown = null
+let selLocalizedName: unknown = null
 
 function ensureObjc(): boolean {
   if (objcReady) return objcOk
@@ -331,11 +335,11 @@ function ensureObjc(): boolean {
     // objc_msgSend 는 호출 시그니처별로 따로 바인딩한다(같은 심볼, 다른 프로토타입).
     msgSendPid = objc.func('objc_msgSend', 'void*', ['void*', 'void*', 'int'])
     msgSendActivate = objc.func('objc_msgSend', 'bool', ['void*', 'void*', 'unsigned long'])
-    msgSendGetBundleId = objc.func('objc_msgSend', 'void*', ['void*', 'void*'])
+    msgSendGetLocalizedName = objc.func('objc_msgSend', 'void*', ['void*', 'void*'])
     clsNSRunningApplication = objc_getClass('NSRunningApplication')
     selRunningAppForPid = sel_registerName('runningApplicationWithProcessIdentifier:')
     selActivate = sel_registerName('activateWithOptions:')
-    selBundleIdentifier = sel_registerName('bundleIdentifier')
+    selLocalizedName = sel_registerName('localizedName')
     objcOk = !!clsNSRunningApplication
   } catch {
     objcOk = false
@@ -346,38 +350,64 @@ function ensureObjc(): boolean {
 // NSApplicationActivateAllWindows(1) | NSApplicationActivateIgnoringOtherApps(2)
 const ACTIVATE_OPTIONS = 3
 
-// 번들 ID 는 역DNS 형식(예: com.apple.Preview)만 나온다 — AppleScript 소스 문자열에
-// 그대로 끼워 넣기 전에 이 형식만 통과시켜 인젝션 여지를 없앤다.
-const BUNDLE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9.-]*$/
+/** AppleScript 문자열 리터럴 안에 안전하게 끼워 넣도록 백슬래시/큰따옴표를 이스케이프한다. */
+function escapeAppleScriptString(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
 
 /**
- * owner PID 의 앱을 앞으로 올린다(그 앱의 창들이 함께 전면으로). 실패 시 false.
+ * owner PID 의 앱을 앞으로 올린다(그 앱의 창들이 함께 전면으로). `windowName`을 주면
+ * 그 앱 안에서 **그 특정 창**(제목 기준)까지 맨 앞으로 올린다 — 실패 시 false.
  *
  * **`NSRunningApplication.activateWithOptions:`는 더 이상 안 먹힌다**(2026-07-31 실측,
  * 사용자 제보 — "선택한 창이 자동으로 맨 위로 안 올라온다"). 옵션 조합(0/1/2/3)을 전부
  * 시도해봐도 반환값이 항상 false — 최근 macOS 가 백그라운드 프로세스의 임의 타 앱
  * 활성화를 이 API 선에서 더 엄격히 막는 것으로 보인다(자기 자신을 활성화하는 것과
  * 달리, 제3의 앱을 강제로 앞세우는 동작이라 더 제한되는 듯). 대신 그 앱에 `activate`
- * Apple Event 를 직접 보내면(=AppleScript `tell application id "..." to activate`)
+ * Apple Event 를 직접 보내면(=AppleScript `tell application "<이름>" to activate`)
  * 여전히 잘 된다(같은 환경에서 실측 확인) — `osascript` 를 자식 프로세스로 스폰해서
  * 보낸다. 이 파일 맨 위 주석의 "osascript(System Events 자동화)는 권한이 조용히
  * 거부된다"는 경고는 **System Events로 다른 앱 UI를 조작하는 것**(Accessibility 권한
  * 필요) 얘기고, 여기서 쓰는 건 그거와 달리 대상 앱에 직접 보내는 단순 `activate`
  * 커맨드라 같은 제약을 안 받는 것으로 보인다.
+ *
+ * **이름 기반(`tell application "Preview"`)만 쓴다 — 번들 ID 기반(`tell application id
+ * "com.apple.Preview"`)은 실측 결과 `activate`가 씹힌다**(2026-07-31, "선택 전환은
+ * 되는데 앱이 최종적으로 활성화가 안 된다"로 재현 — 같은 명령을 이름으로 바꾸면 정상
+ * 동작). AppleScript 의 오래된 관례적 동작 차이로 보이며, 원리는 불명확하지만 실측이
+ * 명확해 이름 기반으로 고정한다.
+ *
+ * **`windowName` 이 필요한 이유(2026-07-31, 사용자 제보 — "선택 전환했을 때 선택한 창이
+ * 맨 위로 안 올라온다")**: `activate`는 앱(PID) 전체를 앞으로 올릴 뿐, Preview 처럼
+ * 같은 앱 안에 창이 여러 개(PDF 두 개를 각각 열어둔 경우 등) 열려있으면 그중 **어느
+ * 창**이 키 윈도우가 될지는 안 정해준다 — 앱 안에서 마지막으로 활성이었던 창이 그대로
+ * 남는다. Preview 같은 문서 기반 앱은 표준 AppleScript 스크립팅 사전에 `windows`
+ * 컬렉션과 그 `index`(1이면 맨 앞)를 지원하므로, `set index of window "<제목>" to 1`로
+ * 그 앱 **자신**에게 직접 명령한다 — 이것도 System Events UI 조작이 아니라 대상 앱에
+ * 보내는 일반 Apple Event라 위와 같은 이유로 권한 제약이 없다(실측 확인). 창 제목
+ * 기준으로 못 찾거나 그 스크립팅 기능 자체가 없는 앱이면 `try`로 조용히 무시하고
+ * `activate`(앱 전체 활성화)까지는 그대로 적용된다.
  */
-function activateApp(pid: number): boolean {
+function activateApp(pid: number, windowName?: string | null): boolean {
   if (!ensureObjc()) return false
   try {
     const app = msgSendPid!(clsNSRunningApplication, selRunningAppForPid, pid)
     if (!app) return false
-    const bundleId = cfStringToJs(msgSendGetBundleId!(app, selBundleIdentifier))
-    if (bundleId && BUNDLE_ID_RE.test(bundleId)) {
+    const appName = cfStringToJs(msgSendGetLocalizedName!(app, selLocalizedName))
+    if (appName) {
+      const raiseWindow = windowName
+        ? `\ntry\nset index of window "${escapeAppleScriptString(windowName)}" to 1\nend try`
+        : ''
       // 결과를 기다리지 않는다 — 실패해도(예: 그 사이 앱이 종료됨) 무해하고, 호출부는
       // 이미 이 함수가 true 를 반환한 뒤 다음 일을 진행하므로 막을 이유가 없다.
-      execFile('osascript', ['-e', `tell application id "${bundleId}" to activate`], () => {})
+      execFile(
+        'osascript',
+        ['-e', `tell application "${escapeAppleScriptString(appName)}"\nactivate${raiseWindow}\nend tell`],
+        () => {},
+      )
       return true
     }
-    // 번들 ID를 못 얻은 드문 경우에만 예전 방식으로 최후 폴백(위 주석 참고 — 대부분
+    // 앱 이름을 못 얻은 드문 경우에만 예전 방식으로 최후 폴백(위 주석 참고 — 대부분
     // 실패하지만 아무것도 안 하는 것보단 낫다).
     msgSendActivate!(app, selActivate, ACTIVATE_OPTIONS)
     return true
@@ -390,7 +420,7 @@ function activateApp(pid: number): boolean {
 export function raiseAndGetBounds(windowId: number): MacWindowRect | null {
   const info = getWindowInfo(windowId)
   if (!info) return null
-  if (info.pid != null) activateApp(info.pid)
+  if (info.pid != null) activateApp(info.pid, info.name)
   return info.bounds
 }
 
