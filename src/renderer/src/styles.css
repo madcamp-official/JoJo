@@ -224,8 +224,8 @@ button:disabled { cursor: not-allowed; }
 }
 .window-tile {
   display: flex; flex-direction: column; gap: 6px; min-width: 0;
-  background: #f6f7f9; border: 2px solid transparent; border-radius: 8px;
-  padding: 8px; cursor: pointer; color: inherit; text-align: left;
+  background: #2a2a33; border: 2px solid transparent; border-radius: 8px;
+  padding: 8px; cursor: pointer; color: #fff; text-align: left;
 }
 /* hover(파랑)와 이미 선택된 창(보라)을 구분한다(2026-07-29 사용자 요청) — 전엔 둘 다
    --theme(보라)라 새로 고르려는 창에 커서를 올려도 이미 선택된 창처럼 보였다.
