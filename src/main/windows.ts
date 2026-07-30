@@ -89,12 +89,13 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
-export type MainRoute = 'main' | 'picker' | 'settings'
+export type MainRoute = 'main' | 'picker' | 'settings' | 'manual'
 
 const ROUTE_SIZES: Record<MainRoute, { width: number; height: number }> = {
   main: { width: 760, height: 460 },
   picker: { width: 860, height: 760 },
   settings: { width: 760, height: 800 },
+  manual: { width: 760, height: 800 },
 }
 
 // 메인/피커/설정 세 화면은 동시에 두 개 이상 보일 필요가 없어 창 하나를 재사용한다.

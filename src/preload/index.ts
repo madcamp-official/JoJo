@@ -31,16 +31,17 @@ const api = {
   getSelectedWindowId: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC.GET_SELECTED_WINDOW_ID),
 
-  // 메인/피커/설정 전환 — navigate.ts: goto() 가 호출(창 크기만 요청, 화면 전환은 렌더러가 직접 처리).
-  setWindowRoute: (route: 'main' | 'picker' | 'settings'): Promise<void> =>
+  // 메인/피커/설정/사용 설명서 전환 — navigate.ts: goto() 가 호출(창 크기만 요청, 화면
+  // 전환은 렌더러가 직접 처리).
+  setWindowRoute: (route: 'main' | 'picker' | 'settings' | 'manual'): Promise<void> =>
     ipcRenderer.invoke(IPC.WINDOW_SET_ROUTE, route),
 
   // 창 선택 화면에서 Esc — 이미 선택된 창이 있으면 메인 화면 대신 그냥 창을 숨긴다
   hideMainWindow: (): Promise<void> => ipcRenderer.invoke(IPC.WINDOW_HIDE),
 
   // 메인 프로세스(트레이 등)가 화면 전환을 지시할 때 수신 — App.tsx 가 구독해 해시를 바꾼다.
-  onNavigate: (cb: (route: 'main' | 'picker' | 'settings') => void): (() => void) => {
-    const listener = (_e: unknown, route: 'main' | 'picker' | 'settings') => cb(route)
+  onNavigate: (cb: (route: 'main' | 'picker' | 'settings' | 'manual') => void): (() => void) => {
+    const listener = (_e: unknown, route: 'main' | 'picker' | 'settings' | 'manual') => cb(route)
     ipcRenderer.on(IPC.NAVIGATE, listener)
     return () => ipcRenderer.removeListener(IPC.NAVIGATE, listener)
   },
@@ -48,7 +49,7 @@ const api = {
   // 해당 라우트로 실제 전환·렌더가 끝났다고 메인에 알림(windows.ts: showMainWindowAtRoute
   // 가 숨겨진 창을 이 응답을 받은 뒤에야 show() — 전환 중 이전 화면이 잠깐 보이는
   // 깜빡임 방지).
-  notifyNavigateReady: (route: 'main' | 'picker' | 'settings'): void =>
+  notifyNavigateReady: (route: 'main' | 'picker' | 'settings' | 'manual'): void =>
     ipcRenderer.send(IPC.NAVIGATE_READY, route),
 
   selectWindow: (source: CaptureSource): Promise<void> =>

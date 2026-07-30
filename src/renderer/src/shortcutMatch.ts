@@ -102,3 +102,47 @@ export function matchesAccelerator(e: KeyboardEvent, stored: string): boolean {
     .join('+')
   return live === normalizedStored
 }
+
+// 담당 A — ManualScreen.tsx(사용 설명서, 2026-07-31)도 SettingsScreen.tsx 와 똑같은 방식으로
+// 저장된 단축키 값을 표시해야 해서(설명서는 사용자가 실제로 바꿔놓은 현재 값을 그대로
+// 보여준다) 여기(공유 모듈)로 옮겼다 — 원래 SettingsScreen.tsx 안에만 있던 것.
+
+// Electron accelerator 토큰을 화면 표시용 라벨로 바꾼다. 'CommandOrControl' 은 이제 새로
+// 녹화되진 않지만, 과거에 저장된 값(예: 이전 기본값)을 열었을 때도 깨지지 않게 표시만 유지.
+const MODIFIER_LABELS: Record<string, string> = IS_MAC
+  ? { Command: 'Cmd', Control: 'Ctrl', CommandOrControl: 'Cmd', Alt: 'Opt', Shift: 'Shift' }
+  : { Command: 'Ctrl', Control: 'Ctrl', CommandOrControl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' }
+
+// 수식키가 아닌 실제 키는 풀네임 대신 흔히 쓰는 약어/기호로 표시한다.
+const KEY_LABELS: Record<string, string> = {
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  Escape: 'Esc',
+  Delete: 'Del',
+  Backspace: '⌫',
+  Enter: '↵',
+  ' ': 'Space',
+  PageUp: 'PgUp',
+  PageDown: 'PgDn',
+}
+
+export function formatAccelerator(accelerator: string): string {
+  if (!accelerator) return '해제됨'
+  return accelerator
+    .split('+')
+    .map((token) => MODIFIER_LABELS[token] ?? KEY_LABELS[token] ?? token)
+    .join(' + ')
+}
+
+/** 6개 단축키 필드 전체 목록 — SettingsScreen(중복 검사/경고 문구)과 ManualScreen(설명서
+ *  표시)이 공유한다. */
+export const SHORTCUT_FIELDS = [
+  { key: 'modeShortcut', label: '모드 전환' },
+  { key: 'windowSelectShortcut', label: '창 선택 / 전환' },
+  { key: 'windowDeselectShortcut', label: '창 선택 해제' },
+  { key: 'manualRegionShortcut', label: '영역 수동 선택' },
+  { key: 'forceOcrShortcut', label: 'OCR로 전환' },
+  { key: 'settingsShortcut', label: '설정 화면 열기' },
+] as const

@@ -36,8 +36,7 @@ export function MainScreen({ selected }: { selected: CaptureSource | null }) {
 
         {selected && <p className="hint">선택됨: {selected.name}</p>}
 
-        {/* TODO: 사용 설명서 링크 연결(지금은 UI 만) */}
-        <button className="manual-link" type="button">
+        <button className="manual-link" type="button" onClick={() => goto('manual')}>
           <HelpIcon />
           사용 설명서 보기
         </button>

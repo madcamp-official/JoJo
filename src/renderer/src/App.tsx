@@ -6,6 +6,7 @@ import { PopupScreen } from './screens/PopupScreen'
 import { Overlay } from './screens/Overlay'
 import { WindowPickerScreen } from './screens/WindowPickerScreen'
 import { ViewerScreen } from './screens/ViewerScreen'
+import { ManualScreen } from './screens/ManualScreen'
 import { matchesAccelerator } from './shortcutMatch'
 
 // 해시에 쿼리(예: '#/popup?demo=zh')가 붙어도 라우트 매칭은 '?' 앞부분만 본다.
@@ -28,11 +29,11 @@ export function App() {
   // 메인 프로세스(트레이 등)가 화면 전환을 지시하면 해시를 바꿔 반영한다(navigate.ts 참고).
   useEffect(() => window.nuance.onNavigate((r) => (window.location.hash = `#/${r}`)), [])
 
-  // 라우트가 실제로 바뀌어 화면이 리렌더된 뒤(main/picker/settings 만 대상 — 이 셋만
-  // 창 하나를 재사용해 숨김↔전환 깜빡임 문제가 있다), 메인 프로세스에 "전환 완료"를
+  // 라우트가 실제로 바뀌어 화면이 리렌더된 뒤(main/picker/settings/manual 만 대상 — 이
+  // 넷만 창 하나를 재사용해 숨김↔전환 깜빡임 문제가 있다), 메인 프로세스에 "전환 완료"를
   // 알린다 — showMainWindowAtRoute 가 숨겨진 창을 이 신호를 받은 뒤에야 보여준다.
   useEffect(() => {
-    if (route === 'main' || route === 'picker' || route === 'settings') {
+    if (route === 'main' || route === 'picker' || route === 'settings' || route === 'manual') {
       window.nuance.notifyNavigateReady(route)
     }
   }, [route])
@@ -74,6 +75,8 @@ export function App() {
       return <WindowPickerScreen />
     case 'viewer':
       return <ViewerScreen />
+    case 'manual':
+      return <ManualScreen />
     case 'main':
     default:
       return <MainScreen selected={selected} />

@@ -4,8 +4,15 @@ import { PROVIDERS, PROVIDER_ORDER, DEFAULT_MODELS } from '@shared/providers'
 import { MW_DICTIONARY_SIGNUP_URL } from '@shared/dictionaries'
 import { LANGUAGES, LANGUAGE_ORDER, LINK_LANGUAGES } from '@shared/languages'
 import { computeContextRange, byteLength } from '@shared/context'
-import { goto } from '../navigate'
-import { IS_MAC, isModifierOnlyKey, toAccelerator, unsafeAcceleratorReason } from '../shortcutMatch'
+import { exitToMainOrClose } from '../navigate'
+import {
+  IS_MAC,
+  SHORTCUT_FIELDS,
+  formatAccelerator,
+  isModifierOnlyKey,
+  toAccelerator,
+  unsafeAcceleratorReason,
+} from '../shortcutMatch'
 import {
   ProviderLogo,
   CheckIcon,
@@ -178,58 +185,6 @@ function validationMessage(code?: QuestionErrorCode): string {
   }
 }
 
-// Electron accelerator 토큰을 화면 표시용 라벨로 바꾼다. 'CommandOrControl' 은 이제 새로
-// 녹화되진 않지만, 과거에 저장된 값(예: 이전 기본값)을 열었을 때도 깨지지 않게 표시만 유지.
-const MODIFIER_LABELS: Record<string, string> = IS_MAC
-  ? { Command: 'Cmd', Control: 'Ctrl', CommandOrControl: 'Cmd', Alt: 'Opt', Shift: 'Shift' }
-  : { Command: 'Ctrl', Control: 'Ctrl', CommandOrControl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' }
-
-// 수식키가 아닌 실제 키는 풀네임 대신 흔히 쓰는 약어/기호로 표시한다.
-const KEY_LABELS: Record<string, string> = {
-  ArrowUp: '↑',
-  ArrowDown: '↓',
-  ArrowLeft: '←',
-  ArrowRight: '→',
-  Escape: 'Esc',
-  Delete: 'Del',
-  Backspace: '⌫',
-  Enter: '↵',
-  ' ': 'Space',
-  PageUp: 'PgUp',
-  PageDown: 'PgDn',
-}
-
-// 6개 단축키 필드 전체 목록 — 중복 검사(다른 필드가 이미 같은 조합을 쓰는지)와 경고
-// 문구에 쓸 라벨을 한 곳에서 관리한다(2026-07-30).
-const SHORTCUT_FIELDS = [
-  { key: 'modeShortcut', label: '모드 전환' },
-  { key: 'windowSelectShortcut', label: '창 선택 / 전환' },
-  { key: 'windowDeselectShortcut', label: '창 선택 해제' },
-  { key: 'manualRegionShortcut', label: '영역 수동 선택' },
-  { key: 'forceOcrShortcut', label: 'OCR로 전환' },
-  { key: 'settingsShortcut', label: '설정 화면 열기' },
-] as const
-
-function formatAccelerator(accelerator: string): string {
-  if (!accelerator) return '해제됨'
-  return accelerator
-    .split('+')
-    .map((token) => MODIFIER_LABELS[token] ?? KEY_LABELS[token] ?? token)
-    .join(' + ')
-}
-
-/** 뒤로가기/Esc 로 설정 화면을 나갈 때 — 이미 선택된 창이 있으면(백그라운드 실행 중 설정만
- *  열어본 상황) 메인 화면(창 선택 안내)으로 돌아갈 필요가 없다. 그 화면은 "아직 아무 창도
- *  선택 안 한" 초기 상태를 위한 것이라, 이미 선택돼 있는데 거기로 갔다가 다시 트레이로
- *  숨겨야 하는 건 불필요한 경유다 — window.close() 로 창을 바로 닫는다(메인 창은
- *  windows.ts: createMainWindow 의 close 핸들러가 실제 종료가 아니면 항상 hide 로 가로채므로,
- *  안전하게 "트레이로 숨기기"와 동일하게 동작한다 — SELECT_WINDOW 직후 getMainWindow()?.hide()
- *  하는 것과 같은 패턴). 선택된 창이 없으면 기존처럼 메인 화면으로. */
-function exitSettings(hasSelection: boolean): void {
-  if (hasSelection) window.close()
-  else goto('main')
-}
-
 export function SettingsScreen() {
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [hasSelection, setHasSelection] = useState(false)
@@ -322,11 +277,11 @@ export function SettingsScreen() {
     }
   }, [settings?.llm, apiKey])
 
-  // Esc → 나가기(exitSettings, 위 주석 참고). 단축키 녹화 중(recording)엔 Esc 가 "녹화
+  // Esc → 나가기(exitToMainOrClose, navigate.ts 주석 참고). 단축키 녹화 중(recording)엔 Esc 가 "녹화
   // 취소" 의미로 이미 따로 처리되고 있어(위 useEffect) 그동안엔 건너뛴다.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !recordingField) exitSettings(hasSelection)
+      if (e.key === 'Escape' && !recordingField) exitToMainOrClose(hasSelection)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -524,7 +479,7 @@ export function SettingsScreen() {
   return (
     <div className="screen settings-screen">
       <div className="settings-header">
-        <button className="icon-btn back" onClick={() => exitSettings(hasSelection)}>
+        <button className="icon-btn back" onClick={() => exitToMainOrClose(hasSelection)}>
           ←
         </button>
         <h1>설정</h1>
