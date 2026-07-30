@@ -1,0 +1,62 @@
+name: Release
+
+# 담당 A — GitHub Release 자동 배포(2026-07-31, 사용자 요청). v로 시작하는 태그를 push하면
+# (예: git tag v0.1.0 && git push origin v0.1.0) Windows/macOS 설치 파일과 크롬 확장 zip을
+# 빌드해 같은 태그의 GitHub Release에 올린다. electron-builder.yml 의 releaseType: draft
+# 설정 때문에 릴리스는 초안(draft)으로만 만들어진다 — 실제 공개(Publish)는 GitHub에서
+# 릴리스 노트를 확인/작성한 뒤 사람이 마지막으로 눌러야 한다.
+#
+# 사전 준비물(레포 설정에서 한 번만): Settings → Actions → General → Workflow permissions
+# 에서 "Read and write permissions"가 켜져 있어야 기본 GITHUB_TOKEN 으로 릴리스 생성/에셋
+# 업로드가 가능하다.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: release:win
+          - os: macos-latest
+            script: release:mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      # electron-builder --publish always 가 이 릴리스(태그와 이름이 같은)에 설치 파일과
+      # 업데이트 피드 메타데이터(latest.yml/latest-mac.yml)를 함께 올린다.
+      - run: npm run ${{ matrix.script }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 크롬 확장은 electron-builder 대상이 아니라 별도 job에서 zip으로 묶어 같은 릴리스에
+  # 추가 에셋으로 올린다. build-desktop 이 먼저 릴리스(초안)를 만들어둔 뒤에 여기서는
+  # 파일만 추가하도록 순서를 맞춘다(needs).
+  build-extension:
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run zip:ext
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: dist/nuance-extension-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nuance",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "브라우저에서 자막/DOM 텍스트를 추출해 Nuance 데스크톱 앱과 통신한다.",
   "icons": {
     "16": "icons/icon16.png",
