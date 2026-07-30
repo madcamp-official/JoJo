@@ -45,12 +45,15 @@ function ensure(): boolean {
   try {
     const cg = koffi.load(CORE_GRAPHICS)
     const cf = koffi.load(CORE_FOUNDATION)
-    // CGEventCreateScrollWheelEvent 는 원래 wheelCount 에 따라 가변 인자(wheel1..wheel3)를
-    // 받는 variadic 함수다 — koffi 는 가변 인자를 직접 지원하지 않지만, 항상 고정된
-    // wheelCount=2(수직+수평)로만 호출한다고 못박으면 이 프로토타입 그대로 안전하게 쓸 수
-    // 있다(실제 C ABI 상 나머지 인자를 안 채우는 게 아니라 정확히 2개를 매번 채워 보낸다).
+    // CGEventCreateScrollWheelEvent 는 wheelCount 에 따라 가변 인자(wheel1..wheel3)를 받는
+    // 진짜 variadic 함수다 — **첫 구현에서 이걸 고정 5개 인자 함수처럼 선언했다가 ARM64
+    // (Apple Silicon)에서 조용히 실패했다(사용자 실사용 확인, 2026-07-30 — "스크롤은
+    // 여전히 안돼")**: variadic 호출은 ARM64 AAPCS64 규약상 고정 인자와 레지스터/스택
+    // 배치 규칙이 달라서, 가변 인자를 고정 인자인 것처럼 선언하면 값이 엉뚱한 위치로
+    // 전달된다. koffi 는 프로토타입 끝에 `...`를 명시하고 호출 시 (타입, 값) 쌍으로
+    // 넘기는 진짜 variadic 호출을 지원한다(koffi/doc/load.md 참고) — 그 방식으로 수정.
     CGEventCreateScrollWheelEvent = cg.func(
-      'void* CGEventCreateScrollWheelEvent(void* source, uint32_t units, uint32_t wheelCount, int32_t wheel1, int32_t wheel2)',
+      'void* CGEventCreateScrollWheelEvent(void* source, uint32_t units, uint32_t wheelCount, ...)',
     )
     CGEventSetLocation = cg.func('void CGEventSetLocation(void* event, ScrollCGPoint point)')
     CGEventPostToPid = cg.func('void CGEventPostToPid(int pid, void* event)')
@@ -79,11 +82,14 @@ export function postScrollToPid(pid: number, point: { x: number; y: number }, de
   if (!ensure()) return
   if (deltaX === 0 && deltaY === 0) return
   try {
+    // 가변 인자는 koffi 관례대로 (타입, 값) 쌍으로 넘긴다 — wheel1(수직), wheel2(수평).
     const event = CGEventCreateScrollWheelEvent!(
       null,
       kCGScrollEventUnitPixel,
       2,
+      'int32_t',
       Math.round(-deltaY),
+      'int32_t',
       Math.round(-deltaX),
     )
     if (!event) return

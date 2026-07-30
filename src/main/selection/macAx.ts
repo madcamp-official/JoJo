@@ -235,19 +235,6 @@ function boundsForRange(el: unknown, location: number, length: number): Rect | n
   }
 }
 
-function stringForRange(el: unknown, location: number, length: number): string | null {
-  const param = AXValueCreate!(kAXValueCFRangeType, rangeBuffer(location, length))
-  if (!param) return null
-  const value = copyParameterized(el, 'AXStringForRange', param)
-  release(param)
-  if (!value) return null
-  try {
-    return cfStringToJs(value)
-  } finally {
-    release(value)
-  }
-}
-
 /** line 번째 화면 줄이 차지하는 문자 범위 — 문단 노드를 실제 표시된 줄로 쪼개는 데 쓴다.
  *  파라미터가 CFRange 가 아니라 CFNumber(줄 번호)라는 점이 다른 파라미터 속성과 다르다. */
 function rangeForLine(el: unknown, line: number): { location: number; length: number } | null {
@@ -282,38 +269,53 @@ export interface AxLine {
 
 const MAX_LINES_PER_NODE = 4000
 
-/** 텍스트 노드(문단) 하나를 화면에 표시된 줄들로 쪼갠다. */
+/**
+ * 텍스트 노드(문단) 하나를 화면에 표시된 줄들로 쪼갠다.
+ *
+ * 실사용 제보(2026-07-30, DEBUG_PDF_AX_DUMP 덤프로 확인)로 `AXRangeForLine`/
+ * `AXStringForRange`가 이 PDF의 특정 노드에서 신뢰할 수 없다는 게 드러났다 — 문단
+ * 첫 줄의 `AXRangeForLine(node, 0)`이 실제 시작(location 0)이 아니라 30자를 건너뛴
+ * 지점을 리턴해 "In a hole in the ground there "가 통째로 유실됐고(정확히 30자),
+ * 다른 줄은 `AXStringForRange`가 엉뚱한 위치의 텍스트(뒤 문단 내용까지 섞인 것)를
+ * 리턴했다. 반면 문단 전체를 한 번에 가져오는 `AXValue`(`value`)는 믿을 만하다 —
+ * 그래서 텍스트는 절대 AX 를 다시 호출해 얻지 않고 이미 받아둔 `value`를 직접
+ * 슬라이스해서만 만든다(줄 경계 좌표만 AX 에 의존, 텍스트는 순수 JS 문자열 연산).
+ * 또한 `AXRangeForLine`이 보고한 `location`이 지금까지 처리한 지점(`covered`)과
+ * 어긋나면(문단 앞부분을 건너뛰거나 이미 처리한 구간과 겹치는 경우) 그 사이 구간을
+ * `value`에서 직접 잘라내 별도 줄로 보충한다 — 좌표는 그 구간을 다시 `AXBoundsForRange`
+ * 로 질의해서 얻는다(짧은 범위 질의는 스파이크 실측에서 정상 동작 확인됨).
+ */
 function linesOfTextNode(node: unknown, origin: { x: number; y: number }): AxLine[] {
   const value = attributeString(node, 'AXValue')
   if (!value) return []
   const toWindow = (r: Rect | null): Rect | null =>
     r ? { x: r.x - origin.x, y: r.y - origin.y, width: r.width, height: r.height } : null
+  const sliceLine = (start: number, end: number): AxLine => ({
+    text: value.slice(start, end),
+    location: start,
+    bbox: toWindow(boundsForRange(node, start, end - start)),
+    boundsOf: (s, len) => toWindow(boundsForRange(node, start + s, len)),
+  })
 
   const lines: AxLine[] = []
   let covered = 0
   for (let i = 0; i < MAX_LINES_PER_NODE && covered < value.length; i++) {
     const range = rangeForLine(node, i)
     if (!range || range.length <= 0) break
-    // 줄 번호가 실제 진행하지 않으면(같은 범위 반복) 무한 루프를 막는다.
-    if (range.location + range.length <= covered) break
-    covered = range.location + range.length
-    const text = stringForRange(node, range.location, range.length) ?? value.slice(range.location, covered)
-    lines.push({
-      text,
-      location: range.location,
-      bbox: toWindow(boundsForRange(node, range.location, range.length)),
-      boundsOf: (start, length) => toWindow(boundsForRange(node, range.location + start, length)),
-    })
+    const end = Math.min(value.length, range.location + range.length)
+    if (end <= covered) break // 줄 번호가 실제 진행하지 않으면(같은 범위 반복) 무한 루프를 막는다.
+    if (range.location > covered) {
+      // 건너뛴 구간이 있다 — value 에서 직접 잘라 보충한다(예: 문단 첫 줄 앞부분 누락).
+      lines.push(sliceLine(covered, range.location))
+    }
+    const start = Math.max(range.location, covered) // 겹치는 구간(이미 처리됨)은 건너뛴다.
+    lines.push(sliceLine(start, end))
+    covered = end
   }
+  // AXRangeForLine 이 끝까지 못 갔는데 아직 안 다룬 꼬리 구간이 남아있으면 마저 보충한다.
+  if (covered < value.length) lines.push(sliceLine(covered, value.length))
   // 줄 정보를 못 얻는 노드(파라미터 속성 미지원 등)는 노드 전체를 한 줄로 취급한다.
-  if (lines.length === 0) {
-    lines.push({
-      text: value,
-      location: 0,
-      bbox: toWindow(boundsForRange(node, 0, value.length)),
-      boundsOf: (start, length) => toWindow(boundsForRange(node, start, length)),
-    })
-  }
+  if (lines.length === 0) lines.push(sliceLine(0, value.length))
   return lines
 }
 
