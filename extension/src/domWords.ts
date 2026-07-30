@@ -82,7 +82,11 @@ function splitTextNodeIntoVisualLines(node: Text, full: string): { start: number
 // 팝업 규칙대로 다시 쪼개진다 — 규칙 차이의 근거는 @shared/wordTokenize 주석 참고.
 const WORD_ATOM_RE = new RegExp(HOVER_WORD_ATOM_PATTERN, 'gu')
 
-function wordsFromTextNode(node: Text): SubWord[] {
+// baseOffset: 이 텍스트 노드가 (문단/줄 전체 조립 텍스트 기준) 시작하는 절대 오프셋 —
+// 반환하는 각 SubWord.start/end 는 로컬(노드 안) 위치가 아니라 이 baseOffset 을 더한
+// 절대 오프셋이다(extractWordsAndText 참고, 여러 텍스트 노드를 이어붙인 전체 텍스트 위
+// 좌표로 통일해야 groupWordAt/wordAtPoint 가 인덱스 역산 없이 바로 쓸 수 있다).
+function wordsFromTextNode(node: Text, baseOffset: number): SubWord[] {
   const full = node.textContent ?? ''
   // 태국어/라오어는 화면상 줄 하나를 "단어" 하나로 취급한다(위 THAI_LAO_CHAR_RE 주석
   // 참고) — 공백/CJK 분기를 아예 안 타고 실제 줄바꿈 지점(splitTextNodeIntoVisualLines)
@@ -91,7 +95,7 @@ function wordsFromTextNode(node: Text): SubWord[] {
     const lineWords: SubWord[] = []
     for (const { start, end } of splitTextNodeIntoVisualLines(node, full)) {
       const rect = rangeRect(node, start, end)
-      if (rect) lineWords.push({ text: full.slice(start, end), rect })
+      if (rect) lineWords.push({ text: full.slice(start, end), rect, start: baseOffset + start, end: baseOffset + end })
     }
     return lineWords
   }
@@ -105,7 +109,7 @@ function wordsFromTextNode(node: Text): SubWord[] {
     }
     if (CJK_CHAR_RE.test(ch)) {
       const rect = rangeRect(node, i, i + 1)
-      if (rect) words.push({ text: ch, rect })
+      if (rect) words.push({ text: ch, rect, start: baseOffset + i, end: baseOffset + i + 1 })
       i += 1
       continue
     }
@@ -122,7 +126,7 @@ function wordsFromTextNode(node: Text): SubWord[] {
       const start = i + m.index
       const end = start + m[0].length
       const rect = rangeRect(node, start, end)
-      if (rect) words.push({ text: m[0], rect })
+      if (rect) words.push({ text: m[0], rect, start: baseOffset + start, end: baseOffset + end })
     }
     i = j
   }
@@ -136,36 +140,84 @@ function isFuriganaText(node: Text): boolean {
   return node.parentElement?.closest('rt, rp') != null
 }
 
-// 한 요소 안의 모든 텍스트 노드를 순회하며 단어(공백 경계, CJK 는 글자 단위)마다 사각형을 잰다.
-export function wordsInElement(el: HTMLElement): SubWord[] {
-  const words: SubWord[] = []
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => (isFuriganaText(node as Text) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
-  })
-  let node = walker.nextNode() as Text | null
-  while (node) {
-    words.push(...wordsFromTextNode(node))
-    node = walker.nextNode() as Text | null
-  }
-  return words
+// <script>/<style> 자식 텍스트 노드는 화면에 그려지지 않는 코드/CSS 원문이다 — 일반
+// 웹 문단(webArticle.ts)에 영상 임베드용 <script>가 섞여 있는 경우가 실제로 있어(사용자
+// 확인, 2026-07-30) extractWordsAndText 에서 걷러낸다.
+const NON_TEXT_ELEMENT_RE = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/
+
+function isHidden(el: Element): boolean {
+  const style = getComputedStyle(el)
+  return style.display === 'none' || style.visibility === 'hidden'
 }
 
-// el 의 원문 텍스트를 후리가나(<rt>/<rp>) 제외하고 그대로 이어붙인다 — line.text(youtube.ts/
-// netflix.ts)를 el.textContent 로 그대로 쓰면 wordsInElement 로 걸러낸 후리가나가 여기엔
-// 여전히 섞여 들어간다(예: "七崩賢だったしちほうけん"). anchorInTranscript(subtitleSource.ts)
-// 가 이 텍스트를 실제 timedtext/WebVTT cue 원문 안에서 찾아야 하므로, wordsInElement 와
-// 똑같이 후리가나만 뺀 "진짜 원문"이어야 한다(공백을 임의로 끼워넣지 않음).
-export function elementTextExcludingFurigana(el: HTMLElement): string {
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => (isFuriganaText(node as Text) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+// root(문단/줄 컨테이너) 안에서 node 까지 올라가며 숨김 조상이 있는지 확인한다 —
+// RoyalRoad 실측(2026-07-29)에서 확인된 anti-scraping 함정: 문단 중간에 숨긴 <span>으로
+// 가짜 문구를 심어둔다. root 자신의 가시성은 호출부가 이미 확인했다는 전제로 root까지만 올라간다.
+function isHiddenWithinRoot(node: Text, root: Element): boolean {
+  let el = node.parentElement
+  while (el && el !== root.parentElement) {
+    if (isHidden(el)) return true
+    el = el.parentElement
+  }
+  return false
+}
+
+function shouldSkipTextNode(node: Text, root: Element): boolean {
+  return isFuriganaText(node) || node.parentElement?.closest('script, style') != null || isHiddenWithinRoot(node, root)
+}
+
+export interface WordsAndText {
+  /** root 안의 "진짜 보이는 원문"(후리가나/script·style/숨김 함정 제외, <br>은 '\n') */
+  text: string
+  /** text 안에서의 절대 오프셋(start/end)을 포함한 단어 목록 */
+  words: SubWord[]
+}
+
+// root 하나를 한 번만 순회해 원문 텍스트와 단어별 사각형을 함께 만든다 — 예전엔
+// wordsInElement/elementTextExcludingFurigana(자막)와 webArticle.ts의 visibleParagraphText
+// (문단)가 서로 다른 두 번의 순회로 "같은 텍스트일 것"이라 가정하고 따로 조립됐는데,
+// 그 가정이 깨지면(예: 문자 하나의 rect 측정 실패로 단어 하나가 조용히 빠짐) 호출부가
+// text.indexOf(word.text, ...) 로 오프셋을 역산하다가 중복 글자가 흔한 CJK 문장에서
+// 엉뚱한 위치로 미끄러졌다(2026-07-30 사용자 제보 — 기사 hover 박스가 문단 두 줄을
+// 통째로 덮음). 한 번의 순회로 text 와 words[].start/end 를 함께 만들면 그 자체로 항상
+// 같은 좌표계를 쓰게 되어 이 어긋남이 애초에 발생할 수 없다.
+export function extractWordsAndText(root: HTMLElement): WordsAndText {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+    acceptNode: (n) => {
+      if (n.nodeType === Node.ELEMENT_NODE) {
+        return NON_TEXT_ELEMENT_RE.test((n as Element).tagName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+      }
+      return shouldSkipTextNode(n as Text, root) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+    },
   })
   let text = ''
-  let node = walker.nextNode() as Text | null
+  const words: SubWord[] = []
+  let node = walker.nextNode()
   while (node) {
-    text += node.textContent ?? ''
-    node = walker.nextNode() as Text | null
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      // <br>은 텍스트 노드가 아니라 SHOW_TEXT 만으로는 안 잡힌다 — 그대로 두면 <br>로
+      // 나뉜 두 텍스트가 구분자 없이 그대로 붙어버린다(실측: "Chapter 033Gateways"처럼
+      // 붙어 나오는 문제, 2026-07-30 사용자 제보).
+      if ((node as Element).tagName === 'BR') text += '\n'
+    } else {
+      const t = node as Text
+      words.push(...wordsFromTextNode(t, text.length))
+      text += t.textContent ?? ''
+    }
+    node = walker.nextNode()
   }
-  return text
+  return { text, words }
+}
+
+/** 하위 호환 — 단어 사각형만 필요한 호출부용. 가능하면 extractWordsAndText 를 직접 써서
+ *  text 와 words 가 같은 순회에서 나온 값임을 보장하는 편이 낫다. */
+export function wordsInElement(el: HTMLElement): SubWord[] {
+  return extractWordsAndText(el).words
+}
+
+/** 하위 호환 — 원문 텍스트만 필요한 호출부용(anchorInTranscript 등). */
+export function elementTextExcludingFurigana(el: HTMLElement): string {
+  return extractWordsAndText(el).text
 }
 
 // 브라우저 창 좌상단 → 뷰포트 좌상단 오프셋(CSS px)까지 담은 뷰포트 정보.
