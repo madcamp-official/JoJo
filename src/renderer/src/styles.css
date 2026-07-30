@@ -838,8 +838,11 @@ button:disabled { cursor: not-allowed; }
 html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hidden; }
 .viewer-screen {
   display: flex; flex-direction: column; width: 100%; overflow: hidden;
-  /* 본문 위아래 공통 여백 — 툴바(약 53px)보다 커야 겹쳐 뜬 툴바가 첫 줄을 안 덮는다. */
+  /* 본문 위아래 공통 여백 — 툴바(약 53px)보다 커야 겹쳐 뜬 툴바가 첫 줄을 안 덮는다.
+     위쪽은 스크롤 모드에서 따로 줄인다(바로 아래) — 그 모드에서는 메뉴바가 글을 덮어도
+     괜찮다고 했으므로(사용자 지정) 자리를 비워둘 이유가 없다. */
   --viewer-gutter: 72px;
+  --viewer-top-gutter: 72px;
 }
 
 .viewer-toolbar {
@@ -855,6 +858,9 @@ html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hid
   background: #fff;
   transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s;
 }
+/* 스크롤 모드에서는 위쪽 여백을 읽기용 최소치로 — 첫 화면에 메뉴바 높이만큼 빈 띠가
+   남는 게 더 거슬린다(사용자 지정). 스크롤하면 어차피 글이 메뉴바 밑으로 지나간다. */
+.viewer-screen.mode-scroll { --viewer-top-gutter: 24px; }
 .viewer-screen.dark .viewer-toolbar { background: #1f2430; }
 /* 포커스 링을 없앤다 — 화살표 버튼을 한 번 누르면 OS 강조색(맥에서는 노랑) 테두리가
    남아 읽는 내내 눈에 띈다(사용자 지적). 뷰어는 키보드 조작이 방향키 하나뿐이고 그건
@@ -918,12 +924,16 @@ html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hid
    밀어내지는 않으므로(사용자 지정), 이 여백이 곧 "덮이지 않는 자리"가 된다. 아래쪽은
    진도 표시가 깔리는 자리이기도 하다. 스크롤해 올라간 글이 툴바에 가리는 건 허용
    범위다(사용자 지정). */
-.viewer-doc { padding-top: var(--viewer-gutter); padding-bottom: var(--viewer-gutter); line-height: 1.8; }
+.viewer-doc { padding-top: var(--viewer-top-gutter); padding-bottom: var(--viewer-gutter); line-height: 1.8; }
 .viewer-doc p { margin: 0 0 1.2em; white-space: pre-wrap; }
 
 /* PDF — 캔버스 위에 투명 텍스트 레이어를 정확히 겹친다(pdf.js 표준 구조). 텍스트는 눈에
    보이지 않지만 진짜 DOM 이라 호버 스택이 좌표를 잰다. */
-.pdf-host { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: var(--viewer-gutter) 16px; }
+/* 페이지 가운데 정렬은 flex 가 아니라 블록 + margin:auto 로 한다 — 확대(zoom)가 걸리면
+   flex 의 가운데 정렬이 좌표계와 어긋나 페이지가 왼쪽으로 밀려났다(실측 160%: 왼쪽 -45,
+   오른쪽 299). margin:auto 는 확대 배율과 무관하게 남는 폭을 양쪽에 똑같이 나눈다. */
+.pdf-host { padding: var(--viewer-top-gutter) 16px var(--viewer-gutter); }
+.pdf-page { margin: 0 auto 16px; width: fit-content; }
 .pdf-page { position: relative; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2); }
 .pdf-page canvas { display: block; }
 .pdf-page .textLayer {
@@ -937,7 +947,7 @@ html:has(.viewer-screen), body:has(.viewer-screen) { height: 100%; overflow: hid
 
 /* 여백은 프레임이 갖고, 호스트는 padding 없는 순수한 상자로 둔다(EpubView 주석 참고 —
    epubjs 가 호스트의 바깥 크기로 조판 영역을 잡는 경로가 있어서다). */
-.epub-frame { width: 100%; height: 100%; padding-top: var(--viewer-gutter); padding-bottom: var(--viewer-gutter); }
+.epub-frame { width: 100%; height: 100%; padding-top: var(--viewer-top-gutter); padding-bottom: var(--viewer-gutter); }
 .epub-host { width: 100%; height: 100%; }
 
 
