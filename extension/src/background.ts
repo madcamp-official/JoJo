@@ -157,7 +157,10 @@ async function sendPlaybackToActiveTab(play: boolean): Promise<void> {
 // 있음) — 팝업이 닫히면 앱이 이 메시지로 자막 캡처 중이던 탭/창에 명시적으로 포커스를
 // 되돌려달라고 요청한다.
 async function focusCapturedTab(): Promise<void> {
-  const tabId = capturedTabId
+  // relayWordSegments와 동일한 이유(2026-07-30) — 자막 캡처(capturedTabId)와 웹 페이지
+  // 캡처(pageCapturedTabId)는 독립적으로 추적되는데, 여기가 capturedTabId만 봐서 웹 모드
+  // 팝업이 닫혀도 포커스가 브라우저로 안 돌아가고 있었다.
+  const tabId = capturedTabId ?? pageCapturedTabId
   if (tabId === null) return
   try {
     const tab = await chrome.tabs.get(tabId)

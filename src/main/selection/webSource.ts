@@ -17,6 +17,12 @@ import { createPopupWindow, sendOverlayWords } from '../windows'
 
 let active = false
 let unsubscribeClick: (() => void) | null = null
+// 팝업이 떠 있는 동안 OS 포커스가 Electron으로 넘어갔다가, 닫혀도 원래 브라우저 창으로
+// 자동으로 돌아온다는 보장이 없다(특히 macOS는 다음 앱을 임의로 고를 수 있음 —
+// subtitleSource.ts와 동일한 이유). 팝업이 뜰 때마다 'closed' 리스너를 새로 달면 팝업
+// 재사용(같은 창에서 다른 단어 클릭) 시 리스너가 계속 쌓이므로, 자막 경로와 동일하게
+// 한 번만 등록해두고 닫힐 때 플래그를 초기화한다(2026-07-30 사용자 요청).
+let focusReturnRegistered = false
 // startWebMode 호출마다 올리는 세대값. pageReady 응답/타임아웃이 도착했을 때 그 사이
 // stopWebMode 나 새 startWebMode 호출로 무효화됐으면(선택 모드 이탈, 재판정 등) 무시한다
 // — shortcut.ts의 decisionEpoch 와 동일한 이유의 동일한 패턴.
@@ -103,7 +109,18 @@ function onPageClick(hit: PageClickHit): void {
     return
   }
   if (!selection.text.trim()) return
-  createPopupWindow(selection)
+  const win = createPopupWindow(selection)
+  if (!focusReturnRegistered) {
+    focusReturnRegistered = true
+    win.once('closed', () => {
+      focusReturnRegistered = false
+      // 팝업이 뜨는 동안 OS 포커스가 Electron으로 넘어갔다가, 닫혀도 OS가 원래 브라우저
+      // 창으로 자동으로 되돌려준다는 보장이 없다 — 캡처 중이던 탭/창에 명시적으로 포커스를
+      // 되돌려달라고 확장에 요청한다(subtitleSource.ts와 동일한 메커니즘, 같은
+      // pageCapturedTabId 를 추적하는 확장이 처리).
+      extensionBridge.focusTab()
+    })
+  }
 }
 
 // null = tier3(미지원 언어) — 호출부가 팝업 대신 토스트로 처리한다.
