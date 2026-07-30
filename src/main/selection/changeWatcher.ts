@@ -1,5 +1,5 @@
 import { nativeImage } from 'electron'
-import { sendDebugBlocks, sendOverlayWords } from '../windows'
+import { sendDetectedBlocks, sendOverlayWords } from '../windows'
 import { getSettings } from '../settingsStore'
 import { captureFocusedWindow } from './capture'
 import { abandonInFlightExtraction, peekCachedExtraction, refreshExtractionCache } from './extractionCache'
@@ -278,7 +278,7 @@ async function onSettled(): Promise<void> {
   if (freshBitmap && lastBitmap && bitmapsDiffer(lastBitmap, freshBitmap)) {
     lastBitmap = freshBitmap
     sendOverlayWords([])
-    sendDebugBlocks([]) // 자동 탐지 블록도 같이 비워야 새 화면 위에 옛 영역 표시가 안 남는다
+    sendDetectedBlocks([]) // 노란 탐지 영역 플래시도 같이 비워야 새 화면 위에 옛 표시가 안 남는다
     scheduleSettle()
     return
   }
@@ -315,7 +315,7 @@ async function onSettled(): Promise<void> {
       }
     }
     sendOverlayWords(cachedNow.words)
-    sendDebugBlocks(cachedNow.debugBlocks) // 노란 자동 탐지 블록도 캐시 기준으로 복원
+    sendDetectedBlocks(cachedNow.detectedBlocks) // 노란 탐지 영역 플래시도 캐시 기준으로 복원
     return
   }
   if (regionRefreshInFlight) {
@@ -369,7 +369,7 @@ async function poll(): Promise<void> {
       // sendOverlayWords 로 새 박스를 채워 넣는다). 스크롤처럼 계속 바뀌는 동안엔 매
       // 폴링마다 다시 호출되지만 이미 빈 상태라 실질적으로는 무해하다.
       sendOverlayWords([])
-      sendDebugBlocks([]) // 자동 탐지 블록도 같이 비워야 새 화면 위에 옛 영역 표시가 안 남는다
+      sendDetectedBlocks([]) // 노란 탐지 영역 플래시도 같이 비워야 새 화면 위에 옛 표시가 안 남는다
       // 계속 바뀌는 동안(스크롤 등)은 대기 타이머를 매번 리셋해서, 변화가 완전히
       // 멈춘 뒤에만 재추출하도록 한다.
       scheduleSettle()

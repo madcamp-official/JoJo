@@ -27,8 +27,13 @@ import {
   setSelectedWindowId,
   setSelectedWindowName,
 } from './selection/capture'
-import { clearExtractionHistory, invalidateExtractionCache, refreshExtractionCache } from './selection/extractionCache'
-import { clearRegion, submitRegionFromOverlay } from './selection/regionSelection'
+import {
+  alignRectToOverlay,
+  clearExtractionHistory,
+  invalidateExtractionCache,
+  refreshExtractionCache,
+} from './selection/extractionCache'
+import { clearRegion, getRegion, submitRegionFromOverlay } from './selection/regionSelection'
 import { ensureCjkEngineWarm } from './selection/warmup'
 import { onViewerWordClicked } from './selection/viewerSource'
 import {
@@ -40,6 +45,7 @@ import {
   getPopupBounds,
   getViewerFile,
   openSettingsWindow,
+  sendRegionInfo,
   showMainWindowAtRoute,
   showMacSelectionOverlay,
   setMainWindowRoute,
@@ -132,6 +138,10 @@ export function registerIpc(): void {
   // subtitleSource.ts 가 자체적으로 팝업을 연다)
   ipcMain.handle(IPC.SELECTION_EXTRACTED, async (_e, point: { x: number; y: number }) => {
     const extracted: ExtractedSelection = await runSelectionPipeline(point)
+    // 임시 진단 로그(2026-07-31, 사용자 제보 — "자동 탐지에서 클릭해도 팝업 안 뜸").
+    console.log(
+      `[ipc] SELECTION_EXTRACTED point=(${point.x},${point.y}) text.length=${extracted.text.length} anchor=${extracted.anchor.start}-${extracted.anchor.end}`,
+    )
     // 빈 곳 클릭(자막 단어를 못 짚음)이면 빈 팝업을 띄우지 않는다.
     if (extracted.text.trim()) createPopupWindow(extracted)
     return extracted
@@ -140,6 +150,15 @@ export function registerIpc(): void {
   // 담당 A: 오버레이에서 드래그로 그린 OCR 대상 영역을 저장하고, 바로 그 영역으로 추출 시작
   ipcMain.handle(IPC.SUBMIT_REGION, async (_e, rect: Rect) => {
     await submitRegionFromOverlay(rect)
+    // 담당 A — 영역 밖 반투명 회색 표시(2026-07-31, 사용자 요청 "영역 수동 선택 -> 유저가
+    // 선택한 영역 외의 부분을 반투명 회색 처리"). 실제 OCR(추출)이 끝나기를 기다리지 않고
+    // 드래그 제출 직후 바로 보여준다 — refreshExtractionCache 는 1~3초 걸릴 수 있어서
+    // 그 뒤로 미루면 드래그가 끝난 순간과 회색 표시가 뜨는 순간 사이에 눈에 띄는 공백이 생긴다.
+    const region = getRegion()
+    if (region) {
+      const aligned = await alignRectToOverlay(region)
+      if (aligned) sendRegionInfo(aligned)
+    }
     refreshExtractionCache()
     startChangeWatcher() // 영역이 확정됐으니 이 영역 안 내용 변화 감지를 시작(changeWatcher.ts)
     clearRegionEscapeShortcut() // 드래그로 영역을 확정했으니 Esc 임시 단축키(shortcut.ts)도 해제

@@ -159,11 +159,16 @@ button:disabled { cursor: not-allowed; }
   pointer-events: none;
 }
 
-/* 자동 탐지 영역 시각화(Overlay.tsx: debugBlocks) — 탐지된 블록 자리만 투명하게 뚫린
-   반투명 빨간 덮개(SVG mask, 2026-07-30 디자인 변경 — 예전 노란 점선 사각형 대체, 색상은
-   회색에서 빨간색으로 재변경). 클릭을 가로채면 안 된다(pointer-events: none). */
-.region-mask {
-  position: absolute; inset: 0;
+/* 탐지 영역 노란 플래시(Overlay.tsx: detectedBlocks, 2026-07-31 디자인 변경, 사용자
+   요청) — OCR이 실제로 텍스트를 찾아낸 영역(열/블록 단위)을 매 추출마다 3초간 이
+   사각형 그대로 보여준다("경계는 해당 색 + 점선"). 예전엔 "탐지된 영역만 투명하게
+   뚫린 반투명 덮개"(SVG mask, 회색→빨강으로 색만 바뀌었었음)였는데, 사각형 자체를
+   그대로 그리는 방식으로 교체 — 다단 등으로 사각형이 여러 개면 그냥 div 를 여러 개
+   그리면 된다(mask 불필요). 클릭을 가로채면 안 된다(pointer-events: none). */
+.detected-block {
+  position: absolute; box-sizing: border-box;
+  background: rgba(234, 179, 8, 0.25);
+  border: 2px dashed rgba(234, 179, 8, 0.9);
   pointer-events: none;
 }
 
@@ -171,7 +176,10 @@ button:disabled { cursor: not-allowed; }
    덮고, 드래그 사각형 자리만 원래 밝기로 "구멍"을 낸다 — 거대한 box-shadow 로
    사각형 바깥 전체를 채우는 트릭. overflow:hidden 래퍼로 뷰포트 밖까지 안 새게 자른다.
    테두리 없이(2026-07-30, 사용자 요청 — 이전엔 파란 2px 테두리) 선택 안 된 영역 전체를
-   반투명 회색으로만 채워 안/밖이 구분되게 한다 — 내부는 완전 투명. */
+   반투명 회색으로만 채워 안/밖이 구분되게 한다 — 내부는 완전 투명. 담당 A — 드래그
+   중(라이브 미리보기)뿐 아니라 영역 수동 선택이 확정된 뒤에도 선택 모드 내내 이
+   클래스를 그대로 재사용한다(Overlay.tsx: regionInfo, 2026-07-31 사용자 요청 — "선택
+   모드 내내 유지"). */
 .region-dim-clip {
   position: absolute; inset: 0;
   overflow: hidden;

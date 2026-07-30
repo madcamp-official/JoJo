@@ -332,7 +332,7 @@ async function refresh(myEpoch: number, windowId: number, isInitialDecision: boo
         language: getLanguageOverride() ?? 'en',
         source: { kind: 'pdf', appName: fileName },
         extraction: 'direct',
-        debugBlocks: [],
+        detectedBlocks: [],
       })
       return true
     }
@@ -345,7 +345,7 @@ async function refresh(myEpoch: number, windowId: number, isInitialDecision: boo
       language: result.language,
       source: { kind: 'pdf', appName: fileName },
       extraction: 'direct',
-      debugBlocks: [],
+      detectedBlocks: [],
     })
     return true
   } catch (err) {

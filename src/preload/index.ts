@@ -107,12 +107,20 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.EXTRACTION_PHASE, listener)
   },
 
-  // OCR이 실제로 인식에 넘긴 블록/열 경계 수신 — 텍스트 영역 자동 탐지 결과 시각화
-  // (autoDetectRegion 설정 ON + 자동 탐지로 잡힌 영역일 때만 메인이 보낸다).
-  onDebugBlocks: (cb: (blocks: Rect[]) => void): (() => void) => {
+  // OCR이 실제로 텍스트를 찾아낸 영역(열/블록 단위) 수신 — 매 추출마다 노란 점선
+  // 사각형으로 잠깐(3초) 보여준다(2026-07-31 재설계, 설정/개발 모드와 무관하게 항상 옴).
+  onDetectedBlocks: (cb: (blocks: Rect[]) => void): (() => void) => {
     const listener = (_e: unknown, blocks: Rect[]) => cb(blocks)
-    ipcRenderer.on(IPC.DEBUG_BLOCKS, listener)
-    return () => ipcRenderer.removeListener(IPC.DEBUG_BLOCKS, listener)
+    ipcRenderer.on(IPC.DETECTED_BLOCKS, listener)
+    return () => ipcRenderer.removeListener(IPC.DETECTED_BLOCKS, listener)
+  },
+
+  // 영역 수동 선택으로 지정된 OCR 대상 영역 수신 — 선택 모드 내내 그 영역 밖을 반투명
+  // 회색으로 덮어 보여준다(자동 탐지 영역이거나 없으면 null).
+  onRegionInfo: (cb: (rect: Rect | null) => void): (() => void) => {
+    const listener = (_e: unknown, rect: Rect | null) => cb(rect)
+    ipcRenderer.on(IPC.REGION_INFO, listener)
+    return () => ipcRenderer.removeListener(IPC.REGION_INFO, listener)
   },
 
   // OCR 대상 영역 지정 — 메인이 오버레이에 드래그 선택을 요청(영역 없거나 "영역 재선택")
