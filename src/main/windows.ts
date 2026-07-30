@@ -358,6 +358,13 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   if (process.platform === 'darwin') {
     // 미션 컨트롤/Exposé 에 오버레이 창이 썸네일로 잡히지 않게 한다.
     win.setHiddenInMissionControl(true)
+    // NSTrackingArea 기반 커서 관리 시도(2026-07-31, macCursorTracking.ts 주석 참고) —
+    // 활성 앱 여부와 무관하게 hit-test 로 커서가 반영되게 한다. 실패해도 예외 없이
+    // false 만 반환하고, 기존 폴링(syncMacCursorPolling/macDesiredCursor)이 그대로
+    // 동작하므로 안전망은 유지된다.
+    void import('./selection/macCursorTracking').then(({ attachCursorTracking }) => {
+      if (!win.isDestroyed()) attachCursorTracking(win.getNativeWindowHandle(), () => macDesiredCursor)
+    })
   }
   win.on('closed', () => {
     if (overlayWindow === win) overlayWindow = null
@@ -668,15 +675,12 @@ export function setOverlayInteractive(interactive: boolean, cursor: 'pointer' | 
   // mac 전용 — CSS cursor 가 안 먹히는 비활성 앱 창이라(macWindow.ts setMacCursor 주석)
   // 렌더러가 원하는 커서 모양을 같이 받아 네이티브로 설정한다. 유지는 커서 폴링이 담당.
   macDesiredCursor = interactive ? cursor : null
-  // 실험(2026-07-31, 사용자 제보 — "Preview가 포커싱돼 있을 땐 커서가 잘 바뀌는데 다른
-  // 창이 포커싱돼 있으면 기본 커서 모양"): 오버레이는 focusable:false 로 만들어져
-  // (ensureOverlayWindow) macOS 입장에서 우리 앱이 절대 "활성 앱"이 될 수 없는데,
-  // NSCursor.set()(macWindow.ts setMacCursor)의 효력이 활성 앱 여부에 좌우되는 것으로
-  // 보인다. 클릭을 받기 위해 클릭스루를 끄는 이 짧은 인터랙티브 구간에만 focusable 을
-  // 켜본다 — .focus() 를 직접 부르지 않으므로(클릭/명시적 호출 전까진 실제로 포커스를
-  // 뺏지 않음) 대상 앱 포커스가 바로 뺏기진 않지만, 클릭 시 포커스가 넘어갈 가능성은
-  // 남아있다 — 실사용 확인 필요(부작용 있으면 되돌릴 것).
-  if (process.platform === 'darwin') overlayWindow?.setFocusable(interactive)
+  // 실험 되돌림(2026-07-31): focusable 토글로 "활성 앱" 상태를 흉내 내보려 했으나
+  // 실사용 확인 결과 효과가 없었다(사용자 제보 — 커서 모양이 여전히 안 바뀜). Apple
+  // 문서상 NSCursor.set() 은 "frontmost app" 에서 호출해야 반영이 보장되는데, 창을
+  // focusable 로 만드는 것만으로는 앱 자체가 frontmost(활성 앱)가 되지 않는다 — 실제로
+  // frontmost 가 되려면 `app.focus()` 호출이 필요하고, 그건 단순 호버 중에도 다른 앱의
+  // 키보드 포커스를 빼앗는 부작용이 있어 사용자 확인 없이 넣지 않는다.
 }
 
 export function getOverlayMode(): AppMode {
