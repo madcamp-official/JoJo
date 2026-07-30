@@ -78,10 +78,10 @@ button:disabled { cursor: not-allowed; }
 }
 
 /* 두 진입점 — 창 선택(주)과 자체 문서 뷰어(보조)를 나란히. */
-.main-screen .main-actions { display: flex; gap: 24px; justify-content: center; }
+.main-screen .main-actions { display: flex; gap: 24px; justify-content: center; margin-top: 24px; }
 .main-screen .action {
-  display: inline-flex; align-items: center; justify-content: center; gap: 12px;
-  padding: 20px 36px; font: inherit; font-size: 18px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 15px 28px; font: inherit; font-size: 15px; font-weight: 600;
   border-radius: 14px; cursor: pointer; border: 2px solid var(--theme);
 }
 .main-screen .action.primary { color: var(--theme-text); background: var(--theme); }
