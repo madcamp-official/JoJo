@@ -304,6 +304,7 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
   }
   win.on('closed', () => {
     if (overlayWindow === win) overlayWindow = null
+    syncMacCursorPolling() // 창이 사라졌으니 mac 커서 폴링도 정지(darwin 외에선 no-op)
   })
   // Windows 에서 transparent+frameless 창은 생성 시 지정한 크기로 처음 보일 때 렌더링이
   // 정확히 맞물리지 않는 경우가 있다(최초 1회만) — 실제로 화면에 보인 직후 같은 bounds 를
@@ -312,6 +313,7 @@ function ensureOverlayWindow(initialBounds: Electron.Rectangle): BrowserWindow {
     win.setBounds(initialBounds)
   })
   overlayWindow = win
+  syncMacCursorPolling() // 이미 선택 모드 상태에서 창이 늦게 만들어진 경우 폴링 시작(darwin 전용)
   loadRoute(win, 'overlay')
   return win
 }
@@ -594,18 +596,55 @@ export async function showMacSelectionOverlay(windowId: number): Promise<void> {
  * (`interactive=true`) 커서 모양이 실제로 바뀌게 하고, 벗어나면 다시 켠다.
  * 렌더러(Overlay.tsx)가 자체 `mousemove` 기반 hover 판정 결과에 따라 호출한다.
  */
-export function setOverlayInteractive(interactive: boolean): void {
+export function setOverlayInteractive(interactive: boolean, cursor: 'pointer' | 'crosshair' | null = null): void {
   overlayWindow?.setIgnoreMouseEvents(!interactive, { forward: true })
+  // mac 전용 — CSS cursor 가 안 먹히는 비활성 앱 창이라(macWindow.ts setMacCursor 주석)
+  // 렌더러가 원하는 커서 모양을 같이 받아 네이티브로 설정한다. 유지는 커서 폴링이 담당.
+  macDesiredCursor = interactive ? cursor : null
 }
 
 export function getOverlayMode(): AppMode {
   return overlayMode
 }
 
+// macOS 전용 커서 폴링(2026-07-30) — 채널 정의(shared/channels.ts OVERLAY_CURSOR) 주석
+// 참고: mac은 클릭스루 오버레이로 mousemove 가 전달되지 않아, 선택 모드 동안 메인이
+// 커서 위치를 직접 폴링해 렌더러에 통지한다. 33ms(약 30fps)면 hover 박스 추적에 충분
+// 하고, screen.getCursorScreenPoint() 호출 하나뿐이라 부하도 무시할 수준. 겸사겸사
+// 커서 모양도 여기서 매 틱 재설정한다(macDesiredCursor — macWindow.ts setMacCursor
+// 주석 참고: 비활성 앱은 CSS cursor 가 안 먹혀 NSCursor 를 직접 설정해야 하고, 활성
+// 앱이 계속 덮어쓸 수 있어 1회 설정으론 부족).
+const MAC_CURSOR_POLL_MS = 33
+let macCursorTimer: NodeJS.Timeout | null = null
+let macDesiredCursor: 'pointer' | 'crosshair' | null = null
+
+function syncMacCursorPolling(): void {
+  if (process.platform !== 'darwin') return
+  const shouldRun = overlayMode === 'select' && overlayWindow !== null
+  if (shouldRun && !macCursorTimer) {
+    macCursorTimer = setInterval(() => {
+      if (!overlayWindow || overlayWindow.isDestroyed() || !overlayVisible) return
+      const p = screen.getCursorScreenPoint()
+      const b = overlayWindow.getBounds()
+      overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
+      if (macDesiredCursor) {
+        void import('./selection/macWindow').then((m) => {
+          if (macDesiredCursor) m.setMacCursor(macDesiredCursor)
+        })
+      }
+    }, MAC_CURSOR_POLL_MS)
+  } else if (!shouldRun && macCursorTimer) {
+    clearInterval(macCursorTimer)
+    macCursorTimer = null
+    macDesiredCursor = null
+  }
+}
+
 /** 전역 단축키로 모드가 토글될 때 호출 — 오버레이 렌더러에 새 색을 통지한다. */
 export function setOverlayMode(mode: AppMode): void {
   overlayMode = mode
   overlayWindow?.webContents.send(IPC.MODE_CHANGED, mode)
+  syncMacCursorPolling()
 }
 
 /** extractionCache.ts 가 캐시를 채우거나 무효화할 때 호출 — 오버레이가 실제 단어 bbox 로 hover/클릭 판정을 하게 한다. */

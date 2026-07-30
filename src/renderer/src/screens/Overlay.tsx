@@ -169,15 +169,27 @@ export function Overlay() {
   }, [mode])
 
   // 선택 모드일 때만 단어 위치를 추적한다 — 일반 모드는 PLAN.md 상 "클릭에 개입하지
-  // 않음"이 원칙이라 hover 감지도 꺼둔다. setIgnoreMouseEvents(true, {forward:true})
-  // (windows.ts) 덕분에 클릭스루 상태에서도 mousemove 는 렌더러까지 전달된다.
+  // 않음"이 원칙이라 hover 감지도 꺼둔다. win32는 setIgnoreMouseEvents(true,
+  // {forward:true})(windows.ts) 덕분에 클릭스루 상태에서도 mousemove 가 렌더러까지
+  // 전달되지만, **mac은 이 forwarding 이 동작하지 않아**(2026-07-30 실사용 확인 —
+  // 클릭스루 동안 mousemove 가 아예 안 와서 hover 판정이 안 돌고, 그래서 interactive
+  // 전환도 커서 변경도 안 됐음) 메인이 커서 위치를 폴링해 보내주는 OVERLAY_CURSOR
+  // 수신(onOverlayCursor)을 같은 판정에 연결한다 — 두 경로가 같은 setHoveredLine 을
+  // 부르므로 어느 쪽이 먼저 오든 동작은 동일하다.
   useEffect(() => {
     if (mode !== 'select' || needsRegion) return
+    function judge(point: { x: number; y: number }) {
+      setHoveredLine(findLineWordsAtPoint(words, point))
+    }
     function onMouseMove(e: MouseEvent) {
-      setHoveredLine(findLineWordsAtPoint(words, { x: e.clientX, y: e.clientY }))
+      judge({ x: e.clientX, y: e.clientY })
     }
     window.addEventListener('mousemove', onMouseMove)
-    return () => window.removeEventListener('mousemove', onMouseMove)
+    const offCursor = window.nuance.onOverlayCursor(judge)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      offCursor()
+    }
   }, [mode, words, needsRegion])
 
   // 실제 줄 bbox 위에 있는 동안만, 또는 영역을 드래그로 그리는 동안은 통째로
@@ -188,13 +200,18 @@ export function Overlay() {
   // effect 가 매 mousemove 마다(초당 수십 번) 다시 실행됐다 — bool 값 자체는 안
   // 바뀌었는데도 네이티브 setIgnoreMouseEvents 를 반복 호출한 셈이라, mac에서 커서
   // 모양이 안 바뀌고 클릭이 가끔 밑 창으로 새는 증상으로 이어졌다(사용자 제보).
+  // cursor 인자는 mac 전용(비활성 앱 창은 CSS cursor 가 안 먹혀 메인이 NSCursor 를 직접
+  // 설정, preload 주석 참고) — 영역 드래그 중엔 십자, 단어 hover 중엔 클릭(pointer) 모양.
+  // win32는 이 인자를 무시하고 아래 className 의 CSS(cursor: crosshair/pointer)가 담당한다.
   const interactive = needsRegion || hoveredLine.length > 0
-  const lastInteractiveRef = useRef<boolean | null>(null)
+  const interactiveCursor = needsRegion ? ('crosshair' as const) : ('pointer' as const)
+  const lastInteractiveRef = useRef<string | null>(null)
   useEffect(() => {
-    if (lastInteractiveRef.current === interactive) return
-    lastInteractiveRef.current = interactive
-    window.nuance.setOverlayInteractive(interactive)
-  }, [interactive])
+    const key = interactive ? interactiveCursor : 'off'
+    if (lastInteractiveRef.current === key) return
+    lastInteractiveRef.current = key
+    window.nuance.setOverlayInteractive(interactive, interactive ? interactiveCursor : null)
+  }, [interactive, interactiveCursor])
 
   async function onOverlayClick(e: React.MouseEvent) {
     if (justSubmittedRegionRef.current) {

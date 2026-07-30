@@ -114,9 +114,12 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.GET_MODE, async () => getOverlayMode())
 
-  ipcMain.handle(IPC.OVERLAY_SET_INTERACTIVE, async (_e, interactive: boolean) => {
-    setOverlayInteractive(interactive)
-  })
+  ipcMain.handle(
+    IPC.OVERLAY_SET_INTERACTIVE,
+    async (_e, interactive: boolean, cursor: 'pointer' | 'crosshair' | null = null) => {
+      setOverlayInteractive(interactive, cursor)
+    },
+  )
 
   // 담당 A: 팝업 직전 추출 결과(ExtractedSelection) 생성 → 팝업(담당 B) 오픈 + 전달
   // (자막 경로는 이 핸들러를 타지 않는다 — 확장이 페이지 안에서 직접 클릭을 처리해

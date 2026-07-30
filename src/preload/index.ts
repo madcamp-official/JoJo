@@ -48,8 +48,18 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.WINDOW_SELECTED, listener)
   },
 
-  setOverlayInteractive: (interactive: boolean): Promise<void> =>
-    ipcRenderer.invoke(IPC.OVERLAY_SET_INTERACTIVE, interactive),
+  // cursor: mac 전용 커서 모양(비활성 앱 창은 CSS cursor 가 안 먹혀 메인이 NSCursor 를
+  // 직접 설정한다 — macWindow.ts setMacCursor) — win32에선 무시되고 CSS 가 담당.
+  setOverlayInteractive: (interactive: boolean, cursor: 'pointer' | 'crosshair' | null = null): Promise<void> =>
+    ipcRenderer.invoke(IPC.OVERLAY_SET_INTERACTIVE, interactive, cursor),
+
+  // macOS 전용 — 클릭스루 오버레이로는 mousemove 가 안 와서(shared/channels.ts
+  // OVERLAY_CURSOR 주석), 메인이 폴링한 커서 위치(오버레이-로컬 좌표)를 수신한다.
+  onOverlayCursor: (cb: (point: { x: number; y: number }) => void): (() => void) => {
+    const listener = (_e: unknown, point: { x: number; y: number }) => cb(point)
+    ipcRenderer.on(IPC.OVERLAY_CURSOR, listener)
+    return () => ipcRenderer.removeListener(IPC.OVERLAY_CURSOR, listener)
+  },
 
   // 실험용 브랜치(experiment/doclayout-yolo) — DocLayout/PaddleOCR 예열
   // 완료 여부(MainScreen 이 창 선택 버튼을 막을지 판단).

@@ -10,6 +10,13 @@ export const IPC = {
   GET_MODE: 'mode:get',
   MODE_CHANGED: 'mode:changed',
   OVERLAY_SET_INTERACTIVE: 'overlay:setInteractive',
+  // macOS 전용 커서 위치 통지(2026-07-30) — 클릭스루 상태(setIgnoreMouseEvents(true))의
+  // 오버레이는 win32에선 forward:true 로 mousemove 가 렌더러까지 전달되지만, mac에선
+  // 이 forwarding 이 실제로 동작하지 않아 hover 판정이 아예 안 돌았다(실사용 확인 —
+  // 호버 박스가 커서를 안 따라오고, interactive 전환이 안 돼 커서 모양도 안 바뀜).
+  // 메인이 커서 위치를 폴링(windows.ts)해 오버레이-로컬 좌표로 보내주면 렌더러
+  // (Overlay.tsx)가 mousemove 와 동일하게 hover 판정에 쓴다.
+  OVERLAY_CURSOR: 'overlay:cursor',
   // 선택 모드 진입 시 미리 캐시된 단어 bbox 목록을 오버레이로 통지 (extractionCache.ts)
   EXTRACTION_WORDS: 'selection:words',
   // 추출 진행 알림 1단계("언어 감지 & 텍스트 영역 탐지") — 선택 모드 진입, 리사이즈,
