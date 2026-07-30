@@ -268,11 +268,24 @@ export function registerIpc(): void {
     const id = getSelectedWindowId()
     void import('./selection/macWindow').then(async ({ parseMacWindowId, getMacWindowOwnerPid }) => {
       const wid = parseMacWindowId(id ?? '')
-      if (wid === null) return
+      if (wid === null) {
+        // 임시 진단 로그(2026-07-31, 사용자 제보 — 스크롤 우회가 여전히 안 됨). 이
+        // 가드에서 조용히 멈추면 애초에 스크롤 전달 자체를 시도조차 안 한 것이라
+        // macScroll.ts 쪽을 볼 필요가 없다는 뜻 — 실사용 로그로 어디서 끊기는지 확인.
+        console.warn('[forwardScroll] windowId 파싱 실패, id=', id)
+        return
+      }
       const pid = getMacWindowOwnerPid(wid)
-      if (pid === null) return
+      if (pid === null) {
+        console.warn('[forwardScroll] owner pid 조회 실패, windowId=', wid)
+        return
+      }
       const { postScrollToPid } = await import('./selection/macScroll')
-      postScrollToPid(pid, screen.getCursorScreenPoint(), payload.deltaX, payload.deltaY)
+      const point = screen.getCursorScreenPoint()
+      console.log(
+        `[forwardScroll] pid=${pid} point=(${point.x},${point.y}) delta=(${payload.deltaX},${payload.deltaY})`,
+      )
+      postScrollToPid(pid, point, payload.deltaX, payload.deltaY)
     })
   })
 

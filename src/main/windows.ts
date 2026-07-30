@@ -647,6 +647,15 @@ export function setOverlayInteractive(interactive: boolean, cursor: 'pointer' | 
   // mac 전용 — CSS cursor 가 안 먹히는 비활성 앱 창이라(macWindow.ts setMacCursor 주석)
   // 렌더러가 원하는 커서 모양을 같이 받아 네이티브로 설정한다. 유지는 커서 폴링이 담당.
   macDesiredCursor = interactive ? cursor : null
+  // 실험(2026-07-31, 사용자 제보 — "Preview가 포커싱돼 있을 땐 커서가 잘 바뀌는데 다른
+  // 창이 포커싱돼 있으면 기본 커서 모양"): 오버레이는 focusable:false 로 만들어져
+  // (ensureOverlayWindow) macOS 입장에서 우리 앱이 절대 "활성 앱"이 될 수 없는데,
+  // NSCursor.set()(macWindow.ts setMacCursor)의 효력이 활성 앱 여부에 좌우되는 것으로
+  // 보인다. 클릭을 받기 위해 클릭스루를 끄는 이 짧은 인터랙티브 구간에만 focusable 을
+  // 켜본다 — .focus() 를 직접 부르지 않으므로(클릭/명시적 호출 전까진 실제로 포커스를
+  // 뺏지 않음) 대상 앱 포커스가 바로 뺏기진 않지만, 클릭 시 포커스가 넘어갈 가능성은
+  // 남아있다 — 실사용 확인 필요(부작용 있으면 되돌릴 것).
+  if (process.platform === 'darwin') overlayWindow?.setFocusable(interactive)
 }
 
 export function getOverlayMode(): AppMode {
