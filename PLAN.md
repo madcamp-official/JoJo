@@ -484,6 +484,14 @@ JoJo/
 │                   ├── mockSelection.ts     #   데모용 목업 ExtractedSelection(영/일/중)
 │                   ├── frequentStore.ts     #   자주 쓰는 질문 렌더러측 얇은 IPC 래퍼
 │                   └── types.ts             #   ChatMessage 등 팝업 전용 타입
+├── python/                      # 🅰️ Python 엔진(상주 서버, `pythonServer.ts` 가 표준입출력으로 통신) — 상세는 python/README.md
+│   ├── requirements.txt         #   공용 venv(.venv) — DocLayout-YOLO / PaddleOCR / Yomitoku / SudachiPy
+│   ├── requirements-ndlocr.txt  #   격리 venv(.venv-ndlocr-test) — NDLOCR-Lite 전용(공용과 의존성 충돌해 분리)
+│   ├── layout_detect.py         #   DocLayout-YOLO — 본문 영역 탐지 + 다단/세로쓰기 읽기 순서
+│   ├── ocr_paddle.py            #   PaddleOCR — en/zh/ja 검출+인식(일본어에서는 폴백 역할)
+│   ├── ocr_yomitoku.py          #   Yomitoku — 일본어 가로쓰기 줄 검출 전용(후리가나 분리)
+│   ├── ocr_ndlocr.py            #   NDLOCR-Lite — 일본어 특화 검출+인식(세로쓰기 전담, 가로쓰기는 인식만)
+│   └── sudachi_tokenize.py      #   SudachiPy(UniDic) — 일본어 형태소 분석
 └── extension/                   # 🅱️ 브라우저 확장(MV3) — 유튜브/넷플릭스 자막 구현 완료(담당 B로 이관)
     ├── manifest.json
     └── src/
@@ -499,6 +507,6 @@ JoJo/
         └── articleHighlight.ts  #   🅰️ [담당: milleion] 본문 hover/클릭(highlight.ts와 같은 페이지 내 직접 처리 방식, 문단 단위 지연 계산으로 성능 대응) — wordSegments.ts 캐시로 CJK 형태소 단위 hover 연결(2026-07-30)
 ```
 
-**시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `npm run build:ext`로 빌드한 `extension/dist`를 `chrome://extensions`에서 로드(개발자 모드 → 압축해제된 확장 프로그램 로드) — native messaging host 등록 불필요(로컬 WebSocket 사용).
+**시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). OCR 파이프라인을 쓰려면 Python venv 를 따로 준비해야 한다(`npm run dev` 가 자동 설치하지 않는다 — `python/README.md` 참고: 공용 `.venv` + NDLOCR-Lite 격리 `.venv-ndlocr-test`). venv 가 없어도 앱은 뜨고 인식 품질만 떨어진다. 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `npm run build:ext`로 빌드한 `extension/dist`를 `chrome://extensions`에서 로드(개발자 모드 → 압축해제된 확장 프로그램 로드) — native messaging host 등록 불필요(로컬 WebSocket 사용).
 
 **표기**: 🤝 공동 소유 / 🅰️ 담당 A / 🅱️ 담당 B. **현황**: 담당 B는 LLM 3종 어댑터·스트리밍·에러 체계·발음·사전(8개 소스 + 폴백 오케스트레이션)·팝업(채팅·자주쓰는질문)·설정 화면(5개 섹션)·브라우저 확장(유튜브·넷플릭스 자막)까지 구현 완료. 담당 A는 창 선택 UI·오버레이·전역 단축키·OCR 파이프라인(캡처→언어별 Tesseract/NDLOCR/PaddleOCR→일/중 형태소 재분할→좌표 매핑, macOS 캡처 포함)을 구현했고, DOM 텍스트(일반 웹페이지, 담당: milleion)도 2026-07-30 구현 완료(범용 본문 탐지+자막 경로와 동일한 확장 hover/클릭 direct 추출 구조, 상세는 TODO.md). 직접 추출(epub/pdf)·접근성 API(AX/UIA)는 아직 미구현. 언어 자동 감지(`langDetect.ts`)는 tier2 확장(2026-07-30)에 맞춰 구현 완료. 항목별 최신 진행 상황은 [TODO.md](TODO.md) 참고.
