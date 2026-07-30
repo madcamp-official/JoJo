@@ -28,6 +28,7 @@ import {
   loadViewerPrefs,
   saveViewerPrefs,
   ViewerSettings,
+  type ViewerPrefs,
   type ViewerStyle,
 } from '../viewer/ViewerSettings'
 import { SlidersIcon } from './icons'
@@ -105,9 +106,34 @@ export function ViewerScreen() {
     animRef.current?.animate(frames, PAGE_TURN_TIMING)
   }, [turn, transition])
 
+  // 다른 뷰어 창이 보낸 값을 반영하는 동안에는 되돌려 보내지 않는다(두 창이 서로
+  // 알림을 주고받으며 무한히 왕복하는 걸 막는다).
+  const applyingSync = useRef(false)
+
   useEffect(() => {
-    saveViewerPrefs({ style, mode, transition, dark })
+    const prefs = { style, mode, transition, dark }
+    saveViewerPrefs(prefs)
+    if (applyingSync.current) {
+      applyingSync.current = false
+      return
+    }
+    void window.nuance.viewerPrefsChanged(prefs)
   }, [style, mode, transition, dark])
+
+  // 다른 뷰어 창에서 바꾼 보기 설정을 그대로 따라간다 — 파일 종류가 달라도 읽기 방식·
+  // 넘김 효과·테마는 같은 값을 쓴다(사용자 지정). 저장소만 공유하면 창을 새로 열 때만
+  // 맞춰지므로, 이미 떠 있는 창은 이 경로로 맞춘다.
+  useEffect(() => {
+    return window.nuance.onViewerPrefsSync((raw) => {
+      const p = raw as ViewerPrefs
+      if (!p) return
+      applyingSync.current = true
+      setStyle(p.style)
+      setMode(p.mode)
+      setTransition(p.transition)
+      setDark(p.dark)
+    })
+  }, [])
 
   // 툴바 자동 숨김 — 읽는 동안 화면을 가리지 않게 평소엔 숨기고, 커서를 창 위쪽으로
   // 가져가면 나타난다. 설정 패널이 열려 있는 동안은 계속 띄워둔다(조작 중에 사라지면
@@ -206,7 +232,9 @@ export function ViewerScreen() {
   }, [file])
 
   return (
-    <div className={`screen viewer-screen${dark && isReflowable ? ' dark' : ''}`}>
+    // 테마는 파일 종류를 안 가린다(사용자 지정) — PDF 도 페이지 둘레(배경·툴바)가 같이
+    // 어두워진다. 페이지 그림 자체는 원본이라 색이 바뀌지 않는다.
+    <div className={`screen viewer-screen${dark ? ' dark' : ''}`}>
       <header ref={barRef} className={`viewer-toolbar${barVisible ? '' : ' hidden'}`}>
         <button className="viewer-back" title="메인으로" onClick={() => void window.nuance.viewerBack()}>
           <ArrowLeftIcon />
@@ -269,7 +297,6 @@ export function ViewerScreen() {
             onTransitionChange={setTransition}
             mode={mode}
             onModeChange={setMode}
-            showTheme={isReflowable}
             dark={dark}
             onDarkChange={setDark}
           />

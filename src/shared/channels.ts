@@ -85,6 +85,12 @@ export const IPC = {
   // 뷰어 뒤로가기 — 뷰어 창을 닫고 메인 창을 다시 보여준다(뷰어는 별도 창이라
   // 같은 창 안에서 라우트를 되돌리는 대신 창을 닫는 게 자연스럽다).
   VIEWER_BACK: 'viewer:back',
+  // 뷰어 보기 설정 변경 알림 / 반영 — 읽기 방식·넘김 효과·테마 같은 화면 취향은 파일
+  // 종류와 무관하게 모든 뷰어가 같은 값을 쓴다(사용자 지정). 저장소(localStorage)는 이미
+  // 공유하지만 그건 창을 새로 열 때만 읽으므로, 이미 떠 있는 창들에는 메인을 거쳐 전한다.
+  VIEWER_PREFS_CHANGED: 'viewer:prefsChanged',
+  VIEWER_PREFS_SYNC: 'viewer:prefsSync',
+
   // 뷰어 문단의 CJK 형태소 분할 요청 — 확장은 WebSocket 으로 하던 것을 IPC 로 연결한다
   // (메인의 기존 nlp/ 분할기를 그대로 호출).
   VIEWER_SEGMENT: 'viewer:segment',

@@ -229,6 +229,17 @@ const api = {
   // 뷰어에서 단어 클릭 — 확장의 pageClick 과 같은 역할(메인이 팝업을 띄운다).
   viewerWordClicked: (hit: ViewerWordHit): Promise<void> =>
     ipcRenderer.invoke(IPC.VIEWER_WORD_CLICKED, hit),
+
+  // 보기 설정이 바뀌었다고 알림 — 메인이 다른 뷰어 창들에 그대로 전달한다.
+  viewerPrefsChanged: (prefs: unknown): Promise<void> =>
+    ipcRenderer.invoke(IPC.VIEWER_PREFS_CHANGED, prefs),
+
+  // 다른 뷰어 창이 바꾼 보기 설정 수신.
+  onViewerPrefsSync: (cb: (prefs: unknown) => void): (() => void) => {
+    const listener = (_e: unknown, prefs: unknown) => cb(prefs)
+    ipcRenderer.on(IPC.VIEWER_PREFS_SYNC, listener)
+    return () => ipcRenderer.removeListener(IPC.VIEWER_PREFS_SYNC, listener)
+  },
 }
 
 contextBridge.exposeInMainWorld('nuance', api)
