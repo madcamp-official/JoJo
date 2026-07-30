@@ -617,6 +617,11 @@ export interface AppSettings {
   // 트레이 메뉴 "영역 수동 선택" 단축키(선택 모드가 아닐 때는 눌러도 아무 동작 안 함,
   // shortcut.ts: requestManualRegionSelection 이 이미 방어). 기본값: 'Alt+3'. 빈 문자열 = 단축키 해제.
   manualRegionShortcut: string
+  // 트레이 메뉴 "OCR로 전환" 단축키 — 자막/웹(direct 추출)로 자동 판정됐지만 그 결과가
+  // 마음에 안 들 때 강제로 OCR로 전환한다(2026-07-30 사용자 요청). 같은 페이지(URL)에서만
+  // 유지되고, 다른 페이지로 이동하거나 선택 모드를 나갔다 다시 들어가면 자동판정으로
+  // 되돌아간다(shortcut.ts: requestForceOcr/forceOcrUrl). 기본값: 'Alt+4'. 빈 문자열 = 단축키 해제.
+  forceOcrShortcut: string
   // 선택 앞/뒤로 포함할 문맥 바이트 예산(자유 지정). 실제로는 문장 경계까지 확장됨.
   contextBytesBefore: number
   contextBytesAfter: number

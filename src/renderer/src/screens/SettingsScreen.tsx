@@ -236,6 +236,7 @@ export function SettingsScreen() {
     | 'windowSelectShortcut'
     | 'windowDeselectShortcut'
     | 'manualRegionShortcut'
+    | 'forceOcrShortcut'
     | null
   >(null)
   // 현재 provider 의 키 검증 결과(유효성 + 사용 가능 모델). 무과금 GET 기반.
@@ -679,6 +680,22 @@ export function SettingsScreen() {
               onDelete={() => void patch({ manualRegionShortcut: '' })}
               deleteTitle="단축키 해제"
               deleteDisabled={!settings.manualRegionShortcut}
+            />
+          </div>
+        </div>
+        <div className="shortcut-row">
+          <span className="label">OCR로 전환</span>
+          <div className="shortcut-control">
+            <span className={`shortcut-keys${recordingField === 'forceOcrShortcut' ? ' recording' : ''}`}>
+              {recordingField === 'forceOcrShortcut'
+                ? '수식키+키 입력 (Esc 취소)'
+                : formatAccelerator(settings.forceOcrShortcut)}
+            </span>
+            <EditDeleteGroup
+              onEdit={() => setRecordingField('forceOcrShortcut')}
+              onDelete={() => void patch({ forceOcrShortcut: '' })}
+              deleteTitle="단축키 해제"
+              deleteDisabled={!settings.forceOcrShortcut}
             />
           </div>
         </div>

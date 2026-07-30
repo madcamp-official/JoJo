@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   windowSelectShortcut: 'Alt+1',
   windowDeselectShortcut: 'Alt+2',
   manualRegionShortcut: 'Alt+3',
+  forceOcrShortcut: 'Alt+4',
   contextBytesBefore: 1024,
   contextBytesAfter: 1024,
   contextBytesLinked: true,
