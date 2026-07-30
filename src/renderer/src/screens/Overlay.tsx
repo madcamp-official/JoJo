@@ -176,19 +176,10 @@ export function Overlay() {
   // 전환도 커서 변경도 안 됐음) 메인이 커서 위치를 폴링해 보내주는 OVERLAY_CURSOR
   // 수신(onOverlayCursor)을 같은 판정에 연결한다 — 두 경로가 같은 setHoveredLine 을
   // 부르므로 어느 쪽이 먼저 오든 동작은 동일하다.
-  // mac 전용 커스텀 커서 그림(아래 렌더 부분) 용 위치 — NSCursor.set()(macWindow.ts
-  // setMacCursor)은 대상 창(Kindle 등)이 실제로 활성 앱일 때만 시스템 커서를 이길 수
-  // 있고, macOS는 비활성 앱이 시스템 커서를 바꾸는 걸 근본적으로 허용하지 않는다 —
-  // "선택창에 포커스가 없으면 커서 모양이 안 바뀐다"는 제보(2026-07-30)가 바로 이
-  // OS 제약. 실제 시스템 커서를 못 바꾸는 상황에서도 항상 보이도록, 폴링으로 받은
-  // 좌표에 우리가 직접 아이콘을 그린다(포커스 여부와 무관하게 항상 동작).
-  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
-
   useEffect(() => {
     if (mode !== 'select' || needsRegion) return
     function judge(point: { x: number; y: number }) {
       setHoveredLine(findLineWordsAtPoint(words, point))
-      if (IS_MAC) setCursorPos(point)
     }
     function onMouseMove(e: MouseEvent) {
       judge({ x: e.clientX, y: e.clientY })
@@ -200,21 +191,6 @@ export function Overlay() {
       offCursor()
     }
   }, [mode, words, needsRegion])
-
-  // 영역 드래그 대기 중(needsRegion)에도 커스텀 커서 위치를 갱신 — 위 effect 는
-  // needsRegion 이면 꺼지므로 별도로 둔다(win32 는 mousemove 만, mac 은 폴링도 같이).
-  useEffect(() => {
-    if (mode !== 'select' || !needsRegion || !IS_MAC) return
-    function onMouseMove(e: MouseEvent) {
-      setCursorPos({ x: e.clientX, y: e.clientY })
-    }
-    window.addEventListener('mousemove', onMouseMove)
-    const offCursor = window.nuance.onOverlayCursor(setCursorPos)
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      offCursor()
-    }
-  }, [mode, needsRegion])
 
   // 실제 줄 bbox 위에 있는 동안만, 또는 영역을 드래그로 그리는 동안은 통째로
   // 클릭스루를 꺼서(windows.ts: setOverlayInteractive) 오버레이가 입력을 받게 한다.
@@ -351,18 +327,6 @@ export function Overlay() {
               둔다 — 여기선 정확한 위치를 맞출 필요 없이 그냥 항상 위에 덮어씌운다. */}
           <div className="region-border-topcoat" />
         </>
-      )}
-      {/* mac 전용 커스텀 커서(위 cursorPos effect 주석 참고) — 대상 창(포커스 보유자)이
-          활성 앱일 때만 진짜 시스템 커서를 바꿀 수 있어서, 그와 무관하게 항상 보이는
-          우리만의 커서 아이콘을 직접 그린다. hover 중엔 손가락(클릭 가능), 영역 드래그
-          대기 중엔 십자 — 실제 시스템 커서와 별개로 항상 정확하게 보인다. */}
-      {IS_MAC && cursorPos && (needsRegion || hoveredBox) && (
-        <div
-          className="mac-fake-cursor"
-          style={{ left: cursorPos.x, top: cursorPos.y }}
-        >
-          {needsRegion ? '✛' : '👆'}
-        </div>
       )}
       {notice ? (
         <div className="overlay-resolving">{notice}</div>

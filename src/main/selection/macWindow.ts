@@ -361,7 +361,7 @@ export function raiseAndGetBounds(windowId: number): MacWindowRect | null {
 // 마우스 이동 때마다 자기 커서로 덮어쓸 수 있어서, 호출부(windows.ts 커서 폴링)가
 // 상태가 유지되는 동안 매 틱 재설정한다.
 
-export type MacCursorKind = 'pointer' | 'crosshair'
+export type MacCursorKind = 'pointer' | 'crosshair' | 'arrow'
 
 let cursorReady = false
 let cursorOk = false
@@ -385,6 +385,7 @@ function ensureCursor(): boolean {
     selCursorSet = sel_registerName('set')
     cursorSelectors.pointer = sel_registerName('pointingHandCursor')
     cursorSelectors.crosshair = sel_registerName('crosshairCursor')
+    cursorSelectors.arrow = sel_registerName('arrowCursor')
     cursorOk = !!clsNSCursor
   } catch {
     cursorOk = false

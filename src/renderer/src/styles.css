@@ -130,19 +130,6 @@ button:disabled { cursor: not-allowed; }
   pointer-events: none;
 }
 
-/* mac 전용 커스텀 커서(Overlay.tsx, 2026-07-30) — 대상 창이 활성 앱이 아니면
-   NSCursor.set() 으로도 진짜 시스템 커서를 못 바꾸는 macOS 제약(사용자 제보: "포커스가
-   선택창에 있지 않으면 커서 모양이 안 바뀐다") 우회용. 실제 마우스 위치 바로 위·오른쪽에
-   작게 그려서 커서를 대신 가리킨다 — 클릭을 가로채면 안 된다. */
-.mac-fake-cursor {
-  position: absolute;
-  transform: translate(2px, -2px);
-  font-size: 20px; line-height: 1;
-  pointer-events: none;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
-  z-index: 10;
-}
-
 /* 자동 탐지 영역 시각화(Overlay.tsx: debugBlocks) — 탐지된 블록 자리만 투명하게 뚫린
    반투명 빨간 덮개(SVG mask, 2026-07-30 디자인 변경 — 예전 노란 점선 사각형 대체, 색상은
    회색에서 빨간색으로 재변경). 클릭을 가로채면 안 된다(pointer-events: none). */

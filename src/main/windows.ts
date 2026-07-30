@@ -613,30 +613,34 @@ export function getOverlayMode(): AppMode {
 // 하고, screen.getCursorScreenPoint() 호출 하나뿐이라 부하도 무시할 수준. 겸사겸사
 // 커서 모양도 여기서 매 틱 재설정한다(macDesiredCursor — macWindow.ts setMacCursor
 // 주석 참고: 비활성 앱은 CSS cursor 가 안 먹혀 NSCursor 를 직접 설정해야 하고, 활성
-// 앱이 계속 덮어쓸 수 있어 1회 설정으론 부족).
+// 앱이 계속 덮어쓸 수 있어 1회 설정으론 부족). **중요**: 원하는 커서가 없을 때도
+// 'arrow'로 매 틱 명시적으로 재설정해야 한다 — AppKit은 NSCursor.set() 을 다시
+// 안 부르면 마지막으로 설정한 커서(십자 등)를 자동으로 안 되돌린다(2026-07-30 실사용
+// 확인 — 영역 드래그를 Esc 로 취소해도 십자 커서가 그대로 고정되던 버그의 원인).
 const MAC_CURSOR_POLL_MS = 33
 let macCursorTimer: NodeJS.Timeout | null = null
 let macDesiredCursor: 'pointer' | 'crosshair' | null = null
+let macWindowModule: typeof import('./selection/macWindow') | null = null
 
 function syncMacCursorPolling(): void {
   if (process.platform !== 'darwin') return
   const shouldRun = overlayMode === 'select' && overlayWindow !== null
   if (shouldRun && !macCursorTimer) {
+    void import('./selection/macWindow').then((m) => {
+      macWindowModule = m
+    })
     macCursorTimer = setInterval(() => {
       if (!overlayWindow || overlayWindow.isDestroyed() || !overlayVisible) return
       const p = screen.getCursorScreenPoint()
       const b = overlayWindow.getBounds()
       overlayWindow.webContents.send(IPC.OVERLAY_CURSOR, { x: p.x - b.x, y: p.y - b.y })
-      if (macDesiredCursor) {
-        void import('./selection/macWindow').then((m) => {
-          if (macDesiredCursor) m.setMacCursor(macDesiredCursor)
-        })
-      }
+      macWindowModule?.setMacCursor(macDesiredCursor ?? 'arrow')
     }, MAC_CURSOR_POLL_MS)
   } else if (!shouldRun && macCursorTimer) {
     clearInterval(macCursorTimer)
     macCursorTimer = null
     macDesiredCursor = null
+    macWindowModule?.setMacCursor('arrow') // 폴링을 멈추기 전에 마지막으로 한 번 복원
   }
 }
 
