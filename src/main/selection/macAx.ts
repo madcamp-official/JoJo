@@ -54,6 +54,7 @@ let CFArrayGetTypeID: KFn | null = null
 let CFArrayGetCount: KFn | null = null
 let CFArrayGetValueAtIndex: KFn | null = null
 let CFRelease: KFn | null = null
+let CFRetain: KFn | null = null
 
 function ensureAx(): boolean {
   if (loaded) return AXUIElementCreateApplication !== null
@@ -80,6 +81,7 @@ function ensureAx(): boolean {
     CFArrayGetCount = cf.func('long CFArrayGetCount(void* arr)')
     CFArrayGetValueAtIndex = cf.func('void* CFArrayGetValueAtIndex(void* arr, long idx)')
     CFRelease = cf.func('void CFRelease(void* cf)')
+    CFRetain = cf.func('void* CFRetain(void* cf)')
     return true
   } catch (err) {
     console.warn('[macAx] 접근성 프레임워크 로드 실패:', (err as Error)?.message)
@@ -106,6 +108,22 @@ function release(ref: unknown): void {
   } catch {
     /* 무시 */
   }
+}
+
+/**
+ * `CFArrayGetValueAtIndex`/`AXUIElementCopyAttributeValue` 로 얻는 자식 요소는 "Get 규칙"
+ * (빌려온 참조)이라, 그 부모 배열이 해제되는 즉시 무효화된다. `forEachChild` 는 순회가
+ * 끝나면 곧바로 그 배열을 해제하므로(synchronous), 순회 콜백 안에서 받은 요소를 나중에
+ * (특히 비동기 처리 뒤에) 다시 쓰려면 반드시 여기서 명시적으로 retain 해둬야 한다 —
+ * 안 그러면 배열 해제 후 그 요소에 접근할 때 use-after-free 로 크래시난다(실측,
+ * 2026-07-30: `AXUIElementCopyParameterizedAttributeValue`→`_AXUIElementValidate`에서
+ * SIGSEGV — `AxLine.boundsOf` 클로저가 CJK 형태소 분석 대기 뒤에야 호출되는데, 그 사이
+ * 부모 `AXChildren` 배열이 이미 해제된 뒤였다). retain 한 요소는 다 쓴 뒤 반드시
+ * `release()`로 짝을 맞춰야 한다(macAx.ts: releaseRetained 참고).
+ */
+function retain<T>(ref: T): T {
+  if (!ref) return ref
+  return CFRetain!(ref) as T
 }
 
 function cfStringToJs(ref: unknown): string | null {
@@ -381,19 +399,29 @@ function withWindowElement<T>(windowId: number, fn: (win: unknown, bounds: Rect)
   }
 }
 
+/** readVisiblePages()의 반환값 — pages 안 AxLine.boundsOf 클로저가 참조하는 AX 노드는
+ *  전부 retain 돼 있다(위 retain() 주석 참고). 다 쓰고 나면 반드시 release() 를 호출해
+ *  짝을 맞춰야 한다 — 안 그러면 누수(그 노드가 가리키는 accessibility 객체가 이 프로세스
+ *  종료까지 해제되지 않음). */
+export interface AxReadResult {
+  pages: AxPage[]
+  release: () => void
+}
+
 /**
  * 선택된 창(미리보기)에서 지금 화면에 보이는 페이지들의 텍스트+좌표를 읽는다.
  * 좌표는 전부 창 좌상단 기준 DIP(포인트) — 오버레이가 창에 맞춰 떠 있으므로 그대로 쓸 수
  * 있다. OCR 경로(물리 픽셀)와 달리 배율 보정이 필요 없다(extractionCache.ts
  * alignWordsToOverlay 를 타지 않는 이유).
  */
-export function readVisiblePages(windowId: number): AxPage[] | null {
+export function readVisiblePages(windowId: number): AxReadResult | null {
   if (!ensureAx()) return null
   try {
     return withWindowElement(windowId, (win, bounds) => {
       const origin = { x: bounds.x, y: bounds.y }
       const windowRect: Rect = { x: 0, y: 0, width: bounds.width, height: bounds.height }
       const pages: AxPage[] = []
+      const retainedNodes: unknown[] = []
       // 페이지 찾기 자체는 얕다(문서 컨테이너 바로 아래 전 페이지가 형제로 나열됨,
       // 실측: 286페이지 문서에서 한 자리 숫자 깊이) — 전체 문서 기준 예산 하나면 충분.
       const pageSearchBudget = { left: MAX_NODES_VISITED }
@@ -415,13 +443,19 @@ export function readVisiblePages(windowId: number): AxPage[] | null {
         // 찾기보다 훨씬 클 수 있어(실측: 한 깊이에 300개 이상) 페이지마다 별도 예산을 준다
         // — 한 페이지가 예산을 다 써도 다른 보이는 페이지의 텍스트 탐색에 영향이 없게.
         forEachTextNode(page, 0, { left: MAX_NODES_VISITED }, (node) => {
-          const lines = linesOfTextNode(node, origin)
+          // node 는 부모 AXChildren 배열에서 빌려온 참조 — 그 배열은 forEachChild 가 이
+          // 콜백에서 돌아오는 즉시 해제한다. AxLine.boundsOf 클로저는 나중에(호출부가
+          // 비동기 토큰화를 마친 뒤) node 를 다시 쓰므로, 여기서 retain 해 배열 해제와
+          // 무관하게 유효하도록 만든다(위 retain() 주석 — 안 하면 use-after-free 크래시).
+          const retained = retain(node)
+          retainedNodes.push(retained)
+          const lines = linesOfTextNode(retained, origin)
           if (lines.length > 0) paragraphs.push(lines)
         })
         if (paragraphs.length > 0) pages.push({ bbox, paragraphs })
       })
       pages.sort((a, b) => a.bbox.y - b.bbox.y)
-      return pages
+      return { pages, release: () => retainedNodes.forEach(release) }
     })
   } catch (err) {
     console.warn('[macAx] 페이지 읽기 실패:', (err as Error)?.message)

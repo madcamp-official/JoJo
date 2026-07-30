@@ -139,29 +139,36 @@ interface AxExtraction {
  * 텍스트가 적은 페이지(예: 페이지 번호 하나)에서도 있는 만큼 호버박스가 뜬다.
  */
 async function extractOnce(windowId: number): Promise<AxExtraction | null> {
-  const pages = readVisiblePages(windowId)
-  if (!pages || pages.length === 0) return null
-
-  const words: Word[] = []
-  for (const [pageIdx, page] of pages.entries()) {
-    if (pageIdx > 0) words.push({ text: '\n' }) // 페이지 경계
-    for (const paragraph of page.paragraphs) {
-      for (const line of paragraph) {
-        const lineWords = await wordsOfLine(line)
-        if (lineWords.length === 0) continue
-        words.push(...lineWords)
-        // 줄 끝에 항상 개행을 넣는다 — 팝업 문맥(앞뒤 N줄)이 '\n' 을 줄 경계로 쓰므로
-        // (popup/selection.ts computeLineContextRange), 이게 없으면 페이지 전체가 한 줄이
-        // 돼 문맥 범위가 통째로 잡힌다.
-        if (!/\n$/.test(lineWords[lineWords.length - 1]!.text)) words.push({ text: '\n' })
+  const result = readVisiblePages(windowId)
+  if (!result || result.pages.length === 0) return null
+  // result.pages 안 AxLine.boundsOf 클로저가 참조하는 AX 노드는 retain 돼 있다(macAx.ts
+  // 주석 참고 — CJK 형태소 분석(아래 await)이 끝날 때까지 부모 배열 해제와 무관하게
+  // 유효해야 하므로). 다 쓰고 나면 반드시 release 해서 짝을 맞춘다 — 안 하면 그 AX 객체가
+  // 프로세스 종료까지 해제되지 않는다(누수).
+  try {
+    const words: Word[] = []
+    for (const [pageIdx, page] of result.pages.entries()) {
+      if (pageIdx > 0) words.push({ text: '\n' }) // 페이지 경계
+      for (const paragraph of page.paragraphs) {
+        for (const line of paragraph) {
+          const lineWords = await wordsOfLine(line)
+          if (lineWords.length === 0) continue
+          words.push(...lineWords)
+          // 줄 끝에 항상 개행을 넣는다 — 팝업 문맥(앞뒤 N줄)이 '\n' 을 줄 경계로 쓰므로
+          // (popup/selection.ts computeLineContextRange), 이게 없으면 페이지 전체가 한
+          // 줄이 돼 문맥 범위가 통째로 잡힌다.
+          if (!/\n$/.test(lineWords[lineWords.length - 1]!.text)) words.push({ text: '\n' })
+        }
       }
     }
-  }
 
-  const text = words.map((w) => w.text).join('')
-  if (!text.trim()) return null // 글자가 전혀 없음(순수 삽화 페이지 등) — 진짜 빈 결과
-  const language = getLanguageOverride() ?? detectSupportedLanguage(text) ?? 'en'
-  return { text, words, language }
+    const text = words.map((w) => w.text).join('')
+    if (!text.trim()) return null // 글자가 전혀 없음(순수 삽화 페이지 등) — 진짜 빈 결과
+    const language = getLanguageOverride() ?? detectSupportedLanguage(text) ?? 'en'
+    return { text, words, language }
+  } finally {
+    result.release()
+  }
 }
 
 /**
