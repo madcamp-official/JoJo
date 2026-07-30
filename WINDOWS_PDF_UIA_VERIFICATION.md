@@ -165,3 +165,40 @@ Windows**([accessibilityinsights.io](https://accessibilityinsights.io/)) 앱으�
 모드로 PDF 텍스트 위에 마우스를 올렸을 때 `ControlType`이 텍스트 관련으로 잡히는지, `Text
 Pattern`이 지원 패턴 목록에 뜨는지만 봐도 대략적인 감을 잡을 수 있다 — 다만 최종 판정은 위
 스크립트의 `GetBoundingRectangles()` 실측(진짜 좌표 vs 자리표시자)으로 내려야 한다.
+
+## 실측 결과 (2026-07-30, Windows 세션)
+
+**판정: No-Go** — 텍스트는 잡히지만 좌표가 신뢰 불가(자리표시자).
+
+### 절차 및 특이사항
+
+- 테스트 PDF: `the_hobbit_tolkien.pdf`(텍스트 레이어 있음, Ctrl+F 검색 가능)를 크롬으로 오픈.
+- **1차 시도(문서에 적힌 스크립트 그대로)**: 일반적으로 크롬을 띄운 상태에서 UIA로 트리를
+  순회하면, PDF 뷰어가 별도 프로세스(OOPIF, guest view)로 렌더링되는 구조 때문인지 PDF
+  본문이 전혀 노출되지 않았다 — `ControlType`별 개수가 Button/Pane/ToolBar/Edit/Tab 등
+  브라우저 UI 크롬(chrome UI)뿐이었고 트리 최대 깊이도 9에 그쳤다. `TextPattern` 지원
+  요소도 주소창(`Edit`) 하나뿐이었고 PDF 본문 관련 요소는 전무했다. 재시도해도 동일.
+- **`--force-renderer-accessibility` 플래그로 크롬을 재기동**하니 비로소 PDF 본문이
+  `ControlType.Document`(Name: "322페이지로 이루어진 PDF 문서")로 노출됐고, `GetText(500)`가
+  실제 책 본문("THE HOBBIT... J.R.R. TOLKIEN... The Hobbit is a tale of high adventure...")을
+  정확히 반환했다 — **판정 기준 1번(본문 노출) 충족**. 이 요소는 `TextPattern`도 지원했다
+  (**기준 2번 충족**).
+  - 시사점: Chromium의 접근성 트리는 기본적으로 꺼져 있고 UIA 클라이언트가 접근하면
+    비동기로 켜지는데, 메인 프레임까지만 켜지고 PDF 뷰어(별도 guest view 프로세스)까지는
+    자동으로 전파가 안 되는 것으로 보인다 — 실제 배포 시에도 이 플래그(또는 동등한 강제
+    활성화 방법)가 필요할 수 있다는 뜻이라 별도로 기록해둔다.
+- **기준 3번(부분 범위 좌표) — 탈락**: `TextPatternRange`로 문서 맨 앞 5글자를 잘라
+  `GetText(-1)`은 정확히 `"이 PDF"`(5자)를 반환했지만, 그 범위의 `GetBoundingRectangles()`는
+  **좌표 0개**를 반환했다(위치 정보 자체가 없음). 문서 중간(약 1000번째 글자 부근)에서도
+  시도했는데, 반환된 좌표 15개가 전부 `X=797 Y=1031 W=1 H=1`로 **완전히 동일한 1×1px
+  값**이었다 — macOS 조사에서 Kindle이 탈락한 것과 같은 "자리표시자만 주는 가짜 응답"
+  패턴과 일치한다.
+- 4번(UIPI 관리자 권한 격리)은 3번에서 이미 No-Go가 확정돼 실익이 없어 확인하지 않았다.
+
+### 결론
+
+크롬 PDF 뷰어의 UIA 노출은 macOS의 AX와 달리 **본문 텍스트는 잡히지만 문자 단위 화면 좌표는
+못 믿는다** — `GetBoundingRectangles()`가 아예 빈 배열을 주거나, 항상 같은 1×1 자리표시자를
+준다. "특정 단어를 클릭했을 때 그 위치를 정확히 짚어내야 하는" 이 프로젝트의 요구사항(호버
+박스/텍스트 선택)에는 이 경로를 못 쓴다 — Windows에서 크롬 PDF는 기존 계획대로 OCR 기반
+경로를 유지해야 한다.
