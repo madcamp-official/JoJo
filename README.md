@@ -73,6 +73,7 @@
 
 ### 첫 실행 설정
 
+- 레이아웃 분류/PaddleOCR/일본어 특화 OCR(DocLayout-YOLO·Yomitoku·NDLOCR-Lite) 엔진은 설치 파일에 이미 포함돼 있다 — Python을 따로 설치할 필요 없이 다운로드만 받으면 특화 OCR 품질 그대로 동작한다(아래 [개발 환경 설정](#개발-환경-설정)의 Python 요구 사항은 소스에서 직접 빌드/개발할 때만 해당).
 - AI 발음/사전/통합 질문 기능을 쓰려면 앱 실행 후 설정 화면에서 GPT/Gemini/Claude 중 하나의 API 키를 등록해야 한다(키는 `safeStorage`로 로컬에만 암호화 저장되고 외부로 전송되지 않는다).
 - 창 선택 → 선택 모드 진입까지의 기본 사용법은 아래 [사용법](#사용법) 섹션과, 앱 안의 **설정 → 사용 설명서** 화면(현재 등록된 실제 단축키 값을 함께 보여준다)을 참고한다.
 - 설치/실행이 안 되거나 경고를 넘긴 뒤에도 앱이 안 뜨면 [Issues](../../issues)에 OS 버전과 함께 남겨준다.
@@ -162,7 +163,7 @@ flowchart TB
 ### 요구 사항
 
 - Node.js, npm
-- (선택) Python 3.12 — 레이아웃 분류/PaddleOCR/일본어 특화 OCR을 쓰려면 필요. 없어도 앱은 정상 동작하며 해당 기능만 Tesseract 기본 경로로 폴백된다. 자세한 설정은 [python/README.md](python/README.md) 참고.
+- (선택) Python 3.12 — 소스에서 직접 빌드/개발할 때, 레이아웃 분류/PaddleOCR/일본어 특화 OCR을 쓰려면 필요(GitHub Release로 받은 설치 파일에는 이미 포함되어 있어 해당 없음). 없어도 앱은 정상 동작하며 해당 기능만 Tesseract 기본 경로로 폴백된다. 자세한 설정은 [python/README.md](python/README.md) 참고.
 
 ### 설치 및 실행
 
