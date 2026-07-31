@@ -419,7 +419,7 @@
 - [x] ~~배포 패키징(electron-builder) — `electron-builder.yml`(appId `com.nuance`·productName `Nuance` 고정 → userData 경로 안정, 재설치/버전 업 후에도 설정·API 키·자주쓰는질문 유지). scripts: `pack:dir`(스모크) / `dist:mac`·`dist:win`·`dist:linux`. mac `--dir` 패키징 성공 확인(코드서명 없음: `identity: null`). 산출물은 `dist/`(gitignore)~~
   - [ ] 정식 배포 시 코드서명/공증 — mac: hardenedRuntime+notarize(Apple Developer 인증서), win: 서명 인증서. 현재는 사설 배포(미서명)라 Gatekeeper/SmartScreen 경고가 뜸
   - [ ] mac entitlements 파일 추가 — 화면 기록(`desktopCapturer`/`screencapture`) 권한을 쓰는데 `.entitlements` 파일 자체가 없음. 지금은 미서명 상태라 TCC가 서명 여부와 무관하게 권한 다이얼로그를 띄워줘서 우연히 동작하지만, hardened runtime 전환 시 선언 안 된 권한 호출이 조용히 거부/크래시할 수 있어 코드서명/공증과 함께 반드시 추가 필요
-  - [ ] 앱 아이콘 교체 — 현재 `build/icon.png` 는 기존 256px 을 1024 로 업스케일한 임시본(정식 아이콘으로 교체 필요)
+  - [x] ~~앱 아이콘 교체 — 현재 `build/icon.png` 는 기존 256px 을 1024 로 업스케일한 임시본(정식 아이콘으로 교체 필요)~~ → 376번 항목(2026-07-31 앱 아이콘 전체 교체, color.svg/nocolor.svg 사용자 제공)에서 완료.
 - [x] ~~`npm install` + `electron-vite dev` 빌드 정상화~~
   - [x] ~~koffi를 optionalDependencies로 이동 — 맥에서 네이티브 빌드 실패해도 install 유지 (`fix: 969d08f`)~~
 - [ ] 크로스플랫폼(Win / Mac) 동작 점검
