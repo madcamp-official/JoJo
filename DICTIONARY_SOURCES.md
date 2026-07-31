@@ -1,6 +1,6 @@
 # 사전 소스별 응답 형식 정리
 
-en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·daijisen·JMdict·汉典·萌典·CC-CEDICT)가 실제로 어떤 형식으로 응답을 주는지, 그리고 그 원본 필드가 통일 스키마(`src/shared/types.ts`의 `DictionaryEntry`/`DictionaryReading`/`DictionarySense`)의 어느 필드로 매핑되는지 정리한다. 소스 채택 근거·폴백 순서는 [PLAN.md §6](PLAN.md#6-사전-api-구성), 남은 구현 작업은 [TODO.md](TODO.md)의 "사전" 항목 참고.
+en/ja/zh 8개 사전 소스(MW·OEWN·Wiktionary·daijisen·JMdict·汉典·萌典·CC-CEDICT)가 실제로 어떤 형식으로 응답을 주는지, 그리고 그 원본 필드가 통일 스키마(`src/shared/types.ts`의 `DictionaryEntry`/`DictionaryReading`/`DictionarySense`)의 어느 필드로 매핑되는지 정리한다. 소스 채택 근거·폴백 순서는 [PLAN.md §6](PLAN.md#6-사전-api-구성) 참고. 어댑터 구현·폴백 오케스트레이션은 [TODO.md](TODO.md)의 "사전" 항목에 기록된 대로 모두 완료됐다.
 
 **실측 이력**: 최초 작성 시점엔 `TODO.md`/`types.ts`에 이미 있던 과거 실측 기록을 소스 기준으로 재배열만 했었다. **2026-07-28에 이 문서 작성자가 직접 재실측**(공개 API 호출 — jisho.org/en.wiktionary.org REST API/dictionaryapi.dev/moedict.tw API, `resources/cedict.u8` 원본 파일 직접 grep, 웹 검색으로 정확한 페이지 URL 확보 후 재스크래핑)해 아래 내용을 갱신했다. 이 재실측으로 **바로잡은 오류**와 **접근 불가로 확인 못 한 부분**은 각 섹션에 `[2026-07-28 재실측]` 표시와 함께 명시한다 — MW(API 키 없음)와 OEWN(JSON 릴리스가 zip 압축이라 이 세션에서 다운로드 못 함)의 세부 필드 구조는 이번에 재검증하지 못해 기존 기록을 그대로 이어받았다.
 

@@ -12,13 +12,19 @@
 ## 구현 현황
 - [x] ~~유튜브 자막 추출~~ (`youtube.ts`, `timedtext.ts`, `captionParse.ts`)
 - [x] ~~넷플릭스 자막 추출~~ (`netflix.ts`, `netflixNetworkHook.ts`, `networkHook.ts`)
-- [x] ~~웹페이지 DOM 텍스트 추출~~ (`webArticle.ts`, `articleHighlight.ts`, `domWords.ts`)
-- [x] ~~선택 모드 단어 하이라이트~~ (`highlight.ts`, `hoverBox.ts`, `wordSegments.ts`)
+- [x] ~~웹페이지 DOM 텍스트 추출~~ (`../src/shared/hover/webArticle.ts`, `articleHighlight.ts`, `domWords.ts`)
+- [x] ~~선택 모드 단어 하이라이트~~ (`highlight.ts` + `../src/shared/hover/hoverBox.ts`, `wordSegments.ts`)
 - [x] ~~번들러(esbuild) 설정~~ (`scripts/build-extension.mjs`, `npm run build:ext` / `watch:ext`)
 
+`webArticle.ts`/`articleHighlight.ts`/`domWords.ts`/`hoverBox.ts`/`wordSegments.ts`는
+`extension/src/`가 아니라 저장소 루트의 `src/shared/hover/`에 있다 — 확장 content script뿐
+아니라 Nuance 자체 뷰어(`src/renderer/src/viewer/`, `src/main/selection/viewerSource.ts`)도
+같은 DOM 단어 추출/하이라이트 로직을 재사용하면서 이관됐다.
+
 ## 개발
-`background.ts` / `content.ts` 등 `extension/src/*.ts`는 esbuild로 `extension/dist/`에
-번들된다. `npm run build:ext`(1회 빌드) 또는 `npm run watch:ext`(감시 빌드)를 사용한다.
+`background.ts` / `content.ts` 등 `extension/src/*.ts`(+ 위 `src/shared/hover/*.ts`)는
+esbuild로 `extension/dist/`에 번들된다. `npm run build:ext`(1회 빌드) 또는
+`npm run watch:ext`(감시 빌드)를 사용한다.
 
 데스크톱 앱(Electron main)은 native messaging host를 등록하지 않는다 — 앱이 로컬
 WebSocket 서버를 열고(`src/main/extension/bridge.ts`), 확장의 background가 여기 접속해
