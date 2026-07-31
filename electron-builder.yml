@@ -56,6 +56,15 @@ extraResources:
       - '!__pycache__/**'
       - '!**/__pycache__/**'
       - '!**/*.pyc'
+  # 트레이/창 아이콘 런타임 파일(2026-07-31, 실사용 확인 — 트레이 아이콘이 안 보이고
+  # 창 아이콘 화질이 깨지던 문제). buildResources(build/)는 electron-builder 가 .ico/.icns
+  # 를 만드는 "빌드 시점 소스"로만 쓰고 앱에 자동으로 안 들어간다 — windows.ts 의
+  # resolveIconPath/resolveMacTrayIconPath 가 런타임에 nativeImage.createFromPath 로 직접
+  # 읽는 파일이라 별도로 extraResources 에 넣어줘야 한다.
+  - from: build/icon.png
+    to: build/icon.png
+  - from: build/icon-tray-mac.png
+    to: build/icon-tray-mac.png
 
 mac:
   target:

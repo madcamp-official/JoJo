@@ -1,6 +1,6 @@
 {
   "name": "nuance",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Nuance - 외국어 콘텐츠 소비 보조 프로그램",
   "main": "./out/main/index.js",
   "author": "madcamp 26s-w4-c3-07 JoJo",

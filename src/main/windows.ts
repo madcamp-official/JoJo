@@ -15,15 +15,22 @@ import type * as Win32Capture from './selection/win32Capture'
 
 const preload = join(__dirname, '../preload/index.js')
 
-// 패키징 전(electron-vite dev/build) 기준 — out/main/index.js 에서 두 단계 위가 프로젝트
-// 루트. TODO: electron-builder 등으로 실제 패키징할 때 리소스 경로 재검토 필요.
+// 담당 A — 패키징된 앱에서 트레이/창 아이콘이 안 보이던 문제 수정(2026-07-31, 실사용
+// 확인). electron-builder.yml 의 files 에 build/** 가 없어서 패키징된 앱에는
+// build/icon.png 자체가 없다 — __dirname 기준 상대경로(개발 트리 전용)로 존재하지 않는
+// 파일을 가리키니 nativeImage 가 빈 이미지를 만들고, 그 결과 트레이 아이콘은 안 보이고
+// 창 아이콘은 OS가 대충 대체해 화질이 깨져 보였다. electron-builder.yml 의
+// extraResources 로 build/icon*.png 를 resources/ 밑에 그대로 넣고, 패키징 여부에 따라
+// 경로를 나눈다(python 엔진 경로 분기와 동일한 이유 — pythonServer.ts 참고).
 export function resolveIconPath(): string {
-  return join(__dirname, '../../build/icon.png')
+  return app.isPackaged ? join(process.resourcesPath, 'build/icon.png') : join(__dirname, '../../build/icon.png')
 }
 
 // macOS 메뉴바 트레이 전용 — 보라 배경을 검정으로, 글자를 흰색으로 바꾼 고정 배색 아이콘.
 export function resolveMacTrayIconPath(): string {
-  return join(__dirname, '../../build/icon-tray-mac.png')
+  return app.isPackaged
+    ? join(process.resourcesPath, 'build/icon-tray-mac.png')
+    : join(__dirname, '../../build/icon-tray-mac.png')
 }
 
 function loadRoute(win: BrowserWindow, route: string, query?: string) {
