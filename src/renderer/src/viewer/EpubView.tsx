@@ -249,19 +249,26 @@ export function EpubView({
   // 기준 페이지 계산이 남아 글이 잘려 보인다).
   // 여백이 바뀌거나 창 크기가 바뀌면 렌더 영역을 다시 알려준다.
   //
-  // 넘기는 값은 여백을 뺀 **실제 내용 폭**이다. 스크롤러(.epub-container)는 창 전체 폭을
-  // 유지한 채 padding 으로 내용만 밀기 때문에(스크롤바를 창 끝에 붙이려는 목적), epubjs 에
-  // 전체 폭을 그대로 주면 좁은 상자에 넓은 조판을 해 내용이 크게 넘친다(실측: 여백 240 일 때
-  // iframe 11340px, 내부 넘침 10903px).
+  // host.clientWidth 를 **그대로** 넘긴다 — 예전엔 여기서 margin*2 를 한 번 더 뺐는데
+  // (커밋 로그상 "epub이 창을 넓히면 오른쪽이 잘림" 수정 당시의 흔적), 그건 그 시점엔
+  // 맞았다: 그때는 여백 padding 을 host 자신에게 주고 있어서 host.clientWidth 에
+  // 이미 패딩이 포함돼 있었다. 이후 전체화면 세로 스크롤 버그를 고치며 padding 을
+  // host 한 겹 바깥의 `.epub-frame` 으로 옮겼는데(아래 JSX 주석 참고), 이 resize 식은
+  // 그대로 남아 있어서 margin 을 **두 번** 빼는 꼴이 됐다 — host.clientWidth 자체가
+  // 이미 여백이 빠진 값인데 거기서 margin*2 를 또 빼 실제보다 margin*2 만큼 좁은 값을
+  // epubjs 에 넘겼다(2026-07-31 사용자 제보 — 창 크기를 바꾸면 본문이 왼쪽으로 쏠리고
+  // 오른쪽에 빈 공간이 남음. 실측: 창 900→1100px, 여백 72px 일 때 iframe 이 956px 가
+  // 아니라 812px 로 좁아짐 — 정확히 margin*2=144px 차이). 스크롤 모드도 애초에
+  // `.epub-frame` 에 padding 을 안 줘서(여백은 iframe 안쪽 body padding, fontCss 참고)
+  // host.clientWidth 가 이미 정확한 값이었다 — 두 모드 모두 그냥 host.clientWidth 를
+  // 쓰면 된다.
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     const apply = (): void => {
       if (!readyRef.current) return
       try {
-        // 스크롤 모드는 iframe 이 창 폭을 그대로 쓴다(여백은 iframe 안쪽 padding).
-        const w = mode === 'scroll' ? host.clientWidth : host.clientWidth - style.margin * 2
-        renditionRef.current?.resize(Math.max(1, w), host.clientHeight)
+        renditionRef.current?.resize(Math.max(1, host.clientWidth), host.clientHeight)
       } catch {
         // 재배치 실패는 치명적이지 않다(다음 페이지 이동 때 어차피 다시 잡힌다).
       }
