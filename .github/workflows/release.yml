@@ -25,7 +25,15 @@ jobs:
         include:
           - os: windows-latest
             script: release:win
-          - os: macos-latest
+          # mac은 러너를 둘로 나눈다(2026-07-31, 인텔 맥 지원 추가) — Python 런타임이
+          # CI 러너 자신의 아키텍처로 빌드돼서(setup-python-runtime.mjs), 한 러너에서
+          # arm64/x64 dmg를 같이 만들면 한쪽엔 잘못된 아키텍처의 네이티브 바이너리(torch/
+          # paddle 등)가 들어가 그 아키텍처에서 OCR이 죽는다 — 각자 자기 아키텍처 러너에서
+          # 빌드해야 electron-builder.yml의 mac.target(arch 미지정)이 호스트 아키텍처로
+          # 알아서 맞는 dmg를 만든다.
+          - os: macos-latest # Apple Silicon(arm64) 호스티드 러너
+            script: release:mac
+          - os: macos-13 # GitHub 마지막 Intel(x64) 호스티드 러너
             script: release:mac
     runs-on: ${{ matrix.os }}
     steps:
