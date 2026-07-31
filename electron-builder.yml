@@ -37,6 +37,24 @@ files:
 asarUnpack:
   - resources/**
 
+# Python 엔진(레이아웃 감지/OCR) — CI(release.yml)가 빌드 직전에
+# scripts/setup-python-runtime.mjs 로 python/runtime, python/runtime-ndlocr 를 만들어둔다
+# (2026-07-31, GitHub Release 배포에 Python 엔진 포함시키며 추가). asarUnpack 이 아니라
+# extraResources 를 쓰는 이유 — venv/배포판 안의 실행 파일(python.exe 등)은 asar 안에서
+# spawn 할 수 없어서 애초에 asar 밖(resources/ 바로 밑)에 둬야 한다. .venv*/는 사람이
+# 로컬 개발용으로만 만드는 것(python/README.md)이라 여기서 제외 — 패키징에는 CI가 만든
+# runtime*/ 만 들어간다(pythonServer.ts: PYTHON_ROOT 참고).
+extraResources:
+  - from: python
+    to: python
+    filter:
+      - '**/*'
+      - '!.venv/**'
+      - '!.venv-ndlocr-test/**'
+      - '!__pycache__/**'
+      - '!**/__pycache__/**'
+      - '!**/*.pyc'
+
 mac:
   target:
     - dmg

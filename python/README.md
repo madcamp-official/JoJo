@@ -68,6 +68,16 @@ det/rec 모델을 따로 받아서 첫 인식 때 조금 오래 걸릴 수 있�
 죽었다(PaddlePaddle/oneDNN 조합 버그로 보임) — `ocr_paddle.py` 에서 이미
 `enable_mkldnn=False` 로 고정해뒀다.
 
+## GitHub Release로 받은 배포판이라면
+
+여기 적힌 venv 설정은 **개발 환경 전용**이다. 공식 GitHub Release로 배포되는 Windows/macOS
+설치 파일에는 이 두 venv 대신 `scripts/setup-python-runtime.mjs`가 CI(`.github/workflows/
+release.yml`)에서 새로 받아 설치한 독립 Python 배포판(python-build-standalone)이 이미
+들어있다 — 별도 설치 없이 바로 정상 품질로 동작한다(2026-07-31 추가). venv를 그대로
+패키징하지 않는 이유는 venv가 원본 Python 설치 경로를 계속 참조해서(`pyvenv.cfg`) 그
+경로가 없는 사용자 컴퓨터에서는 실행이 안 되기 때문 — 자세한 배경은
+`src/main/selection/pythonServer.ts` 상단 주석과 `scripts/setup-python-runtime.mjs` 참고.
+
 ## 이 설정 없이 앱을 실행하면
 
 각 Node 클라이언트(`layoutDetect.ts`/`ocrPaddle.ts`/`ocrYomitoku.ts`/`ocrNdlocr.ts`)가
