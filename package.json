@@ -32,6 +32,7 @@
     "electron-context-menu": "^4.1.2",
     "electron-updater": "^6.3.9",
     "epubjs": "^0.3.93",
+    "extract-zip": "^2.0.1",
     "lindera-wasm-nodejs-ipadic": "^2.0.0",
     "lucide-react": "^1.27.0",
     "pdfjs-dist": "^4.10.38",

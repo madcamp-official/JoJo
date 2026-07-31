@@ -9,6 +9,15 @@ name: Release
 # 사전 준비물(레포 설정에서 한 번만): Settings → Actions → General → Workflow permissions
 # 에서 "Read and write permissions"가 켜져 있어야 기본 GITHUB_TOKEN 으로 릴리스 생성/에셋
 # 업로드가 가능하다.
+#
+# Python OCR 엔진(build-python-engines job)은 electron-builder 설치 파일에 넣지 않고
+# Cloudflare R2에 별도 업로드한다 — PyInstaller freeze 산출물이 GB 단위라(torch/paddle
+# 포함) GitHub Release 파일당 2GB 제한과 부딪힌다(scripts/build-python-engines.sh,
+# python/README.md 참고). 필요한 시크릿(레포 설정 → Settings → Secrets and variables →
+# Actions):
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
+# 버킷은 공개 읽기(Public Development URL 또는 커스텀 도메인)로 설정해두고, 그 base URL을
+# 앱 빌드용 .env(MAIN_VITE_PY_ENGINE_BASE_URL)에 넣어야 패키지된 앱이 내려받을 수 있다.
 on:
   push:
     tags:
@@ -35,10 +44,60 @@ jobs:
           node-version: 20
       - run: npm ci
       # electron-builder --publish always 가 이 릴리스(태그와 이름이 같은)에 설치 파일과
-      # 업데이트 피드 메타데이터(latest.yml/latest-mac.yml)를 함께 올린다.
+      # 업데이트 피드 메타데이터(latest.yml/latest-mac.yml)를 함께 올린다. Python 엔진
+      # 다운로드 base URL을 빌드에 구워 넣어야 패키지된 앱이 R2에서 받아올 수 있다
+      # (레포 Settings → Secrets and variables → Actions → Variables 에 PY_ENGINE_BASE_URL
+      # 등록 필요 — build-python-engines job과 짝이 맞는 R2 공개 URL).
       - run: npm run ${{ matrix.script }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAIN_VITE_PY_ENGINE_BASE_URL: ${{ vars.PY_ENGINE_BASE_URL }}
+
+  # Python OCR 엔진(PyInstaller freeze, torch/paddle 등 포함 GB 단위)을 별도로 빌드해
+  # Cloudflare R2에 업로드한다 — GitHub Release가 아니라 R2인 이유·아키텍처는 이 파일
+  # 상단 주석과 scripts/build-python-engines.sh 참고. build-desktop과 결과물이 서로
+  # 독립적이라(다른 목적지) needs 없이 병렬로 돈다.
+  build-python-engines:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - name: 공용 venv 구성 (layout_detect/ocr_paddle/ocr_yomitoku/sudachi_tokenize)
+        working-directory: python
+        run: |
+          python -m venv .venv
+          ${{ runner.os == 'Windows' && '.venv\Scripts\pip' || '.venv/bin/pip' }} install -r requirements.txt
+      - name: NDLOCR-Lite 격리 venv 구성
+        working-directory: python
+        run: |
+          python -m venv .venv-ndlocr-test
+          ${{ runner.os == 'Windows' && '.venv-ndlocr-test\Scripts\pip' || '.venv-ndlocr-test/bin/pip' }} install -r requirements-ndlocr.txt
+      - name: PyInstaller freeze
+        shell: bash
+        run: bash scripts/build-python-engines.sh
+      - name: zip
+        shell: bash
+        run: node scripts/zip-python-engine.mjs
+      - name: R2 업로드
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          aws s3 cp dist/ "s3://${{ secrets.R2_BUCKET }}/$VERSION/" --recursive --exclude "*" --include "nuance-py-*.zip" --endpoint-url "$ENDPOINT"
 
   # 크롬 확장은 electron-builder 대상이 아니라 별도 job에서 zip으로 묶어 같은 릴리스에
   # 추가 에셋으로 올린다. build-desktop 이 먼저 릴리스(초안)를 만들어둔 뒤에 여기서는

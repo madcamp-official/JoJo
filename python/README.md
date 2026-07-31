@@ -81,6 +81,35 @@ Python 실행 실패를 감지하면 `null`을 반환하고, 그때마다 한 �
   인식으로 폴백. 검출은 Yomitoku 가 그대로 담당하므로 후리가나 처리는 유지됨
   (실제로 macOS 개발 환경이 2026-07-31 까지 계속 이 상태였다 — TODO.md 참고)
 
+## 배포판(GitHub Release로 받은 설치 파일)에서는 어떻게 동작하나
+
+electron-builder 설치 파일 안에는 이 venv들이 들어있지 않다 — 공용 venv 2.2GB +
+NDLOCR venv 526MB, 합쳐서 2.7GB나 돼서 그대로 넣으면 설치 파일이 지나치게
+커지고, venv 자체가 "자기 완결형"이 아니라(인터프리터 실체가 아니라 빌드 당시
+시스템 Python 에 대한 참조라 다른 컴퓨터로 옮기면 깨짐) 애초에 그대로 배포할
+수도 없다.
+
+대신 `scripts/build-python-engines.sh`가 릴리스 CI에서 각 venv를
+[PyInstaller](https://pyinstaller.org)로 독립 실행 파일(자체 Python 런타임 포함,
+시스템에 Python 설치가 전혀 필요 없음)로 freeze해 Cloudflare R2에 올려두고,
+패키지된 앱은 해당 OCR 기능을 **처음 쓰는 시점에** `src/main/selection/pythonEngineInstall.ts`가
+알아서 내려받아 `userData/python-engines/`에 캐싱한다(앱 버전이 바뀌면 다시 받음).
+사전/모델 가중치를 지연 다운로드하는 기존 패턴과 같은 원칙이다 — 인터넷이 없거나
+다운로드가 실패해도 앱은 안 죽고 해당 기능만 조용히 빠진다(위 "이 설정 없이 앱을
+실행하면"과 동일한 폴백).
+
+- `layout_detect`/`ocr_paddle`/`ocr_yomitoku`/`sudachi_tokenize` 4개는 torch/paddle/cv2를
+  공유해서 `python/pyinstaller/main.spec`의 `MERGE()`로 하나의 번들(`nuance-py-main`)로
+  묶는다 — 따로 freeze하면 무거운 라이브러리가 몇 배로 중복된다.
+- `ocr_ndlocr`는 원래도 격리 venv라 별도 번들(`nuance-py-ndlocr`, `python/pyinstaller/ndlocr.spec`).
+- 릴리스 워크플로(`.github/workflows/release.yml`)의 `build-python-engines` job이
+  Windows/macOS 각각 venv 구성 → PyInstaller freeze → zip → R2 업로드까지 수행한다.
+  필요한 GitHub Actions 시크릿: `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET`,
+  그리고 앱 빌드 쪽에 공개 다운로드 base URL을 넣어줄 리포지토리 변수 `PY_ENGINE_BASE_URL`.
+- PyInstaller로 torch/paddle급 라이브러리를 freeze하는 작업은 hidden-import 누락 등으로
+  한 번에 안 끝나는 경우가 흔하다 — CI 빌드 로그에서 `ModuleNotFoundError`/`ImportError`가
+  나면 `main.spec`의 `COLLECT_ALL_PKGS`/`excludes` 목록을 조정하고 다시 태그를 밀어 재시도한다.
+
 ## 동작 확인
 
 ```bash

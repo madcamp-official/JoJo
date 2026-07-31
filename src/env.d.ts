@@ -18,6 +18,7 @@ interface ImportMetaEnv {
   readonly MAIN_VITE_CLAUDE_API_KEY?: string
   readonly MAIN_VITE_ACTIVE_PROVIDER?: string
   readonly MAIN_VITE_MW_COLLEGIATE_KEY?: string
+  readonly MAIN_VITE_PY_ENGINE_BASE_URL?: string
 }
 
 interface ImportMeta {
