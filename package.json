@@ -1,6 +1,6 @@
 {
   "name": "nuance",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Nuance - 외국어 콘텐츠 소비 보조 프로그램",
   "main": "./out/main/index.js",
   "author": "madcamp 26s-w4-c3-07 JoJo",
@@ -18,6 +18,8 @@
     "build:ext": "node scripts/build-extension.mjs",
     "watch:ext": "node scripts/build-extension.mjs --watch",
     "zip:ext": "npm run build:ext && node scripts/zip-extension.mjs",
+    "python:runtime:general": "node scripts/setup-python-runtime.mjs general",
+    "python:runtime:ndlocr": "node scripts/setup-python-runtime.mjs ndlocr",
     "pack:dir": "npm run build && electron-builder --dir",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",

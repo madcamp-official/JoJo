@@ -11,20 +11,37 @@ import { app } from 'electron'
 // 프로세스를 스폰하면 Python/torch/PaddlePaddle import + 모델 로딩만 몇 초~십수 초
 // 걸려서(실측: layout_detect.py 8초+) 재사용이 필수라 다들 이 패턴을 쓴다.
 
-const PYTHON_BIN = join(
-  __dirname,
-  process.platform === 'win32' ? '../../python/.venv/Scripts/python.exe' : '../../python/.venv/bin/python',
-)
+// 담당 A — 패키징된 앱과 개발 환경은 Python 위치가 다르다(2026-07-31, GitHub Release
+// 배포 파이프라인에 Python 엔진까지 포함시키며 추가).
+//  - 개발 환경: 사람이 python/README.md 대로 직접 만든 venv(python/.venv,
+//    python/.venv-ndlocr-test) — 지금까지와 동일.
+//  - 패키징된 앱: electron-builder.yml 의 extraResources 가 resources/python/ 밑에
+//    scripts/setup-python-runtime.mjs(CI 전용)가 만든 완전 독립 배포판(runtime/,
+//    runtime-ndlocr/)을 그대로 복사해둔다 — venv 를 그대로 복사하면 pyvenv.cfg 의
+//    home 이 CI 러너에만 있던 경로를 가리켜 사용자 컴퓨터에서 실행이 안 되기 때문에,
+//    venv 대신 python-build-standalone 의 재배치 가능한 배포판을 쓴다(setup-python-
+//    runtime.mjs 상단 주석 참고). resources/ 는 asar 밖(extraResources)이라
+//    process.resourcesPath 로 바로 접근 가능하다.
+const PYTHON_ROOT = app.isPackaged ? join(process.resourcesPath, 'python') : join(__dirname, '../../python')
 
-// 담당 A — 실험용 브랜치(experiment/ndlocr-lite). ocrNdlocr.ts 전용 — python/.venv
-// 와 별도로 격리한 venv(python/.venv-ndlocr-test)의 인터프리터. 이유는 위 PYTHON_BIN
-// 과 createPythonServer 의 pythonBin 오버라이드 주석 참고.
-export const NDLOCR_PYTHON_BIN = join(
-  __dirname,
-  process.platform === 'win32'
-    ? '../../python/.venv-ndlocr-test/Scripts/python.exe'
-    : '../../python/.venv-ndlocr-test/bin/python',
-)
+function runtimeBin(devVenvDir: string, packagedRuntimeDir: string): string {
+  if (app.isPackaged) {
+    return join(PYTHON_ROOT, packagedRuntimeDir, process.platform === 'win32' ? 'python.exe' : 'bin/python3')
+  }
+  return join(
+    PYTHON_ROOT,
+    devVenvDir,
+    process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+  )
+}
+
+const PYTHON_BIN = runtimeBin('.venv', 'runtime')
+
+// 담당 A — ocrNdlocr.ts 전용. 공용 쪽(PYTHON_BIN)과 numpy/opencv/onnxruntime 버전이
+// 충돌해서 개발 환경은 별도 venv(python/.venv-ndlocr-test), 패키징된 앱은 별도 배포판
+// (resources/python/runtime-ndlocr)으로 격리한다. 이유는 python/README.md 와 위
+// PYTHON_ROOT 주석, createPythonServer 의 pythonBin 오버라이드 주석 참고.
+export const NDLOCR_PYTHON_BIN = runtimeBin('.venv-ndlocr-test', 'runtime-ndlocr')
 
 // 워커 풀 크기(ocrPaddle.ts 의 POOL_SIZE)를 6으로 고정해뒀었는데, 이건 개발 컴퓨터
 // (Intel i7-1165G7, 물리 4코어/논리 8코어) 기준으로 실측 튜닝한 값이라 다른 사용자
@@ -157,7 +174,9 @@ export function createPythonServer(
   // 공용 PYTHON_BIN을 쓴다.
   pythonBin: string = PYTHON_BIN,
 ): PythonServer {
-  const scriptPath = join(__dirname, '../../python', scriptName)
+  // *.py 스크립트 자체는 개발/패키징 둘 다 PYTHON_ROOT 바로 밑에 있다(패키징 시
+  // electron-builder.yml extraResources 가 python/*.py 를 runtime/ 과 함께 그대로 복사).
+  const scriptPath = join(PYTHON_ROOT, scriptName)
   let proc: ChildProcessWithoutNullStreams | null = null
   let rl: Interface | null = null
   // 요청을 한 번에 하나씩만 보내도록 직렬화한다 — 상관관계 ID 없이 순서로만 응답을

@@ -54,3 +54,9 @@ python/.venv-ndlocr-test/
 # DEBUG_OCR_DUMP 로 남긴 인식 결과 디버그 덤프(테스트용, 실험 결과물 아님).
 ocr_debug_dump/
 
+# CI(release.yml)가 scripts/setup-python-runtime.mjs 로 매 배포마다 새로 받는 독립 Python
+# 배포판(패키징용, .venv*와 별개 — electron-builder.yml/pythonServer.ts 참고). 재현
+# 가능하고 용량도 커서 커밋하지 않는다.
+python/runtime/
+python/runtime-ndlocr/
+
