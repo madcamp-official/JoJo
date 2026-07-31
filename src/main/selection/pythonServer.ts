@@ -4,7 +4,6 @@ import { createInterface, type Interface } from 'node:readline'
 import { join } from 'node:path'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { app } from 'electron'
-import { ensurePythonEngine, frozenExecutablePath, type EngineBundle } from './pythonEngineInstall'
 
 // 담당 A — 실험용 브랜치(experiment/doclayout-yolo) 전용.
 // layout_detect.py / ocr_paddle.py 등이 전부 같은 상주 서버 패턴(표준
@@ -159,29 +158,15 @@ export function createPythonServer(
   pythonBin: string = PYTHON_BIN,
 ): PythonServer {
   const scriptPath = join(__dirname, '../../python', scriptName)
-  const exeName = scriptName.replace(/\.py$/, '')
-  // NDLOCR_PYTHON_BIN을 넘겼는지로 어느 PyInstaller 번들(main/ndlocr) 소속인지 판별한다
-  // (호출부 시그니처를 안 늘리려고 기존 오버라이드 파라미터를 그대로 재사용) — 패키지된
-  // 빌드에서만 의미가 있고, 개발 모드는 원래대로 pythonBin(venv 인터프리터)을 직접 쓴다.
-  const bundle: EngineBundle = pythonBin === NDLOCR_PYTHON_BIN ? 'ndlocr' : 'main'
   let proc: ChildProcessWithoutNullStreams | null = null
   let rl: Interface | null = null
   // 요청을 한 번에 하나씩만 보내도록 직렬화한다 — 상관관계 ID 없이 순서로만 응답을
   // 매칭하므로, 동시에 여러 요청을 보내면 응답이 뒤섞인다.
   let queue: Promise<unknown> = Promise.resolve()
 
-  /** 패키지된 빌드: PyInstaller 번들(R2에서 받아 캐싱, 없으면 다운로드)의 실행 파일을
-   *  인자만 붙여 직접 스폰. 개발 모드: 지금까지처럼 venv 인터프리터로 스크립트를 스폰. */
-  async function resolveSpawnTarget(): Promise<{ cmd: string; args: string[] }> {
-    if (!app.isPackaged) return { cmd: pythonBin, args: [scriptPath, ...extraArgs] }
-    await ensurePythonEngine(bundle)
-    return { cmd: frozenExecutablePath(bundle, exeName), args: extraArgs }
-  }
-
-  async function ensureProcess(): Promise<ChildProcessWithoutNullStreams> {
+  function ensureProcess(): ChildProcessWithoutNullStreams {
     if (proc && !proc.killed) return proc
-    const { cmd, args } = await resolveSpawnTarget()
-    const p = spawn(cmd, args)
+    const p = spawn(pythonBin, [scriptPath, ...extraArgs])
     // Node 가 자식 프로세스 stdout 을 기본 인코딩 없이 Buffer 로 주는데, 이걸 그대로
     // readline.createInterface 에 넘기면(바로 아래) 플랫폼 로캘(한국어 Windows 는
     // cp949 계열) 기준으로 잘못 디코딩되는 경우가 있다 — 실측 확인: sudachi_tokenize.py
@@ -213,8 +198,8 @@ export function createPythonServer(
    * 응답을 기다리는 도중 죽으면(모델 로딩 실패 등) 그 자리에서 reject 해야 한다 —
    * 안 그러면 'line' 이벤트가 영원히 안 와서 요청이 무한 대기하게 된다.
    */
-  async function send<Req, Res>(req: Req): Promise<Res> {
-    const p = await ensureProcess()
+  function send<Req, Res>(req: Req): Promise<Res> {
+    const p = ensureProcess()
     const lines = rl!
     return new Promise<Res>((resolve, reject) => {
       const cleanup = () => {
