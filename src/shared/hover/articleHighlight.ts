@@ -187,6 +187,34 @@ export interface ArticleHighlightOptions {
   paragraphSelector?: string
 }
 
+// 담당 milleion — 문단 스냅샷을 최신 DOM 과 계속 맞춘다(2026-07-31, 사용자 제보 —
+// "자체 PDF 뷰어에서 호버박스가 아예 안 뜬다, 클릭은 되는데"). `paragraphByEl`/
+// `fullTextRef`는 원래 `startArticleHighlight` 호출 시점에 딱 한 번만 채워졌는데, PDF
+// 뷰어(PdfView.tsx)는 페이지를 한 장씩 순서대로 렌더링한다(`await`가 페이지마다 있는
+// 루프) — 첫 페이지의 `.pdf-line` 하나라도 생기면 `useHoverHighlight`가 그 순간
+// `startArticleHighlight`를 호출해버려서, 그 뒤에 렌더링되는 페이지들의 문단은 이
+// 스냅샷에 전혀 없었다. `hoverHitAt`이 `paragraphByEl.get(p)`로 찾다가 못 찾으면
+// 조용히 null 을 반환해(122번 줄) 호버박스가 하나도 안 뜨는 것처럼 보였다 — 반면
+// `resolveClick`(132번 줄)은 클릭할 때마다 컨테이너를 통째로 다시 추출해서 항상 최신
+// DOM 을 보므로 클릭은 문제없이 됐다("클릭은 되는데 호버만 안 뜬다"와 정확히 일치).
+//
+// 컨테이너에 `MutationObserver`를 달아 자식이 추가/제거될 때마다(디바운스해서) 스냅샷을
+// 다시 추출한다 — txt/epub/웹페이지처럼 마운트 후 DOM 이 안 바뀌는 소스에서는 관찰 자체가
+// 거의 안 일어나 사실상 공짜이고, PDF 처럼 점진적으로 렌더링되는 소스에서도 그때그때
+// 최신 상태로 맞춰진다.
+let mutationObserver: MutationObserver | null = null
+// DOM 의 window.setTimeout 반환값(number) 기준 — Node 쪽 Timeout 타입과 섞이지 않게
+// 명시적으로 number 로 둔다(winRef.setTimeout/clearTimeout 은 항상 DOM API).
+let refreshTimer: number | null = null
+const REFRESH_DEBOUNCE_MS = 200
+
+function refreshExtraction(): void {
+  if (!containerRef) return
+  const fresh = extractArticleText(containerRef, paragraphSelectorRef)
+  fullTextRef = fresh.fullText
+  paragraphByEl = new Map(fresh.paragraphs.map((p) => [p.el, p]))
+}
+
 export function startArticleHighlight(
   container: Element,
   extraction: ArticleExtraction,
@@ -209,11 +237,21 @@ export function startArticleHighlight(
   winRef.addEventListener('click', onClick, true)
   winRef.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
   winRef.addEventListener('resize', onViewportChange, { passive: true })
+  const MutationObserverCtor = (winRef as { MutationObserver?: typeof MutationObserver }).MutationObserver ?? MutationObserver
+  mutationObserver = new MutationObserverCtor(() => {
+    if (refreshTimer) winRef.clearTimeout(refreshTimer)
+    refreshTimer = winRef.setTimeout(refreshExtraction, REFRESH_DEBOUNCE_MS)
+  })
+  mutationObserver.observe(container, { childList: true, subtree: true })
   return () => {
     winRef.removeEventListener('mousemove', onMouseMove, true)
     winRef.removeEventListener('click', onClick, true)
     winRef.removeEventListener('scroll', onViewportChange, { capture: true } as EventListenerOptions)
     winRef.removeEventListener('resize', onViewportChange)
+    mutationObserver?.disconnect()
+    mutationObserver = null
+    if (refreshTimer) winRef.clearTimeout(refreshTimer)
+    refreshTimer = null
     hideHoverBox()
     invalidateCache()
     paragraphByEl = new Map()
