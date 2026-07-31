@@ -12,11 +12,13 @@ directories:
 
 # GitHub Releases 로 배포 + electron-updater 자동 업데이트 피드로 사용(2026-07-31, 사용자
 # 요청). `electron-builder --publish always`(scripts: release:mac/release:win, 또는
-# .github/workflows/release.yml)를 돌리면 이 저장소의 릴리스에 설치 파일 +
-# latest.yml/latest-mac.yml(업데이트 피드 메타데이터)을 자동으로 올린다. releaseType 을
-# draft 로 둬서, 빌드/업로드는 자동화하되 실제로 공개(Publish) 하는 건 GitHub 에서 릴리스
-# 노트를 확인/작성한 뒤 사람이 마지막으로 누르게 한다 — 첫 배포라 빈 노트로 그대로
-# 공개돼버리는 걸 방지.
+# .github/workflows/release.yml)를 돌리면 이 저장소의 릴리스에 설치 파일 + latest.yml
+# (Windows electron-updater 피드)을 자동으로 올린다. macOS는 zip 타깃을 안 쓰므로
+# latest-mac.yml은 더 이상 생성되지 않는다(mac.target 주석 참고 — macOS는 electron-updater
+# 자동 다운로드 자체를 안 씀, src/main/autoUpdate.ts). releaseType 을 draft 로 둬서,
+# 빌드/업로드는 자동화하되 실제로 공개(Publish) 하는 건 GitHub 에서 릴리스 노트를
+# 확인/작성한 뒤 사람이 마지막으로 누르게 한다 — 첫 배포라 빈 노트로 그대로 공개돼버리는
+# 걸 방지.
 publish:
   provider: github
   owner: madcamp-official
@@ -57,11 +59,23 @@ extraResources:
 
 mac:
   target:
+    # zip은 electron-updater(Squirrel.Mac)가 자동 업데이트 다운로드에 쓰는 포맷인데,
+    # 미서명 사설 배포라 그 경로 자체를 안 쓴다(src/main/autoUpdate.ts: macOS는 GitHub
+    # API로 태그만 확인해 알림만 띄움) — dmg와 내용이 같은 962MB짜리 zip을 매 릴리스마다
+    # 같이 만들 이유가 없어 뺐다(2026-07-31, 사용자 확인).
     - dmg
-    - zip
   category: public.app-category.education
   # 사설 배포(코드서명 인증서 없음) 기준. 정식 배포 시 hardenedRuntime+notarize 로 전환.
   identity: null
+
+# identity: null이라 electron-builder 자체는 최종 .app을 서명하지 않고 넘기는데, 그 결과
+# 물을 실제로 설치해보면 "확인되지 않은 개발자"가 아니라 훨씬 심한 "will damage your
+# computer"(우회 옵션 없음) 경고가 떴다(2026-07-31 실사용 확인) — resign-electron.mjs가
+# 이미 진단한 것과 같은 원인(Apple이 이 Electron 버전 원본 서명을 폐기)이 최종 배포판에는
+# 재서명이 안 돼 그대로 남아있었기 때문. scripts/afterSign-mac.cjs가 패키징 직후 최종
+# .app을 ad-hoc으로 다시 서명해 이 무효 서명을 새 CDHash로 덮어써 해결한다(스크립트 상단
+# 주석 참고).
+afterSign: scripts/afterSign-mac.cjs
 
 win:
   target:

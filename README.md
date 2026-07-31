@@ -44,21 +44,20 @@
 
 | 파일 | 설명 |
 |---|---|
-| `Nuance Setup *.exe` | Windows 설치 파일(NSIS) |
-| `Nuance-*.dmg` | macOS 앱(Apple Silicon/Intel 공용, DMG에서 Applications로 드래그) |
-| `Nuance-*-mac.zip` | macOS 앱(압축 해제만으로 실행, `latest-mac.yml`이 자동 업데이트에 사용) |
-| `latest.yml` / `latest-mac.yml` | 자동 업데이트용 메타데이터(직접 받을 필요 없음) |
+| `Nuance-Setup-*.exe` | Windows 설치 파일(NSIS) |
+| `Nuance-*-arm64.dmg` | macOS 앱(Apple Silicon 전용 — 빌드 러너가 arm64라 현재 Intel Mac 빌드는 없음), DMG에서 Applications로 드래그 |
+| `latest.yml` | Windows `electron-updater` 자동 업데이트용 메타데이터(직접 받을 필요 없음, macOS는 이 방식을 안 써서 별도 피드 파일이 없음) |
 | `nuance-extension-*.zip` | 브라우저 확장(YouTube/Netflix 자막, 웹페이지 DOM 추출용) |
 
 ### Windows
 
-1. `Nuance Setup *.exe`를 받아 실행한다. 정식 코드 서명 없는 사설 배포라 SmartScreen이 "Windows의 PC 보호" 경고를 띄우면 **추가 정보 → 실행**을 누른다.
+1. `Nuance-Setup-*.exe`를 받아 실행한다. 정식 코드 서명 없는 사설 배포라 SmartScreen이 "Windows의 PC 보호" 경고를 띄우면 **추가 정보 → 실행**을 누른다.
 2. 설치 마법사를 따라가면 설치 후 자동으로 앱이 실행된다.
 3. 이후 새 버전이 나오면 `electron-updater`가 백그라운드에서 자동으로 다운로드·설치한다(별도 조작 불필요).
 
 ### macOS
 
-1. `Nuance-*.dmg`를 받아 열고, Nuance 아이콘을 Applications 폴더로 드래그한다.
+1. `Nuance-*-arm64.dmg`를 받아 열고, Nuance 아이콘을 Applications 폴더로 드래그한다(Apple Silicon 전용 — Intel Mac은 아직 빌드하지 않는다).
 2. 서명/공증(notarize)이 안 된 사설 배포라 처음 실행하면 "손상되었거나 확인할 수 없는 개발자" 경고가 뜬다 — Finder에서 앱을 **우클릭(또는 Control+클릭) → 열기**를 선택하고 다시 한번 "열기"를 확인해야 한다(Dock/Launchpad에서 더블클릭하면 계속 막힌다).
 3. macOS는 서명이 없어 자동 설치를 지원하지 않는다 — 새 버전이 나오면 앱이 GitHub API로 확인해 알림만 띄우고, 클릭하면 최신 릴리스 페이지로 안내한다. 그 페이지에서 새 `.dmg`를 받아 위 과정을 다시 하면 된다.
 
