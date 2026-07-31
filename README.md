@@ -45,7 +45,7 @@
 | 파일 | 설명 |
 |---|---|
 | `Nuance-Setup-*.exe` | Windows 설치 파일(NSIS) |
-| `Nuance-*-arm64.dmg` | macOS 앱(Apple Silicon 전용 — 빌드 러너가 arm64라 현재 Intel Mac 빌드는 없음), DMG에서 Applications로 드래그 |
+| `Nuance-*-arm64.dmg` / `Nuance-*-x64.dmg` | macOS 앱(Apple Silicon/Intel 각각 별도 빌드, 2026-07-31부터 두 아키텍처 모두 빌드), DMG에서 Applications로 드래그 |
 | `latest.yml` | Windows `electron-updater` 자동 업데이트용 메타데이터(직접 받을 필요 없음, macOS는 이 방식을 안 써서 별도 피드 파일이 없음) |
 | `nuance-extension-*.zip` | 브라우저 확장(YouTube/Netflix 자막, 웹페이지 DOM 추출용) |
 
@@ -57,7 +57,7 @@
 
 ### macOS
 
-1. `Nuance-*-arm64.dmg`를 받아 열고, Nuance 아이콘을 Applications 폴더로 드래그한다(Apple Silicon 전용 — Intel Mac은 아직 빌드하지 않는다).
+1. Apple Silicon Mac은 `Nuance-*-arm64.dmg`, Intel Mac은 `Nuance-*-x64.dmg`를 받아 열고, Nuance 아이콘을 Applications 폴더로 드래그한다.
 2. 서명/공증(notarize)이 안 된 사설 배포라 처음 실행하면 "손상되었거나 확인할 수 없는 개발자" 경고가 뜬다 — Finder에서 앱을 **우클릭(또는 Control+클릭) → 열기**를 선택하고 다시 한번 "열기"를 확인해야 한다(Dock/Launchpad에서 더블클릭하면 계속 막힌다).
 3. macOS는 서명이 없어 자동 설치를 지원하지 않는다 — 새 버전이 나오면 앱이 GitHub API로 확인해 알림만 띄우고, 클릭하면 최신 릴리스 페이지로 안내한다. 그 페이지에서 새 `.dmg`를 받아 위 과정을 다시 하면 된다.
 
@@ -172,7 +172,7 @@ cp .env.example .env   # GPT/Gemini/Claude API 키, Merriam-Webster 키 등을 �
 npm run dev
 ```
 
-`predev` 훅이 사전 데이터(CC-CEDICT/OEWN/JMdict)와 폰트를 자동으로 내려받아 `resources/`에 채운다(최초 1회, 이후 멱등하게 스킵).
+`predev` 훅이 사전 데이터(CC-CEDICT/OEWN/JMdict)는 `resources/`에, 폰트는 `src/renderer/src/assets/fonts`에 자동으로 내려받아 채운다(최초 1회, 이후 멱등하게 스킵).
 
 ### 브라우저 확장 빌드
 

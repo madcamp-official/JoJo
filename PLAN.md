@@ -315,9 +315,16 @@ interface SelectionSource {              // 출처 메타(캐싱·자막 추출�
 }
 
 // A가 팝업 직전에 생성해 B로 전달 (팝업 전까지가 A 경계)
+interface Word {
+  text: string;
+  bbox?: Rect;
+  lineId?: string;                      // 같은 줄(가로쓰기)/열(세로쓰기) 단어를 묶는 식별자(2026-07 추가)
+  baseForm?: string;                    // 일본어 활용형의 사전 기본형(예: "向かった"→"向かう", 2026-07-30 추가)
+}
+
 interface ExtractedSelection {
   text: string;                         // 클릭 지점 근방의 추출 텍스트(문맥 포함)
-  words: { text: string; bbox?: Rect }[]; // 단어 분해(+화면 좌표)
+  words: Word[];                        // 단어 분해(+화면 좌표)
   anchor: { start: number; end: number }; // 클릭 표현의 text 내 [start, end) = 팝업 초기 선택
   language: AnyLanguage;                // 감지 또는 지정된 언어(tier1+tier2, §2 참고)
   source: SelectionSource;
@@ -331,7 +338,7 @@ interface SelectionContext {
   fullText: string;                     // 원문 전체(트리밍 없음, ExtractedSelection.text 그대로)
   selStart: number;                     // selectedText 의 fullText 내 시작 오프셋
   selEnd: number;                       // selectedText 의 fullText 내 끝(exclusive) 오프셋
-  words: { text: string; bbox?: Rect }[]; // 단어 분해(+화면 좌표)
+  words: Word[];                        // 단어 분해(+화면 좌표)
   source: SelectionSource;
   extraction: 'direct' | 'ocr';
 }
@@ -344,7 +351,7 @@ interface SelectionContext {
 // B가 반환해 UI로 (스트리밍 가능)
 type QuestionRequest =
   | { type: 'pronunciation' }
-  | { type: 'dictionary' }
+  | { type: 'dictionary'; source?: DictionarySourceId } // source: 폴백 순서 대신 특정 사전만 지정(선택)
   | { type: 'ask'; prompt: string; history?: ChatTurn[] };
 
 interface QuestionResult {
@@ -357,7 +364,8 @@ interface QuestionResult {
 // API 키 미설정/무효, 사용 한도(크레딧) 소진 등 UI가 구분해 안내해야 하는 실패 종류
 type QuestionErrorCode =
   | 'no_active_provider' | 'no_api_key' | 'invalid_api_key'
-  | 'insufficient_credit' | 'rate_limited' | 'network_error' | 'unknown';
+  | 'insufficient_credit' | 'rate_limited' | 'invalid_model'
+  | 'network_error' | 'unknown';
 
 interface QuestionError {
   code: QuestionErrorCode;
@@ -395,6 +403,12 @@ JoJo/
 │   │   ├── providers.ts         #   LLM provider 목록·표시명
 │   │   ├── questionText.ts      #   발음/사전 버튼의 고정 질문 라벨
 │   │   ├── wordMapping.ts       #   커서 좌표 ↔ 단어 bbox 매핑(findWordAtPoint)
+│   │   ├── hover/                #   🤝 확장 content script + 자체 뷰어(viewer/) 공용 — DOM 단어 추출/하이라이트(원래 extension/src/에 있었으나 뷰어와 공유하며 이관)
+│   │   │   ├── domWords.ts         #   공용 단어 좌표 유틸(CJK 글자 단위, 후리가나 제외)
+│   │   │   ├── wordSegments.ts     #   자막·본문 공용 CJK 형태소 분석 결과 캐시(pageParagraphText 요청/응답)
+│   │   │   ├── hoverBox.ts         #   hover 박스 렌더 유틸(highlight.ts 등에서 공용)
+│   │   │   ├── webArticle.ts       #   일반 웹페이지(뉴스·웹소설) 본문 DOM 추출 — 범용 본문 탐지(텍스트 밀도 스코어링)
+│   │   │   └── articleHighlight.ts #   본문 hover/클릭(문단 단위 지연 계산으로 성능 대응)
 │   │   └── nlp/                 #   일본어 형태소 병합 로직(main/renderer 양쪽에서 씀) — ja.ts(IPADIC, lindera 用) / ja-unidic.ts(UniDic, sudachi 用) 완전 분리(엔진 하나 걷어낼 때 해당 파일만 지우면 되게)
 │   ├── main/                    # Electron 메인 프로세스
 │   │   ├── index.ts             #   진입점(윈도우·IPC·단축키 등록, 일본어 형태소 분석 엔진 예열)
@@ -498,15 +512,11 @@ JoJo/
     ├── manifest.json
     └── src/
         ├── background.ts        #   WS 브릿지 + 탭/URL 감지 + 확장↔content 메시지 중계
-        ├── content.ts           #   화면 자막 hover/클릭 + 전체 자막 확보 결과 취합
-        ├── youtube.ts / netflix.ts  # 사이트별 DOM 자막 추출
-        ├── domWords.ts          #   공용 단어 좌표 유틸(CJK 글자 단위, 후리가나 제외)
-        ├── wordSegments.ts      #   자막·본문 공용 CJK 형태소 분석 결과 캐시(pageParagraphText 요청/응답)
-        ├── highlight.ts         #   hover 박스/클릭을 페이지 안에서 직접 렌더 — wordSegments.ts 캐시로 CJK 형태소 단위 hover
+        ├── content.ts           #   화면 자막 hover/클릭 + 전체 자막 확보 결과 취합(웹페이지 본문 추출은 shared/hover/webArticle.ts 사용)
+        ├── youtube.ts / netflix.ts  # 사이트별 DOM 자막 추출(shared/hover/domWords.ts 사용)
+        ├── highlight.ts         #   hover 박스/클릭을 페이지 안에서 직접 렌더 — shared/hover/wordSegments.ts·hoverBox.ts 사용
         ├── networkHook.ts / netflixNetworkHook.ts  # MAIN world 네트워크 가로채기(전체 자막 확보)
-        ├── timedtext.ts / captionParse.ts          # videoId 파싱 / 자막 응답 포맷 파서
-        ├── webArticle.ts        #   🅰️ [담당: milleion, 2026-07-30 구현 완료] 일반 웹페이지(뉴스·웹소설) 본문 DOM 추출 — 사이트별 셀렉터 등록 없이 범용 본문 탐지 알고리즘(텍스트 밀도 스코어링)
-        └── articleHighlight.ts  #   🅰️ [담당: milleion] 본문 hover/클릭(highlight.ts와 같은 페이지 내 직접 처리 방식, 문단 단위 지연 계산으로 성능 대응) — wordSegments.ts 캐시로 CJK 형태소 단위 hover 연결(2026-07-30)
+        └── timedtext.ts / captionParse.ts          # videoId 파싱 / 자막 응답 포맷 파서
 ```
 
 **시작 방법**: `npm install`(또는 `npm ci`) 후 `npm run dev`(electron-vite 개발 서버). OCR 파이프라인을 쓰려면 Python venv 를 따로 준비해야 한다(`npm run dev` 가 자동 설치하지 않는다 — `python/README.md` 참고: 공용 `.venv` + NDLOCR-Lite 격리 `.venv-ndlocr-test`). venv 가 없어도 앱은 뜨고 인식 품질만 떨어진다. 개발 중 LLM 키는 `.env`(`MAIN_VITE_*`)에 넣으면 `devSeed`가 keyStore에 주입한다. 확장은 `npm run build:ext`로 빌드한 `extension/dist`를 `chrome://extensions`에서 로드(개발자 모드 → 압축해제된 확장 프로그램 로드) — native messaging host 등록 불필요(로컬 WebSocket 사용).
